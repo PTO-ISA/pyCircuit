@@ -1,5 +1,20 @@
 // RUN: %pycircuit_opt %s --split-input-file --verify-diagnostics
 
+// Formal identity cannot turn an output or capture into an implicit input read.
+#w8 = #ac.static_expr<{kind = "literal", location = {path = "callables.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @copy, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<8>}}>
+!b8 = !ac.bits<#w8>
+!p8 = !ac.primitive<!b8>
+module attributes {ac.transactional = 2 : i64, ac.stage = "unlinked"} {
+  ac.rule @copy ins(!p8) outs(!p8) captures() body {
+  ^bb0(%src: !p8, %dst: !p8):
+    // expected-error @+1 {{implicit Rule read requires its exact input formal identity}}
+    %value = ac.method.call %dst::@read() {rule_parameter = 0 : i64} : (!p8) -> (!b8)
+    "ac.yield"() : () -> ()
+  }
+}
+
+// -----
+
 // A readonly-looking wrapper cannot hide a consuming Method call.
 #w8 = #ac.static_expr<{kind = "literal", location = {path = "callables.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<8>}}>
 #w1 = #ac.static_expr<{kind = "literal", location = {path = "callables.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>

@@ -47,8 +47,8 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
     return emitError() << "source units require transactional version 2; "
                           "regenerate this artifact";
   auto contract = unit->getAttrOfType<IntegerAttr>("ac.source_contract");
-  if (!contract || !contract.getType().isSignlessInteger(64) || contract.getInt() != 3)
-    return emitError() << "source constraint contract 3 is required; regenerate this artifact";
+  if (!contract || !contract.getType().isSignlessInteger(64) || contract.getInt() != 4)
+    return emitError() << "source constraint contract 4 is required; regenerate this artifact";
   auto owner = unit->getAttrOfType<DictionaryAttr>("ac.source_owner");
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   auto stage = unit->getAttrOfType<StringAttr>("ac.stage");

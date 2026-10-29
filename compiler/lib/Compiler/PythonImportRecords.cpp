@@ -57,7 +57,6 @@ struct Binding {
   Operation *pendingImport = nullptr;
   AstNode declaration;
   bool parameter = false;
-  Value cachedRead;
   Type type() const { return value ? value.getType() : Type(); }
 };
 // Immutable source ranges describe a continuation without copying AST bodies.
@@ -214,31 +213,7 @@ private:
     return a && c && ac::transactionalTypesEqual(a, c);
   }
   std::optional<bool> constantPredicate(Value value, const AstNode &node) {
-    // A literal remains an ordinary typed SSA producer. This only establishes
-    // reachability; payload solving still validates its conversions and width.
-    while (auto expression = value.getDefiningOp<ac::PendingExprOp>()) {
-      if (!charge(node))
-        return std::nullopt;
-      if (expression.getKind() == "convert") {
-        value = expression.getInputs().front();
-        continue;
-      }
-      if (expression.getKind() == "literal") {
-        auto number = expression->getAttrOfType<ac::MathIntAttr>("number");
-        if (number && number.getCanonicalValue() == "0")
-          return false;
-        if (number && number.getCanonicalValue() == "1")
-          return true;
-      }
-      return std::nullopt;
-    }
-    if (auto literal = value.getDefiningOp<ac::BitsConstant4Op>()) {
-      if (literal.getPattern() == "0")
-        return false;
-      if (literal.getPattern() == "1")
-        return true;
-    }
-    return std::nullopt;
+    return ac::evaluateTransactionalPredicate(value, [&] { return charge(node); });
   }
   std::optional<llvm::APSInt> integer(const AstNode &node) {
     if (auto binding = resolve(node))
@@ -412,6 +387,9 @@ private:
   FailureOr<SmallVector<Value>> methodCall(Callable &call, const AstNode &node,
                                            Scope &scope);
   LogicalResult emitGuard(Callable &call, Scope &scope);
+  LogicalResult callableBody(Callable &call, Scope &scope);
+  SmallVector<AstNode> returnExpressions(const AstNode &node);
+  LogicalResult moduleReturn(const AstNode &node, Scope &scope);
   FailureOr<SmallVector<Value>> referenceCall(const AstNode &node, Scope &scope,
                                               Type expected);
 
@@ -875,7 +853,7 @@ LogicalResult Importer::nominals() {
 
 FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   result->getOperation()->setAttr("ac.transactional", b.getI64IntegerAttr(2));
-  result->getOperation()->setAttr("ac.source_contract", b.getI64IntegerAttr(3));
+  result->getOperation()->setAttr("ac.source_contract", b.getI64IntegerAttr(4));
   result->getOperation()->setAttr("ac.stage", b.getStringAttr("unlinked"));
   result->getOperation()->setAttr("ac.unit_kind",
                                   b.getStringAttr("implementation"));

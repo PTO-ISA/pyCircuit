@@ -19,23 +19,28 @@ FailureOr<Value> Importer::convert(Value value, Type target,
 
 FailureOr<Value> Importer::read(Value handle, const AstNode &node,
                                 Scope &scope) {
-  if (!isResource(handle.getType()))
+  if (!isResource(handle.getType())) {
+    // An authored evaluation must survive identity conversions and aliases.
+    // Branch-yield transport does not call read(), so it remains deferred.
+    if (!scope.module && !isa<ac::ModuleRefType>(handle.getType()) &&
+        !op(node, "ac.payload.use", handle, {}))
+      return failure();
     return handle;
-  Binding *parameter = nullptr;
-  for (auto &[name, binding] : scope.bindings)
-    if (binding.parameter && binding.value == handle) {
-      parameter = &binding;
-      if (binding.cachedRead)
-        return binding.cachedRead;
-      break;
-    }
+  }
   auto data = payload(handle.getType());
   auto *created =
       op(node, "ac.method.call", ValueRange{handle}, data,
          {b.getNamedAttr("callee", symbol("read")),
           b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
-  if (created && parameter)
-    parameter->cachedRead = created->getResult(0);
+  // Preserve the formal identity rather than caching the first SSA load in a
+  // lexical scope. Common analysis groups uses per registration and formal.
+  if (created)
+    if (auto argument = dyn_cast<BlockArgument>(handle))
+      if (auto rule = dyn_cast<ac::TransactionRuleOp>(
+              argument.getOwner()->getParentOp());
+          rule && argument.getArgNumber() < rule.getFunctionType().getNumInputs())
+        created->setAttr("rule_parameter",
+                         b.getI64IntegerAttr(argument.getArgNumber()));
   return created ? FailureOr<Value>(created->getResult(0))
                  : FailureOr<Value>(failure());
 }
@@ -74,7 +79,7 @@ FailureOr<Value> Importer::scalar(const AstNode &node, Scope &scope,
     return failure();
   }
   Value value = values->front();
-  if (isResource(value.getType())) {
+  if (isResource(value.getType()) || !scope.module) {
     auto loaded = read(value, node, scope);
     if (failed(loaded))
       return failure();

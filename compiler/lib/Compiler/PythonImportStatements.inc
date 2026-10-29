@@ -114,6 +114,16 @@ LogicalResult Importer::emitGuard(Callable &call, Scope &scope) {
   return success();
 }
 
+// Rules and Methods share source return normalization. Their final boundary
+// separately writes output resources or yields SSA values.
+LogicalResult Importer::callableBody(Callable &call, Scope &scope) {
+  if (failed(statements(call.node, "body", scope)))
+    return failure();
+  if (!scope.terminated && !call.results.empty())
+    return fail(call.node, "callable must return every declared payload");
+  return success();
+}
+
 LogicalResult Importer::defineRule(Callable &call, Scope &scope) {
   if (call.defined)
     return success();
@@ -185,10 +195,8 @@ LogicalResult Importer::defineRule(Callable &call, Scope &scope) {
       if (failed(emitGuard(call, inner)))
         return failure();
     } else {
-      if (failed(statements(call.node, "body", inner)))
+      if (failed(callableBody(call, inner)))
         return failure();
-      if (!inner.terminated && !call.results.empty())
-        return fail(call.node, "Rule must return every declared output payload");
       for (auto [output, value] : llvm::zip(inner.outputs, inner.returned))
         if (failed(write(output, value, call.node, inner)))
           return failure();
@@ -315,13 +323,8 @@ LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
       if (failed(emitGuard(call, inner)))
         return failure();
     } else {
-      if (failed(statements(call.node, "body", inner)))
+      if (failed(callableBody(call, inner)))
         return failure();
-      if (!inner.terminated) {
-        if (!call.results.empty())
-          return fail(call.node,
-                      "Method must return every declared SSA result");
-      }
       yield(call.node, inner.returned);
     }
   }
@@ -366,21 +369,17 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
                          b.getStringAttr(name + ".connection"))});
       return success();
     }
-    auto value = values.front();
-    if (isResource(value.getType())) {
-      auto loaded = read(value, target, scope);
-      if (failed(loaded))
-        return failure();
-      value = *loaded;
-    }
-    return write(found->second.value, value, target, scope);
+    auto value = read(values.front(), target, scope);
+    if (failed(value))
+      return failure();
+    return write(found->second.value, *value, target, scope);
   }
   if (found != scope.bindings.end() &&
       (found->second.pending || found->second.pendingImport ||
        isa_and_nonnull<ac::ModuleRefType>(found->second.type())))
     return fail(target, "instance identity cannot be reassigned");
   Value value = values.front();
-  if (!scope.module && isResource(value.getType())) {
+  if (!scope.module) {
     auto loaded = read(value, target, scope);
     if (failed(loaded))
       return failure();
@@ -427,6 +426,76 @@ LogicalResult Importer::statements(const StatementRange &range, Scope &scope,
     if (!scope.module && scope.terminated)
       return success();
   }
+  return success();
+}
+
+SmallVector<AstNode> Importer::returnExpressions(const AstNode &node) {
+  auto value = node.child("value");
+  SmallVector<AstNode> actuals;
+  if (!value || (value.kind() == "Constant" &&
+                 isa_and_nonnull<UnitAttr>(value.get("value"))))
+    return actuals;
+  if (value.kind() == "Tuple") {
+    for (size_t i = 0; i < value.array("elts").size(); ++i)
+      actuals.push_back(value.item("elts", i));
+  } else
+    actuals.push_back(value);
+  return actuals;
+}
+
+LogicalResult Importer::moduleReturn(const AstNode &node, Scope &scope) {
+  if (scope.conditionalDepth)
+    return fail(node, "Module resource exports require a terminal return");
+  auto actuals = returnExpressions(node);
+  if (actuals.size() != scope.resultTypes.size())
+    return fail(node, "return arity differs from declared result types");
+  SmallVector<Value> values;
+  for (size_t i = 0; i < actuals.size(); ++i) {
+    auto value = expression(actuals[i], scope, payload(scope.resultTypes[i]),
+                            ArrayRef<Value>(scope.outputs[i]));
+    if (failed(value) || value->size() != 1)
+      return failure();
+    Value result = value->front();
+    if (!isResource(result.getType()))
+      return fail(actuals[i], "Module payload outputs require a Rule result");
+    if (!equal(payload(result.getType()), payload(scope.resultTypes[i])))
+      return fail(actuals[i],
+                  "Module output payload does not match its annotation");
+    if (result.getDefiningOp<ac::ResourceConnectionOp>()) {
+      op(actuals[i], "ac.resource.connection",
+         ValueRange{scope.outputs[i], result}, result.getType(),
+         {b.getNamedAttr("instance_name",
+                         b.getStringAttr("$return" + std::to_string(i)))});
+      result = scope.outputs[i];
+    }
+    values.push_back(result);
+  }
+  SmallVector<Attribute> kinds;
+  SmallVector<Type> outputs;
+  SmallVector<unsigned> erased;
+  for (unsigned i = 0; i < values.size(); ++i) {
+    bool bound = values[i] == scope.outputs[i];
+    kinds.push_back(b.getStringAttr(bound ? "bound" : "export"));
+    outputs.push_back(values[i].getType());
+    if (!bound)
+      erased.push_back(cast<BlockArgument>(scope.outputs[i]).getArgNumber());
+  }
+  auto *definition = scope.owner->operation;
+  auto signature = cast<FunctionType>(
+      definition->getAttrOfType<TypeAttr>("function_type").getValue());
+  definition->setAttr(
+      "function_type",
+      TypeAttr::get(b.getFunctionType(signature.getInputs(), outputs)));
+  definition->setAttr("output_kinds", b.getArrayAttr(kinds));
+  for (auto index : llvm::reverse(erased)) {
+    auto &body = definition->getRegion(0).front();
+    if (!body.getArgument(index).use_empty())
+      return fail(node, "exported resource cannot replace a used bound output");
+    body.eraseArgument(index);
+  }
+  yield(node, values);
+  scope.returned = values;
+  scope.terminated = true;
   return success();
 }
 
@@ -608,86 +677,18 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     return bind(target, ArrayRef<Value>(value), scope);
   }
   if (node.kind() == "Return") {
-    if (scope.module && scope.conditionalDepth)
-      return fail(node, "Module resource exports require a terminal return");
-    auto expressionNode = node.child("value");
-    SmallVector<Value> values;
-    if (expressionNode &&
-        !(expressionNode.kind() == "Constant" &&
-          isa_and_nonnull<UnitAttr>(expressionNode.get("value")))) {
-      SmallVector<AstNode> actuals;
-      if (expressionNode.kind() == "Tuple")
-        for (size_t i = 0; i < expressionNode.array("elts").size(); ++i)
-          actuals.push_back(expressionNode.item("elts", i));
-      else
-        actuals.push_back(expressionNode);
-      if (actuals.size() != scope.resultTypes.size())
-        return fail(node, "return arity differs from declared result types");
-      for (size_t i = 0; i < actuals.size(); ++i) {
-        if (scope.module) {
-          auto value =
-              expression(actuals[i], scope, payload(scope.resultTypes[i]),
-                         ArrayRef<Value>(scope.outputs[i]));
-          if (failed(value) || value->size() != 1)
-            return failure();
-          Value result = value->front();
-          if (isResource(result.getType())) {
-            if (!equal(payload(result.getType()),
-                       payload(scope.resultTypes[i])))
-              return fail(
-                  actuals[i],
-                  "Module output payload does not match its annotation");
-            if (result.getDefiningOp<ac::ResourceConnectionOp>()) {
-              op(actuals[i], "ac.resource.connection",
-                 ValueRange{scope.outputs[i], result}, result.getType(),
-                 {b.getNamedAttr(
-                     "instance_name",
-                     b.getStringAttr("$return" + std::to_string(i)))});
-              result = scope.outputs[i];
-            }
-            values.push_back(result);
-          } else {
-            return fail(actuals[i],
-                        "Module payload outputs require a Rule result");
-          }
-        } else {
-          auto value = scalar(actuals[i], scope, scope.resultTypes[i]);
-          if (failed(value))
-            return failure();
-          values.push_back(*value);
-        }
-      }
-    } else if (!scope.resultTypes.empty())
-      return fail(node, "missing declared return payload");
-    if (scope.module) {
-      SmallVector<Attribute> kinds;
-      SmallVector<Type> outputs;
-      SmallVector<unsigned> erased;
-      for (unsigned i = 0; i < values.size(); ++i) {
-        bool bound = values[i] == scope.outputs[i];
-        kinds.push_back(b.getStringAttr(bound ? "bound" : "export"));
-        outputs.push_back(values[i].getType());
-        if (!bound)
-          erased.push_back(
-              cast<BlockArgument>(scope.outputs[i]).getArgNumber());
-      }
-      auto *definition = scope.owner->operation;
-      auto signature = cast<FunctionType>(
-          definition->getAttrOfType<TypeAttr>("function_type").getValue());
-      definition->setAttr(
-          "function_type",
-          TypeAttr::get(b.getFunctionType(signature.getInputs(), outputs)));
-      definition->setAttr("output_kinds", b.getArrayAttr(kinds));
-      for (auto index : llvm::reverse(erased)) {
-        auto &body = definition->getRegion(0).front();
-        if (!body.getArgument(index).use_empty())
-          return fail(node,
-                      "exported resource cannot replace a used bound output");
-        body.eraseArgument(index);
-      }
-    }
     if (scope.module)
-      yield(node, values);
+      return moduleReturn(node, scope);
+    auto actuals = returnExpressions(node);
+    if (actuals.size() != scope.resultTypes.size())
+      return fail(node, "return arity differs from declared result types");
+    SmallVector<Value> values;
+    for (auto [actual, type] : llvm::zip(actuals, scope.resultTypes)) {
+      auto value = scalar(actual, scope, type);
+      if (failed(value))
+        return failure();
+      values.push_back(*value);
+    }
     scope.returned = values;
     scope.terminated = true;
     return success();
@@ -811,16 +812,9 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     SmallVector<std::string> mergedNames;
     SmallVector<Value> values[2];
     bool complete = arms[0].terminated || arms[1].terminated;
-    for (const auto &[name, binding] : scope.bindings)
-      if (binding.parameter && isResource(binding.type()))
-        for (const auto &arm : arms) {
-          const auto &after = arm.bindings.at(name);
-          complete |= after.value != binding.value ||
-                      after.cachedRead != binding.cachedRead;
-        }
     if (complete) {
       // Returned arms bypass the continuation; live arms retain their local
-      // bindings and once-read parameter caches until their own return.
+      // bindings until their own return.
       // Re-emitted statements remain charged by statement()/expression().
       for (unsigned arm = 0; arm < 2; ++arm) {
         b.setInsertionPointToEnd(&branch->getRegion(arm).front());
@@ -843,6 +837,25 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
           continue;
         }
         Value incoming[2] = {left.value, other.value};
+        // Rebinding a Rule parameter makes a local payload. The untouched
+        // arm observes that formal at its own use site before joining values.
+        if (scope.bindings.count(name) && scope.bindings.at(name).parameter &&
+            bool(isResource(incoming[0].getType())) !=
+                bool(isResource(incoming[1].getType()))) {
+          for (unsigned arm = 0; arm < 2; ++arm) {
+            if (!isResource(incoming[arm].getType()))
+              continue;
+            OpBuilder::InsertionGuard save(b);
+            b.setInsertionPointToEnd(&branch->getRegion(arm).front());
+            auto loaded = read(incoming[arm], node, arms[arm]);
+            if (failed(loaded))
+              return failure();
+            // This observation represents the untouched phi alternative.
+            // Common analysis derives its demand from actual uses of the join.
+            loaded->getDefiningOp()->setAttr("ac.parameter_join", b.getUnitAttr());
+            incoming[arm] = *loaded;
+          }
+        }
         if (!incoming[0] || !incoming[1] ||
             isResource(incoming[0].getType()) ||
             isResource(incoming[1].getType()) || isa<ac::ModuleRefType>(left.type()) ||

@@ -94,7 +94,7 @@ Local assignments bind SSA values. Aliases retain their original values and
 types across later reassignment. Literal values remain exact until declared
 contexts or actual bindings determine their representation. Common IR analysis
 solves these constraints; return widening does not widen an already typed Bits
-operation. Published source units use `ac.source_contract = 3 : i64` and older
+operation. Published source units use `ac.source_contract = 4 : i64` and older
 source artifacts require regeneration.
 
 Module and Rule payload annotations constrain resource payloads; actual bindings
@@ -120,8 +120,12 @@ Bits, Enum and Struct Queues execute through the same common transaction analysi
 C++/Verilog route as State. Admission uses old occupancy: empty cannot bypass a
 concurrent push; full cannot borrow capacity from a concurrent pop. Intermediate
 occupancy permits one push and one pop together. Input reads consume once per
-Rule parameter binding; reusing the resulting local value does not consume
-again. Explicit `pop()` calls are separate accesses. `peek()` and `head()` do not
+Rule registration and formal parameter position across all reached uses,
+including repeated reads inside and after a branch. An unselected use adds no
+consumption. Guard uses observe old head and require nonempty occupancy without
+consuming; body consumption commits only with the outer Rule's final fire.
+Distinct formals bound to the same Queue retain distinct access identities;
+reusing a resulting local value does not consume again. Explicit `pop()` calls are separate accesses. `peek()` and `head()` do not
 consume, but transactions using their values still require a nonempty Queue.
 
 Queue admission, registration paths and the complete Method guard chain form one

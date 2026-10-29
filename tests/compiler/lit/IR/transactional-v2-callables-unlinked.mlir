@@ -10,8 +10,9 @@
 module attributes {ac.transactional = 2 : i64, ac.stage = "unlinked"} {
   ac.rule @copy ins(!p8) outs(!p8) captures() body {
   ^bb0(%src: !p8, %dst: !p8):
-    %unused = ac.method.call %src::@read() : (!p8) -> (!b8)
+    %unused = ac.method.call %src::@read() {rule_parameter = 0 : i64} : (!p8) -> (!b8)
     %value = ac.method.call %src::@read() : (!p8) -> (!b8)
+    ac.payload.use %value : !b8
     ac.method.call %dst::@write(%value) : (!p8, !b8) -> ()
     "ac.yield"() : () -> ()
   }
@@ -22,7 +23,8 @@ module attributes {ac.transactional = 2 : i64, ac.stage = "unlinked"} {
   }) {sym_name = "Top", source_owner = {package = "", path = "callables.py"}, parameters = [], type_parameters = [], function_type = (!p8) -> (!p8), input_names = ["input"], output_names = ["output"], output_kinds = ["bound"]} : () -> ()
 }
 // CHECK: ac.rule @copy
+// CHECK: ac.method.call {{.*}}::@read() {rule_parameter = 0 : i64}
 // CHECK: ac.method.call {{.*}}::@read()
-// CHECK: ac.method.call {{.*}}::@read()
+// CHECK: ac.payload.use
 // CHECK: ac.method.call {{.*}}::@write(
 // CHECK: ac.rule.call @copy

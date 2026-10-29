@@ -1,3 +1,4 @@
+#include "TransactionalRepresentation.h"
 #include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
@@ -12,6 +13,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include <limits>
 #include <map>
+#include <set>
 
 using namespace mlir;
 namespace acir::ac {
@@ -133,6 +135,7 @@ private:
   llvm::DenseMap<unsigned, Predicate> predicates;
   unsigned predicateDepth = 0;
   llvm::SmallPtrSet<Operation *, 16> methodStack;
+  llvm::DenseMap<unsigned, SmallVector<TransactionalRequirement>> callableUses;
 
   LogicalResult charge(uint64_t units, Operation *site) {
     return debit(units, site);
@@ -199,37 +202,62 @@ private:
         return WalkResult::skip();
       return WalkResult::advance();
     });
-    while (!pending.empty()) {
-      bool progress = false;
-      for (auto &op : pending) {
-        if (!op)
-          continue;
-        if (failed(charge(4 + op->getNumOperands(), op)))
-          return failure();
-        bool ready = true;
-        op->walk([&](Operation *nested) {
-          for (Value value : nested->getOperands()) {
-            if (auto predicate = value.getDefiningOp<SourcePredicateOp>())
-              value = predicate->getOperand(0);
-            Operation *owner = value.getParentBlock()->getParentOp();
-            if (!environment.contains(value) && owner != op &&
-                !op->isProperAncestor(owner))
-              ready = false;
-          }
-        });
-        if (!ready)
-          continue;
-        if (failed(operation(op, environment, p.instances_[id].comb,
-                             TransactionalNoID, true)))
-          return failure();
-        op = nullptr;
-        progress = true;
-      }
-      if (!progress)
-        return module.emitError("transactional Module computation has "
-                                "unresolved or cyclic dependencies");
-      llvm::erase(pending, nullptr);
+    // Each operation (including a whole structured branch) is one unit. Collect
+    // external dependencies once; branch-local definitions stay in that unit.
+    llvm::DenseMap<Value, SmallVector<unsigned>> users;
+    SmallVector<unsigned> remaining(pending.size(), 0);
+    std::set<unsigned> ready;
+    for (auto [index, op] : llvm::enumerate(pending)) {
+      llvm::DenseSet<Value> dependencies;
+      bool exhausted = false;
+      op->walk([&](Operation *nested) {
+        if (failed(charge(4 + nested->getNumOperands(), nested))) {
+          exhausted = true;
+          return WalkResult::interrupt();
+        }
+        for (Value value : nested->getOperands()) {
+          if (auto predicate = value.getDefiningOp<SourcePredicateOp>())
+            value = predicate->getOperand(0);
+          Operation *owner = value.getParentBlock()->getParentOp();
+          if (!environment.contains(value) && owner != op &&
+              !op->isProperAncestor(owner))
+            dependencies.insert(value);
+        }
+        return WalkResult::advance();
+      });
+      if (exhausted)
+        return failure();
+      remaining[index] = dependencies.size();
+      for (Value value : dependencies)
+        users[value].push_back(index);
+      if (dependencies.empty())
+        ready.insert(index);
     }
+    unsigned completed = 0;
+    while (!ready.empty()) {
+      unsigned index = *ready.begin();
+      ready.erase(ready.begin());
+      Operation *op = pending[index];
+      if (failed(operation(op, environment, p.instances_[id].comb,
+                           TransactionalNoID, true)))
+        return failure();
+      ++completed;
+      // Only this unit's newly bound results can unblock other units. Always
+      // choose the earliest source unit among the currently ready consumers.
+      for (Value result : op->getResults()) {
+        if (!environment.contains(result))
+          continue;
+        auto found = users.find(result);
+        if (found == users.end())
+          continue;
+        for (unsigned user : found->second)
+          if (--remaining[user] == 0)
+            ready.insert(user);
+      }
+    }
+    if (completed != pending.size())
+      return module.emitError("transactional Module computation has "
+                              "unresolved or cyclic dependencies");
     for (unsigned resourceID : p.instances_[id].resources) {
       auto &resource = p.resources_[resourceID];
       if (resource.isQueue())
@@ -268,32 +296,7 @@ private:
       return builder.create(state);
     };
     auto carrier = [&](unsigned width) {
-      auto integer = builder.getDictionaryAttr({
-          builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-          builder.getNamedAttr("value", MathIntAttr::get(builder.getContext(),
-              llvm::APSInt(llvm::APInt(64, width), true)))});
-      auto index = builder.getDictionaryAttr({
-          builder.getNamedAttr("kind", builder.getStringAttr("index")),
-          builder.getNamedAttr("value", builder.getI64IntegerAttr(0))});
-      auto source = builder.getDictionaryAttr({
-          builder.getNamedAttr("definition", FlatSymbolRefAttr::get(
-              builder.getContext(), p.getTop().getSymName())),
-          builder.getNamedAttr("ast_path", builder.getArrayAttr({index}))});
-      auto origin = builder.getDictionaryAttr({
-          builder.getNamedAttr("site", source),
-          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
-      auto location = builder.getDictionaryAttr({
-          builder.getNamedAttr("path", builder.getStringAttr("__transactional__.py")),
-          builder.getNamedAttr("line", builder.getI64IntegerAttr(1)),
-          builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
-          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(1)),
-          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
-      return BitsType::get(builder.getContext(), StaticExprAttr::get(
-          builder.getContext(), builder.getDictionaryAttr({
-              builder.getNamedAttr("kind", builder.getStringAttr("literal")),
-              builder.getNamedAttr("value", integer),
-              builder.getNamedAttr("origin", origin),
-              builder.getNamedAttr("location", location)})));
+      return detail::transactionalBits(builder, width, p.getTop().getSymName());
     };
     Operation *op;
     if (auto record = dyn_cast<StructType>(type)) {
@@ -458,6 +461,13 @@ private:
       return failure();
     if (isa<SourcePredicateOp, scf::YieldOp>(op))
       return success();
+    if (auto use = dyn_cast<PayloadUseOp>(op)) {
+      auto value = payload(use.getValue(), env, op);
+      if (failed(value) || rule == TransactionalNoID)
+        return failure();
+      callableUses[rule].push_back({*value, path});
+      return success();
+    }
     if (isa<TransactionRuleCallOp>(op) && rule == TransactionalNoID) {
       registrationEnvironments[{instance, op}] = env;
       return success();
@@ -582,6 +592,8 @@ private:
         return op->emitError(
             "transactional resource call requires an allocated resource");
       step.resource = receiver->id;
+      if (auto formal = call->getAttrOfType<IntegerAttr>("rule_parameter"))
+        step.ruleParameter = formal.getInt();
       auto method = call.getCalleeAttr().getRootReference().getValue();
       if (p.resources_[step.resource].isQueue()) {
         if (method == "head" || method == "peek")
@@ -684,6 +696,9 @@ private:
       if (failed(id))
         return failure();
       args.push_back({Binding::Payload, *id});
+      // Expansion must retain source argument evaluation even when the callee
+      // never uses its corresponding payload argument.
+      callableUses[rule].push_back({*id, path});
     }
     // Captures belong to the callee Module, never a prior invocation's locals.
     for (Value value : definition.getCaptures()) {
@@ -728,6 +743,9 @@ private:
     auto &completed = p.methodInvocations_[invocationID];
     completed.endStep = nextStep;
     completed.results = body.yields;
+    if (rule != TransactionalNoID)
+      for (unsigned value : body.yields)
+        callableUses[rule].push_back({value, path});
     completed.guardYields = guard.yields;
     for (const auto &step : guard.steps)
       if (step->methodInvocation == invocationID)
@@ -752,6 +770,11 @@ private:
     // was one of the source operands.
     using Requirements = SmallVector<TransactionalRequirement>;
     std::vector<Requirements> dependencies(p.values_.size());
+    // Synthetic loads on untouched parameter arms carry a deferred formal
+    // demand through joins. A join alone does not evaluate that parameter.
+    std::vector<Requirements> deferred(p.values_.size());
+    Requirements consumed;
+    llvm::DenseMap<unsigned, TransactionalStep *> formalReads;
     auto append = [&](Requirements &to, ArrayRef<TransactionalRequirement> from,
                       ArrayRef<TransactionalPathTerm> prefix) -> LogicalResult {
       for (const auto &item : from) {
@@ -785,40 +808,59 @@ private:
     auto sequence = [&](const TransactionalSequence &seq,
                         TransactionalRulePlan *rule) -> LogicalResult {
       for (const auto &step : seq.steps) {
-        Requirements reads;
+        Requirements reads, uses;
+        bool joinRead = step->operation->hasAttr("ac.parameter_join") &&
+                        step->kind == TransactionalStepKind::QueueHead;
         if (step->kind == TransactionalStepKind::Merge) {
           unsigned condition = step->operands[0];
           if (failed(append(reads, dependencies[condition], {})))
             return failure();
+          if (failed(append(uses, deferred[condition], {})))
+            return failure();
           for (unsigned arm = 1; arm <= 2; ++arm) {
             TransactionalPathTerm selected{condition, arm == 1};
             if (failed(append(reads, dependencies[step->operands[arm]],
+                              ArrayRef(selected))) ||
+                failed(append(uses, deferred[step->operands[arm]],
                               ArrayRef(selected))))
               return failure();
           }
         } else {
           for (unsigned operand : step->operands)
-            if (failed(append(reads, dependencies[operand], {})))
+            if (failed(append(reads, dependencies[operand], {})) ||
+                failed(append(uses, deferred[operand], {})))
               return failure();
         }
         if (step->activation != TransactionalNoID &&
-            failed(append(reads, dependencies[step->activation], {})))
+            (failed(append(reads, dependencies[step->activation], {})) ||
+             failed(append(uses, deferred[step->activation], {}))))
           return failure();
         if (step->kind == TransactionalStepKind::QueueHead ||
             step->kind == TransactionalStepKind::QueuePop)
           reads.push_back({step->resource, {}});
-        for (unsigned result : step->results)
+        if (joinRead) {
+          uses.push_back({step->ruleParameter, step->path});
+          formalReads[step->ruleParameter] = step.get();
+        }
+        for (unsigned result : step->results) {
           dependencies[result] = reads;
+          deferred[result] = uses;
+        }
         if (!rule)
           continue;
-        if (failed(append(rule->queueReads, reads, step->path)))
-          return failure();
+        if (!joinRead && !step->operation->hasAttr("ac.join_transport") &&
+            step->kind != TransactionalStepKind::Merge)
+          if (failed(append(rule->queueReads, reads, step->path)) ||
+              failed(append(consumed, uses, step->path)))
+            return failure();
         if (step->kind == TransactionalStepKind::QueuePush)
           rule->queueWrites.push_back({step->resource, step->path});
         // A nested condition needs its observations before selecting its arm.
         for (unsigned i = 0; i < step->path.size(); ++i)
           if (failed(append(rule->queueReads,
                             dependencies[step->path[i].value],
+                            ArrayRef(step->path).take_front(i))) ||
+              failed(append(consumed, deferred[step->path[i].value],
                             ArrayRef(step->path).take_front(i))))
             return failure();
       }
@@ -828,6 +870,8 @@ private:
       if (failed(sequence(owner.comb, nullptr)))
         return failure();
     for (auto &rule : p.rules_) {
+      consumed.clear();
+      formalReads.clear();
       for (unsigned i = 0; i < rule.path.size(); ++i)
         if (failed(append(rule.queueReads, dependencies[rule.path[i].value],
                           ArrayRef(rule.path).take_front(i))))
@@ -837,12 +881,41 @@ private:
         return failure();
       for (const auto &requirement : rule.requirements)
         if (failed(append(rule.queueReads, dependencies[requirement.value],
+                          requirement.path)) ||
+            failed(append(consumed, deferred[requirement.value],
                           requirement.path)))
           return failure();
       for (const auto &control : rule.controls)
         if (failed(append(rule.queueReads, dependencies[control.value],
-                          control.path)))
+                          control.path)) ||
+            failed(append(consumed, deferred[control.value], control.path)))
           return failure();
+      unsigned ruleID = &rule - p.rules_.data();
+      for (const auto &use : callableUses[ruleID])
+        if (failed(append(rule.queueReads, dependencies[use.value], use.path)) ||
+            failed(append(consumed, deferred[use.value], use.path)))
+          return failure();
+      for (const auto &demand : consumed) {
+        auto *source = formalReads.lookup(demand.value);
+        if (!source || failed(charge(32 + demand.path.size(), source->operation)))
+          return failure();
+        auto pop = std::make_unique<TransactionalStep>();
+        pop->kind = TransactionalStepKind::QueuePop;
+        pop->operation = source->operation;
+        pop->id = nextStep++;
+        pop->instance = source->instance;
+        pop->resource = source->resource;
+        pop->ruleParameter = demand.value;
+        pop->rule = ruleID;
+        pop->path = demand.path;
+        pop->invocation = source->invocation;
+        unsigned value = p.values_.size();
+        p.values_.push_back({p.values_[source->results.front()].type,
+                             source->instance, ruleID});
+        pop->results.push_back(value);
+        producers[value] = pop.get();
+        rule.body.steps.push_back(std::move(pop));
+      }
     }
     return success();
   }
@@ -1205,6 +1278,14 @@ private:
           return failure();
         bool exclusive = a.step->resource != b.step->resource ||
                          a.step->kind != b.step->kind;
+        // Repeated implicit reads are path demands of one registered formal,
+        // not competing pops. The common access identity is independent of
+        // concrete aliases; the adapters OR these selected paths into one
+        // consumption on the outer transaction's final fire.
+        exclusive |= a.step->kind == TransactionalStepKind::QueuePop &&
+                     a.step->ruleParameter != TransactionalNoID &&
+                     a.step->rule == b.step->rule &&
+                     a.step->ruleParameter == b.step->ruleParameter;
         for (const auto &x : a.conditions)
           for (const auto &y : b.conditions)
             exclusive |= disjoint(x, y);

@@ -209,16 +209,23 @@ def Conflict() -> ac.u8:
   });
   EXPECT_EQ(states, 2u);
   EXPECT_EQ(queues, 2u);
-  unsigned pops = 0, pushes = 0;
+  bool hasImplicitRead = false;
+  unsigned pushes = 0;
   (*linked)->walk([&](ac::TransactionMethodCallOp call) {
-    if (call.getCalleeAttr().getRootReference().getValue() == "pop")
-      ++pops;
+    if (call.getCalleeAttr().getRootReference().getValue() == "pop") {
+      hasImplicitRead = true;
+      // Repeated uses remain distinct SSA observations of the same formal;
+      // execution consumption is checked by the resource behavior histories.
+      auto formal = call->getAttrOfType<mlir::IntegerAttr>("rule_parameter");
+      ASSERT_TRUE(formal);
+      EXPECT_EQ(formal.getInt(), 0);
+    }
     if (call.getCalleeAttr().getRootReference().getValue() == "push") {
       ++pushes;
       EXPECT_TRUE(mlir::isa<ac::QueueType>(call.getReceiver().getType()));
     }
   });
-  EXPECT_EQ(pops, 1u);
+  EXPECT_TRUE(hasImplicitRead);
   EXPECT_EQ(pushes, 2u);
   llvm::sort(depths);
   EXPECT_EQ(depths, (llvm::SmallVector<int64_t>{2, 5}));

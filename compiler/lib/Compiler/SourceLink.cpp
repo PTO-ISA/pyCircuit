@@ -230,8 +230,8 @@ LogicalResult preflightSourceLinkPair(SourceLinkUnit unit, unsigned index,
   for (auto artifact : {unit.header, unit.body}) {
     auto contract = artifact->getAttrOfType<IntegerAttr>("ac.source_contract");
     if (!contract || !contract.getType().isSignlessInteger(64) ||
-        contract.getInt() != 3)
-      return emitError() << "source linking requires source contract 3; "
+        contract.getInt() != 4)
+      return emitError() << "source linking requires source contract 4; "
                             "regenerate this artifact";
   }
   auto headerOwner =

@@ -1,3 +1,4 @@
+#include "TransactionalRepresentation.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -28,24 +29,6 @@ OperationRule operationRule(PendingExprOp expr) {
               (expr.getOpcodeAttr().getValue() == "shl" ||
                expr.getOpcodeAttr().getValue() == "lshr"),
           comparison};
-}
-
-StaticExprAttr constantNumber(Builder &builder, unsigned value,
-                              StaticExprAttr provenance) {
-  auto tree = provenance.getTree();
-  auto number = builder.getDictionaryAttr(
-      {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-       builder.getNamedAttr(
-           "value",
-           MathIntAttr::get(builder.getContext(),
-                            llvm::APSInt(llvm::APInt(64, value), true)))});
-  return StaticExprAttr::get(
-      builder.getContext(),
-      builder.getDictionaryAttr(
-          {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
-           builder.getNamedAttr("value", number),
-           builder.getNamedAttr("origin", tree.get("origin")),
-           builder.getNamedAttr("location", tree.get("location"))}));
 }
 
 // Facts belong to Values. Requests describe conversion contexts, not equality
@@ -332,6 +315,8 @@ class PayloadConstraints {
     OperationState state(value.getLoc(), "ac.bits.resize");
     state.addOperands(value);
     state.addTypes(type);
+    if (exact)
+      state.addAttribute("ac.join_transport", builder.getUnitAttr());
     unsigned inputWidth =
         width(value.getType(), value.getParentBlock()->getParentOp());
     unsigned resultWidth = width(type, value.getParentBlock()->getParentOp());
@@ -340,7 +325,7 @@ class PayloadConstraints {
       // extraction retains the payload while carrying the chosen result type.
       state.name = OperationName("ac.bits.extract", package.getContext());
       state.addAttribute(
-          "low", constantNumber(builder, 0, cast<BitsType>(type).getWidth()));
+          "low", detail::transactionalInteger(builder, 0, cast<BitsType>(type).getWidth()));
       return builder.create(state)->getResult(0);
     }
     state.addAttribute(
@@ -362,6 +347,8 @@ class PayloadConstraints {
     NamedAttrList attrs;
     if (auto origin = expr->getAttr("ac.origin"))
       attrs.set("ac.origin", origin);
+    if (auto transport = expr->getAttr("ac.join_transport"))
+      attrs.set("ac.join_transport", transport);
     Type output = result;
     if (kind == "field") {
       state.name = OperationName("ac.struct.get", package.getContext());
@@ -415,7 +402,7 @@ class PayloadConstraints {
           castState.addOperands(input);
           auto bits = BitsType::get(
               builder.getContext(),
-              constantNumber(builder, *carrier,
+              detail::transactionalInteger(builder, *carrier,
                              cast<BitsType>(result).getWidth()));
           castState.addTypes(bits);
           input = builder.create(castState)->getResult(0);
@@ -612,6 +599,7 @@ public:
             state.addOperands(arm);
             state.addTypes(result.getType());
             state.addAttribute("kind", builder.getStringAttr("convert"));
+            state.addAttribute("ac.join_transport", builder.getUnitAttr());
             yield.setOperand(index, builder.create(state)->getResult(0));
             continue;
           }
@@ -639,6 +627,161 @@ public:
   }
 };
 } // namespace
+namespace {
+// Constant proofs follow the same finite-width payload relations as solving.
+// A missing width/value is unknown, rather than a source-spelling heuristic.
+class ConstantPayload {
+  HardwareAnalysis hardware;
+  const std::function<bool()> &debit;
+  unsigned depth = 0;
+
+  unsigned width(Value value) {
+    if (auto type = dyn_cast<BitsType>(value.getType())) {
+      if (!hardware.isStaticEvaluable(type.getWidth(), {}))
+        return 0;
+      auto width = hardware.getPackedWidth(type, {}, value.getDefiningOp());
+      return succeeded(width) && *width <= 1048576 ? unsigned(*width) : 0;
+    }
+    auto expr = value.getDefiningOp<PendingExprOp>();
+    if (!expr || !isa<InferType>(value.getType()) || !debit() || depth > 256)
+      return 0;
+    ++depth;
+    auto restore = llvm::scope_exit([&] { --depth; });
+    if (expr.getKind() == "unary")
+      return width(expr.getOperand(0));
+    if (expr.getKind() == "binary") {
+      unsigned a = width(expr.getOperand(0));
+      unsigned b = width(expr.getOperand(1));
+      return expr.getOpcodeAttr().getValue() == "shl" ||
+                     expr.getOpcodeAttr().getValue() == "lshr"
+                 ? a
+                 : std::max(a, b);
+    }
+    return 0;
+  }
+
+public:
+  ConstantPayload(mlir::ModuleOp package, const std::function<bool()> &debit)
+      : hardware(package), debit(debit) {}
+  std::optional<llvm::APInt> evaluate(Value value, unsigned context = 0) {
+    if (!debit() || depth > 256)
+      return std::nullopt;
+    ++depth;
+    auto restore = llvm::scope_exit([&] { --depth; });
+    unsigned bits = width(value);
+    if (!bits)
+      bits = context;
+    if (!bits)
+      return std::nullopt;
+    if (auto constant = value.getDefiningOp<BitsConstant4Op>()) {
+      auto pattern = constant.getPattern();
+      if (pattern.size() != bits ||
+          pattern.find_first_not_of("01") != StringRef::npos)
+        return std::nullopt;
+      return llvm::APInt(bits, pattern, 2);
+    }
+    auto expr = value.getDefiningOp<PendingExprOp>();
+    if (!expr)
+      return std::nullopt;
+    auto kind = expr.getKind();
+    if (kind == "literal") {
+      auto number = expr->getAttrOfType<MathIntAttr>("number");
+      if (!number)
+        return std::nullopt;
+      llvm::APSInt n(number.getCanonicalValue());
+      if (n.isNegative() || n.getActiveBits() > bits)
+        return std::nullopt;
+      return n.zextOrTrunc(bits);
+    }
+    if (kind == "convert") {
+      unsigned inputWidth = width(expr.getOperand(0));
+      if (inputWidth > bits)
+        return std::nullopt; // A narrowing conversion must still reject.
+      auto input = evaluate(expr.getOperand(0), bits);
+      return input ? std::optional<llvm::APInt>(input->zextOrTrunc(bits))
+                   : std::nullopt;
+    }
+    auto opcode = expr.getOpcodeAttr();
+    if (!opcode)
+      return std::nullopt;
+    if (kind == "unary") {
+      auto input = evaluate(expr.getOperand(0), bits);
+      if (!input)
+        return std::nullopt;
+      if (opcode.getValue() == "not")
+        return ~*input;
+      if (opcode.getValue() == "neg")
+        return -*input;
+      return std::nullopt;
+    }
+    if (kind != "binary" && kind != "compare")
+      return std::nullopt;
+    unsigned lhsWidth = width(expr.getOperand(0));
+    unsigned rhsWidth = width(expr.getOperand(1));
+    // Keep mixed-width shifts for payload solving, which owns the exact
+    // operand conversions. Reachability must not guess a shift-amount width.
+    if ((opcode.getValue() == "shl" || opcode.getValue() == "lshr") &&
+        lhsWidth && rhsWidth && lhsWidth != rhsWidth)
+      return std::nullopt;
+    unsigned operandBits = std::max(lhsWidth, rhsWidth);
+    if (!operandBits && kind == "binary")
+      operandBits = bits;
+    if (!operandBits)
+      return std::nullopt;
+    auto lhs = evaluate(expr.getOperand(0), operandBits);
+    auto rhs = evaluate(expr.getOperand(1), operandBits);
+    if (!lhs || !rhs)
+      return std::nullopt;
+    *lhs = lhs->zextOrTrunc(operandBits);
+    *rhs = rhs->zextOrTrunc(operandBits);
+    auto op = opcode.getValue();
+    if (kind == "compare") {
+      bool result;
+      if (op == "eq")
+        result = *lhs == *rhs;
+      else if (op == "ne")
+        result = *lhs != *rhs;
+      else if (op == "ult")
+        result = lhs->ult(*rhs);
+      else if (op == "ule")
+        result = lhs->ule(*rhs);
+      else if (op == "ugt")
+        result = lhs->ugt(*rhs);
+      else if (op == "uge")
+        result = lhs->uge(*rhs);
+      else
+        return std::nullopt;
+      return llvm::APInt(1, result);
+    }
+    std::optional<llvm::APInt> result;
+    if (op == "add") result = *lhs + *rhs;
+    else if (op == "sub") result = *lhs - *rhs;
+    else if (op == "mul") result = *lhs * *rhs;
+    else if (op == "and") result = *lhs & *rhs;
+    else if (op == "or") result = *lhs | *rhs;
+    else if (op == "xor") result = *lhs ^ *rhs;
+    else if (op == "shl") result = lhs->shl(rhs->getLimitedValue(operandBits));
+    else if (op == "lshr") result = lhs->lshr(rhs->getLimitedValue(operandBits));
+    // Shift execution may widen to the shift operand, but its natural result
+    // retains the left operand's width before any surrounding conversion.
+    if (result)
+      return result->zextOrTrunc(bits);
+    return std::nullopt;
+  }
+};
+} // namespace
+std::optional<bool>
+evaluateTransactionalPredicate(Value value,
+                               const std::function<bool()> &debit) {
+  auto *operation = value.getDefiningOp();
+  if (!operation)
+    return std::nullopt;
+  auto package = operation->getParentOfType<mlir::ModuleOp>();
+  auto result = ConstantPayload(package, debit).evaluate(value);
+  if (!result || result->getBitWidth() != 1)
+    return std::nullopt;
+  return !result->isZero();
+}
 LogicalResult PendingExprOp::verify() {
   if (!isTransactionalPackage(*this) || isLinkedTransactionalPackage(*this))
     return emitOpError(

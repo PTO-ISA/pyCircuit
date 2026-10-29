@@ -1,3 +1,4 @@
+#include "TransactionalRepresentation.h"
 #include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -90,53 +91,17 @@ Operation *make(OpBuilder &b, Location loc, StringRef name, ValueRange operands,
   return b.create(state);
 }
 DictionaryAttr occurrence(Builder &b, StringRef top, unsigned ordinal) {
-  auto index = b.getDictionaryAttr(
-      {b.getNamedAttr("kind", b.getStringAttr("index")),
-       b.getNamedAttr("value", b.getI64IntegerAttr(ordinal))});
-  auto site = b.getDictionaryAttr(
-      {b.getNamedAttr("definition",
-                      FlatSymbolRefAttr::get(b.getContext(), top)),
-       b.getNamedAttr("ast_path", b.getArrayAttr({index}))});
-  return b.getDictionaryAttr({b.getNamedAttr("site", site),
-                              b.getNamedAttr("expansion", b.getArrayAttr({}))});
+  return detail::transactionalOccurrence(b, top, ordinal);
 }
 DictionaryAttr syntheticSpan(Builder &b) {
-  return b.getDictionaryAttr(
-      {b.getNamedAttr("path", b.getStringAttr("__transactional__.py")),
-       b.getNamedAttr("line", b.getI64IntegerAttr(1)),
-       b.getNamedAttr("column", b.getI64IntegerAttr(1)),
-       b.getNamedAttr("end_line", b.getI64IntegerAttr(1)),
-       b.getNamedAttr("end_column", b.getI64IntegerAttr(2))});
+  return detail::transactionalSpan(b);
 }
 BitsType predicateType(Builder &b, StringRef top, unsigned width = 1) {
-  auto literal = b.getDictionaryAttr(
-      {b.getNamedAttr("kind", b.getStringAttr("integer")),
-       b.getNamedAttr(
-           "value", MathIntAttr::get(b.getContext(),
-                                     llvm::APSInt(llvm::APInt(64, width), true)))});
-  return BitsType::get(
-      b.getContext(),
-      StaticExprAttr::get(
-          b.getContext(),
-          b.getDictionaryAttr(
-              {b.getNamedAttr("kind", b.getStringAttr("literal")),
-               b.getNamedAttr("value", literal),
-               b.getNamedAttr("origin", occurrence(b, top, 0)),
-               b.getNamedAttr("location", syntheticSpan(b))})));
+  return detail::transactionalBits(b, width, top);
 }
 StaticExprAttr integer(Builder &b, uint64_t value) {
-  auto literal = b.getDictionaryAttr(
-      {b.getNamedAttr("kind", b.getStringAttr("integer")),
-       b.getNamedAttr(
-           "value",
-           MathIntAttr::get(b.getContext(),
-                            llvm::APSInt(llvm::APInt(64, value), true)))});
-  return StaticExprAttr::get(
-      b.getContext(),
-      b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("literal")),
-                           b.getNamedAttr("value", literal),
-                           b.getNamedAttr("origin", occurrence(b, fifoName, 0)),
-                           b.getNamedAttr("location", syntheticSpan(b))}));
+  return detail::transactionalInteger(b, value, occurrence(b, fifoName, 0),
+                                      syntheticSpan(b));
 }
 DictionaryAttr sourceOccurrence(Operation *op, Builder &b, StringRef top,
                                 unsigned ordinal) {

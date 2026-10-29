@@ -134,7 +134,7 @@ LogicalResult preflight(Operation *op) {
       .Case<TransactionRuleOp, TransactionMethodOp, TransactionRuleCallOp,
             TransactionMethodCallOp, ModuleOp, ModuleImportOp, StructOp, EnumOp,
             ResourceAllocOp, ResourceConnectionOp, TransactionMethodPendingOp,
-            PendingExprOp, InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp,
+            PendingExprOp, PayloadUseOp, InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp,
             BitsConstant4Op, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
@@ -238,7 +238,7 @@ Operation *methodTarget(TransactionMethodCallOp call) {
               : nullptr;
 }
 bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
-  if (purePayload(op) ||
+  if (purePayload(op) || isa<PayloadUseOp>(op) ||
       isa<YieldOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(op))
     return true;
   if (auto pending = dyn_cast<TransactionMethodPendingOp>(op))
@@ -408,6 +408,32 @@ LogicalResult verifyCallable(Operation *op) {
       return op->emitOpError("Method names must be flat with an explicit "
                              "receiver; regenerate this artifact");
     Type receiver = call.getReceiver().getType();
+    if (auto index = call->getAttrOfType<IntegerAttr>("rule_parameter")) {
+      auto formal = dyn_cast<BlockArgument>(call.getReceiver());
+      auto rule = op->getParentOfType<TransactionRuleOp>();
+      auto method = call.getCalleeAttr().getRootReference().getValue();
+      // A nested branch still belongs to the same isolated callable region.
+      Region *region = op->getParentRegion();
+      while (rule && region->getParentOp() != rule)
+        region = region->getParentRegion();
+      bool guard = rule && region == &rule.getGuard();
+      bool observation = method == "read" ||
+                         (isa<QueueType>(receiver) &&
+                          method == (guard || op->hasAttr("ac.parameter_join")
+                                         ? "head" : "pop"));
+      if (!rule || !formal || !resource(receiver) || index.getInt() < 0 ||
+          uint64_t(index.getInt()) >= rule.getFunctionType().getNumInputs() ||
+          formal.getArgNumber() != uint64_t(index.getInt()) ||
+          formal.getOwner()->getParentOp() != rule ||
+          formal.getParentRegion() != region || !observation)
+        return op->emitOpError(
+            "implicit Rule read requires its exact input formal identity");
+    }
+    if (op->hasAttr("ac.parameter_join") &&
+        (!isa<UnitAttr>(op->getAttr("ac.parameter_join")) ||
+         !call->hasAttr("rule_parameter") || !inCallableBody(op) ||
+         !isa<scf::IfOp>(op->getParentOp())))
+      return op->emitOpError("parameter join requires an implicit Rule input read");
     FunctionType sig;
     if (resource(receiver)) {
       auto name = call.getCalleeAttr().getRootReference().getValue();
@@ -917,6 +943,7 @@ CALLABLE_VERIFY(TransactionRuleOp)
 CALLABLE_VERIFY(TransactionMethodOp)
 CALLABLE_VERIFY(TransactionRuleCallOp)
 CALLABLE_VERIFY(TransactionMethodCallOp)
+CALLABLE_VERIFY(PayloadUseOp)
 #undef CALLABLE_VERIFY
 LogicalResult TransactionRuleOp::verifyRegions() {
   return verifyTransactionalRegions(*this);
@@ -932,6 +959,13 @@ void TransactionMethodCallOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &e) {
   e.emplace_back(MemoryEffects::Read::get(), SourceStateResource::get());
   e.emplace_back(MemoryEffects::Write::get(), SourceStateResource::get());
+}
+void PayloadUseOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // A payload may carry deferred implicit Queue consumption. Keep the event
+  // through canonicalization until common analysis resolves its demand.
+  effects.emplace_back(MemoryEffects::Read::get(), SourceStateResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), SourceStateResource::get());
 }
 
 LogicalResult ResourceConnectionOp::verify() {
@@ -967,6 +1001,16 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         failed(detail::verifyOccurrence(op->getAttrOfType<DictionaryAttr>(key),
                                         [&] { return op->emitOpError(); })))
       return failure();
+  if (auto use = dyn_cast<PayloadUseOp>(op)) {
+    Type type = use.getValue().getType();
+    bool data = isa<BitsType, EnumType, StructType, TableType>(type) ||
+                (!isLinkedTransactionalPackage(op) && isa<InferType>(type));
+    if (!data ||
+        !(op->getParentOfType<TransactionRuleOp>() ||
+          op->getParentOfType<TransactionMethodOp>()))
+      return op->emitOpError("payload use requires a callable payload value");
+    return success();
+  }
   if (isa<scf::IfOp, scf::YieldOp, SourcePredicateOp>(op))
     return verifyModuleControl(op);
   if (auto observe = dyn_cast<SourceObserveOp>(op)) {
@@ -1434,6 +1478,9 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
             name == "ac.declaration_role")) ||
           (isa<ModuleOp, ModuleImportOp>(op) && name == "ac.root_kind") ||
           (isa<TransactionRuleOp>(op) && name == "input_names") ||
+          (isa<TransactionMethodCallOp>(op) && name == "ac.parameter_join") ||
+          (name == "ac.join_transport" &&
+           isa<PendingExprOp, BitsResizeOp, BitsExtractOp>(op)) ||
           (isa<ModuleImportOp>(op) &&
            (name == "ac.methods" || name == "ac.reference_requirement")) ||
           (isa<SystemOp>(op) && name == "ac.execution_policy") ||
@@ -1456,12 +1503,28 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     }
     if (root)
       return WalkResult::advance();
+    if (op->hasAttr("ac.join_transport")) {
+      auto pending = dyn_cast<PendingExprOp>(op);
+      bool conversion = isa<BitsResizeOp, BitsExtractOp>(op) ||
+                        (pending && pending.getKind() == "convert");
+      bool yieldsOnly = op->getNumResults() == 1 && !op->use_empty() &&
+                        llvm::all_of(op->getUsers(), [&](Operation *user) {
+                          return isa<scf::YieldOp>(user) &&
+                                 user->getBlock() == op->getBlock();
+                        });
+      if (!isa<UnitAttr>(op->getAttr("ac.join_transport")) || !conversion ||
+          op->getNumOperands() != 1 || !yieldsOnly ||
+          !isa<scf::IfOp>(op->getParentOp())) {
+        op->emitOpError("join transport requires a branch yield conversion");
+        return WalkResult::interrupt();
+      }
+    }
     if ((!purePayload(op) &&
          !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
               ResourceConnectionOp, TransactionMethodPendingOp, PendingExprOp,
               InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
-              TransactionMethodCallOp, SourceExpectOp, SourceObserveOp,
+              TransactionMethodCallOp, PayloadUseOp, SourceExpectOp, SourceObserveOp,
               ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(
              op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&

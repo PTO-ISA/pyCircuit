@@ -470,6 +470,16 @@ def ACIR_PendingExprOp : ACIR_Op<"payload.pending", [Pure]> {
   let hasVerifier = 1;
 }
 
+// Preserve an authored payload evaluation through identity conversions and
+// aliases. Common analysis owns any deferred resource demand; backends need
+// no instruction for this source event.
+def ACIR_PayloadUseOp : ACIR_Op<"payload.use", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let arguments = (ins AnyType:$value);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+  let hasVerifier = 1;
+}
+
 // Transactional callable definitions own isolated, explicit capture regions.
 def ACIR_TransactionRuleOp : ACIR_Op<"rule", [Symbol, IsolatedFromAbove]> {
   let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
@@ -497,7 +507,7 @@ def ACIR_TransactionRuleCallOp : ACIR_Op<"rule.call", [
 def ACIR_TransactionMethodCallOp : ACIR_Op<"method.call", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let arguments = (ins AnyType:$receiver, Variadic<AnyType>:$arguments,
-      SymbolRefAttr:$callee);
+      SymbolRefAttr:$callee, OptionalAttr<I64Attr>:$rule_parameter);
   let results = (outs Variadic<AnyType>:$results);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;

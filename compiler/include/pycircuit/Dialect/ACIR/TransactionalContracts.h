@@ -2,11 +2,17 @@
 #define PYCIRCUIT_DIALECT_ACIR_TRANSACTIONALCONTRACTS_H
 #include "mlir/IR/BuiltinOps.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include <functional>
+#include <optional>
 namespace acir::ac {
 // Presence selects this contract; malformed markers never select old semantics.
 bool isTransactionalPackage(mlir::Operation *operation);
 bool isLinkedTransactionalPackage(mlir::Operation *operation);
 bool transactionalTypesEqual(mlir::Type lhs, mlir::Type rhs);
+// Read-only reachability proof for closed payload conditions. Unknown values
+// retain control flow; this never replaces payload/type validation.
+std::optional<bool> evaluateTransactionalPredicate(
+    mlir::Value value, const std::function<bool()> &debit);
 // Unlinked module-reference constraints and published Method signatures. The
 // definition form is derived from actual Method regions, never a body summary.
 bool isTransactionalReferenceRequirement(mlir::Operation *operation);

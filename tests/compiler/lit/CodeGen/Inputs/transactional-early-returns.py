@@ -22,12 +22,14 @@ def Top():
 
     @ac.method
     def constant_value() -> ac.bits[8]:
-        disabled = False
+        disabled = (ac.bits[8](3) + ac.bits[8](4)) != ac.bits[8](7)
         if disabled:
             return ac.bits[8](99)
         else:
-            if True:
-                return ac.bits[8](7)
+            if (ac.bits[8](6) & ac.bits[8](2)) == ac.bits[8](2):
+                if ac.bits[8](ac.bits[1](1) << ac.bits[8](1)) == ac.bits[8](0):
+                    return ac.bits[8](7)
+                return ac.bits[8](98)
 
     @ac.method
     def choose(value: ac.bits[8]) -> ac.bits[8]:
@@ -125,6 +127,137 @@ def Top():
         phase = phase + 1
 """
 
+implicit_source = """import pycircuit as ac
+
+@ac.system
+def Top():
+    phase: ac.u8 = 0
+    commits: ac.u8 = 0
+    stored: ac.u8 = 0
+    queue = ac.queue[ac.u8](depth=2)
+
+    @ac.rule(guard=lambda: (phase == 0) | (phase == 3))
+    def produce() -> ac.u8:
+        return phase + 10
+
+    queue = produce()
+
+    @ac.rule(guard=lambda value: phase != 1)
+    def consume(value: ac.u8) -> ac.u8:
+        if (phase == 0) | (phase == 5):
+            return ac.u8(5)
+        if phase == 2:
+            first = value + 1
+        else:
+            first = value + 2
+        commits = commits + 1
+        ac.log("info", "read", value, first, value, commits)
+        return first + value
+
+    stored = consume(queue)
+
+    @ac.autorule
+    def tick() -> None:
+        ac.log("info", "state", phase, commits, stored)
+        phase = phase + 1
+"""
+
+# Input 10 is queued at phase 0 and retained by the false guard at phase 1.
+# Both branch-local and post-join uses see that one item at phase 2. Input 13
+# arrives at phase 3 and is consumed once at phase 4. Empty-Queue paths at
+# phases 0/5 return without reading. The logged counter remains committed old Q.
+implicit_history = {
+    "state": [
+        [[0, 0, 0]],
+        [[1, 0, 5]],
+        [[2, 0, 5]],
+        [[3, 1, 21]],
+        [[4, 1, 21]],
+        [[5, 2, 28]],
+        [[6, 2, 5]],
+    ],
+    "read": [[], [], [[10, 11, 10, 0]], [], [[13, 15, 13, 1]], [], []],
+}
+# Merely observing the formal in the guard neither consumes it nor suppresses
+# its body consumption. Unlike the body-only variant, this guard requires an
+# available item even on an early-return path.
+guarded_source = implicit_source.replace(
+    "guard=lambda value: phase != 1",
+    "guard=lambda value: (phase != 1) & (value > 0)",
+)
+guarded_history = {
+    "state": [
+        [[0, 0, 0]],
+        [[1, 0, 0]],
+        [[2, 0, 0]],
+        [[3, 1, 21]],
+        [[4, 1, 21]],
+        [[5, 2, 28]],
+        [[6, 2, 28]],
+    ],
+    "read": implicit_history["read"],
+}
+swapped_source = implicit_source.replace(
+    "if phase == 2:\n            first = value + 1\n        else:\n            first = value + 2",
+    "if phase != 2:\n            first = value + 2\n        else:\n            first = value + 1",
+)
+
+partial_binding_source = """import pycircuit as ac
+
+@ac.system
+def Top():
+    phase: ac.u8 = 0
+    commits: ac.u8 = 0
+    queue = ac.queue[ac.u8](depth=2)
+
+    @ac.rule(guard=lambda: (phase == 0) | (phase == 3))
+    def produce() -> ac.u8:
+        return phase + 10
+
+    queue = produce()
+
+    @ac.method
+    def ignore(value: ac.u8) -> ac.u8:
+        return ac.u8(9)
+
+    @ac.rule
+    def consume(value: ac.u8) -> None:
+        if phase == 0:
+            value = ac.u8(7)
+        if phase == 1:
+            ac.log("info", "ignored", ignore(value))
+        if phase == 4:
+            ac.log("info", "read", value)
+        commits = commits + 1
+        ac.log("info", "done", phase)
+
+    consume(queue)
+
+    @ac.autorule
+    def tick() -> None:
+        ac.log("info", "state", phase, commits)
+        phase = phase + 1
+"""
+# A join's untouched formal is not an authored read. Only the later selected
+# use at phases 1/4 consumes 10/13. All other paths advance even on an empty
+# Queue, including the untouched/no-use paths at phases 2/3/5/6. Passing the
+# formal to ignore still consumes 10 even though its body never uses the value;
+# the subsequent read must therefore see 13, not 10.
+# A typed scalar conversion evaluates its source even if the local is unused.
+partial_binding_cast_source = partial_binding_source.replace(
+    'ac.log("info", "ignored", ignore(value))',
+    'unused = ac.u8(value)\n            ac.log("info", "ignored", ac.u8(9))',
+)
+partial_binding_alias_source = partial_binding_cast_source.replace(
+    "unused = ac.u8(value)", "unused = value"
+)
+partial_binding_history = {
+    "state": [[[phase, phase]] for phase in range(7)],
+    "done": [[[phase]] for phase in range(7)],
+    "ignored": [[], [[9]], [], [], [], [], []],
+    "read": [[], [], [], [], [[13]], [], []],
+}
+
 nominal_source = """from enum import Enum
 import pycircuit as ac
 
@@ -217,6 +350,16 @@ cases = [("scalar", scalar_source, scalar_history)]
 if target != "t-gfsim":
     cases += [
         ("queue", queue_source, queue_history),
+        ("implicit", implicit_source, implicit_history),
+        ("implicit_swapped", swapped_source, implicit_history),
+        ("implicit_guard", guarded_source, guarded_history),
+        ("partial_binding", partial_binding_source, partial_binding_history),
+        ("partial_binding_cast", partial_binding_cast_source, partial_binding_history),
+        (
+            "partial_binding_alias",
+            partial_binding_alias_source,
+            partial_binding_history,
+        ),
         ("nominal", nominal_source, nominal_history),
     ]
 for name, source, history in cases:
@@ -289,3 +432,42 @@ def Arity():
     fixture.compile_source("arity", fails=True)
     assert not (fixture.scratch / "arity" / "unit.json").exists()
     print("inconsistent valued return arity: rejected")
+
+    for name, body, registration in (
+        (
+            "explicit_pops",
+            "def consume() -> None:\n"
+            "        first = queue.pop()\n"
+            "        second = queue.pop()\n"
+            '        ac.log("info", "pair", first, second)\n',
+            "consume()",
+        ),
+        (
+            "aliased_formals",
+            "def consume(first: ac.u8, second: ac.u8) -> None:\n"
+            '        ac.log("info", "pair", first, second)\n',
+            "consume(queue, queue)",
+        ),
+    ):
+        (fixture.sources / f"{name}.py").write_text(
+            "import pycircuit as ac\n"
+            "@ac.system\n"
+            "def Top():\n"
+            "    queue = ac.queue[ac.u8](depth=2)\n"
+            "    @ac.rule\n"
+            f"    {body}\n"
+            f"    {registration}\n"
+        )
+        fixture.compile_source(name)
+        rejected = fixture.scratch / f"{name}.ac"
+        fixture.cli(
+            "link",
+            fixture.scratch / name,
+            "--top",
+            f"early_returns.{name}.Top",
+            "-o",
+            rejected,
+            fails=True,
+        )
+        assert not rejected.exists()
+        print(f"distinct Queue consumption demands {name}: rejected")

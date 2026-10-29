@@ -7,7 +7,7 @@ certifies structural closure, not executable transactions.
 
 ## Unlinked constraints
 
-Source body/interface pairs carry `ac.source_contract = 3 : i64`; older source
+Source body/interface pairs carry `ac.source_contract = 4 : i64`; older source
 artifacts require regeneration. This source publication version is separate from
 the transactional resource contract and Routed contract versions.
 
@@ -108,6 +108,25 @@ ac.rule.call @copy ins(%input) outs(%output) : (!P8, !P8)
 ```
 
 Here `!P8` abbreviates `!ac.primitive<!B8>` and `!B8` is an eight-bit payload.
+Implicit Rule argument reads carry their zero-based formal position in the
+`rule_parameter` attribute on the resource call. This identity persists in unlinked and linked ACIR and is verified
+against the enclosing Rule's input argument and region. Common analysis scopes it
+to the concrete Rule registration, independently of resource aliases. Repeated
+body uses form one consumption demand over their reached paths; guard uses only
+observe. Explicit resource calls retain separate access identities. Old source
+contract artifacts must be recompiled; no read-cache compatibility path exists.
+
+A partial reassignment can join a computed payload with an untouched formal.
+The compiler marks that body arm's observation with `ac.parameter_join` and any
+representation-only branch-yield conversion with `ac.join_transport`. Both
+markers are verified and survive save/reload. A join or representation conversion
+alone adds no consumption or nonempty requirement. Common analysis carries the
+formal demand through the selected arm and realizes it at actual operand,
+control, Method argument or return uses. `ac.payload.use` explicitly preserves
+authored evaluation, including an unused alias or identity conversion; it is not
+a hardware instruction. This keeps an unused untouched path
+independent of Queue occupancy without duplicating subsequent source statements.
+
 The complete parseable examples are the `transactional-v2-callables*.mlir`
 fixtures in `tests/compiler/lit/IR/`.
 

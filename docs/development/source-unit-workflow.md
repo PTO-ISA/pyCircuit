@@ -7,8 +7,9 @@ Compilation publishes an **unlinked** body/interface pair; linking authenticates
 an explicit unit closure and produces linked transactional ACIR before common
 analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback. Source body/interface
-pairs carry `ac.source_contract = 3 : i64`, preserving SSA payload constraints,
-pending Method uses and deferred resource connections across publication.
+pairs carry `ac.source_contract = 4 : i64`, preserving SSA payload constraints,
+pending Method uses, deferred resource connections and explicit Rule formal-read
+identity across publication.
 
 See the [language profile](../reference/language.md#transactional-frontend-replacement)
 for source semantics and [current capabilities and gaps](known-limitations.md)
@@ -21,6 +22,29 @@ hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
+## Compilation paths
+
+```text
+Source import → unlinked constraints → link bindings → Linked ACIR
+                                                          ↓
+                                               common transaction analysis
+                                                   ↙             ↘
+                                               t-gfsim          Routed
+                                                                  ↓
+                                                           Hardware final
+                                                                  ↓
+                                                           C++ / Verilog
+```
+
+`t-gfsim` consumes the verified linked transaction plan directly. It is distinct
+from the physical `gfsim` target and need not pass through the physical anchor.
+Its current profile admits Bits State and Bits payloads; Queue and nominal
+Enum/Struct payloads remain unsupported. Four-state hardware payload verification
+uses the existing Icarus path. C++ and Verilog share the verified Hardware final
+artifact, including storage refinement. See the
+[language profile](../reference/language.md#transactional-frontend-replacement)
+for each target's current admission boundaries.
+
 ## Current compiler ownership
 
 | Stage | Owner | Responsibility |
@@ -29,7 +53,7 @@ executes design functions.
 | Compile | `PythonImportRecords.cpp`, `SourceUnit.cpp` | Import transactional v2 ACIR and publish authenticated unlinked body/interface units. |
 | Link | `SourceLink` | Authenticate provider closure, specialize instances, and invoke ACIR constraint closure. |
 | Constraint closure | `TransactionalResourceConstraints`, `TransactionalMethodConstraints`, `TransactionalPayloadConstraints` | Specialize Rule registrations, unify resource identities, allocate default storage, rewrite interfaces and close Method/payload requirements. |
-| Common analysis | `TransactionalAnalysis` | Recover SCF paths and old-Q resource identity; prove write exclusivity and known control admission. |
+| Common analysis | `TransactionalAnalysis` | Recover SCF paths, formal-read identities and old-Q resources; prove access exclusivity and known control admission. |
 | Route and authenticate | `TransactionalRouting` | Build Routed updates/checks/observations and replay correspondence against actual normalized source. |
 | Refine and emit | `ac-lower-transactions`, C++/Verilog emitters | Verify storage refinement and consume the same final artifact. |
 
@@ -44,6 +68,13 @@ Linked-only output is verified at the link boundary. For routing, the public
 transaction analysis entry performs that verification on the unchanged linked
 IR; link does not repeat it before calling analysis. Verification after IR
 transformations and validation at independently callable entries remain intact.
+
+Module combination dependencies are collected once per operation or complete
+structured branch. Stable source-order ready processing publishes bindings and
+notifies only their waiting users. Unclosed or cyclic dependencies still reject.
+Ordinary branch locals join through branch results; only early returns carry a
+continuation into live arms. These control-flow operations do not decide resource
+consumption.
 
 The bridge and SCF remain in normalized unlinked/linked ACIR. Routing combines
 path polarity with Rule guards; saved Routed/final provenance is reparsed and

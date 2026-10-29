@@ -79,6 +79,10 @@ struct TransactionalStep {
   unsigned id = 0;
   unsigned instance = 0;
   unsigned resource = TransactionalNoID;
+  // Implicit Rule loads with the same (rule, formal) denote one logical
+  // access. Their selected paths form the demand union; explicit calls have
+  // no formal identity and remain separate accesses even on an alias.
+  unsigned ruleParameter = TransactionalNoID;
   unsigned rule = TransactionalNoID;
   unsigned activation = TransactionalNoID;
   unsigned methodInvocation = TransactionalNoID;

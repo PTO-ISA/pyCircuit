@@ -304,10 +304,20 @@ resolveTransactionalResourceConnections(mlir::ModuleOp package,
       if (auto call = dyn_cast<ac::TransactionMethodCallOp>(op)) {
         if (isa<ac::QueueType>(call.getReceiver().getType())) {
           auto name = call.getCalleeAttr().getRootReference().getValue();
-          if (name == "read" || name == "write")
+          if (name == "read" || name == "write") {
+            StringRef resolved = name == "read" ? "pop" : "push";
+            if (name == "read" && call->hasAttr("rule_parameter")) {
+              auto rule = call->getParentOfType<ac::TransactionRuleOp>();
+              Region *region = call->getParentRegion();
+              while (region->getParentOp() != rule)
+                region = region->getParentRegion();
+              if (region == &rule.getGuard() || call->hasAttr("ac.parameter_join"))
+                resolved = "head";
+            }
             call->setAttr("callee", FlatSymbolRefAttr::get(
                                         package.getContext(),
-                                        name == "read" ? "pop" : "push"));
+                                        resolved));
+          }
         }
       }
     });
