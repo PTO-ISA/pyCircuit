@@ -100,6 +100,16 @@ Importer::instantiate(Declaration *decl, Operation *imported,
   for (unsigned i = 0; i < results.size(); ++i)
     if (boundOutputs[i])
       results[i] = boundOutputs[i];
+  // A void call still denotes its allocation. This reference is not a data
+  // result or a physical port; aliases use it to address the same instance.
+  if (results.empty()) {
+    auto target = definition->getAttrOfType<StringAttr>("sym_name").getValue();
+    auto type = ac::ModuleRefType::get(b.getContext(), symbol(target));
+    results.push_back(
+        op(at, "ac.instance.ref", {}, type,
+           {b.getNamedAttr("instance_path", b.getArrayAttr(
+                {b.getStringAttr(instanceName)}))})->getResult(0));
+  }
   return results;
 }
 
