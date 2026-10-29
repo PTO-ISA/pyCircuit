@@ -701,9 +701,10 @@ def ACIR_ResourceAllocOp : ACIR_Op<"resource.alloc", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Allocate one instance-owned resource, retaining distinct identity";
   let arguments = (ins Variadic<ACIR_HardwareType>:$initial,
-      StrAttr:$instance_name, OptionalAttr<I64Attr>:$depth);
+      StrAttr:$instance_name,
+      OptionalAttr<AnyAttrOf<[I64Attr, ACIR_StaticExprAttr]>>:$depth);
   let results = (outs ACIR_ResourceReferenceType:$resource);
-  let assemblyFormat = "$instance_name (`initial` `(` $initial^ `:` type($initial) `)`)? (`depth` $depth^)? attr-dict `:` type($resource)";
+  let assemblyFormat = "$instance_name (`initial` `(` $initial^ `:` type($initial) `)`)? (`depth` `(` $depth^ `)`)? attr-dict `:` type($resource)";
   let hasVerifier = 1;
 }
 def ACIR_InstanceRefOp : ACIR_Op<"instance.ref", [Pure]> {

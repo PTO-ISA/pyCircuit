@@ -2,6 +2,7 @@
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
@@ -205,9 +206,39 @@ LogicalResult moduleSignature(Operation *op) {
   }
   auto parameters = op->getAttrOfType<ArrayAttr>("parameters");
   auto types = op->getAttrOfType<ArrayAttr>("type_parameters");
-  if (!parameters || !types || !parameters.empty() || !types.empty())
-    return op->emitOpError(
-        "transactional resource contract requires concrete module signatures");
+  auto stage = op->getParentOp()->getAttrOfType<StringAttr>("ac.stage");
+  bool unlinked = stage && stage.getValue() == "unlinked";
+  if (!parameters || !types || !types.empty() ||
+      (!unlinked && !parameters.empty()))
+    return op->emitOpError("transactional resource contract requires concrete "
+                           "linked module signatures");
+  for (auto raw : parameters) {
+    auto parameter = dyn_cast<DictionaryAttr>(raw);
+    auto name = parameter ? parameter.getAs<StringAttr>("name") : StringAttr();
+    auto type = parameter ? parameter.getAs<TypeAttr>("type") : TypeAttr();
+    auto initial = parameter ? parameter.get("default") : Attribute();
+    if (!parameter || parameter.size() != (initial ? 3u : 2u) || !name ||
+        name.getValue().empty() || !names.insert(name.getValue()).second ||
+        !type || !isa<MathIntType>(type.getValue()) ||
+        (initial && !isa<StaticExprAttr>(initial)))
+      return op->emitOpError("invalid transactional Integer parameter");
+    if (initial) {
+      auto expression = cast<StaticExprAttr>(initial);
+      if (failed(StaticExprAttr::verify([&] { return op->emitOpError(); },
+                                        expression.getTree())) ||
+          failed(detail::verifyHardwareAttributeScope(expression, op)))
+        return failure();
+      HardwareAnalysis hardware(packageOf(op));
+      HardwareBindings bindings;
+      bindings.owner = op;
+      if (hardware.isStaticEvaluable(expression, bindings)) {
+        auto value = hardware.evaluateStatic(expression, bindings, op);
+        if (failed(value)) return failure();
+        if (!isa<MathIntAttr>(*value))
+          return op->emitOpError("Integer parameter default requires a mathematical integer");
+      }
+    }
+  }
   return detail::verifySourceOwner(
       op->getAttrOfType<DictionaryAttr>("source_owner"),
       [&] { return op->emitOpError(); });
@@ -304,8 +335,8 @@ bool inCallableBody(Operation *op) {
 }
 LogicalResult verifyModuleControl(Operation *op) {
   if (!controlOwner(op) && !inCallableBody(op))
-    return op->emitOpError(
-        "transactional SCF control requires Module or Rule/Method body placement");
+    return op->emitOpError("transactional SCF control requires Module or "
+                           "Rule/Method body placement");
   if (auto branch = dyn_cast<scf::IfOp>(op)) {
     if (!branch.getCondition().getDefiningOp<SourcePredicateOp>())
       return op->emitOpError("transactional scf.if requires an original Bits "
@@ -1154,7 +1185,8 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
           for (Type payload : payloads)
             if (!isa<BitsType, EnumType, StructType, TableType>(payload) ||
                 failed(detail::verifyHardwareTypeScope(payload, op)) ||
-                failed(analysis.getPackedWidth(payload, bindings, op)))
+                failed(detail::verifySourceTemplateType(analysis, payload,
+                                                        bindings, op)))
               return op->emitOpError(
                   "Method interfaces require concrete payload values");
         }
@@ -1179,10 +1211,22 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
       return op->emitOpError("primitive resources cannot be allocated");
     auto depth = allocation.getDepthAttr();
     if (isa<QueueType>(type)) {
-      if (!depth || !depth.getType().isSignlessInteger(64) ||
-          depth.getValue().isNegative() || depth.getValue().isZero())
+      if (auto integer = dyn_cast_or_null<IntegerAttr>(depth)) {
+        if (!integer.getType().isSignlessInteger(64) ||
+            integer.getValue().isNegative() || integer.getValue().isZero())
+          return op->emitOpError("Queue depth must be a positive i64");
+      } else if (auto expression = dyn_cast_or_null<StaticExprAttr>(depth)) {
+        if (isLinkedTransactionalPackage(op))
+          return op->emitOpError("linked Queue depth must be a positive i64");
+        auto owner = op->getParentOfType<ModuleOp>();
+        if (failed(StaticExprAttr::verify([&] { return op->emitOpError(); },
+                                          expression.getTree())) ||
+            failed(detail::verifyHardwareAttributeScope(expression, owner)))
+          return failure();
+      } else {
         return op->emitOpError(
-            "Queue allocation requires an explicit positive i64 depth");
+            "Queue allocation requires an explicit static depth");
+      }
       if (!allocation.getInitial().empty())
         return op->emitOpError("Queue allocation cannot have initial contents");
     } else {
@@ -1236,7 +1280,8 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
   if (auto instance = dyn_cast<InstanceOp>(op)) {
     if (failed(ownedName(op)))
       return failure();
-    if (!instance.getParameters().empty() ||
+    if ((isLinkedTransactionalPackage(op) &&
+         !instance.getParameters().empty()) ||
         !instance.getTypeArguments().empty())
       return op->emitOpError(
           "transactional instances require concrete specialization");
@@ -1257,10 +1302,40 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     if (isTransactionalReferenceRequirement(target))
       return op->emitOpError(
           "module-reference requirement cannot allocate an instance");
+    HardwareAnalysis hardware(packageOf(op));
+    HardwareBindings parent;
+    parent.owner = op->getParentOfType<ModuleOp>();
+    auto bindings = hardware.bindInstance(instance, parent);
+    if (failed(bindings))
+      return failure();
+    bool invalidType = false;
+    AttrTypeReplacer canonicalize;
+    canonicalize.addReplacement([&](Type type) -> std::optional<Type> {
+      if (!isa<BitsType, TableType>(type))
+        return std::nullopt;
+      auto resolved = hardware.resolveType(type, parent, op);
+      if (failed(resolved)) {
+        invalidType = true;
+        return type;
+      }
+      return *resolved;
+    });
+    for (Type &type : *inputs)
+      type = canonicalize.replace(hardware.substituteType(type, *bindings));
+    SmallVector<Type> results;
+    for (Type type : signature(target).getResults())
+      results.push_back(
+          canonicalize.replace(hardware.substituteType(type, *bindings)));
+    SmallVector<Type> actualInputs, actualResults;
+    for (Type type : instance.getOperandTypes())
+      actualInputs.push_back(canonicalize.replace(type));
+    for (Type type : instance.getResultTypes())
+      actualResults.push_back(canonicalize.replace(type));
+    if (invalidType)
+      return failure();
     bool inputTypesMatch = instance.getNumOperands() == inputs->size();
     if (inputTypesMatch)
-      for (auto [actual, expected] :
-           llvm::zip(instance.getOperandTypes(), *inputs)) {
+      for (auto [actual, expected] : llvm::zip(actualInputs, *inputs)) {
         if (interfaceTypesMatch(TypeRange{actual}, TypeRange{expected}, op))
           continue;
         auto formal = dyn_cast<ModuleRefType>(expected);
@@ -1278,9 +1353,7 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
           break;
         }
       }
-    if (!inputTypesMatch ||
-        !interfaceTypesMatch(instance.getResultTypes(),
-                             signature(target).getResults(), op))
+    if (!inputTypesMatch || !interfaceTypesMatch(actualResults, results, op))
       return op->emitOpError("instance inputs, bound outputs or result types "
                              "do not match the interface");
     if (!instance.getOccurrence().empty() &&
@@ -1455,6 +1528,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     if (bindings.owner &&
         failed(detail::verifyHardwareTypeScope(type, bindings.owner)))
       return failure();
+    if (!linked && bindings.owner)
+      return detail::verifySourceTemplateType(analysis, type, bindings, site);
     return success(succeeded(analysis.getPackedWidth(type, bindings, site)));
   };
   fail = package.walk([&](Operation *op) {
@@ -1472,6 +1547,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
                                     attr.getName());
       bool provenance =
           (!root && name == "ac.origin") ||
+          (isa<BitsCompareOp>(op) && name == "ac.verification_observer") ||
           (isa<StructOp, EnumOp, ConstantOp, ModuleOp, ModuleImportOp,
                TransactionRuleOp>(op) &&
            (name == "ac.source_owner" || name == "ac.origin" ||

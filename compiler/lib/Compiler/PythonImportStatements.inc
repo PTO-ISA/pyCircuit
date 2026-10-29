@@ -1,7 +1,7 @@
 // Native ownership, control-flow and transaction construction.
 FailureOr<Value> Importer::allocate(Type data, StringRef name,
                                     const AstNode &node, Scope &scope,
-                                    AstNode initial, unsigned depth) {
+                                    AstNode initial, Attribute depth) {
   if (!scope.module)
     return (void)fail(node,
                       "persistent resources may only be declared in a Module"),
@@ -15,11 +15,11 @@ FailureOr<Value> Importer::allocate(Type data, StringRef name,
       return failure();
     operands.push_back(*value);
   }
-  auto type = resource(data, depth ? "queue" : "state", depth);
+  auto type = resource(data, depth ? "queue" : "state");
   SmallVector<NamedAttribute> attrs{
       b.getNamedAttr("instance_name", b.getStringAttr(name))};
   if (depth)
-    attrs.push_back(b.getNamedAttr("depth", b.getI64IntegerAttr(depth)));
+    attrs.push_back(b.getNamedAttr("depth", depth));
   auto *allocation = op(node, "ac.resource.alloc", operands, type, attrs);
   return allocation ? FailureOr<Value>(allocation->getResult(0))
                     : FailureOr<Value>(failure());
@@ -41,16 +41,80 @@ Importer::instantiate(Declaration *decl, Operation *imported,
   SmallVector<StringRef> formals;
   for (auto attr : definition->getAttrOfType<ArrayAttr>("input_names"))
     formals.push_back(cast<StringAttr>(attr).getValue());
-  SmallVector<AstNode> actuals;
+  auto parameters = definition->getAttrOfType<ArrayAttr>("parameters");
+  SmallVector<AstNode> actuals(formals.size());
+  SmallVector<Attribute> staticActuals(parameters.size());
   if (call && call.kind() == "Call") {
-    auto normalized = detail::normalizeCallArguments(call, formals, error);
-    if (failed(normalized))
-      return failure();
-    actuals = *normalized;
-  } else if (!formals.empty())
-    return (void)fail(scope.owner->node,
-                      "instance requires explicit input bindings"),
-           failure();
+    if (call.array("args").size() > formals.size())
+      return (void)fail(call, "too many Module input bindings"), failure();
+    for (size_t i = 0; i < call.array("args").size(); ++i)
+      actuals[i] = call.item("args", i);
+    for (size_t i = 0; i < call.array("keywords").size(); ++i) {
+      auto keyword = call.item("keywords", i);
+      auto name = keyword.string("arg");
+      bool matched = false;
+      for (size_t j = 0; j < formals.size(); ++j) {
+        if (formals[j] != name)
+          continue;
+        if (actuals[j])
+          return (void)fail(keyword, "repeated Module input"), failure();
+        actuals[j] = keyword.child("value");
+        matched = true;
+      }
+      for (size_t j = 0; j < parameters.size(); ++j) {
+        if (cast<DictionaryAttr>(parameters[j])
+                .getAs<StringAttr>("name")
+                .getValue() != name)
+          continue;
+        if (staticActuals[j])
+          return (void)fail(keyword, "repeated static parameter"), failure();
+        auto value = staticExpr(keyword.child("value"), scope.owner->symbol);
+        if (failed(value))
+          return failure();
+        staticActuals[j] = *value;
+        matched = true;
+      }
+      if (!matched)
+        return (void)fail(keyword, "unknown Module argument"), failure();
+    }
+  }
+  for (auto actual : actuals)
+    if (!actual)
+      return (void)fail(call ? call : scope.owner->node,
+                        "instance requires explicit input bindings"),
+             failure();
+  ac::HardwareAnalysis hardware(*result);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  for (size_t i = 0; i < parameters.size(); ++i) {
+    auto parameter = cast<DictionaryAttr>(parameters[i]);
+    if (!staticActuals[i]) {
+      auto value = parameter.getAs<ac::StaticExprAttr>("default");
+      if (!value)
+        return (void)fail(call ? call : scope.owner->node,
+                          "missing required static parameter"),
+               failure();
+      staticActuals[i] = hardware.substituteAttribute(value, bindings);
+    }
+    bindings.integers[parameter.getAs<StringAttr>("name").getValue()] =
+        staticActuals[i];
+  }
+  bool invalidType = false;
+  AttrTypeReplacer canonicalize;
+  canonicalize.addReplacement([&](Type payload) -> std::optional<Type> {
+    if (!isa<ac::BitsType, ac::TableType>(payload))
+      return std::nullopt;
+    auto resolved = hardware.resolveType(payload, {}, definition);
+    if (failed(resolved)) {
+      invalidType = true;
+      return payload;
+    }
+    return *resolved;
+  });
+  type = cast<FunctionType>(
+      canonicalize.replace(hardware.substituteType(type, bindings)));
+  if (invalidType)
+    return failure();
   SmallVector<Value> operands;
   for (auto actual : actuals) {
     auto values = expression(actual, scope);
@@ -93,7 +157,7 @@ Importer::instantiate(Declaration *decl, Operation *imported,
           b.getNamedAttr(
               "callee", symbol(definition->getAttrOfType<StringAttr>("sym_name")
                                    .getValue())),
-          b.getNamedAttr("parameters", b.getArrayAttr({})),
+          b.getNamedAttr("parameters", b.getArrayAttr(staticActuals)),
           b.getNamedAttr("type_arguments", b.getArrayAttr({})),
           b.getNamedAttr("occurrence", origin(at, scope.owner->symbol))});
   SmallVector<Value> results(instance->getResults());
@@ -930,7 +994,7 @@ LogicalResult Importer::lower(Declaration &decl) {
       op(decl.node, "ac.module", {}, {},
          {b.getNamedAttr("sym_name", b.getStringAttr(decl.symbol)),
           b.getNamedAttr("source_owner", owner),
-          b.getNamedAttr("parameters", b.getArrayAttr({})),
+          b.getNamedAttr("parameters", b.getArrayAttr(decl.parameters)),
           b.getNamedAttr("type_parameters", b.getArrayAttr({})),
           b.getNamedAttr("function_type",
                          TypeAttr::get(b.getFunctionType(inputs, outputs))),

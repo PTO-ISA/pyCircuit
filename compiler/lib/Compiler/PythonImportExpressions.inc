@@ -97,6 +97,34 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
                      ArrayRef<Value> destinations) {
   if (!charge(node))
     return failure();
+  auto staticParameter = [&](auto &&self, const AstNode &syntax) -> bool {
+    if (integer(syntax))
+      return true;
+    if (syntax.kind() == "Name")
+      return !scope.bindings.count(syntax.string("id").str()) &&
+             llvm::any_of(scope.owner->parameters, [&](Attribute raw) {
+               return cast<DictionaryAttr>(raw)
+                          .getAs<StringAttr>("name")
+                          .getValue() == syntax.string("id");
+             });
+    return syntax.kind() == "BinOp" && self(self, syntax.child("left")) &&
+           self(self, syntax.child("right"));
+  };
+  if ((!expected || isa<ac::BitsType>(expected)) && !integer(node) &&
+      staticParameter(staticParameter, node)) {
+    auto value = staticExpr(node, scope.owner->symbol);
+    if (failed(value))
+      return failure();
+    if (expected)
+      return SmallVector<Value>{op(node, "ac.bits.constant", {}, expected,
+                                   {b.getNamedAttr("value", *value)})
+                                    ->getResult(0)};
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", {}, ac::InferType::get(b.getContext()),
+           {b.getNamedAttr("kind", b.getStringAttr("literal")),
+            b.getNamedAttr("number", *value)})
+            ->getResult(0)};
+  }
   if (auto number = integer(node)) {
     if (expected) {
       auto value = constant(node, expected, *number);
@@ -219,6 +247,56 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
         op(node, "ac.struct.get", *base, type,
            {b.getNamedAttr("field", b.getStringAttr(node.string("attr")))})
             ->getResult(0)};
+  }
+  if (node.kind() == "Subscript") {
+    auto value = scalar(node.child("value"), scope);
+    if (failed(value))
+      return failure();
+    auto input = dyn_cast<ac::BitsType>(value->getType());
+    if (!input)
+      return (void)fail(node, "static indexing requires a Bits value"),
+             failure();
+    auto slice = node.child("slice");
+    ac::StaticExprAttr low;
+    Type output = bits(1, node);
+    if (slice.kind() == "Slice") {
+      if (slice.child("step"))
+        return (void)fail(slice, "static slices require unit stride"),
+               failure();
+      low = staticLiteral(llvm::APSInt(llvm::APInt(1, 0), true), node,
+                          scope.owner->symbol);
+      if (auto lower = slice.child("lower")) {
+        auto expression = staticExpr(lower, scope.owner->symbol);
+        if (failed(expression))
+          return failure();
+        low = *expression;
+      }
+      auto high = input.getWidth();
+      if (auto upper = slice.child("upper")) {
+        auto expression = staticExpr(upper, scope.owner->symbol);
+        if (failed(expression))
+          return failure();
+        high = *expression;
+      }
+      auto width = ac::StaticExprAttr::get(
+          b.getContext(),
+          b.getDictionaryAttr(
+              {b.getNamedAttr("kind", b.getStringAttr("binary")),
+               b.getNamedAttr("operator", b.getStringAttr("sub")),
+               b.getNamedAttr("lhs", high), b.getNamedAttr("rhs", low),
+               b.getNamedAttr("origin", origin(node, scope.owner->symbol)),
+               b.getNamedAttr("location",
+                              detail::sourceSpan(b, source.path, node))}));
+      output = ac::BitsType::get(b.getContext(), width);
+    } else {
+      auto expression = staticExpr(slice, scope.owner->symbol);
+      if (failed(expression))
+        return failure();
+      low = *expression;
+    }
+    return SmallVector<Value>{op(node, "ac.bits.extract", *value, output,
+                                 {b.getNamedAttr("low", low)})
+                                  ->getResult(0)};
   }
   if (node.kind() == "Call")
     return invoke(node, scope, expected, destinations);
@@ -347,17 +425,16 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
     auto data = annotation(func.child("slice"), scope.owner->symbol);
     if (!data || !node.array("args").empty())
       return failure();
-    unsigned depth = 0;
+    Attribute depth;
     for (size_t i = 0; i < node.array("keywords").size(); ++i) {
       auto keyword = node.item("keywords", i);
-      auto number = integer(keyword.child("value"));
-      if (keyword.string("arg") != "depth" || depth || !number ||
-          number->isNegative() || number->isZero() ||
-          number->getActiveBits() > 31)
-        return (void)fail(keyword,
-                          "Queue depth must be a positive static integer"),
+      if (keyword.string("arg") != "depth" || depth)
+        return (void)fail(keyword, "Queue requires one static depth"),
                failure();
-      depth = number->getZExtValue();
+      auto expression = staticExpr(keyword.child("value"), scope.owner->symbol);
+      if (failed(expression))
+        return failure();
+      depth = *expression;
     }
     if (!depth)
       return (void)fail(node, "Queue allocation requires a positive depth"),
@@ -654,7 +731,9 @@ Importer::referenceCall(const AstNode &node, Scope &scope, Type expected) {
     return (void)fail(node, "receiver does not publish requested Method"),
            failure();
   FunctionType signature;
-  if (prior && !requirement)
+  auto parameters = target->getAttrOfType<ArrayAttr>("parameters");
+  bool generic = parameters && !parameters.empty();
+  if (prior && !requirement && !generic)
     signature =
         cast<FunctionType>(prior.getAs<TypeAttr>("function_type").getValue());
   if (signature && signature.getNumInputs() != node.array("args").size())

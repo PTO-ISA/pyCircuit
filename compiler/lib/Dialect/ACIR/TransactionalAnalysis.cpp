@@ -1,6 +1,7 @@
 #include "TransactionalRepresentation.h"
 #include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
 #include "ACIRSourceContracts.h"
+#include "HardwareSourceChecks.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -92,6 +93,25 @@ public:
       return module.emitError(
           "transactional execution requires a closed concrete root Module");
     bindings.owner = module;
+    for (auto definition : p.package_.getOps<ModuleOp>()) {
+      if (failed(detail::verifyVerificationObserverUses(
+              hardware, definition, HardwareBindings{definition}, debit)))
+        return failure();
+      // Binding checks every callable body, including Methods with no call
+      // sites. Execution planning alone would never visit those operations.
+      auto checked = definition.walk([&](Operation *op) {
+        if (!detail::isCombinationalHardwareOperation(op) ||
+            isa<ValueMergeOp, ValueRequireOp>(op))
+          return WalkResult::advance();
+        if (failed(charge(16, op)) ||
+            failed(hardware.verifyResolvedOperation(
+                op, HardwareBindings{definition})))
+          return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+      if (checked.wasInterrupted())
+        return failure();
+    }
     if (failed(declareInstance(module, {}, TransactionalNoID)) ||
         failed(prepareInstance(0, {})))
       return failure();
@@ -167,7 +187,8 @@ private:
       unsigned resource = p.resources_.size();
       p.resources_.push_back({allocation, id, type});
       if (isa<QueueType>(type))
-        p.resources_.back().depth = allocation.getDepthAttr().getInt();
+        p.resources_.back().depth =
+            cast<IntegerAttr>(allocation.getDepthAttr()).getInt();
       p.instances_[id].resources.push_back(resource);
       environments[id][allocation.getResource()] = {Binding::Resource, resource};
     }
@@ -658,10 +679,6 @@ private:
     } else
       return op->emitError(
           "operation is outside closed State/Rule execution support");
-    // Verification-only observers are not a new functional expression route.
-    if (op->hasAttr("ac.verification_observer"))
-      return op->emitError("verification-observer expressions are outside this "
-                           "transactional execution slice");
     for (Value result : op->getResults()) {
       if (failed(p.getPayloadWidth(result.getType())))
         return op->emitError(

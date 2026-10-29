@@ -168,6 +168,26 @@ rejected. Routing retains and authenticates the complete nominal declarations,
 including field order and types. Equal packed widths do not make different
 record declarations interchangeable. See `examples/structured_packet`.
 
+Modules and Systems admit keyword-only static Integer parameters, including
+required arguments, defaults depending on earlier parameters, forwarding and
+root `--parameters` overrides. For example, `def Counter(*, W: int = 5,
+INIT: int = W - 2)` may declare `count: ac.bits[W] = INIT`. Static parameters
+may also supply ordinary arithmetic operands and explicit Queue depths.
+Unlinked units publish symbolic declarations and call constraints; Link binds
+each actual instance using the common static evaluator before closing payload
+constraints. Method signatures and unused bodies use that receiver's actual
+binding. Instances retain independent resources; aliases retain their identity.
+Saved Linked artifacts contain the bound executable types and values and need
+neither provider sources nor a binding cache to continue generation.
+
+Known closed defaults are checked even when overridden or unused. Closed
+default-bound definitions and their internal instances retain validation
+occurrences without registering another System. Required static arguments and
+external resources still need real bindings. This does not admit Table storage,
+static loops, type parameters or external root Queue interfaces. See
+`tests/system/test_stateful_static_parameters.py` and the parameterized shared
+Counter in `examples/resource_composition`.
+
 Field assignment, constructor defaults, ordinary helpers, loops
 and remaining advanced payloads are
 implementation gaps. Retained tests

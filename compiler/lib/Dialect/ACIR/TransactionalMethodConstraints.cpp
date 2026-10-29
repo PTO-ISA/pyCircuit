@@ -157,6 +157,12 @@ LogicalResult resolveTransactionalMethodConstraints(mlir::ModuleOp package,
         (call.getReadOnly() && !method.getAs<BoolAttr>("read_only").getValue()))
       return call.emitOpError(
           "provider Method does not satisfy call requirements");
+    // A published template describes the provider's formals, not this
+    // receiver's actual widths. Preserve the call constraints until Link has
+    // specialized that receiver and its complete Method bodies.
+    auto parameters = target->getAttrOfType<ArrayAttr>("parameters");
+    if (!requireClosed && parameters && !parameters.empty())
+      continue;
     for (auto [value, type] : llvm::zip(call.getResults(), sig.getResults()))
       if (!compatible(value.getType(), type))
         return call.emitOpError(

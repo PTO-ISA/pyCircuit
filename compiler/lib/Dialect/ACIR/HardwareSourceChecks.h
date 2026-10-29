@@ -9,6 +9,10 @@ namespace acir::ac::detail {
 enum class PackageVerificationProfile { Routed, Hardware };
 class SourceCheckBudget;
 class SampledAdmissionValidation;
+mlir::LogicalResult verifyVerificationObserverUses(
+    const HardwareAnalysis &analysis, ModuleOp definition,
+    const HardwareBindings &bindings,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
 mlir::LogicalResult verifySourceObservationSpec(
     mlir::StringAttr kind, mlir::DictionaryAttr spec, uint64_t valueCount,
     EmitError emitError);

@@ -4,6 +4,7 @@
 #include "PythonImportContext.h"
 #include "PythonImportEnumSyntax.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -45,6 +46,7 @@ struct Declaration {
   std::string name, symbol;
   SmallVector<NamedType> inputs;
   SmallVector<Type> results;
+  SmallVector<Attribute> parameters;
   std::map<std::string, Callable> callables;
   Operation *operation = nullptr;
   bool system = false;
@@ -170,23 +172,33 @@ private:
   void yield(const AstNode &node, ValueRange values = {}) {
     op(node, "ac.yield", values, {});
   }
+  FailureOr<ac::StaticExprAttr> staticExpr(const AstNode &node,
+                                           StringRef definition);
+  ac::StaticExprAttr staticLiteral(const llvm::APSInt &number,
+                                   const AstNode &node, StringRef definition) {
+    return ac::StaticExprAttr::get(
+        b.getContext(),
+        b.getDictionaryAttr(
+            {b.getNamedAttr("kind", b.getStringAttr("literal")),
+             b.getNamedAttr(
+                 "value",
+                 b.getDictionaryAttr(
+                     {b.getNamedAttr("kind", b.getStringAttr("integer")),
+                      b.getNamedAttr("value", ac::MathIntAttr::get(
+                                                  b.getContext(), number))})),
+             b.getNamedAttr("origin", origin(node, definition)),
+             b.getNamedAttr("location",
+                            detail::sourceSpan(b, source.path, node))}));
+  }
   Type bits(unsigned width, const AstNode &node, StringRef definition = {}) {
-    auto value = ac::MathIntAttr::get(
-        b.getContext(), llvm::APSInt(llvm::APInt(64, width), true));
-    auto tree = b.getDictionaryAttr(
-        {b.getNamedAttr("kind", b.getStringAttr("literal")),
-         b.getNamedAttr("value",
-                        b.getDictionaryAttr(
-                            {b.getNamedAttr("kind", b.getStringAttr("integer")),
-                             b.getNamedAttr("value", value)})),
-         b.getNamedAttr("origin", origin(node, definition.empty()
-                                                   ? (currentDefinition.empty()
-                                                          ? qualify("__types__")
-                                                          : currentDefinition)
-                                                   : definition)),
-         b.getNamedAttr("location", detail::sourceSpan(b, source.path, node))});
-    return ac::BitsType::get(b.getContext(),
-                             ac::StaticExprAttr::get(b.getContext(), tree));
+    auto number = llvm::APSInt(llvm::APInt(64, width), true);
+    return ac::BitsType::get(
+        b.getContext(),
+        staticLiteral(number, node,
+                      definition.empty()
+                          ? (currentDefinition.empty() ? qualify("__types__")
+                                                       : currentDefinition)
+                          : definition));
   }
   bool isResource(Type type) {
     return type && isa<ac::StateType, ac::QueueType, ac::PrimitiveType>(type);
@@ -379,7 +391,7 @@ private:
                       Scope &scope);
   FailureOr<Value> allocate(Type data, StringRef name, const AstNode &node,
                             Scope &scope, AstNode initial = {},
-                            unsigned depth = 0);
+                            Attribute depth = {});
   FailureOr<SmallVector<Value>> invoke(const AstNode &node, Scope &scope,
                                        Type expected,
                                        ArrayRef<Value> destinations = {});
@@ -406,6 +418,62 @@ private:
                                             const AstNode &call, Scope &scope,
                                             ArrayRef<Value> destinations = {});
 };
+
+FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
+                                                   StringRef definition) {
+  auto wrap = [&](StringRef kind, ArrayRef<NamedAttribute> payload) {
+    SmallVector<NamedAttribute> fields{
+        b.getNamedAttr("kind", b.getStringAttr(kind))};
+    llvm::append_range(fields, payload);
+    fields.push_back(b.getNamedAttr("origin", origin(node, definition)));
+    fields.push_back(
+        b.getNamedAttr("location", detail::sourceSpan(b, source.path, node)));
+    return ac::StaticExprAttr::get(b.getContext(), b.getDictionaryAttr(fields));
+  };
+  if (auto binding = resolve(node))
+    if (isa_and_nonnull<ac::ConstantOp>(binding->declaration))
+      return wrap("literal", {b.getNamedAttr("value",
+          binding->declaration->getAttrOfType<DictionaryAttr>("value"))});
+  if (node.kind() == "Constant")
+    if (auto flag = dyn_cast_or_null<BoolAttr>(node.get("value")))
+      return wrap("literal", {b.getNamedAttr("value", b.getDictionaryAttr({
+          b.getNamedAttr("kind", b.getStringAttr("bool")),
+          b.getNamedAttr("value", flag)}))});
+  if (auto number = integer(node))
+    return staticLiteral(*number, node, definition);
+  if (node.kind() == "Name") {
+    auto reference = b.getDictionaryAttr(
+        {b.getNamedAttr("kind", b.getStringAttr("parameter")),
+         b.getNamedAttr("owner", symbol(definition)),
+         b.getNamedAttr("name", b.getStringAttr(node.string("id")))});
+    return wrap("reference", {b.getNamedAttr("ref", reference)});
+  }
+  if (node.kind() == "BinOp") {
+    StringRef form = node.child("op").kind();
+    StringRef opcode = form == "Add"      ? "add"
+                       : form == "Sub"    ? "sub"
+                       : form == "Mult"   ? "mul"
+                       : form == "LShift" ? "shl"
+                       : form == "RShift" ? "shr"
+                       : form == "BitAnd" ? "and_bits"
+                       : form == "BitOr"  ? "or_bits"
+                       : form == "BitXor" ? "xor_bits"
+                                          : StringRef();
+    if (opcode.empty()) {
+      (void)fail(node, "unsupported static binary operator");
+      return failure();
+    }
+    auto lhs = staticExpr(node.child("left"), definition);
+    auto rhs = staticExpr(node.child("right"), definition);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    return wrap("binary",
+                {b.getNamedAttr("operator", b.getStringAttr(opcode)),
+                 b.getNamedAttr("lhs", *lhs), b.getNamedAttr("rhs", *rhs)});
+  }
+  (void)fail(node, "unsupported static expression");
+  return failure();
+}
 
 Type Importer::annotation(const AstNode &node, StringRef definition) {
   if (!node)
@@ -435,10 +503,16 @@ Type Importer::annotation(const AstNode &node, StringRef definition) {
     return data ? resource(data, "queue") : Type();
   }
   if (node.kind() == "Subscript" && marker(node.child("value"), "bits")) {
-    auto n = integer(node.child("slice"));
-    if (n && !n->isNegative() && !n->isZero() && n->getActiveBits() <= 32 &&
-        n->getZExtValue() <= MaxWidth)
-      return bits(n->getZExtValue(), node, definition);
+    auto width = staticExpr(node.child("slice"), definition);
+    if (succeeded(width)) {
+      ac::HardwareAnalysis hardware(*result);
+      auto type =
+          hardware.resolveType(ac::BitsType::get(b.getContext(), *width), {},
+                               result->getOperation());
+      if (succeeded(type))
+        return *type;
+      return {};
+    }
   }
   (void)fail(node,
              "transactional annotation requires a fixed Bits/bool or declared "
@@ -684,11 +758,35 @@ LogicalResult Importer::scan() {
   for (auto &[name, owned] : declarations) {
     auto &decl = *owned;
     auto args = decl.node.child("args");
-    if (!args.array("posonlyargs").empty() ||
-        !args.array("kwonlyargs").empty() || !args.array("defaults").empty() ||
+    if (!args.array("posonlyargs").empty() || !args.array("defaults").empty() ||
         args.child("vararg") || args.child("kwarg"))
       return fail(decl.node, "Module parameters must be explicit required "
                              "resource/reference arguments");
+    if (args.array("kwonlyargs").size() != args.array("kw_defaults").size())
+      return fail(decl.node, "malformed keyword-only static parameters");
+    llvm::StringSet<> parameterNames;
+    for (size_t i = 0; i < args.array("kwonlyargs").size(); ++i) {
+      auto arg = args.item("kwonlyargs", i);
+      auto annotation = arg.child("annotation");
+      auto parameterName = arg.string("arg");
+      if (names.count(parameterName.str()) ||
+          !parameterNames.insert(parameterName).second ||
+          annotation.kind() != "Name" || annotation.string("id") != "int")
+        return fail(
+            arg,
+            "static parameters require unique keyword-only int declarations");
+      SmallVector<NamedAttribute> fields{
+          b.getNamedAttr("name", b.getStringAttr(parameterName)),
+          b.getNamedAttr("type",
+                         TypeAttr::get(ac::MathIntType::get(b.getContext())))};
+      if (auto value = args.item("kw_defaults", i)) {
+        auto expression = staticExpr(value, decl.symbol);
+        if (failed(expression))
+          return failure();
+        fields.push_back(b.getNamedAttr("default", *expression));
+      }
+      decl.parameters.push_back(b.getDictionaryAttr(fields));
+    }
     for (size_t i = 0; i < args.array("args").size(); ++i) {
       auto arg = args.item("args", i);
       if (!marker(arg.child("annotation"), "module")) {

@@ -67,14 +67,21 @@ removed. No fallback or new public API is introduced.
 | #365 aggregate availability and Queue proposals | Common hardware fixes and native tests retained. Current Enum/Struct branch and Queue scenarios execute through transactional analysis, routing and final shared availability verification. Compact selections in the retained legacy transaction lowerer do not establish new-frontend Table support. |
 | #365 complete allocation pool | `allocation_repro/{contracts,pool,one,two}.py` and `test_published_allocation_pool_preserves_replay_and_instance_isolation` retain their original workload and oracle. Table state, queries and associated authoring remain pending migration; no reduced pool or raised budget substitutes for them. |
 | #367 widths and publication isolation | Common Bits width checks and the scoped fstat test override retained. Resolved transactional operations and physical verification continue to check actual widths. |
-| #367 static Method parameters | All five `method_generic` cases in `test_scalar_generic_modules.py` are retained, pending migration. Bind signatures to each actual receiver, forward parameters and validate unused Methods at actual widths. The old system oracle's candidate forwarding must be rederived from old-Q and write-conflict semantics before migration; it is not a new-path expectation. |
+| #367 static Method parameters | Five `method_generic` cases now use explicit registration, resource connections and closed Systems. They retain 7/69-bit payloads and X/Z, bind actual receiver widths, check unused Methods and preserve failed outputs. Two old candidate-forwarding writes become two read-only exchanges plus one explicit advance; the old double-write/forwarding oracle is retired, not passed. Root value-port checks become State export or closed Queue-consumption checks; external root Queue support is not claimed. |
 
 The System example build uses the emitted CMake inventory. Declaration-only
 units and source-global Rule units need not generate a `.cpp`; the example
 helper must not invent one from each Python basename.
 
+The static-parameter supplement covers dependent initialization, direct static
+operands, forwarding, default/overridden roots, 80-bit state and parameterized
+depth-1/depth-2 Queues. Its independent finite-sample model includes held clocks,
+reset and old-occupancy blocking. Provider source/body hiding and source removal
+before saved Linked continuation preserve publication independence. These cases
+do not migrate the retained Table parameter matrix or resolve external resources.
+
 The full API/example registries retain additional migration failures beyond
-static parameters and Table: legacy automatic registration/value interfaces,
+Table: legacy automatic registration/value interfaces,
 ordinary helpers, Struct defaults and retained anchor/source fixtures. These
 remain required work in their existing owners. A smaller passing transactional
 selection does not close those gaps. Do not reduce the registries or restore

@@ -156,6 +156,18 @@ extra fields, unknown names and noncanonical decimals fail before publication.
 The driver snapshots the input once and forwards only that snapshot to the
 native linker; final IR records the selected actual bindings.
 
+The transactional route specializes each executable occurrence before common
+analysis. Saved Linked files retain the resulting types, constants and resource
+identities. Preserving the original named root Integer argument table in saved
+anchor configuration remains a publication migration obligation; bound execution
+does not establish that metadata coverage.
+
+Unlinked Queue allocations may carry an existing static expression as their
+`depth` attribute. Link resolves it to a positive i64 before transaction analysis.
+The normalized spelling is `depth(attribute)`; regenerate source units or Linked
+files emitted with the earlier bare-depth spelling. Reload never falls back to
+another frontend or substitutes provider sources.
+
 `pycircuit link --reset-semantics strict|if_one` selects one root policy in the
 final artifact. Default `strict` rejects X/Z reset on a rising sample. `if_one`
 activates reset only for known 1; 0/X/Z enter normal operation. Both targets,

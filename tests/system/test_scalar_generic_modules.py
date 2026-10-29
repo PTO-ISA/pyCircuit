@@ -708,16 +708,23 @@ def test_method_generic_receivers_bind_each_instance(tmp_path: Path, imported: b
         prefix
         + """
 @ac.module
-def Top(a: ac.bits[W], b: ac.bits[69], *, W: int = 7):
+def Top(*, W: int = 7) -> tuple[ac.bits[W], ac.bits[69]]:
+    a: ac.bits[W] = 1
+    b: ac.bits[69] = 2
     small = Exchange(W=W)
     wide = Exchange(W=69)
-    reader = Reader(b[0:7])
+    reader = Reader(b, W=69)
     @ac.rule
     def check() -> None:
-        assert small.flip(a) == (a ^ 1)
-        assert wide.flip(b) == (b ^ 1)
-        assert reader == b[0:7]
-        assert reader.read() == b[0:7]
+        small_result: ac.bits[W] = small.flip(a)
+        wide_result: ac.bits[69] = wide.flip(b)
+        observed: ac.bits[69] = reader.read()
+        assert small_result == (a ^ 1)
+        assert wide_result == (b ^ 1)
+        assert reader == b
+        assert observed == b
+    check()
+    return a, b
 """,
     )
     consumer = tmp_path / "consumer"
@@ -737,8 +744,9 @@ def Top(a: ac.bits[W], b: ac.bits[69], *, W: int = 7):
             output = tmp_path / f"width-{width}-{target}"
             _ok(_cli("emit", str(final), "--target", target, "-o", str(output)))
             ports = json.loads((output / "ports.json").read_text())
-            widths = {port["name"]: port["width"] for port in ports["inputs"]}
-            assert (widths["a"], widths["b"]) == (width, 69)
+            # Closed root owns the resources; tuple exports preserve the two
+            # independent interfaces without recreating legacy value inputs.
+            assert [port["width"] for port in ports["outputs"]] == [width, 69]
 
 
 def test_method_generic_closed_expression_matches_scalar_binding(tmp_path: Path):
@@ -748,19 +756,35 @@ def test_method_generic_closed_expression_matches_scalar_binding(tmp_path: Path)
         "scalar": """import pycircuit as ac
 @ac.module
 def Flip(value: ac.bits[W], *, W: int) -> ac.bits[W]:
-    return value ^ 1
-@ac.module
-def Top(value: ac.bits[7 + 1]) -> ac.bits[7 + 1]:
-    return Flip(value, W=7 + 1)
+    @ac.rule
+    def flip() -> ac.bits[W]:
+        return value ^ 1
+    result = flip()
+    return result
+@ac.system
+def Top():
+    value: ac.bits[7 + 1] = 42
+    flipped = Flip(value, W=7 + 1)
+    @ac.rule
+    def check(result: ac.bits[7 + 1]) -> None:
+        assert result == 43
+        assert result + 213 == 0
+        ac.log("info", "closed expression", result, result + 213)
+    check(flipped)
 """,
         "method": METHOD_PROVIDER
         + """
-@ac.module
-def Top(value: ac.bits[7 + 1]):
+@ac.system
+def Top():
+    value: ac.bits[7 + 1] = 42
     owner = Exchange(W=7 + 1)
     @ac.rule
     def check() -> None:
-        assert owner.flip(value) == (value ^ 1)
+        result: ac.bits[7 + 1] = owner.flip(value)
+        assert result == 43
+        assert result + 213 == 0
+        ac.log("info", "closed expression", result, result + 213)
+    check()
 """,
     }
     for name, text in cases.items():
@@ -770,12 +794,31 @@ def Top(value: ac.bits[7 + 1]):
         final = tmp_path / (name + ".ac")
         _ok(_link([unit], "checks." + name + ".Top", final))
         for target in ("cpp", "verilog"):
-            output = tmp_path / (name + "-" + target)
-            _ok(_cli("emit", str(final), "--target", target, "-o", str(output)))
-            ports = json.loads((output / "ports.json").read_text())
-            assert (
-                next(p for p in ports["inputs"] if p["name"] == "value")["width"] == 8
+            root = tmp_path / (name + "-" + target)
+            root.mkdir()
+            binary = _bundle(final, root, target)
+            arguments = (
+                ["--cycles", "3", "--workers", "1"]
+                if target == "cpp"
+                else ["+cycles=3"]
             )
+            records = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            logs = [row for row in records if row["kind"] == "log"]
+            # Queue production has no empty bypass; the direct Method has no
+            # Queue stage. Both retain eight-bit arithmetic: 43 + 213 wraps.
+            epochs = list(range(2 if name == "scalar" else 0, 6))
+            assert [row["spec"]["event"] for row in logs] == [
+                "closed expression"
+            ] * len(epochs)
+            assert [
+                tuple(int(value["value"]) for value in row["values"]) for row in logs
+            ] == [(43, 0)] * len(epochs)
+            assert [int(row["evaluation_epoch"]) for row in logs] == epochs
+            assert [int(row["commit_epoch"]) for row in logs] == [
+                epoch + 1 for epoch in epochs
+            ]
+            terminal = [row for row in records if row["kind"] == "result"]
+            assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
 
 
 def test_method_generic_uncalled_body_checks_actuals_before_replacing_output(tmp_path):
@@ -818,7 +861,8 @@ def Owner(*, W: int = 7):
 def Wrapper() -> None:
     child = Owner(W=6)
 @ac.module
-def Top(value: ac.u7) -> ac.u7:
+def Top() -> ac.u7:
+    value: ac.u7 = 0
     return value
 """,
     )
@@ -841,9 +885,12 @@ def Counter(*, W: int = 7):
     count: ac.bits[W] = 0
     @ac.method
     def exchange(value: ac.bits[W]) -> tuple[ac.bits[W], ac.bits[W]]:
-        before = count
-        count = count + 1
-        return value, before
+        return value, count
+    @ac.method
+    def advance(delta: ac.bits[W]) -> ac.bits[W]:
+        proposed = count + delta
+        count = proposed
+        return proposed
     @ac.method
     def read() -> ac.bits[W]:
         return count
@@ -862,16 +909,21 @@ def Exercise():
     wide = Counter(W=69)
     @ac.rule
     def update() -> None:
-        old_small = small.read()
-        old_wide = wide.read()
+        old_small: ac.u7 = small.read()
+        old_wide: ac.bits[69] = wide.read()
         a, first = small.exchange(ac.four_state({small_pattern!r}))
         b, large = wide.exchange(ac.four_state({wide_pattern!r}))
         c, second = small.exchange(ac.four_state('1100101'))
+        next_small: ac.u7 = small.advance(2)
+        next_wide: ac.bits[69] = wide.advance(1)
+        after_small: ac.u7 = small.read()
+        after_wide: ac.bits[69] = wide.read()
         assert ac.case_eq(a, ac.four_state({small_pattern!r}))
         assert ac.case_eq(b, ac.four_state({wide_pattern!r}))
         assert ac.case_eq(c, ac.four_state('1100101'))
         ac.log("info", "states", old_small, old_wide, first, second, large,
-               small.read(), wide.read())
+               after_small, after_wide, next_small, next_wide)
+    update()
 """,
     )
     provider, bench = tmp_path / "provider", tmp_path / "bench"
@@ -881,10 +933,21 @@ def Exercise():
     final = tmp_path / "system.ac"
     _ok(_link([provider, bench], "checks.bench.Exercise", final))
     original = final.read_bytes()
-    # One transaction increments the small instance twice and the wide once.
-    # Reads before/within/after those calls distinguish old Q and candidates.
+    # Retire candidate forwarding: two exchange calls preserve independent
+    # payloads and old-Q snapshots. One write advances small by two and wide by
+    # one; all state reads remain old Q, while explicit results carry next SSA.
     expected = [
-        (2 * cycle, cycle, 2 * cycle, 2 * cycle + 1, cycle, 2 * cycle + 2, cycle + 1)
+        (
+            2 * cycle,
+            cycle,
+            2 * cycle,
+            2 * cycle,
+            cycle,
+            2 * cycle,
+            cycle,
+            2 * cycle + 2,
+            cycle + 1,
+        )
         for cycle in range(3)
         for _ in range(2)
     ]

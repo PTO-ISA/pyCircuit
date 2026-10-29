@@ -72,6 +72,10 @@ following cross-cutting obligations need explicit tracking across batches:
 - Source maps, identifiers, Unicode names, incremental dependency publication,
   explicit source-unit closure and saved artifacts belong to 1/10; keep their
   registered tests even when the most visible failing examples are Table users.
+  Batch 10 also preserves the original named root Integer argument table in
+  anchor configuration; bound executable types alone do not close that metadata
+  obligation. Its owners are `AnchorArtifact.cpp` and the retained parameterized
+  anchor cases in `test_stateful_static_parameters.py`.
 - Multiclock domain isolation and existing physical scheduling/host sample
   capabilities belong to 10, with pending semantic choices below. No automatic
   multiclock scheduling or broader t-gfsim runtime is authorized here.

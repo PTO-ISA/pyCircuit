@@ -1,4 +1,5 @@
 #include "TransactionalRepresentation.h"
+#include "ACIRSourceContracts.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -449,8 +450,34 @@ public:
   explicit PayloadConstraints(mlir::ModuleOp package)
       : package(package), hardware(package) {}
   LogicalResult run(bool requireClosed) {
-    package.walk([&](PendingExprOp expr) { expressions.push_back(expr); });
+    // Static templates retain their SSA constraints until occurrence binding.
+    // Choosing literal widths or resize directions here would use defaults in
+    // place of the actual instance's parameters.
+    auto deferred = [&](Operation *op) {
+      auto owner = op->getParentOfType<ModuleOp>();
+      return !requireClosed && owner && !owner.getParameters().empty();
+    };
+    auto literals = package.walk([&](PendingExprOp expr) {
+      if (deferred(expr))
+        return WalkResult::advance();
+      if (auto number = dyn_cast_or_null<StaticExprAttr>(expr.getNumberAttr())) {
+        auto value = hardware.evaluateStatic(
+            number, HardwareBindings{expr->getParentOfType<ModuleOp>()}, expr);
+        if (failed(value))
+          return WalkResult::interrupt();
+        if (!isa<MathIntAttr>(*value)) {
+          expr.emitOpError("static payload literal requires an Integer");
+          return WalkResult::interrupt();
+        }
+        expr->setAttr("number", *value);
+      }
+      expressions.push_back(expr);
+      return WalkResult::advance();
+    });
+    if (literals.wasInterrupted())
+      return failure();
     auto collected = package.walk([&](scf::IfOp branch) {
+      if (deferred(branch)) return WalkResult::advance();
       if (!branch.getNumResults())
         return WalkResult::advance();
       for (Region &region : branch->getRegions()) {
@@ -485,6 +512,7 @@ public:
     if (collected.wasInterrupted())
       return failure();
     package.walk([&](Operation *op) {
+      if (deferred(op)) return;
       if (!isa<TransactionRuleOp, TransactionMethodOp>(op))
         return;
       auto sig = cast<FunctionType>(
@@ -793,11 +821,18 @@ LogicalResult PendingExprOp::verify() {
                    : kind == "select" ? 3
                                       : ~0u;
   if (getNumOperands() != count ||
-      (kind == "literal" && !isa_and_nonnull<MathIntAttr>(getNumberAttr())) ||
+      (kind == "literal" &&
+       !isa_and_nonnull<MathIntAttr, StaticExprAttr>(getNumberAttr())) ||
       ((kind == "binary" || kind == "compare" || kind == "unary" ||
         kind == "field") &&
        !getOpcodeAttr()))
     return emitOpError("malformed SSA payload constraint");
+  if (auto expression = dyn_cast_or_null<StaticExprAttr>(getNumberAttr()))
+    if (failed(StaticExprAttr::verify([&] { return emitOpError(); },
+                                     expression.getTree())) ||
+        failed(detail::verifyHardwareAttributeScope(
+            expression, (*this)->getParentOfType<ModuleOp>())))
+      return failure();
   return success();
 }
 LogicalResult solveTransactionalPayloadConstraints(mlir::ModuleOp package,

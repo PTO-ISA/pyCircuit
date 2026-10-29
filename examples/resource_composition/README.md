@@ -17,6 +17,10 @@ instance reference. It also reads an independent `Counter` that remains zero,
 demonstrating distinct state identity for instances of the same definition.
 Observations see committed state, including during blocked cycles.
 
+`Counter` is a static Integer template: its `WIDTH` parameter sets the state and
+Method payload widths. Both instances use the default width of eight here;
+forwarding the shared receiver preserves that instance's binding and state.
+
 The CMake source list explicitly compiles each unit before linking the closed
 System. Both generated targets consume the same verified artifact. The focused
 resource-composition regression compares every observation epoch with an

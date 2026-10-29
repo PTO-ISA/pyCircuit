@@ -1,4 +1,5 @@
 #include "ACIRSourceContracts.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/ACIRTypes.h"
 
@@ -198,13 +199,24 @@ LogicalResult verifySourceEffectMetadata(DictionaryAttr occurrence,
     return emitError()
            << "source effect requires a lexical module declaration";
   auto symbol = lexicalModule->getAttrOfType<StringAttr>("sym_name");
+  auto definition = symbol ? FlatSymbolRefAttr::get(
+                                 lexicalModule->getContext(), symbol.getValue())
+                           : FlatSymbolRefAttr();
+  // Linked occurrences retain their authenticated declaration provenance.
+  // Specialization changes executable identity, never the authored source site.
+  if (isLinkedTransactionalPackage(lexicalModule))
+    if (auto origin = lexicalModule->getAttrOfType<DictionaryAttr>("ac.origin")) {
+      if (failed(verifyOccurrence(origin, emitError)))
+        return failure();
+      definition = origin.getAs<DictionaryAttr>("site")
+                       .getAs<FlatSymbolRefAttr>("definition");
+    }
   auto sourceOwner =
       lexicalModule->getAttrOfType<DictionaryAttr>("source_owner");
   if (!symbol || failed(verifyOccurrence(occurrence, emitError)) ||
       failed(verifyOriginDefinition(
           occurrence,
-          FlatSymbolRefAttr::get(lexicalModule->getContext(),
-                                 symbol.getValue()),
+          definition,
           "source effect", emitError)) ||
       failed(verifySourceOwner(sourceOwner, emitError)) ||
       failed(verifySourceSpan(location, emitError)))

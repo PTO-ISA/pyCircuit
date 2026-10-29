@@ -1,6 +1,8 @@
 #include "SourceLink.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "SourceHeaderHelpers.h"
+#include "Dialect/ACIR/ACIRSourceContracts.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
@@ -36,9 +38,11 @@ class ReferenceLinker {
     std::string name;
     llvm::StringMap<unsigned> children;
     ac::ModuleOp linked;
+    ac::HardwareBindings bindings;
   };
   static constexpr unsigned NoParent = ~0u;
   ModuleOp package;
+  ac::HardwareAnalysis hardware;
   SmallVector<Occurrence> instances;
   llvm::DenseSet<Operation *> expanding;
   llvm::DenseSet<std::pair<unsigned, Value>> resolving;
@@ -47,20 +51,27 @@ class ReferenceLinker {
     return SymbolTable::lookupSymbolIn(package, name);
   }
   LogicalResult expand(ac::ModuleOp module, ac::InstanceOp allocation,
-                       unsigned parent) {
+                       unsigned parent, ac::HardwareBindings bindings,
+                       bool validationRoot = false) {
     if (instances.size() >= 4096 || expanding.size() >= 64 ||
         !expanding.insert(module).second)
       return module.emitOpError(
           "recursive or over-capacity Module instance closure");
     unsigned id = instances.size();
     std::string name = module.getSymName().str();
-    if (parent != NoParent) {
+    if (parent != NoParent || validationRoot) {
       name += ".__instance_" + std::to_string(id);
       if (lookup(name))
         return module.emitOpError(
             "instance specialization name collides with a source declaration");
     }
-    instances.push_back({module, allocation, parent, std::move(name), {}, {}});
+    instances.push_back({module,
+                         allocation,
+                         parent,
+                         std::move(name),
+                         {},
+                         {},
+                         std::move(bindings)});
     for (auto child : module.getBody().front().getOps<ac::InstanceOp>()) {
       auto target = dyn_cast_or_null<ac::ModuleOp>(lookup(child.getCallee()));
       if (!target)
@@ -68,7 +79,9 @@ class ReferenceLinker {
             "linked instance requires its explicit provider body");
       unsigned childID = instances.size();
       instances[id].children[child.getInstanceName()] = childID;
-      if (failed(expand(target, child, id)))
+      auto childBindings = hardware.bindInstance(child, instances[id].bindings);
+      if (failed(childBindings) ||
+          failed(expand(target, child, id, *childBindings)))
         return failure();
     }
     expanding.erase(module);
@@ -127,20 +140,111 @@ class ReferenceLinker {
   }
 
 public:
-  explicit ReferenceLinker(ModuleOp package) : package(package) {}
-  LogicalResult run(ac::ModuleOp root) {
-    if (failed(expand(root, {}, NoParent)))
+  explicit ReferenceLinker(ModuleOp package)
+      : package(package), hardware(package) {}
+  LogicalResult run(ac::ModuleOp root,
+                    ArrayRef<SourceLinkParameterBinding> parameters) {
+    Builder builder(package.getContext());
+    NamedAttrList overrides;
+    for (const auto &binding : parameters) {
+      if (binding.name.empty() || overrides.get(binding.name))
+        return root.emitOpError(
+            "root parameter binding names must be nonempty and unique");
+      auto value =
+          ac::detail::parseMathIntAttr(package.getContext(), binding.value,
+                                       [&] { return root.emitOpError(); });
+      if (failed(value))
+        return failure();
+      overrides.append(binding.name, *value);
+    }
+    auto rootBindings =
+        hardware.bindRoot(root, overrides.getDictionary(package.getContext()));
+    if (failed(rootBindings))
       return failure();
+    if (failed(expand(root, {}, NoParent, *rootBindings)))
+      return failure();
+    // A selected entry does not excuse invalid default-bound declarations or
+    // disconnected concrete instances. Retain their closed proof occurrences
+    // in Linked IR, without selecting additional execution roots. Templates
+    // needing actual arguments/resources remain checked at their real uses.
+    for (auto module : package.getOps<ac::ModuleOp>()) {
+      if (module.getBody().front().getNumArguments() ||
+          !module.getTypeParameters().empty() ||
+          !llvm::all_of(module.getParameters(), [](Attribute raw) {
+            return bool(
+                cast<DictionaryAttr>(raw).getAs<ac::StaticExprAttr>("default"));
+          }))
+        continue;
+      auto defaults = hardware.bindRoot(module, builder.getDictionaryAttr({}));
+      if (failed(defaults))
+        return failure();
+      bool alreadyBound = llvm::any_of(instances, [&](const Occurrence &prior) {
+        if (prior.original != module || !prior.bindings.types.empty() ||
+            prior.bindings.integers.size() != defaults->integers.size())
+          return false;
+        return llvm::all_of(defaults->integers, [&](const auto &binding) {
+          auto found = prior.bindings.integers.find(binding.getKey());
+          return found != prior.bindings.integers.end() &&
+                 found->second == binding.getValue();
+        });
+      });
+      if (!alreadyBound &&
+          failed(expand(module, {}, NoParent, *defaults, true)))
+        return failure();
+    }
     // Clone all bodies before rewriting any provider or signature. The mapping
     // keeps captures and region arguments tied to the original occurrence.
     SmallVector<IRMapping> mappings(instances.size());
     for (unsigned index = 0; index < instances.size(); ++index) {
       auto &instance = instances[index];
-      instance.linked =
-          cast<ac::ModuleOp>(instance.original->clone(mappings[index]));
+      OwningOpRef<ac::ModuleOp> specialized(
+          cast<ac::ModuleOp>(instance.original->clone(mappings[index])));
+      instance.linked = *specialized;
+      // Qualified static expressions still name the authored template here.
+      // Rebind every type/attribute, including unused Method bodies and capture
+      // arguments, before changing the occurrence's symbol identity.
+      AttrTypeReplacer replace;
+      bool failedType = false;
+      replace.addReplacement([&](ac::StaticExprAttr expr) -> Attribute {
+        return hardware.substituteAttribute(expr, instance.bindings);
+      });
+      replace.addReplacement([&](Type type) -> std::optional<Type> {
+        if (!isa<ac::BitsType, ac::TableType, ac::TypeParamType>(type))
+          return std::nullopt;
+        auto resolved =
+            hardware.resolveType(type, instance.bindings, instance.original);
+        if (failed(resolved)) {
+          failedType = true;
+          return type;
+        }
+        return *resolved;
+      });
+      replace.recursivelyReplaceElementsIn(instance.linked, true, false, true);
+      if (failedType)
+        return failure();
+      for (auto allocation :
+           instance.linked.getBody().front().getOps<ac::ResourceAllocOp>()) {
+        auto depth = allocation->getAttrOfType<ac::StaticExprAttr>("depth");
+        if (!depth)
+          continue;
+        auto evaluated = hardware.evaluateStatic(depth, instance.bindings,
+                                                instance.original);
+        auto integer = succeeded(evaluated)
+                           ? dyn_cast<ac::MathIntAttr>(*evaluated)
+                           : ac::MathIntAttr();
+        if (!integer)
+          return allocation.emitOpError("Queue depth requires a static Integer");
+        llvm::APSInt value(integer.getCanonicalValue());
+        if (value.isNegative() || value.isZero() || value.getActiveBits() > 63)
+          return allocation.emitOpError("Queue depth requires a positive i64");
+        allocation->setAttr("depth", builder.getI64IntegerAttr(value.getZExtValue()));
+      }
+      instance.linked->setAttr("parameters", builder.getArrayAttr({}));
+      instance.linked->setAttr("type_parameters", builder.getArrayAttr({}));
       instance.linked->setAttr(
           "sym_name", StringAttr::get(package.getContext(), instance.name));
       package.getBody()->push_back(instance.linked);
+      specialized.release();
     }
     for (unsigned index = 0; index < instances.size(); ++index) {
       auto &instance = instances[index];
@@ -171,20 +275,22 @@ public:
           mapping.lookup(op)->setAttr(
               "callee", FlatSymbolRefAttr::get(package.getContext(),
                                                instances[child].name));
+          mapping.lookup(op)->setAttr("parameters", builder.getArrayAttr({}));
+          mapping.lookup(op)->setAttr("type_arguments", builder.getArrayAttr({}));
         }
       });
       if (failedReference)
         return failure();
       SmallVector<Type> bodyInputs(
           instance.linked.getBody().front().getArgumentTypes());
-      auto originalSignature = instance.original.getFunctionType();
+      auto resolvedSignature = instance.linked.getFunctionType();
       instance.linked->setAttr(
           "function_type",
           TypeAttr::get(FunctionType::get(
               package.getContext(),
               ArrayRef<Type>(bodyInputs)
-                  .take_front(originalSignature.getNumInputs()),
-              originalSignature.getResults())));
+                  .take_front(resolvedSignature.getNumInputs()),
+              resolvedSignature.getResults())));
     }
     SmallVector<ac::ModuleOp> modules;
     for (auto &occurrence : instances)
@@ -392,8 +498,7 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   if (!root)
     return emitError() << "link top is not a supplied module definition: @"
                        << top;
-  if (!parameters.empty() || !root.getParameters().empty() ||
-      !root.getTypeParameters().empty() ||
+  if (!root.getTypeParameters().empty() ||
       !root.getFunctionType().getInputs().empty())
     return root.emitOpError(
         "transactional link requires a closed concrete root");
@@ -480,7 +585,7 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
 
   // Requirements describe interfaces only. Close them against the actual
   // instance graph while preserving every Module and owner boundary.
-  if (failed(ReferenceLinker(*linked).run(root)))
+  if (failed(ReferenceLinker(*linked).run(root, parameters)))
     return failure();
   // Instance/resource identities are now concrete. Close Method requirements
   // and payload constraints before admitting linked ACIR to common analysis.

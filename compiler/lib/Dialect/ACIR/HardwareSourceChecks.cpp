@@ -22,16 +22,13 @@ namespace {
 // Follow every use, including branch control, before any generic folding can
 // remove a diagnostic/functional mixed use. Field paths and ordinary operation
 // dependencies come from the same analysis as hardware scheduling.
-LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
-                                 ModuleOp definition,
-                                 const HardwareBindings &bindings,
-                                 detail::SourceCheckBudget &budget) {
+LogicalResult verifyObserverUses(
+    const HardwareAnalysis &analysis, ModuleOp definition,
+    const HardwareBindings &bindings,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   using Budget = detail::SourceCheckBudget;
   llvm::DenseMap<Value, SmallVector<FieldPath, 0>> seen;
   SmallVector<WireEndpoint, 0> pending;
-  auto debit = [&](uint64_t units, Operation *site) {
-    return budget.debit(units, site);
-  };
   auto push = [&](Value value, ArrayRef<StringAttr> path,
                   Operation *site) -> LogicalResult {
     if (failed(debit(Budget::add(1, path.size()), site)))
@@ -101,8 +98,8 @@ LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
         return WalkResult::advance();
       // SourceExpect's own verifier authenticates authored assertions and the
       // generated range/knownness obligations. They are all diagnostic sinks.
-      if (isa<SourceExpectOp, SourceObserveOp, YieldOp, SourcePredicateOp>(
-              operation) ||
+      if (isa<SourceExpectOp, SourceObserveOp, PayloadUseOp, YieldOp,
+              SourcePredicateOp>(operation) ||
           operation->getName().getStringRef() == "scf.yield" ||
           operation->getName().getStringRef() == "scf.if" ||
           isa<SourceBranchOp>(operation) ||
@@ -203,7 +200,7 @@ LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
           continue;
         return reject(user);
       }
-      if (isa<SourceObserveOp>(user))
+      if (isa<SourceObserveOp, PayloadUseOp>(user))
         continue;
       if (isa<SourceBranchOp>(user) ||
           user->getName().getStringRef() == "scf.if") {
@@ -211,9 +208,16 @@ LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
           return failure();
         continue;
       }
-      if (isa<RuleOp, SourceTransactionOp, SourceMethodOp>(user)) {
+      if (isa<RuleOp, SourceTransactionOp, SourceMethodOp,
+              TransactionRuleOp, TransactionMethodOp>(user)) {
         unsigned argument = index;
-        if (isa<SourceTransactionOp>(user)) {
+        if (isa<TransactionRuleOp, TransactionMethodOp>(user)) {
+          auto signature = cast<FunctionType>(
+              user->getAttrOfType<TypeAttr>("function_type").getValue());
+          argument += signature.getNumInputs();
+          if (isa<TransactionRuleOp>(user))
+            argument += signature.getNumResults();
+        } else if (isa<SourceTransactionOp>(user)) {
           if (index < 2)
             return reject(user);
           argument -= 2;
@@ -223,6 +227,9 @@ LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
           argument += method.getFunctionType().getNumInputs();
         }
         for (Region &region : user->getRegions()) {
+          if (region.empty() &&
+              isa<TransactionRuleOp, TransactionMethodOp>(user))
+            continue;
           if (!region.hasOneBlock() ||
               argument >= region.front().getNumArguments())
             return reject(user);
@@ -234,13 +241,16 @@ LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
       }
       if (isa<YieldOp>(user) || user->getName().getStringRef() == "scf.yield") {
         Operation *owner = user->getParentOp();
-        if (isa<ModuleOp, SourceMethodOp>(owner))
+        if (isa<ModuleOp, SourceMethodOp, TransactionMethodOp>(owner))
           return reject(user);
+        if (auto rule = dyn_cast<TransactionRuleOp>(owner))
+          if (user->getParentRegion() == &rule.getGuard())
+            return reject(user);
         if (auto transaction = dyn_cast<SourceTransactionOp>(owner))
           if (user->getParentRegion() == &transaction.getGuard())
             return reject(user);
-        if (!isa<RuleOp, SourceTransactionOp, SourceBranchOp, TableMapOp,
-                 TableMatchOp>(owner) &&
+        if (!isa<RuleOp, SourceTransactionOp, TransactionRuleOp, SourceBranchOp,
+                 TableMapOp, TableMatchOp>(owner) &&
             owner->getName().getStringRef() != "scf.if")
           return reject(user);
         if (index >= owner->getNumResults())
@@ -412,6 +422,13 @@ int compareCheckWithinRegistration(DictionaryAttr lhs, DictionaryAttr rhs) {
   return 0;
 }
 } // namespace
+
+LogicalResult detail::verifyVerificationObserverUses(
+    const HardwareAnalysis &analysis, ModuleOp definition,
+    const HardwareBindings &bindings,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  return verifyObserverUses(analysis, definition, bindings, debit);
+}
 LogicalResult
 detail::verifySourceObservationStructure(SourceObserveOp observe) {
   auto error = [&] { return observe.emitOpError(); };
@@ -825,7 +842,10 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
   if (definition->getNumRegions() != 1 || !definition.getBody().hasOneBlock())
     return definition.emitOpError()
            << "source checks require one definition graph block";
-  if (failed(verifyObserverUses(analysis, definition, bindings, budget)))
+  if (failed(verifyObserverUses(analysis, definition, bindings,
+          [&](uint64_t units, Operation *site) {
+            return budget.debit(units, site);
+          })))
     return failure();
   SmallVector<HardwareCheckBinding> result;
   // Keep registration ordering once per registration. IDs within a group

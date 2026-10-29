@@ -21,6 +21,7 @@ from test_scalar_generic_modules import (
     _rejected,
 )
 from test_source_system_execution import (
+    FIXTURE,
     _bundle,
     _cli,
     _compile,
@@ -31,6 +32,162 @@ from test_source_system_execution import (
 )
 
 pytestmark = pytest.mark.system
+
+
+def _transactional_static_units(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in ("static_parameter_provider.py", "static_parameter_bench.py"):
+        shutil.copy2(FIXTURE / name, source)
+    provider, consumer = tmp_path / "provider", tmp_path / "consumer"
+    _ok(_compile(source, "static_parameter_provider.py", provider))
+    before = _tree(provider)
+    manifest = json.loads((provider / "unit.json").read_text())
+    body = provider / manifest["files"]["body"]
+    hidden = tmp_path / "hidden-provider.ac"
+    (source / "static_parameter_provider.py").unlink()
+    body.rename(hidden)
+    try:
+        _ok(_compile(source, "static_parameter_bench.py", consumer, [provider]))
+    finally:
+        hidden.rename(body)
+    assert _tree(provider) == before
+    return source, provider, consumer
+
+
+@pytest.mark.parametrize("override", [False, True], ids=["default", "root-override"])
+@pytest.mark.parametrize("target,workers", [("cpp", 1), ("cpp", 2), ("verilog", 1)])
+def test_transactional_static_parameters_saved_linked_execution(
+    tmp_path, override, target, workers
+):
+    source, provider, consumer = _transactional_static_units(tmp_path)
+    linked = tmp_path / "linked.ac"
+    arguments = [
+        "link",
+        str(provider),
+        str(consumer),
+        "--top",
+        "checks.static_parameter_bench.ExerciseStaticParameters",
+        "--target",
+        "linked",
+        "-o",
+        str(linked),
+    ]
+    if override:
+        parameters = _parameters(tmp_path / "parameters.json", WIDTH=4, CAPACITY=1)
+        arguments += ["--parameters", str(parameters)]
+    _ok(_cli(*arguments))
+    original = linked.read_bytes()
+    for directory in (source, provider, consumer):
+        shutil.rmtree(directory)
+    final = tmp_path / "final.ac"
+    _ok(_cli("link", "--from-linked", str(linked), "-o", str(final)))
+    binary = _bundle(final, tmp_path, target)
+    arguments = ["--workers", str(workers)] if target == "cpp" else []
+    records = _records(_ok(_run([str(binary), *arguments], timeout=60)))
+    all_logs = [row for row in records if row["kind"] == "log"]
+    assert {row["spec"]["event"] for row in all_logs} == {
+        "static counters",
+        "static queue",
+    }
+    logs = [row for row in all_logs if row["spec"]["event"] == "static counters"]
+    queue_logs = [row for row in all_logs if row["spec"]["event"] == "static queue"]
+    # Same 12 ordinary cycles, then held highs, reset, and two restarted cycles.
+    # These stimuli and state transitions are independent of emitted DUT data.
+    samples = [(0, 0), (1, 0)] * 12 + [
+        (1, 0),
+        (1, 0),
+        (0, 0),
+        (1, 1),
+        (0, 0),
+        (1, 0),
+        (0, 0),
+        (1, 0),
+    ]
+    widths = (4 if override else 3, 5, 4, 80)
+    # narrow uses the System's static STEP=3 and its instance's BIAS=1.
+    deltas = (4, 5, 2, (1 << 79) + 1)
+    initial = [width - 2 for width in widths]
+    current = initial.copy()
+    clock_before = 0
+    expected = []
+    epochs = []
+    capacity = 1 if override else 2
+    queue = []
+    queue_expected = []
+    queue_epochs = []
+    for epoch, (clock, reset) in enumerate(samples):
+        can_pop = bool(queue)
+        can_push = len(queue) < capacity
+        if can_pop:
+            queue_expected.append(queue[0])
+            queue_epochs.append(epoch)
+        proposed = [
+            (old + delta) % (1 << width)
+            for old, delta, width in zip(current, deltas, widths, strict=True)
+        ]
+        values = tuple(
+            value
+            for pair in zip(current[:3], proposed[:3], strict=True)
+            for value in pair
+        )
+        values += tuple(
+            word
+            for payload in (current[3], proposed[3])
+            for word in (payload & ((1 << 64) - 1), payload >> 64)
+        )
+        expected.append(values)
+        epochs.append(epoch)
+        if clock and not clock_before:
+            if reset:
+                queue.clear()
+            else:
+                if can_pop:
+                    queue.pop(0)
+                if can_push:
+                    queue.append(current[0])
+            current = initial.copy() if reset else proposed
+        clock_before = clock
+    assert [row["spec"]["event"] for row in logs] == ["static counters"] * len(epochs)
+    assert [
+        tuple(int(value["value"]) for value in row["values"]) for row in logs
+    ] == expected
+    assert [int(row["evaluation_epoch"]) for row in logs] == epochs
+    assert [int(row["commit_epoch"]) for row in logs] == [epoch + 1 for epoch in epochs]
+    assert [int(row["values"][0]["value"]) for row in queue_logs] == queue_expected
+    assert [int(row["evaluation_epoch"]) for row in queue_logs] == queue_epochs
+    assert [int(row["commit_epoch"]) for row in queue_logs] == [
+        epoch + 1 for epoch in queue_epochs
+    ]
+    terminal = [row for row in records if row["kind"] == "result"]
+    assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
+    assert linked.read_bytes() == original
+
+
+def test_transactional_static_parameters_validate_unused_method_after_binding(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    filename = "static_parameter_provider.py"
+    # The default five-bit binding admits bit 3. A three-bit root binding does
+    # not, even though highest is never invoked. Preserve the published output.
+    text = (FIXTURE / filename).read_text().replace("value[W - 1]", "value[3]")
+    (source / filename).write_text(text)
+    provider = tmp_path / "provider"
+    _ok(_compile(source, filename, provider))
+    final = tmp_path / "final.ac"
+    top = "checks.static_parameter_provider.Counter"
+    _ok(_link([provider], top, final))
+    original = final.read_bytes()
+    result = _link(
+        [provider],
+        top,
+        final,
+        _parameters(tmp_path / "parameters.json", W=3),
+        replace=True,
+    )
+    assert result.returncode != 0
+    assert final.read_bytes() == original
+
 
 COUNTER = """import pycircuit as ac
 @ac.module
