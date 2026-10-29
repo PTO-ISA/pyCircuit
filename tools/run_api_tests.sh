@@ -50,6 +50,7 @@ nightly_python_tests=(
   tests/system/test_hierarchical_state_rules.py
   tests/system/test_queue_rule_pipeline_example.py
   tests/system/test_module_scalar_outputs.py
+  tests/system/test_void_module_results.py
   tests/system/test_source_captured_validity.py
   tests/system/test_unannotated_rule_execution.py
   tests/system/test_source_map.py

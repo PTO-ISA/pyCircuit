@@ -1,9 +1,11 @@
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "ACIRSourceContracts.h"
+#include "HardwareSourceCheckPreflight.h"
 #include "SourceTransactionSummary.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/PointerUnion.h"
 #include <functional>
 
 using namespace mlir;
@@ -33,7 +35,8 @@ public:
   SummaryBuilder(llvm::DenseMap<Attribute, SourceMethodSummary> &methods,
                  llvm::DenseMap<Operation *, bool> &transactions)
       : methods(methods), transactions(transactions) {}
-  LogicalResult run(ArrayRef<Operation *> modules, SourceModuleLookup lookup) {
+  LogicalResult run(ArrayRef<Operation *> modules, SourceModuleLookup lookup,
+                    mlir::ModuleOp package = {}) {
     for (Operation *module : modules) {
       if (!charge(module))
         return failure();
@@ -101,9 +104,36 @@ public:
         }
       }
     }
-    for (Operation *module : modules)
-      if (failed(instances(module, lookup, 0)))
+    for (Operation *module : modules) {
+      HardwareBindings bindings;
+      bindings.owner = module;
+      if (failed(instances(module, lookup, bindings, 0, false)))
         return failure();
+    }
+    if (package && !package.getOps<SystemOp>().empty()) {
+      HardwareAnalysis hardware(package);
+      auto root = detail::resolveHardwareRootBindings(hardware);
+      if (failed(root)) return failure();
+      // Template proofs cannot discharge actual-bound body checks. Unallocated
+      // generic templates do not acquire widths from declaration defaults.
+      completedInstances.clear();
+      if (failed(instances(root->owner, lookup, *root, 0, true)))
+        return failure();
+      // Emit also retains concrete scalar wrappers outside the selected root.
+      // Validate those actual closures before unused Methods are erased.
+      for (Operation *module : modules) {
+        if (!charge(module)) return failure();
+        auto definition = dyn_cast<ModuleOp>(module);
+        if (!definition || !definition.getParameters().empty() ||
+            !definition.getTypeParameters().empty() ||
+            definition->hasAttr("ac.reference_parameters"))
+          continue;
+        HardwareBindings bindings;
+        bindings.owner = module;
+        if (failed(instances(module, lookup, bindings, 0, true)))
+          return failure();
+      }
+    }
     for (const Callable &callable : declarations)
       nodes[callable.symbol] = callable;
     // All edges participate, including unreachable and known-false calls.
@@ -209,6 +239,97 @@ private:
     }
     work += units;
     return true;
+  }
+  bool bindingCost(const HardwareBindings &bindings, Operation *site) {
+    using Budget = detail::SourceCheckBudget;
+    // StringMap copies retain bucket capacity as well as entries and keys.
+    uint64_t buckets = Budget::add(bindings.integers.getNumBuckets(),
+                                   bindings.types.getNumBuckets());
+    return charge(site, Budget::add(Budget::bindings(bindings), Budget::add(
+        buckets, Budget::bytes(Budget::add(
+            Budget::multiply(buckets, sizeof(void *) + sizeof(unsigned)),
+            2 * sizeof(void *))))));
+  }
+  LogicalResult boundCost(llvm::PointerUnion<Attribute, Type> node,
+                          Operation *site, unsigned depth = 0) {
+    if (!node) return success();
+    if (depth > maxDepth)
+      return site->emitOpError() << "bound Method static expression depth exceeded";
+    if (!charge(site)) return failure();
+    bool valid = true;
+    auto attribute = [&](Attribute value) {
+      if (valid && failed(boundCost(value, site, depth + 1))) valid = false;
+    };
+    auto type = [&](Type value) {
+      if (valid && failed(boundCost(value, site, depth + 1))) valid = false;
+    };
+    if (auto value = dyn_cast<Attribute>(node)) {
+      if (auto text = dyn_cast<StringAttr>(value))
+        if (!charge(site, text.getValue().size())) return failure();
+      if (auto integer = dyn_cast<MathIntAttr>(value))
+        if (!charge(site, integer.getCanonicalValue().size())) return failure();
+      value.walkImmediateSubElements(attribute, type);
+    } else {
+      cast<Type>(node).walkImmediateSubElements(attribute, type);
+    }
+    return success(valid);
+  }
+  static bool hardwareType(Type type) {
+    return isa<BitsType, StructType, EnumType, TableType, TypeParamType>(type);
+  }
+  LogicalResult boundType(Type type, const HardwareBindings &bindings,
+                          const HardwareAnalysis &hardware, Operation *site) {
+    // Arithmetic/index transport keeps its existing source verifier.
+    if (!hardwareType(type)) return success();
+    if (!bindingCost(bindings, site) || failed(boundCost(type, site)))
+      return failure();
+    auto width = hardware.getPackedWidth(type, bindings, site);
+    if (failed(width)) return failure();
+    if (!*width)
+      return site->emitOpError() << "bound Method payload requires positive width";
+    return success();
+  }
+  LogicalResult boundMethodBody(Operation *operation,
+                                const HardwareBindings &bindings,
+                                const HardwareAnalysis &hardware,
+                                unsigned depth = 0) {
+    if (depth > maxDepth)
+      return operation->emitOpError() << "bound Method region depth exceeded";
+    if (!charge(operation, 1 + operation->getNumOperands() +
+                               operation->getNumResults()) ||
+        failed(boundCost(operation->getAttrDictionary(), operation)) ||
+        failed(boundCost(operation->getPropertiesAsAttribute(), operation)))
+      return failure();
+    bool hardwareOperands = true;
+    for (TypeRange types : {TypeRange(operation->getOperandTypes()),
+                           TypeRange(operation->getResultTypes())})
+      for (Type type : types) {
+        hardwareOperands &= hardwareType(type);
+        if (failed(boundType(type, bindings, hardware, operation)))
+          return failure();
+      }
+    if (auto method = dyn_cast<SourceMethodOp>(operation))
+      for (TypeRange types : {method.getFunctionType().getInputs(),
+                             method.getFunctionType().getResults()})
+        for (Type type : types)
+          if (failed(boundType(type, bindings, hardware, operation)))
+            return failure();
+    // Reuse constant-fit/extract/resize/width semantics; mixed transport
+    // operations retain their existing verifier instead of imposing Bits.
+    if (hardwareOperands &&
+        failed(hardware.verifyResolvedOperation(operation, bindings)))
+      return failure();
+    for (Region &region : operation->getRegions())
+      for (Block &block : region) {
+        if (!charge(operation, block.getNumArguments())) return failure();
+        for (Type type : block.getArgumentTypes())
+          if (failed(boundType(type, bindings, hardware, operation)))
+            return failure();
+        for (Operation &nested : block)
+          if (failed(boundMethodBody(&nested, bindings, hardware, depth + 1)))
+            return failure();
+      }
+    return success();
   }
   template <typename T, unsigned N>
   bool append(SmallVector<T, N> &values, T value, Operation *site) {
@@ -367,8 +488,9 @@ private:
     return success();
   }
   LogicalResult instances(Operation *module, SourceModuleLookup lookup,
-                          unsigned depth) {
-    if (!charge(module))
+                          const HardwareBindings &parent, unsigned depth,
+                          bool verifyBodies) {
+    if (!charge(module) || !bindingCost(parent, module))
       return failure();
     if (depth > maxDepth)
       return module->emitOpError()
@@ -376,12 +498,14 @@ private:
     if (instanceMarks.lookup(module) == 1)
       return module->emitOpError()
              << "recursive instance graph cannot be published";
-    if (instanceMarks.lookup(module) == 2)
-      return success();
+    if (auto found = completedInstances.find(module);
+        found != completedInstances.end())
+      for (const HardwareBindings &prior : found->second) {
+        if (!bindingCost(prior, module)) return failure();
+        if (detail::sameHardwareBindings(prior, parent)) return success();
+      }
     instanceMarks[module] = 1;
     HardwareAnalysis hardware(module->getParentOfType<mlir::ModuleOp>());
-    HardwareBindings parent;
-    parent.owner = module;
     auto edge = [&](FlatSymbolRefAttr callee, ArrayAttr parameters,
                     ArrayAttr types, TypeRange inputs, TypeRange outputs,
                     Operation *site, Attribute references) -> LogicalResult {
@@ -449,16 +573,23 @@ private:
       if (failed(check(inputs, signature.getInputs(), "input")) ||
           failed(check(outputs, signature.getResults(), "output")))
         return failure();
-      return instances(target, lookup, depth + 1);
+      bound->owner = target;
+      return instances(target, lookup, *bound, depth + 1, verifyBodies);
     };
     if (auto body = dyn_cast<ModuleOp>(module)) {
-      for (Operation &op : body.getBody().front())
+      for (Operation &op : body.getBody().front()) {
+        // Include unused Methods and both arms: routing later removes them,
+        // but their declarations must be valid for each actual occurrence.
+        if (verifyBodies && isa<SourceMethodOp>(op) &&
+            failed(boundMethodBody(&op, parent, hardware)))
+          return failure();
         if (isa<InstanceOp, CollectionOp>(op) &&
             failed(edge(op.getAttrOfType<FlatSymbolRefAttr>("callee"),
                         op.getAttrOfType<ArrayAttr>("parameters"),
                         op.getAttrOfType<ArrayAttr>("type_arguments"),
                         op.getOperandTypes(), op.getResultTypes(), &op, op.getAttr("ac.reference_bindings"))))
           return failure();
+      }
     } else if (auto summary = module->getAttrOfType<DictionaryAttr>(
                    "transaction_summary")) {
       for (Attribute raw : summary.getAs<ArrayAttr>("owners")) {
@@ -477,7 +608,25 @@ private:
           return failure();
       }
     }
-    instanceMarks[module] = 2;
+    if (!completedInstances.contains(module)) {
+      using Budget = detail::SourceCheckBudget;
+      using Bucket = decltype(completedInstances)::value_type;
+      uint64_t previous = completedInstances.getMemorySize() / sizeof(Bucket);
+      uint64_t capacity = std::max(uint64_t(64), previous);
+      while (Budget::multiply(completedInstances.size() + 1, 4) >=
+             Budget::multiply(capacity, 3)) {
+        if (!charge(module)) return failure();
+        capacity = Budget::multiply(capacity, 2);
+      }
+      if (capacity > previous &&
+          !charge(module, Budget::add(completedInstances.size(), Budget::bytes(
+              Budget::multiply(capacity, sizeof(Bucket))))))
+        return failure();
+    }
+    if (!bindingCost(parent, module) ||
+        !append(completedInstances[module], parent, module))
+      return failure();
+    instanceMarks[module] = 0;
     return success();
   }
   PredicateFact rowFact(DictionaryAttr fact,
@@ -723,6 +872,7 @@ private:
   llvm::DenseMap<Operation *, SmallVector<Call, 0>> nativeCalls;
   llvm::DenseMap<Attribute, SmallVector<Call, 0>> rowCalls;
   llvm::DenseMap<Operation *, unsigned> instanceMarks;
+  llvm::DenseMap<Operation *, SmallVector<HardwareBindings, 0>> completedInstances;
   SmallVector<Operation *, 0> nativeEffectfulBranches;
   SmallVector<Attribute, 0> rowEffectfulBranches;
   SmallVector<Callable> declarations, registrations;
@@ -750,7 +900,7 @@ SourceMethodSummariesAnalysis::SourceMethodSummariesAnalysis(
     return symbols.lookupSymbolIn(unit, symbol);
   };
   valid = succeeded(
-      SummaryBuilder(methods, transactions).run(declarations, lookup));
+      SummaryBuilder(methods, transactions).run(declarations, lookup, unit));
 }
 SourceMethodSummariesAnalysis::SourceMethodSummariesAnalysis(
     ArrayRef<Operation *> modules, SourceModuleLookup lookup) {

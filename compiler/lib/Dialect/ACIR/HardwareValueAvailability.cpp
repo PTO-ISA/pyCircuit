@@ -8,34 +8,67 @@
 
 using namespace mlir;
 namespace acir::ac::detail {
-bool hasUniformTableAvailability(Value value, const HardwareAnalysis &analysis) {
-  for (unsigned depth = 0; depth < 128; ++depth) {
-    if (auto argument = dyn_cast<BlockArgument>(value)) {
+FailureOr<bool> hasUniformTableAvailability(
+    Value value, const HardwareAnalysis &analysis,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  DenseMap<Value, bool> memo;
+  DenseSet<Value> active;
+  std::function<FailureOr<bool>(Value, unsigned)> visit =
+      [&](Value current, unsigned depth) -> FailureOr<bool> {
+    Operation *site = current.getParentBlock()->getParentOp();
+    if (debit && failed(debit(16, site))) return failure();
+    if (auto found = memo.find(current); found != memo.end())
+      return found->second;
+    if (depth >= 128)
+      return site->emitOpError() << "uniform Table availability depth exceeds 128";
+    // Pay for the invocation-local memo and active entries before allocation.
+    if (debit && failed(debit(64, site))) return failure();
+    if (!active.insert(current).second)
+      return site->emitOpError() << "cycle in uniform Table availability";
+    llvm::scope_exit cleanup([&] { active.erase(current); });
+    FailureOr<bool> result = false;
+    if (auto argument = dyn_cast<BlockArgument>(current)) {
       auto *owner = argument.getOwner()->getParentOp();
-      if (isa<ModuleOp>(owner)) return true;
-      if (auto rule = dyn_cast<RuleOp>(owner)) {
-        if (argument.getArgNumber() >= rule.getCaptures().size()) return false;
-        value = rule.getCaptures()[argument.getArgNumber()];
-        continue;
+      if (isa<ModuleOp>(owner)) result = true;
+      else if (auto rule = dyn_cast<RuleOp>(owner)) {
+        if (argument.getArgNumber() < rule.getCaptures().size())
+          result = visit(rule.getCaptures()[argument.getArgNumber()], depth + 1);
       }
-      return false;
+    } else {
+      auto *operation = current.getDefiningOp();
+      if (isa_and_nonnull<SourceStateOp, TableSplatOp, InstanceOp>(operation))
+        result = true;
+      else if (auto collection = dyn_cast_or_null<CollectionOp>(operation))
+        result = !analysis.getPrimitiveKind(analysis.resolveCallee(collection)).empty();
+      else if (auto rule = dyn_cast_or_null<RuleOp>(operation)) {
+        if (rule->hasAttr("ac.sampled_admission")) result = true;
+        else if (rule.getBody().hasOneBlock() && !rule.getBody().front().empty()) {
+          auto yield = dyn_cast<YieldOp>(rule.getBody().front().back());
+          auto ordinal = cast<OpResult>(current).getResultNumber();
+          if (yield && ordinal < yield.getNumOperands())
+            result = visit(yield.getOperand(ordinal), depth + 1);
+        }
+      } else if (auto merge = dyn_cast_or_null<ValueMergeOp>(operation);
+                 merge && current == merge.getNext() &&
+                 isa<TableType>(current.getType()) &&
+                 merge.getGuards().size() <= 1 &&
+                 merge.getPaths().size() == merge.getGuards().size() &&
+                 merge.getValues().size() == merge.getGuards().size()) {
+        bool whole = merge.getPaths().empty() ||
+                     (isa<ArrayAttr>(merge.getPaths()[0]) &&
+                      cast<ArrayAttr>(merge.getPaths()[0]).empty());
+        if (whole) {
+          result = visit(merge.getBase(), depth + 1);
+          if (succeeded(result) && *result && !merge.getValues().empty())
+            result = visit(merge.getValues().front(), depth + 1);
+        }
+      }
     }
-    auto *operation = value.getDefiningOp();
-    if (isa_and_nonnull<SourceStateOp, TableSplatOp, InstanceOp>(operation)) return true;
-    if (auto collection = dyn_cast_or_null<CollectionOp>(operation))
-      return !analysis.getPrimitiveKind(analysis.resolveCallee(collection)).empty();
-    if (auto rule = dyn_cast_or_null<RuleOp>(operation)) {
-      if (rule->hasAttr("ac.sampled_admission")) return true;
-      if (!rule.getBody().hasOneBlock() || rule.getBody().front().empty()) return false;
-      auto yield = dyn_cast<YieldOp>(rule.getBody().front().back());
-      auto ordinal = cast<OpResult>(value).getResultNumber();
-      if (!yield || ordinal >= yield.getNumOperands()) return false;
-      value = yield.getOperand(ordinal);
-      continue;
-    }
-    return false;
-  }
-  return false;
+    if (failed(result)) return failure();
+    memo.try_emplace(current, *result);
+    return *result;
+  };
+  return visit(value, 0);
 }
 namespace {
 // Availability proof preserves three statuses: known zero, known one, and
@@ -51,6 +84,8 @@ class AvailabilityProof {
     return false;
   }
   using Expr = unsigned;
+  using Uniform = std::optional<Expr>;
+  using KnownGuard = std::optional<bool>;
   struct Node {
     std::string kind;
     SmallVector<Expr> children;
@@ -66,13 +101,21 @@ class AvailabilityProof {
     TableMapOp map;
     Expr ordinal;
     DenseMap<Value, Expr> raw, formulas;
-    std::map<std::string, Expr> available, rows, rawRows, rowFormulas;
-    std::set<std::string> active, activeRows, activeRawRows, activeRowFormulas;
+    std::map<std::string, Expr> available, rows, rawRows, rowFormulas, constantRows;
+    std::set<std::string> active, activeRows, activeRawRows, activeRowFormulas, activeConstantRows;
+    std::map<std::string, Uniform> uniform;
+    std::map<std::string, KnownGuard> guards;
+    std::set<std::string> activeUniform, activeGuards;
   };
   RowFrame *rowFrame = nullptr;
-  unsigned rowDepth = 0;
-  std::map<std::string, Expr> rowCache, rawRowCache, formulaRowCache;
-  std::set<std::string> rowActive, rawRowActive, formulaRowActive;
+  unsigned rowDepth = 0, uniformDepth = 0, guardDepth = 0;
+  std::map<std::string, Uniform> uniformCache;
+  std::map<std::string, KnownGuard> guardCache;
+  std::set<std::string> uniformActive, guardActive;
+  std::map<std::pair<Expr, Expr>, Expr> rowReductionCache;
+  std::set<std::pair<Expr, Expr>> rowReductionActive;
+  std::map<std::string, Expr> rowCache, rawRowCache, formulaRowCache, constantRowCache;
+  std::set<std::string> rowActive, rawRowActive, formulaRowActive, constantRowActive;
   static void appendKeyPart(std::string &key, StringRef part) {
     key += ":" + std::to_string(part.size()) + ":" + part.str();
   }
@@ -246,12 +289,291 @@ class AvailabilityProof {
     rowFrame->raw.try_emplace(value, result);
     return result;
   }
+  // Enumerate declaration paths, without asking for scalar widths or an
+  // occurrence's Table geometry. Only Table-free element trees use this path.
+  bool elementLeaves(Type type, FieldPath &path, SmallVector<FieldPath> &leaves,
+                     DenseSet<Type> &visiting, Operation *site, unsigned depth = 0) {
+    if (!charge(16 + path.size(), site)) return false;
+    if (depth >= 128) {
+      reject(site, "Table availability element depth exceeds 128");
+      return false;
+    }
+    if (isa<BitsType, EnumType>(type)) {
+      if (!charge(32 + path.size(), site)) return false;
+      leaves.push_back(path);
+      return true;
+    }
+    auto structure = dyn_cast<StructType>(type);
+    if (!structure || !visiting.insert(type).second) {
+      reject(site, "Table availability requires acyclic Table-free elements");
+      return false;
+    }
+    llvm::scope_exit cleanup([&] { visiting.erase(type); });
+    auto declaration = analysis.lookupStruct(structure);
+    if (!declaration) {
+      reject(site, "Table availability requires a declared Struct element");
+      return false;
+    }
+    for (Attribute raw : declaration.getFields()) {
+      auto field = cast<DictionaryAttr>(raw);
+      if (!charge(16 + path.size(), site)) return false;
+      path.push_back(field.getAs<StringAttr>("name"));
+      bool valid = elementLeaves(field.getAs<TypeAttr>("type").getValue(), path,
+                                 leaves, visiting, site, depth + 1);
+      path.pop_back();
+      if (!valid) return false;
+    }
+    return true;
+  }
+  FailureOr<KnownGuard> knownGuard(Value value, ArrayRef<StringAttr> path = {}) {
+    Operation *site = value.getParentBlock()->getParentOp();
+    if (guardDepth >= 128) {
+      reject(site, "constant guard proof depth exceeds 128");
+      return failure();
+    }
+    ++guardDepth;
+    llvm::scope_exit depth([&] { --guardDepth; });
+    auto key = valueKey(value, path);
+    if (invalid || !charge(64 + key.size(), site)) return failure();
+    auto &cache = inRow(value) ? rowFrame->guards : guardCache;
+    auto &visiting = inRow(value) ? rowFrame->activeGuards : guardActive;
+    if (auto found = cache.find(key); found != cache.end()) return found->second;
+    if (!visiting.insert(key).second) {
+      reject(site, "cycle in constant guard proof");
+      return failure();
+    }
+    llvm::scope_exit cleanup([&] { visiting.erase(key); });
+    FailureOr<KnownGuard> result = KnownGuard();
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      if (auto rule = dyn_cast<RuleOp>(argument.getOwner()->getParentOp()))
+        result = knownGuard(rule.getCaptures()[argument.getArgNumber()], path);
+      else if (inRow(value) &&
+               argument.getArgNumber() > rowFrame->map.getTables().size())
+        result = knownGuard(rowFrame->map.getCaptures()[
+            argument.getArgNumber() - rowFrame->map.getTables().size() - 1], path);
+    } else if (auto rule = value.getDefiningOp<RuleOp>()) {
+      auto yield = cast<YieldOp>(rule.getBody().front().back());
+      result = knownGuard(yield.getValues()[cast<OpResult>(value).getResultNumber()], path);
+    } else if (auto get = value.getDefiningOp<StructGetOp>()) {
+      if (!charge(16 + path.size(), get)) return failure();
+      SmallVector<StringAttr> nested{get.getFieldAttr()};
+      llvm::append_range(nested, path);
+      result = knownGuard(get.getValue(), nested);
+    } else if (auto create = value.getDefiningOp<StructCreateOp>(); create && !path.empty()) {
+      auto declaration = analysis.lookupStruct(create.getResult().getType());
+      for (auto [i, raw] : llvm::enumerate(declaration.getFields())) {
+        if (!charge(4, create)) return failure();
+        if (cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == path.front()) {
+          result = knownGuard(create.getValues()[i], path.drop_front());
+          break;
+        }
+      }
+    } else if (path.empty()) {
+      if (auto bits = value.getDefiningOp<BitsConstantOp>()) {
+        // Prepay the complete expression before asking the existing static
+        // evaluator. An unbound expression proves nothing; evaluation errors
+        // must remain proof failures rather than an unknown Boolean.
+        (void)attributeKey(bits.getValue().getTree());
+        if (invalid) return failure();
+        if (analysis.isStaticEvaluable(bits.getValue(), {})) {
+          auto evaluated = analysis.evaluateStatic(bits.getValue(), {}, bits);
+          if (failed(evaluated)) { invalid = true; return failure(); }
+          auto integer = dyn_cast<MathIntAttr>(*evaluated);
+          if (!integer) {
+            reject(bits, "constant guard proof requires an Integer value");
+            return failure();
+          }
+          if (integer.getCanonicalValue() == "0" ||
+              integer.getCanonicalValue() == "1")
+            result = KnownGuard(integer.getCanonicalValue() == "1");
+        }
+      } else if (auto bits = value.getDefiningOp<BitsConstant4Op>()) {
+        if (bits.getPattern() == "0" || bits.getPattern() == "1")
+          result = KnownGuard(bits.getPattern() == "1");
+      }
+    }
+    if (failed(result) || invalid) return failure();
+    cache.emplace(std::move(key), *result);
+    return *result;
+  }
+  FailureOr<Uniform> uniformAvailability(Value value,
+                                         ArrayRef<StringAttr> path = {}) {
+    Operation *site = value.getParentBlock()->getParentOp();
+    if (uniformDepth >= 128) {
+      reject(site, "uniform field availability depth exceeds 128");
+      return failure();
+    }
+    ++uniformDepth;
+    llvm::scope_exit depth([&] { --uniformDepth; });
+    auto key = valueKey(value, path);
+    if (invalid || !charge(64 + key.size(), site)) return failure();
+    auto &cache = inRow(value) ? rowFrame->uniform : uniformCache;
+    auto &visiting = inRow(value) ? rowFrame->activeUniform : uniformActive;
+    if (auto found = cache.find(key); found != cache.end()) return found->second;
+    if (!visiting.insert(key).second) {
+      reject(site, "cycle in uniform field availability");
+      return failure();
+    }
+    llvm::scope_exit cleanup([&] { visiting.erase(key); });
+    auto result = deriveUniformAvailability(value, path);
+    if (failed(result) || invalid) return failure();
+    cache.emplace(std::move(key), *result);
+    return *result;
+  }
+  FailureOr<Uniform> deriveUniformAvailability(Value value,
+                                               ArrayRef<StringAttr> path) {
+    // A scalar has exactly one availability leaf. Aggregate totality, in
+    // contrast, never establishes equal availability of its constituent leaves.
+    if (path.empty() && isa<BitsType, EnumType>(value.getType()))
+      return Uniform(availability(value));
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      auto *owner = argument.getOwner()->getParentOp();
+      if (isa<ModuleOp>(owner)) return Uniform(availability(value, path));
+      if (auto rule = dyn_cast<RuleOp>(owner))
+        return uniformAvailability(rule.getCaptures()[argument.getArgNumber()], path);
+      if (inRow(value)) {
+        unsigned ordinal = argument.getArgNumber();
+        if (!ordinal) return Uniform(1);
+        if (ordinal <= rowFrame->map.getTables().size())
+          return uniformAvailability(rowFrame->map.getTables()[ordinal - 1], path);
+        return uniformAvailability(rowFrame->map.getCaptures()[
+            ordinal - rowFrame->map.getTables().size() - 1], path);
+      }
+      return Uniform();
+    }
+    Operation *op = value.getDefiningOp();
+    if (isa<SourceStateOp>(op)) return Uniform(1);
+    if (auto rule = dyn_cast<RuleOp>(op)) {
+      if (rule->hasAttr("ac.sampled_admission"))
+        return Uniform(availability(value, path));
+      auto yield = cast<YieldOp>(rule.getBody().front().back());
+      return uniformAvailability(yield.getValues()[cast<OpResult>(value).getResultNumber()], path);
+    }
+    if (isa<InstanceOp>(op))
+      return Uniform(availability(value, path));
+    if (auto collection = dyn_cast<CollectionOp>(op)) {
+      auto target = analysis.resolveCallee(collection);
+      if (target && !analysis.getPrimitiveKind(target).empty()) return Uniform(1);
+      return Uniform();
+    }
+    if (auto get = dyn_cast<StructGetOp>(op)) {
+      if (!charge(16 + path.size(), get)) return failure();
+      SmallVector<StringAttr> nested{get.getFieldAttr()};
+      llvm::append_range(nested, path);
+      return uniformAvailability(get.getValue(), nested);
+    }
+    if (auto splat = dyn_cast<TableSplatOp>(op))
+      return uniformAvailability(splat.getInput(), path);
+    if (auto view = dyn_cast<TableViewOp>(op))
+      return uniformAvailability(view.getInput(), path);
+    if (auto create = dyn_cast<StructCreateOp>(op); create && !path.empty()) {
+      auto declaration = analysis.lookupStruct(create.getResult().getType());
+      for (auto [i, raw] : llvm::enumerate(declaration.getFields())) {
+        if (!charge(4, create)) return failure();
+        if (cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == path.front())
+          return uniformAvailability(create.getValues()[i], path.drop_front());
+      }
+      return Uniform();
+    }
+    if (isa<StructCreateOp, TableCreateOp>(op)) {
+      Uniform common;
+      for (Value input : op->getOperands()) {
+        if (!charge(4, op)) return failure();
+        auto constituent = uniformAvailability(input, path);
+        if (failed(constituent)) return failure();
+        if (!*constituent) return Uniform();
+        if (common && *common != **constituent) return Uniform();
+        common = **constituent;
+      }
+      return common;
+    }
+    if (auto merge = dyn_cast<ValueMergeOp>(op); merge && value == merge.getNext()) {
+      if (merge.getGuards().empty() && merge.getPaths().empty() && merge.getValues().empty())
+        return uniformAvailability(merge.getBase(), path);
+      if (merge.getGuards().size() != 1 || merge.getPaths().size() != 1 ||
+          merge.getValues().size() != 1 || !isa<ArrayAttr>(merge.getPaths()[0]) ||
+          !cast<ArrayAttr>(merge.getPaths()[0]).empty()) return Uniform();
+      auto known = knownGuard(merge.getGuards().front());
+      if (failed(known)) return failure();
+      if (*known) {
+        auto selected = uniformAvailability(**known ? merge.getValues().front() : merge.getBase(), path);
+        if (failed(selected)) return failure();
+        if (!*selected) return Uniform();
+        return Uniform(all({availability(merge.getGuards().front()), **selected}));
+      }
+      auto base = uniformAvailability(merge.getBase(), path);
+      auto candidate = uniformAvailability(merge.getValues().front(), path);
+      if (failed(base) || failed(candidate)) return failure();
+      if (!*base || !*candidate) return Uniform();
+      return Uniform(all({availability(merge.getGuards().front()),
+          select(formula(merge.getGuards().front()), **candidate, **base)}));
+    }
+    return Uniform();
+  }
+  bool checkWholeTableMerge(ValueMergeOp merge) {
+    // Whole-Table paths are empty and non-overlapping, so at most one update
+    // is admitted. Even a totality shortcut must retain this structural check.
+    if (merge.getGuards().size() > 1 ||
+        merge.getPaths().size() != merge.getGuards().size() ||
+        merge.getValues().size() != merge.getGuards().size() ||
+        (!merge.getPaths().empty() &&
+         (!isa<ArrayAttr>(merge.getPaths()[0]) ||
+          !cast<ArrayAttr>(merge.getPaths()[0]).empty()))) {
+      reject(merge, "Table availability requires a whole-value merge");
+      return false;
+    }
+    return true;
+  }
+  Expr mergeRowAvailability(ValueMergeOp merge, Expr ordinal,
+                            ArrayRef<StringAttr> path,
+                            std::optional<uint64_t> constantOrdinal = {}) {
+    auto row = [&](Value input, ArrayRef<StringAttr> leaf) {
+      return constantOrdinal ? tableAt(input, *constantOrdinal, leaf)
+                             : rowValue(input, ordinal, 1, leaf);
+    };
+    if (!checkWholeTableMerge(merge)) return 0;
+    if (merge.getGuards().empty()) return row(merge.getBase(), path);
+    auto known = knownGuard(merge.getGuards().front());
+    if (failed(known)) return 0;
+    if (*known)
+      return all({availability(merge.getGuards().front()),
+          row(**known ? merge.getValues().front() : merge.getBase(), path)});
+    auto uniform = uniformAvailability(merge.getNext(), path);
+    if (failed(uniform)) return 0;
+    if (*uniform) return **uniform;
+    SmallVector<FieldPath> leaves;
+    FieldPath prefix;
+    DenseSet<Type> visiting;
+    if (!elementLeaves(cast<TableType>(merge.getBase().getType()).getElementType(), prefix,
+                       leaves, visiting, merge)) return 0;
+    SmallVector<Expr> fields;
+    Expr guardAvailable = availability(merge.getGuards().front());
+    Expr guard = formula(merge.getGuards().front());
+    for (const auto &leaf : leaves) {
+      if (path.size() > leaf.size() ||
+          !std::equal(path.begin(), path.end(), leaf.begin())) continue;
+      if (!charge(8, merge)) return 0;
+      fields.push_back(all({guardAvailable,
+          select(guard, row(merge.getValues().front(), leaf),
+                 row(merge.getBase(), leaf))}));
+    }
+    return all(fields);
+  }
+  std::optional<uint64_t> ordinalConstant(Expr ordinal) {
+    StringRef kind = nodes[ordinal].kind;
+    uint64_t value;
+    if (kind.consume_front("constant:") && !kind.getAsInteger(10, value))
+      return value;
+    return std::nullopt;
+  }
   Expr rowValue(Value table, Expr ordinal, unsigned mode,
                 ArrayRef<StringAttr> path = {}) {
     if (rowDepth >= 128) return reject(table.getParentBlock()->getParentOp(), "symbolic row depth exceeds 128");
     ++rowDepth;
     llvm::scope_exit depth([&] { --rowDepth; });
-    table = wire(table);
+    // Availability belongs to the actual Rule result, including sampled fire.
+    // Only raw/value-formula modes may transparently follow its payload carrier.
+    if (mode != 1) table = wire(table);
     auto key = valueKey(table, path);
     appendKeyPart(key, std::to_string(ordinal));
     if (!charge(8 + key.size(), table.getParentBlock()->getParentOp())) return 0;
@@ -267,19 +589,47 @@ class AvailabilityProof {
       return reject(table.getParentBlock()->getParentOp(), "cycle in symbolic row availability");
     llvm::scope_exit cleanup([&] { activeRows.erase(key); });
     Expr result;
-    if (auto splat = table.getDefiningOp<TableSplatOp>())
+    if (auto argument = dyn_cast<BlockArgument>(table);
+        mode == 1 && argument && isa<RuleOp>(argument.getOwner()->getParentOp())) {
+      auto rule = cast<RuleOp>(argument.getOwner()->getParentOp());
+      result = rowValue(rule.getCaptures()[argument.getArgNumber()], ordinal, mode, path);
+    } else if (auto rule = table.getDefiningOp<RuleOp>(); mode == 1 && rule) {
+      if (rule->hasAttr("ac.sampled_admission"))
+        result = availability(table, path);
+      else {
+        auto yield = cast<YieldOp>(rule.getBody().front().back());
+        result = rowValue(yield.getValues()[cast<OpResult>(table).getResultNumber()],
+                          ordinal, mode, path);
+      }
+    } else if (auto splat = table.getDefiningOp<TableSplatOp>())
       result = mode == 1 ? availability(splat.getInput(), path) : mode == 2 ? formula(splat.getInput()) : rawExpression(splat.getInput());
     else if (auto create = table.getDefiningOp<TableCreateOp>()) {
       if (!charge(8 + create.getInputs().size(), create)) return 0;
+      if (auto index = ordinalConstant(ordinal)) {
+        if (*index >= create.getInputs().size())
+          return mode == 1 ? 1 : reject(create, "row formula ordinal is out of range");
+        Value input = create.getInputs()[*index];
+        result = mode == 1 ? availability(input, path)
+                          : mode == 2 ? formula(input) : rawExpression(input);
+        cache.emplace(std::move(key), result);
+        return result;
+      }
       SmallVector<Expr> elements{ordinal};
       elements.reserve(1 + create.getInputs().size());
       for (Value input : create.getInputs())
         elements.push_back(mode == 1 ? availability(input, path) : mode == 2 ? formula(input) : rawExpression(input));
       if (mode != 0 && llvm::all_of(ArrayRef<Expr>(elements).drop_front(), [](Expr e) { return e == 1; })) result = 1;
       else result = node("row-create:" + shapeKey(create.getResult().getType(), create), elements);
-    } else if (auto view = table.getDefiningOp<TableViewOp>())
-      result = rowValue(view.getInput(), viewDomain(view, ordinal), mode, path);
-    else if (auto map = table.getDefiningOp<TableMapOp>()) {
+    } else if (auto view = table.getDefiningOp<TableViewOp>()) {
+      Expr source;
+      if (auto index = ordinalConstant(ordinal)) {
+        auto mapped = analysis.getViewSourceOrdinal(view, *index);
+        if (failed(mapped)) { invalid = true; return 0; }
+        source = node("constant:" + std::to_string(*mapped));
+      } else
+        source = viewDomain(view, ordinal);
+      result = rowValue(view.getInput(), source, mode, path);
+    } else if (auto map = table.getDefiningOp<TableMapOp>()) {
       if (!charge(16 + map.getBody().front().getNumArguments(), map)) return 0;
       RowFrame frame;
       frame.map = map;
@@ -290,10 +640,61 @@ class AvailabilityProof {
       Value yielded = cast<YieldOp>(map.getBody().front().getTerminator())
           .getValues()[cast<OpResult>(table).getResultNumber()];
       result = mode == 1 ? availability(yielded, path) : mode == 2 ? formula(yielded) : rawExpression(yielded);
-    } else if (mode == 1) result = availability(table, path);
+    } else if (auto merge = table.getDefiningOp<ValueMergeOp>();
+               merge && mode == 1 && table == merge.getNext())
+      result = mergeRowAvailability(merge, ordinal, path);
+    else if (mode == 1) result = availability(table, path);
     else result = node("row-source:" + valueKey(table) + ":" +
         typeKey(cast<TableType>(table.getType()).getElementType(), table.getParentBlock()->getParentOp()), {ordinal});
     cache.emplace(std::move(key), result);
+    return result;
+  }
+  Expr reduceRows(Expr row, Expr domain, TableType type, Operation *site,
+                  unsigned depth = 0) {
+    if (!charge(16, site)) return 0;
+    auto key = std::make_pair(row, domain);
+    if (auto found = rowReductionCache.find(key); found != rowReductionCache.end())
+      return found->second;
+    if (depth >= 128) return reject(site, "row reduction depth exceeds 128");
+    if (!charge(64, site)) return 0;
+    if (!rowReductionActive.insert(key).second)
+      return reject(site, "cycle in row reduction");
+    llvm::scope_exit cleanup([&] { rowReductionActive.erase(key); });
+    Expr result;
+    if (row == 0 || row == 1) result = row;
+    // TableCreate explicitly owns each row. Only its exact ordinal domain may
+    // reduce those operands; a subset/view domain cannot use this identity.
+    else if (StringRef(nodes[row].kind).starts_with("row-create:") &&
+             nodes[row].children.front() == domain)
+      result = all(ArrayRef<Expr>(nodes[row].children).drop_front());
+    else if (nodes[row].kind == "and") {
+      // AND over rows distributes over per-row AND in four-state semantics.
+      // Keep selections inside the row: moving a select across this reduction
+      // would incorrectly equate complementary partial fields at selector X.
+      if (!charge(16 + 8 * uint64_t(nodes[row].children.size()), site)) return 0;
+      SmallVector<Expr> children(nodes[row].children);
+      SmallVector<Expr> reduced;
+      reduced.reserve(children.size());
+      for (Expr child : children) {
+        reduced.push_back(reduceRows(child, domain, type, site, depth + 1));
+        if (invalid) return 0;
+      }
+      result = all(reduced);
+    } else {
+      // A broadcast over the real nonempty domain reduces to the same scalar.
+      SmallVector<Expr> pending{row};
+      DenseSet<Expr> seen;
+      bool dependent = false;
+      while (!pending.empty()) {
+        Expr current = pending.pop_back_val();
+        if (!charge(4 + nodes[current].children.size(), site)) return 0;
+        if (current == domain) { dependent = true; break; }
+        if (!seen.insert(current).second) continue;
+        llvm::append_range(pending, nodes[current].children);
+      }
+      result = dependent ? node("fold-and" + shapeKey(type, site), {row}) : row;
+    }
+    if (!invalid) rowReductionCache.emplace(key, result);
     return result;
   }
   Expr wholeRows(Value table, bool available, ArrayRef<StringAttr> path = {}) {
@@ -301,27 +702,8 @@ class AvailabilityProof {
     Operation *site = table.getParentBlock()->getParentOp();
     Expr domain = rowDomain(type, site);
     Expr row = rowValue(table, domain, available ? 1 : 2, path);
-    if (row == 0 || row == 1) return row;
-    // TableCreate already has an explicit operand for each row. Reducing its
-    // complete domain visits those operands, without expanding a table extent.
-    // A view/subset has a different ordinal expression and cannot use this.
-    if (StringRef(nodes[row].kind).starts_with("row-create:") &&
-        nodes[row].children.front() == domain)
-      return all(ArrayRef<Expr>(nodes[row].children).drop_front());
-    // Reuse the existing availability-conjunction normalization for a
-    // broadcast over a nonempty shape. This does not rewrite hardware SSA.
-    SmallVector<Expr> pending{row};
-    DenseSet<Expr> seen;
-    bool dependent = false;
-    while (!pending.empty()) {
-      Expr current = pending.pop_back_val();
-      if (!charge(4 + nodes[current].children.size(), site)) return 0;
-      if (current == domain) { dependent = true; break; }
-      if (!seen.insert(current).second) continue;
-      llvm::append_range(pending, nodes[current].children);
-    }
-    if (!dependent) return row;
-    return node("fold-and" + shapeKey(type, site), {row});
+    if (invalid) return 0;
+    return reduceRows(row, domain, type, site);
   }
 
   Expr node(StringRef kind, ArrayRef<Expr> children = {}) {
@@ -422,10 +804,37 @@ class AvailabilityProof {
       return 0;
     }
     llvm::scope_exit cleanup([&] { formulaActive.erase(value); });
+    FailureOr<KnownGuard> known = KnownGuard();
+    if (isa_and_nonnull<BitsConstantOp, BitsConstant4Op, StructGetOp>(value.getDefiningOp()))
+      known = knownGuard(value);
+    if (failed(known)) return 0;
     Expr result;
-    if (auto number = constant(value);
-        number && (*number == "0" || *number == "1"))
+    if (*known)
+      result = **known ? 1 : 0;
+    else if (auto number = constant(value);
+             number && (*number == "0" || *number == "1"))
       result = *number == "1" ? 1 : 0;
+    else if (auto get = value.getDefiningOp<TableGetOp>();
+             get && value == get->getResult(0) && constant(get.getIndex())) {
+      uint64_t ordinal;
+      auto number = constant(get.getIndex());
+      auto type = cast<TableType>(get.getInput().getType());
+      if (StringRef(*number).getAsInteger(10, ordinal) ||
+          !analysis.isStaticEvaluable(type.getShape(), {}))
+        result = scalar(value);
+      else {
+        // Only an actual, in-range constant row can replace this raw payload
+        // expression. Out-of-range TableGet payloads are X, not known zero.
+        (void)shapeKey(type, get);
+        if (invalid) return 0;
+        auto size = analysis.getTableSize(type, {}, get);
+        if (failed(size)) { invalid = true; return 0; }
+        result = ordinal < *size
+                     ? rowValue(get.getInput(),
+                                node("constant:" + std::to_string(ordinal)), 2)
+                     : scalar(value);
+      }
+    }
     else if (auto fold = value.getDefiningOp<TableFoldOp>(); fold && fold.getKind() == "and")
       result = wholeRows(fold.getInput(), false);
     else if (inRow(value) && isa<BlockArgument>(value)) {
@@ -468,9 +877,36 @@ class AvailabilityProof {
     return 0;
   }
   Expr tableAt(Value table, uint64_t ordinal, ArrayRef<StringAttr> path) {
+    Operation *site = table.getParentBlock()->getParentOp();
+    if (rowDepth >= 128) return reject(site, "constant row depth exceeds 128");
+    ++rowDepth;
+    llvm::scope_exit depth([&] { --rowDepth; });
+    auto key = valueKey(table, path);
+    appendKeyPart(key, std::to_string(ordinal));
+    if (!charge(32 + key.size(), site)) return 0;
+    bool bound = inRow(table);
+    auto &cache = bound ? rowFrame->constantRows : constantRowCache;
+    auto &activeRows = bound ? rowFrame->activeConstantRows : constantRowActive;
+    if (auto found = cache.find(key); found != cache.end()) return found->second;
+    if (!activeRows.insert(key).second)
+      return reject(site, "cycle in constant row availability");
+    llvm::scope_exit cleanup([&] { activeRows.erase(key); });
+    Expr result = deriveTableAt(table, ordinal, path);
+    cache.emplace(std::move(key), result);
+    return result;
+  }
+  Expr deriveTableAt(Value table, uint64_t ordinal, ArrayRef<StringAttr> path) {
     if (auto arg = dyn_cast<BlockArgument>(table))
       if (auto rule = dyn_cast<RuleOp>(arg.getOwner()->getParentOp()))
         return tableAt(rule.getCaptures()[arg.getArgNumber()], ordinal, path);
+    if (auto rule = table.getDefiningOp<RuleOp>()) {
+      if (rule->hasAttr("ac.sampled_admission")) return availability(table, path);
+      auto yield = cast<YieldOp>(rule.getBody().front().back());
+      return tableAt(yield.getValues()[cast<OpResult>(table).getResultNumber()], ordinal, path);
+    }
+    if (auto merge = table.getDefiningOp<ValueMergeOp>();
+        merge && table == merge.getNext())
+      return mergeRowAvailability(merge, 0, path, ordinal);
     if (auto splat = table.getDefiningOp<TableSplatOp>())
       return availability(splat.getInput(), path);
     if (auto view = table.getDefiningOp<TableViewOp>()) {
@@ -486,9 +922,9 @@ class AvailabilityProof {
                  ? availability(create.getInputs()[ordinal], path)
                  : 1;
     if (auto map = table.getDefiningOp<TableMapOp>()) {
-      if (llvm::any_of(map->getOperands(), [&](Value input) { return availability(input) != 1; }))
-        return reject(map, "selected read of a partial TableMap requires exact row availability");
-      return 1;
+      if (llvm::all_of(map->getOperands(), [&](Value input) { return availability(input) == 1; }))
+        return 1;
+      return rowValue(table, node("constant:" + std::to_string(ordinal)), 1, path);
     }
     return availability(table, path);
   }
@@ -683,6 +1119,24 @@ class AvailabilityProof {
         for (Value guard : merge.getGuards()) guards.push_back(availability(guard));
         return all(guards);
       }
+      if (isa<TableType>(value.getType()) && !checkWholeTableMerge(merge)) return 0;
+      if (merge.getGuards().empty() && merge.getPaths().empty() && merge.getValues().empty())
+        return availability(merge.getBase(), path);
+      if (merge.getGuards().size() == 1 && merge.getPaths().size() == 1 &&
+          merge.getValues().size() == 1 && isa<ArrayAttr>(merge.getPaths()[0]) &&
+          cast<ArrayAttr>(merge.getPaths()[0]).empty()) {
+        auto known = knownGuard(merge.getGuards().front());
+        if (failed(known)) return 0;
+        if (*known)
+          return all({availability(merge.getGuards().front()),
+              availability(**known ? merge.getValues().front() : merge.getBase(), path)});
+      }
+      if (isa<TableType>(value.getType())) {
+        auto uniform = uniformAvailability(value, path);
+        if (failed(uniform)) return 0;
+        if (*uniform) return **uniform;
+        return wholeRows(value, true, path);
+      }
       auto leaves = analysis.getFieldPaths(merge.getBase().getType(), {}, merge, debit);
       if (failed(leaves)) { invalid = true; return 0; }
       SmallVector<Expr> fields;
@@ -711,9 +1165,10 @@ class AvailabilityProof {
       return wholeRows(value, true, path);
     }
     if (auto read = dyn_cast<TableReadOp>(op)) {
-      Expr selected = hasUniformTableAvailability(read.getInput(), analysis)
-                          ? tableAt(read.getInput(), 0, path)
-                          : tableElement(read.getInput(), read.getIndex(), path);
+      auto uniform = hasUniformTableAvailability(read.getInput(), analysis, debit);
+      if (failed(uniform)) { invalid = true; return 0; }
+      Expr selected = *uniform ? tableAt(read.getInput(), 0, path)
+                              : tableElement(read.getInput(), read.getIndex(), path);
       return all({availability(read.getIndex()), selected});
     }
     if (auto get = dyn_cast<TableGetOp>(op)) {
@@ -912,6 +1367,35 @@ class AvailabilityUses {
     if (backward.insert(&use).second)
       pending.push_back(&use);
   }
+  bool constantCompanionRead(TableGetOp get) {
+    // This is the exact scalar transport emitted when selecting one row of a
+    // Boolean companion. The index and membership result are never private
+    // availability transports, and a dynamic index must not acquire one here.
+    if (!get->getResult(1).use_empty()) return false;
+    auto table = dyn_cast<TableType>(get.getInput().getType());
+    auto bit = table ? dyn_cast<BitsType>(table.getElementType()) : BitsType();
+    auto index = get.getIndex().getDefiningOp<BitsConstantOp>();
+    auto indexType = dyn_cast<BitsType>(get.getIndex().getType());
+    if (!bit || !index || !indexType ||
+        !analysis.isStaticEvaluable(bit.getWidth(), {}) ||
+        !analysis.isStaticEvaluable(indexType.getWidth(), {}) ||
+        !analysis.isStaticEvaluable(table.getShape(), {})) return false;
+    auto literal = index.getValue().getTree().getAs<DictionaryAttr>("value");
+    auto integer = literal ? literal.getAs<MathIntAttr>("value") : MathIntAttr();
+    uint64_t ordinal;
+    if (!integer || integer.getCanonicalValue().getAsInteger(10, ordinal))
+      return false;
+    auto width = analysis.getPackedWidth(bit, {}, get);
+    auto indexWidth = analysis.getPackedWidth(indexType, {}, get);
+    auto size = analysis.getTableSize(table, {}, get);
+    if (failed(width) || failed(indexWidth) || failed(size) || !*size ||
+        *width != 1 || ordinal >= *size ||
+        get->getResult(0).getType() != bit ||
+        get->getResult(1).getType() != bit) return false;
+    uint64_t expectedWidth =
+        std::max<uint64_t>(1, llvm::APInt(64, *size - 1).getActiveBits());
+    return *indexWidth == expectedWidth;
+  }
   bool allUsers(Value value) {
     return llvm::all_of(value.getUses(),
                         [&](OpOperand &use) { return permits(use); });
@@ -947,7 +1431,10 @@ class AvailabilityUses {
         allowed = allUsers(map->getResult(use.getOperandNumber()));
     } else if (auto map = dyn_cast<TableMapOp>(owner)) {
       allowed = allUsers(map.getBody().front().getArgument(use.getOperandNumber() + 1));
-    } else if (isa<BitsBinaryOp, BitsSelectOp, TableCreateOp, TableSplatOp,
+    } else if (auto get = dyn_cast<TableGetOp>(owner))
+      allowed = use.getOperandNumber() == 0 && constantCompanionRead(get) &&
+                allUsers(get->getResult(0));
+    else if (isa<BitsBinaryOp, BitsSelectOp, TableCreateOp, TableSplatOp,
                    TableViewOp>(owner))
       allowed = llvm::all_of(owner->getResults(),
                              [&](Value value) { return allUsers(value); });
@@ -1011,6 +1498,9 @@ public:
         // The selector is a raw predicate reference, not an availability route.
         add(op->getOpOperand(1));
         add(op->getOpOperand(2));
+      } else if (auto get = dyn_cast<TableGetOp>(producer);
+                 get && value == get->getResult(0) && constantCompanionRead(get)) {
+        add(get->getOpOperand(0));
       } else if (auto fold = dyn_cast<TableFoldOp>(producer); fold && fold.getKind() == "and") {
         add(fold->getOpOperand(0));
       } else if (auto map = dyn_cast<TableMapOp>(producer)) {

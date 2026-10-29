@@ -435,7 +435,8 @@ private:
         if (failed(pay(sizeof(Value) + sizeof(unsigned)))) return failure();
         // Select conditions influence a selected payload, but the payload is
         // never an enable route. Its remaining users still need full closure.
-        unsigned nextKind = isa<BitsSelectOp>(consumer) ? RouteData : kind;
+        unsigned nextKind =
+            isa<BitsSelectOp, ValueMergeOp>(consumer) ? RouteData : kind;
         pending.push_back({consumer->getResult(0), nextKind});
       }
     }
@@ -681,6 +682,37 @@ private:
       const HardwareIdentityEndpoint &selected,
       const HardwareIdentityEndpoint &condition,
       const HardwareIdentityEndpoint &whenTrue) {
+    if (auto merge = selected.value.getDefiningOp<ValueMergeOp>()) {
+      if (failed(step(merge))) return failure();
+      auto paths = merge->getAttrOfType<ArrayAttr>("paths");
+      auto segments = merge.getProperties().getOperandSegmentSizes();
+      auto path = paths && paths.size() == 1 ? dyn_cast<ArrayAttr>(paths[0])
+                                             : ArrayAttr();
+      if (merge->getNumOperands() != 3 || merge->getNumResults() != 2 ||
+          segments != ArrayRef<int32_t>({1, 1, 1}) || !path || !path.empty() ||
+          selected.value != merge->getResult(0) ||
+          !isa<EnumType, StructType, TableType>(selected.resolvedType) ||
+          !merge->getResult(1).use_empty() ||
+          merge->getResult(1).getType() != merge->getOperand(1).getType() ||
+          !areEquivalentHardwareTypes(merge->getOperand(0).getType(),
+                                      merge->getResult(0).getType()) ||
+          !areEquivalentHardwareTypes(merge->getOperand(2).getType(),
+                                      merge->getResult(0).getType()))
+        return module->emitOpError() << "queue compact payload selection shape differs";
+      auto predicate = normal(merge->getOperand(1), selected.scope);
+      auto trueValue = normal(merge->getOperand(2), selected.scope);
+      auto falseValue = normal(merge->getOperand(0), selected.scope);
+      if (failed(predicate) || failed(trueValue) || failed(falseValue) ||
+          !same(*predicate, condition) || !same(*trueValue, whenTrue) ||
+          !areEquivalentHardwareTypes(selected.resolvedType,
+                                      trueValue->resolvedType) ||
+          !areEquivalentHardwareTypes(selected.resolvedType,
+                                      falseValue->resolvedType))
+        return module->emitOpError() << "queue compact payload selection differs from proposal route";
+      if (failed(allow(merge, 0)) || failed(allow(merge, 1, false, RouteEnable)) ||
+          failed(allow(merge, 2))) return failure();
+      return *falseValue;
+    }
     std::optional<HardwareIdentityEndpoint> whenFalse;
     SmallVector<Attribute> path;
     std::function<LogicalResult(Value, Type, const HardwareIdentityScope &, unsigned)> visit =
