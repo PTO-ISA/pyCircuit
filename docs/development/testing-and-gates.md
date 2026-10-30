@@ -12,6 +12,12 @@ native transactional runtime foundation and the readable `transactional-*`
 end-to-end scenarios. Physical C++ workers 1/2 and RTL compare against independent
 histories; t-gfsim reuses supported State/control/call designs. Saved Linked and
 Routed continuation and a Runtime-only generated consumer remain covered.
+The short gate also runs all six stateful static parameter combinations (default
+and overridden bindings through C++ workers 1/2 and RTL), receiver binding, closed
+parameter expressions, unused Method validation and the existing four-state
+System case. These tests use the compiler installed by the same job. After a
+successful build, independent native, lit and Python steps collect their own
+JUnit results even if an earlier test step fails; the job still fails.
 
 See [transactional test scenarios](transactional-test-scenarios.md) for the six
 groups, positive supplements, backend support and coverage migration. Issue #361
@@ -78,9 +84,14 @@ Examples demonstrate complete designs; API fixtures test compiler/runtime
 contracts and rejection boundaries. An example pass does not substitute for API
 coverage of unsupported historical designs.
 
-`check-pycircuit` runs native/lit API tests only, selecting the cached
-`PYC_TEST_TIER` (`gate` by default). The API script explicitly sets this on every
-invocation and additionally runs its explicitly listed public-flow/package tests for nightly.
+`pycircuit-test-build` builds the native/lit test dependencies without executing
+tests. `check-pycircuit` depends on it and continues to run native/lit API tests,
+selecting the cached `PYC_TEST_TIER` (`gate` by default). The API script explicitly
+sets the tier, completes the build, then runs CTest and, for nightly, its existing
+public-flow/package Python tests as independent groups. Configuration or build
+failure stops the run before tests. Test failure preserves each group's JUnit
+results and allows the other group to execute; any failed group makes the script
+fail. Only a complete successful run writes a success summary.
 Uncovered historical API drafts have been removed. Retained semantic tests and
 independent oracles remain in their existing owners. CTest labels `api`
 and `examples` describe ownership; `gate` and `nightly` describe selection. Gate

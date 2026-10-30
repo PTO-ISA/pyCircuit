@@ -64,10 +64,16 @@ and payload closure in that order, then enters common transaction analysis.
 Unlinked requirements may remain unknown; linked analysis requires closure.
 Routing and storage lowering produce the same final IR for both emitters.
 
-Linked-only output is verified at the link boundary. For routing, the public
-transaction analysis entry performs that verification on the unchanged linked
-IR; link does not repeat it before calling analysis. Verification after IR
-transformations and validation at independently callable entries remain intact.
+Ordinary link, saved Linked continuation and t-gfsim emission share the Linked
+analysis entry: it checks source ownership and the selected System, then common
+transaction analysis verifies structure and semantics. Routing reuses that plan
+only while its source IR is alive and unchanged. The independently callable
+source routing entry still builds its own analysis; Routed correspondence and
+verification after transformations remain intact.
+
+Diagnostic Linked, Routed and final snapshots are printed only when requested.
+They preserve the same stage boundaries and are published together after success;
+a failed continuation leaves the caller's existing snapshots untouched.
 
 Module combination dependencies are collected once per operation or complete
 structured branch. Stable source-order ready processing publishes bindings and

@@ -22,8 +22,9 @@ language reference and execution evidence determine supported features.
   commit controls in ordinary author-facing sources, including benchmark ports.
   ACIR analysis/lowering chooses storage and generates its control connections.
 - Ordinary nested `@rule` definitions require explicit registration at a Module
-  wiring site, including conditional registration. Only `@autorule` registers
-  automatically once per Module instance. Source-global Rule templates take
+  wiring site, including conditional registration. Only a directly nested,
+  parameterless `@autorule` with no results registers automatically once per
+  Module instance. Source-global Rule templates take
   explicit resource arguments; callable component operations use Methods.
 - Use one cohesive Rule for effects that must commit together. Separate
   independent functions into separate Rules. Nested Method calls share the
@@ -39,9 +40,10 @@ language reference and execution evidence determine supported features.
   for the first time in several branches or select between different resources.
 - Transaction branches keep selected effects in one atomic Rule. Leave Method
   guards and Queue admission to common analysis; an unselected call must not
-  block the Rule. Branch-local computations stay in their branch. Early returns,
-  ordinary local merges, conditional instance creation and dynamic X/Z control
-  remain unsupported; consult current execution evidence before claiming support.
+  block the Rule. Branches may merge ordinary payload locals, and Rule/Method
+  early returns skip later work without committing early. Conditional instance
+  creation and dynamic X/Z control remain unsupported; consult current execution
+  evidence before claiming support.
 - A typed Module State declaration may omit its initializer. Its initial and
   reset payload is unknown (all X in storage leaves), never implicit zero.
   Binding it to an output preserves State identity; it is not a default Queue.
