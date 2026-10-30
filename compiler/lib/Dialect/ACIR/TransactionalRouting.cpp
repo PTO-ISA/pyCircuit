@@ -1662,8 +1662,17 @@ routeTransactionalPackage(mlir::ModuleOp source, StringRef top,
   auto plan = TransactionalAnalysis::create(source, top, debit);
   if (failed(plan))
     return failure();
-  auto candidate = Router(**plan, debit).run();
-  if (failed(candidate) || failed(Replay(**plan, **candidate, debit).run()))
+  return routeTransactionalPackage(**plan, debit);
+}
+
+FailureOr<OwningOpRef<mlir::ModuleOp>>
+routeTransactionalPackage(const TransactionalAnalysis &plan,
+                          TransactionalDebit debit) {
+  if (!debit)
+    return plan.getPackage().emitError(
+        "transactional routing requires a verification budget");
+  auto candidate = Router(plan, debit).run();
+  if (failed(candidate) || failed(Replay(plan, **candidate, debit).run()))
     return failure();
   return std::move(*candidate);
 }

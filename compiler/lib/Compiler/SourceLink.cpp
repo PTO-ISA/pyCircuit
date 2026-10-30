@@ -595,11 +595,9 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   return continueLinkedSource(*linked, emitError, target, retainedStages);
 }
 
-FailureOr<OwningOpRef<ModuleOp>>
-continueLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
-                     SourceLinkTarget target, SourceLinkStages *retainedStages) {
-  if (failed(verify(source)))
-    return failure();
+FailureOr<std::unique_ptr<ac::TransactionalAnalysis>>
+analyzeLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
+                    ac::TransactionalDebit debit) {
   auto owners = source->getAttrOfType<ArrayAttr>("ac.source_units");
   if (!owners || owners.empty())
     return emitError() << "linked artifact requires source owners";
@@ -621,38 +619,48 @@ continueLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
   auto systems = source.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(systems))
     return emitError() << "linked artifact requires one System entry";
-  auto top = (*systems.begin()).getEntry().getAs<FlatSymbolRefAttr>("callee");
+  auto entry = (*systems.begin())->getAttrOfType<DictionaryAttr>("entry");
+  auto top = entry ? entry.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
   if (!top)
     return emitError() << "linked artifact requires a selected root";
+  return ac::TransactionalAnalysis::create(source, top.getValue(), debit);
+}
+
+FailureOr<OwningOpRef<ModuleOp>>
+continueLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
+                     SourceLinkTarget target, SourceLinkStages *retainedStages) {
   ac::HardwareSourceCheckLimits limits;
   limits.maxWorkUnits = 16 * 1024 * 1024;
   ac::detail::SourceCheckBudget budget(limits);
   auto debit = [&](uint64_t units, Operation *site) {
     return budget.debit(units, site);
   };
-  if (target == SourceLinkTarget::Linked) {
-    if (failed(ac::TransactionalAnalysis::create(source, top.getValue(), debit)))
-      return failure();
+  auto plan = analyzeLinkedSource(source, emitError, debit);
+  if (failed(plan))
+    return failure();
+  if (target == SourceLinkTarget::Linked)
     return OwningOpRef<ModuleOp>(cast<ModuleOp>(source->clone()));
-  }
   SourceLinkStages stages;
   auto capture = [](ModuleOp module, std::string &text) {
     llvm::raw_string_ostream output(text);
     module->print(output, OpPrintingFlags().enableDebugInfo());
     output << '\n';
   };
-  capture(source, stages.beforeTransactions);
-  auto routed = ac::routeTransactionalPackage(source, top.getValue(), debit);
+  if (retainedStages)
+    capture(source, stages.beforeTransactions);
+  auto routed = ac::routeTransactionalPackage(**plan, debit);
   if (failed(routed))
     return failure();
   auto linked = std::move(*routed);
-  capture(*linked, stages.routedTransactions);
+  if (retainedStages)
+    capture(*linked, stages.routedTransactions);
   if (target == SourceLinkTarget::Hardware) {
     PassManager lowering(source.getContext());
     lowering.addPass(acir::createLowerTransactionsPass());
     if (failed(lowering.run(*linked)))
       return failure();
-    capture(*linked, stages.afterTransactions);
+    if (retainedStages)
+      capture(*linked, stages.afterTransactions);
   }
   if (retainedStages)
     *retainedStages = std::move(stages);

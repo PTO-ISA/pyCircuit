@@ -1,4 +1,5 @@
 #include "Dialect/ACIR/HardwareSourceChecks.h"
+#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 // Emit source-owned modules from verified final ACIR. Publication is
 // transactional in the Python driver; this transport writes nothing before
 // complete success.
@@ -81,18 +82,16 @@ int main(int argc, char **argv) {
   }
   bool physical = rtlMode == "physical";
   auto package = parseSourceFile<ModuleOp>(argv[1], &context);
-  if (!package || failed(mlir::verify(*package)))
+  if (!package)
     return 1;
   if (target == "t-gfsim") {
-    auto checked = acir::compiler::continueLinkedSource(
-        *package, emitError, acir::compiler::SourceLinkTarget::Linked);
-    if (failed(checked))
-      return 1;
-    auto system = *(*checked)->getOps<acir::ac::SystemOp>().begin();
-    auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
-    auto plan = acir::ac::TransactionalAnalysis::create(
-        **checked, callee.getValue(),
-        [](uint64_t, Operation *) { return success(); });
+    acir::ac::HardwareSourceCheckLimits limits;
+    limits.maxWorkUnits = 16 * 1024 * 1024;
+    acir::ac::detail::SourceCheckBudget budget(limits);
+    auto plan = acir::compiler::analyzeLinkedSource(
+        *package, emitError, [&](uint64_t units, Operation *site) {
+          return budget.debit(units, site);
+        });
     if (failed(plan))
       return 1;
     auto root = (*plan)->getTop();
@@ -102,7 +101,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     auto samples = acir::ac::getSystemSamples(root);
-    auto reset = acir::ac::getHardwareResetSemantics(**checked);
+    auto reset = acir::ac::getHardwareResetSemantics(*package);
     if (failed(samples) || failed(reset))
       return 1;
     llvm::json::Array sampleRows;
@@ -128,7 +127,7 @@ int main(int argc, char **argv) {
     }
     llvm::SmallVector<acir::compiler::FinalSourceMembership> memberships;
     for (Attribute owner :
-         (**checked)->getAttrOfType<ArrayAttr>("ac.source_units")) {
+         (*package)->getAttrOfType<ArrayAttr>("ac.source_units")) {
       auto dictionary = cast<DictionaryAttr>(owner);
       memberships.push_back(
           {dictionary,
@@ -137,7 +136,7 @@ int main(int argc, char **argv) {
                : llvm::SmallVector<std::string>{}});
     }
     auto maps =
-        acir::compiler::emitLinkedSourceMaps(**checked, memberships, emitError);
+        acir::compiler::emitLinkedSourceMaps(*package, memberships, emitError);
     if (failed(maps))
       return 1;
     llvm::json::Array rows;
@@ -152,7 +151,7 @@ int main(int argc, char **argv) {
         checks += step->kind == acir::ac::TransactionalStepKind::Assert;
     llvm::json::Object result{
         {"entry", llvm::json::Object{{"definition",
-                                      "@\"" + callee.getValue().str() + "\""},
+                                      "@\"" + root.getSymName().str() + "\""},
                                      {"arguments", llvm::json::Array{}}}},
         {"entry_source", sourceOwner(root.getSourceOwner())},
         {"model_header", header},
@@ -172,6 +171,8 @@ int main(int argc, char **argv) {
                                   llvm::json::Value(std::move(result)));
     return 0;
   }
+  if (failed(mlir::verify(*package)))
+    return 1;
   acir::ac::HardwareAnalysis analysis(*package);
   if (failed(analysis.verify()))
     return 1;
