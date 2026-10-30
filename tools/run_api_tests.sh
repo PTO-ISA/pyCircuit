@@ -70,15 +70,18 @@ fi
 pyc_list_tests api "$tier" "${PYC_BUILD_DIR}" \
   > "${docs_gate_dir}/api-${tier}-selection.json"
 rm -f "${PYC_BUILD_DIR}/api-${tier}.xml" "${docs_gate_dir}/api-${tier}.xml"
-# Preserve CTest's detailed result even if a test fails.
+# Configuration and compilation are prerequisites for every test group.
+cmake --build "${PYC_BUILD_DIR}" --target pycircuit-test-build --parallel "${PYC_TEST_JOBS:-4}"
+# Independent test groups continue collecting evidence after a test failure.
 status=0
-cmake --build "${PYC_BUILD_DIR}" --target check-pycircuit --parallel "${PYC_TEST_JOBS:-4}" || status=$?
+ctest --test-dir "${PYC_BUILD_DIR}" --output-on-failure --no-tests=error \
+  -L "^api$" -L "^${tier}$" --output-junit "${PYC_BUILD_DIR}/api-${tier}.xml" || status=$?
 if [[ -f "${PYC_BUILD_DIR}/api-${tier}.xml" ]]; then
   cp "${PYC_BUILD_DIR}/api-${tier}.xml" "${docs_gate_dir}/api-${tier}.xml"
 fi
-((status == 0)) || exit "$status"
 if [[ "$tier" == nightly ]]; then
   "${PYC_PYTHON_EXECUTABLE:-python3}" -m pytest -q "${nightly_python_tests[@]}" \
-    --junitxml="${docs_gate_dir}/api-package-nightly.xml"
+    --junitxml="${docs_gate_dir}/api-package-nightly.xml" || status=$?
 fi
+((status == 0)) || exit "$status"
 pyc_finish_test_run api "$tier" "common-ir-source-runtime"

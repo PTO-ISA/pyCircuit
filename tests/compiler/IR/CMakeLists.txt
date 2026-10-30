@@ -186,10 +186,7 @@ set_property(CACHE PYC_TEST_TIER PROPERTY STRINGS gate nightly)
 if(NOT PYC_TEST_TIER MATCHES "^(gate|nightly)$")
   message(FATAL_ERROR "PYC_TEST_TIER must be gate or nightly")
 endif()
-add_custom_target(check-pycircuit
-  COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure --no-tests=error
-    -L "^api$" -L "^${PYC_TEST_TIER}$" --output-junit "api-${PYC_TEST_TIER}.xml"
-  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+add_custom_target(pycircuit-test-build
   DEPENDS pycircuit-opt pycircuit-print pycircuit-emit pycircuit-source-unit pycircuit-link
     ACIRRoutedAnchorTests ACIRAnchorArtifactTests ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
     ACIRExactIntegerLoweringTests
@@ -205,8 +202,14 @@ add_custom_target(check-pycircuit
     ACIRRegRuntimeTests ACIRCollectionRuntimeTests ACIRFifoRuntimeTests ACIRSystemLifecycleTests ACIRObservationTests ACIRSimExecutorTests
     ACIRWorkExecutorTests ACIRTransactionalGfsimTests
     ACIRWorkPartitionTests
+  VERBATIM)
+add_custom_target(check-pycircuit
+  COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure --no-tests=error
+    -L "^api$" -L "^${PYC_TEST_TIER}$" --output-junit "api-${PYC_TEST_TIER}.xml"
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  DEPENDS pycircuit-test-build
   USES_TERMINAL VERBATIM)
 if(TARGET pyc6_runtime)
   # Source gates link generated DUTs against the Runtime archive from this build.
-  add_dependencies(check-pycircuit pyc6_runtime)
+  add_dependencies(pycircuit-test-build pyc6_runtime)
 endif()

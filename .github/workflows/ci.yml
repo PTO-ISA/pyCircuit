@@ -132,7 +132,10 @@ jobs:
         uses: ./.github/actions/setup-verilator
         with:
           version: ${{ env.VERILATOR_VERSION }}
+      - name: Install Python test dependencies
+        run: python -m pip install -e ".[dev]"
       - name: Build and install compiler
+        id: build
         run: |
           cmake -S . -B .pycircuit_out/toolchain/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DPYC_BUILD_TESTING=ON \
@@ -144,21 +147,39 @@ jobs:
           cmake --install .pycircuit_out/toolchain/build \
             --prefix "$PWD/.pycircuit_out/toolchain/install"
       - name: Run native transaction runtime tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           ctest --test-dir .pycircuit_out/toolchain/build --output-on-failure \
-            --no-tests=error -R '^ACIRTransactionalGfsimTests$'
+            --no-tests=error -R '^ACIRTransactionalGfsimTests$' \
+            --output-junit "$PWD/.pycircuit_out/toolchain/build/native-transactional.xml"
       - name: Run transactional dual backend regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           PYC_TOOLCHAIN_ROOT: ${{ github.workspace }}/.pycircuit_out/toolchain/install
         run: |
           lit -sv .pycircuit_out/toolchain/build/tests/compiler/lit \
+            --xunit-xml-output .pycircuit_out/toolchain/build/transactional-lit.xml \
             --filter='(Source/acir-display[.]test$|CodeGen/transactional-[^/]+[.]test$)'
+      - name: Run bounded static parameter and Method regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          PYC_TOOLCHAIN_ROOT: ${{ github.workspace }}/.pycircuit_out/toolchain/install
+        run: >-
+          python -m pytest -q
+          tests/system/test_stateful_static_parameters.py::test_transactional_static_parameters_saved_linked_execution
+          tests/system/test_stateful_static_parameters.py::test_transactional_static_parameters_validate_unused_method_after_binding
+          tests/system/test_scalar_generic_modules.py::test_method_generic_receivers_bind_each_instance
+          tests/system/test_scalar_generic_modules.py::test_method_generic_closed_expression_matches_scalar_binding
+          tests/system/test_scalar_generic_modules.py::test_method_generic_uncalled_body_checks_actuals_before_replacing_output
+          tests/system/test_scalar_generic_modules.py::test_method_generic_system_preserves_state_and_four_state_payloads
+          --junitxml=.pycircuit_out/toolchain/build/bounded-parameters-methods.xml
       - name: Upload transactional stage evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: native-transactional-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            .pycircuit_out/toolchain/build/*.xml
             .pycircuit_out/toolchain/build/Testing/Temporary/LastTest.log
             .pycircuit_out/toolchain/build/tests/compiler/lit/CodeGen/Output/transactional-*
           if-no-files-found: warn
