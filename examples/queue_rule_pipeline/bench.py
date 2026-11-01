@@ -1,5 +1,5 @@
-# ruff: noqa: F823 -- captured module-owned state proposals.
-"""Four packets, output backpressure, and a complete drain in twelve cycles."""
+# ruff: noqa: F821, F823 -- captured module-owned state and instances.
+"""Four packets, output backpressure, and a complete drain in fourteen cycles."""
 
 import pycircuit as ac
 from example_queue_rule_pipeline.queue_rule_pipeline import Packet, QueueRulePipeline
@@ -7,7 +7,7 @@ from example_queue_rule_pipeline.queue_rule_pipeline import Packet, QueueRulePip
 
 @ac.system
 def QueueRulePipelineSystem():  # noqa: N802
-    pipeline = QueueRulePipeline()
+    pipeline: QueueRulePipeline
     cycle: ac.u4 = 0
     sent: ac.u4 = 0
     received: ac.u4 = 0
@@ -15,12 +15,12 @@ def QueueRulePipelineSystem():  # noqa: N802
     @ac.rule
     def produce() -> None:
         if sent < 4:
-            pipeline.put(Packet(tag=sent, value=sent + 10))
+            pipeline.put(Packet(tag=sent, value=ac.u8(sent) + 10))
             sent = sent + 1
 
     @ac.rule(guard=lambda: cycle >= 6)
     def consume() -> None:
-        packet = pipeline.get()
+        packet: Packet = pipeline.get()
         ordinal = received
         received = received + 1
         expected: ac.u8 = (
@@ -39,7 +39,7 @@ def QueueRulePipelineSystem():  # noqa: N802
             assert received == 0, "queue pipeline: consumer paused"
             assert total == 12, "queue pipeline: blocked child state held"
             assert transferred == 1, "queue pipeline: blocked parent state held"
-        if cycle == 10:
+        if cycle == 13:
             assert sent == 4, "queue pipeline: all inputs accepted"
             assert received == 4, "queue pipeline: all outputs consumed"
             assert total == 54, "queue pipeline: final child state"
@@ -48,3 +48,8 @@ def QueueRulePipelineSystem():  # noqa: N802
     @ac.rule
     def tick() -> None:
         cycle = cycle + 1
+
+    produce()
+    consume()
+    inspect()
+    tick()

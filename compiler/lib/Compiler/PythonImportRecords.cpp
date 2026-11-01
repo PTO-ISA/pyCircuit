@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 using namespace mlir;
 namespace acir::compiler {
@@ -61,6 +62,7 @@ struct Binding {
   Operation *pendingImport = nullptr;
   AstNode declaration;
   bool parameter = false;
+  bool loopUnbound = false;
   Type type() const { return value ? value.getType() : Type(); }
 };
 // Immutable source ranges describe a continuation without copying AST bodies.
@@ -73,6 +75,12 @@ struct Scope {
   Declaration *owner = nullptr;
   Callable *callable = nullptr;
   std::map<std::string, Binding> bindings;
+  // A visible induction name stays static only while it still denotes the
+  // original induction payload, rather than a later Python assignment.
+  std::map<std::string, std::pair<Value, ac::StaticExprAttr>> inductions;
+  std::map<std::string, std::pair<Value, ac::StaticExprAttr>> staticLocals;
+  std::set<std::string> mathematicalStaticLocals;
+  std::set<std::string> loopRebindings;
   StringRef pendingResultRequirement = "scalar";
   unsigned pendingResultArity = 1;
   SmallVector<Value> outputs;
@@ -126,6 +134,7 @@ private:
   SmallVector<Attribute> dependencies, exports, imports;
   unsigned spent = 0, unique = 0;
   bool invalid = false;
+  Scope *activeScope = nullptr;
 
   LogicalResult fail(const AstNode &node, const Twine &message) {
     invalid = true;
@@ -188,6 +197,8 @@ private:
   FailureOr<Attribute> recordDefault(const AstNode &node, StringRef definition);
   FailureOr<ac::StaticExprAttr> staticExpr(const AstNode &node,
                                            StringRef definition);
+  bool isStaticExpression(const AstNode &node, const Scope &scope,
+                          bool mathematical = false);
   ac::StaticExprAttr staticLiteral(const llvm::APSInt &number,
                                    const AstNode &node, StringRef definition) {
     return ac::StaticExprAttr::get(
@@ -385,6 +396,10 @@ private:
   LogicalResult statements(ArrayRef<StatementRange> ranges, Scope &scope);
   LogicalResult statement(const AstNode &node, Scope &scope,
                           ArrayRef<StatementRange> continuation = {});
+  FailureOr<std::set<std::string>> loopLiveNames(
+      const AstNode &node, ArrayRef<StatementRange> continuation);
+  LogicalResult staticFor(const AstNode &node, Scope &scope,
+                          ArrayRef<StatementRange> continuation);
   FailureOr<SmallVector<Value>> expression(const AstNode &node, Scope &scope,
                                            Type expected = {},
                                            ArrayRef<Value> destinations = {});
@@ -448,6 +463,24 @@ FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
         b.getNamedAttr("location", detail::sourceSpan(b, source.path, node)));
     return ac::StaticExprAttr::get(b.getContext(), b.getDictionaryAttr(fields));
   };
+  if (node.kind() == "Name" && activeScope) {
+    auto name = node.string("id").str();
+    auto local = activeScope->bindings.find(name);
+    if (local != activeScope->bindings.end()) {
+      auto induction = activeScope->inductions.find(name);
+      if (induction != activeScope->inductions.end() &&
+          induction->second.first == local->second.value)
+        return wrap("reference", {b.getNamedAttr(
+                                     "ref", induction->second.second.getTree()
+                                                .get("ref"))});
+      auto alias = activeScope->staticLocals.find(name);
+      if (alias != activeScope->staticLocals.end() &&
+          alias->second.first == local->second.value)
+        return alias->second.second;
+      (void)fail(node, "static expression cannot use a runtime local");
+      return failure();
+    }
+  }
   if (auto binding = resolve(node))
     if (isa_and_nonnull<ac::ConstantOp>(binding->declaration))
       return wrap("literal", {b.getNamedAttr("value",
@@ -460,11 +493,38 @@ FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
   if (auto number = integer(node))
     return staticLiteral(*number, node, definition);
   if (node.kind() == "Name") {
+    if (activeScope &&
+        !llvm::any_of(activeScope->owner->parameters, [&](Attribute raw) {
+          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
+                 node.string("id");
+        })) {
+      (void)fail(node, "static expression requires a declared static parameter");
+      return failure();
+    }
     auto reference = b.getDictionaryAttr(
         {b.getNamedAttr("kind", b.getStringAttr("parameter")),
          b.getNamedAttr("owner", symbol(definition)),
          b.getNamedAttr("name", b.getStringAttr(node.string("id")))});
     return wrap("reference", {b.getNamedAttr("ref", reference)});
+  }
+  if (node.kind() == "Compare" && node.array("ops").size() == 1 &&
+      node.array("comparators").size() == 1) {
+    StringRef form = node.item("ops", 0).kind();
+    StringRef opcode = form == "Eq" ? "eq" : form == "NotEq" ? "ne"
+                       : form == "Lt" ? "lt" : form == "LtE" ? "le"
+                       : form == "Gt" ? "gt" : form == "GtE" ? "ge"
+                                                               : StringRef();
+    if (opcode.empty()) {
+      (void)fail(node, "unsupported static comparison operator");
+      return failure();
+    }
+    auto lhs = staticExpr(node.child("left"), definition);
+    auto rhs = staticExpr(node.item("comparators", 0), definition);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    return wrap("binary",
+                {b.getNamedAttr("operator", b.getStringAttr(opcode)),
+                 b.getNamedAttr("lhs", *lhs), b.getNamedAttr("rhs", *rhs)});
   }
   if (node.kind() == "BinOp") {
     StringRef form = node.child("op").kind();
@@ -491,6 +551,47 @@ FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
   }
   (void)fail(node, "unsupported static expression");
   return failure();
+}
+
+bool Importer::isStaticExpression(const AstNode &node, const Scope &scope,
+                                  bool mathematical) {
+  if (integer(node)) {
+    if (mathematical) {
+      if (node.kind() == "Constant" && isa_and_nonnull<BoolAttr>(node.get("value")))
+        return false;
+      if (auto imported = resolve(node))
+        if (isa_and_nonnull<ac::ConstantOp>(imported->declaration))
+          return bool(imported->declaration->getAttrOfType<DictionaryAttr>("value")
+                          .getAs<ac::MathIntAttr>("value"));
+    }
+    return true;
+  }
+  if (node.kind() == "Name") {
+    auto name = node.string("id").str();
+    auto binding = scope.bindings.find(name);
+    if (binding != scope.bindings.end()) {
+      auto induction = scope.inductions.find(name);
+      if (induction != scope.inductions.end() &&
+          induction->second.first == binding->second.value)
+        return !mathematical || isa<ac::InferType>(binding->second.type());
+      auto alias = scope.staticLocals.find(name);
+      return alias != scope.staticLocals.end() &&
+             alias->second.first == binding->second.value &&
+             (!mathematical || scope.mathematicalStaticLocals.count(name));
+    }
+    return llvm::any_of(scope.owner->parameters, [&](Attribute raw) {
+      return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
+             node.string("id");
+    });
+  }
+  if (node.kind() != "BinOp")
+    return false;
+  auto kind = node.child("op").kind();
+  return (kind == "Add" || kind == "Sub" || kind == "Mult" ||
+          kind == "LShift" || kind == "RShift" || kind == "BitAnd" ||
+          kind == "BitOr" || kind == "BitXor") &&
+         isStaticExpression(node.child("left"), scope, mathematical) &&
+         isStaticExpression(node.child("right"), scope, mathematical);
 }
 
 FailureOr<Attribute> Importer::recordDefault(const AstNode &node,

@@ -2,6 +2,7 @@
 #include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
@@ -67,6 +68,11 @@ LogicalResult preflightBody(func::FuncOp helper, SourceHelperLookup lookup,
           return operation.emitOpError() << "value helper reads outside its "
                                            "explicit inputs and captures";
       }
+      if (failed(verifyStaticLoopReferences(&operation)))
+        return failure();
+      if (isLinkedTransactionalPackage(&operation) &&
+          isa<scf::ForOp, SourceIndexOp, SourceUnboundOp, SourceStaticPredicateOp, SourceStaticIndexOp>(operation))
+        return operation.emitOpError("Linked helpers cannot retain static loops");
       if (auto origin = operation.getAttr("ac.origin"))
         if (failed(detail::verifyOccurrence(
                 dyn_cast<DictionaryAttr>(origin),
@@ -81,13 +87,13 @@ LogicalResult preflightBody(func::FuncOp helper, SourceHelperLookup lookup,
       for (NamedAttribute attribute : operation.getAttrs())
         if (failed(detail::verifyHardwareAttributeScope(attribute.getValue(), helper)))
           return failure();
-      if (!isa<func::CallOp, func::ReturnOp, YieldOp, scf::IfOp,
+      if (!isa<func::CallOp, func::ReturnOp, YieldOp, PendingExprOp, SourceIndexOp, SourceUnboundOp, SourceStaticPredicateOp, SourceStaticIndexOp, scf::ForOp, scf::IfOp,
                scf::YieldOp, SourcePredicateOp>(operation) &&
           !detail::isCombinationalHardwareOperation(&operation))
         return operation.emitOpError() << "unsupported operation in pure value "
                                          "helper body";
       if (operation.getNumRegions() &&
-          !isa<TableMapOp, TableMatchOp, scf::IfOp>(operation))
+          !isa<TableMapOp, TableMatchOp, scf::ForOp, scf::IfOp>(operation))
         return operation.emitOpError() << "unsupported value helper region";
       if (isa<func::CallOp>(operation)) {
         auto callee = operation.getAttrOfType<FlatSymbolRefAttr>("callee");
@@ -244,17 +250,31 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
             &operation != &region.front().back())
           return operation.emitOpError() << "value helper region yield is invalid";
         if (isa<scf::YieldOp>(operation) &&
-            !isa_and_nonnull<scf::IfOp>(operation.getParentOp()))
+            !isa_and_nonnull<scf::IfOp, scf::ForOp>(operation.getParentOp()))
           return operation.emitOpError() << "helper SCF yield requires an if";
         continue;
       }
+      if (auto loop = dyn_cast<scf::ForOp>(operation)) {
+        if (isLinkedTransactionalPackage(loop) ||
+            failed(detail::verifyOccurrence(loop->getAttrOfType<DictionaryAttr>("occurrence"),
+                                            [&] { return loop.emitOpError(); })) ||
+            failed(visit(loop.getRegion(), depth + 1)))
+          return failure();
+        continue;
+      }
+      if (isa<SourceStaticPredicateOp, SourceStaticIndexOp, SourceUnboundOp, SourceIndexOp, PendingExprOp>(operation)) {
+        if (isLinkedTransactionalPackage(&operation))
+          return operation.emitOpError("Linked helper requires closed payloads");
+        continue;
+      }
       if (auto branch = dyn_cast<scf::IfOp>(operation)) {
-        if (!branch.getCondition().getDefiningOp<SourcePredicateOp>())
+        if (!branch.getCondition().getDefiningOp<SourcePredicateOp>() &&
+            !branch.getCondition().getDefiningOp<SourceStaticPredicateOp>())
           return branch.emitOpError() << "helper condition requires the source "
                                          "predicate bridge";
         for (Type type : branch.getResultTypes())
-          if (!payload(type) ||
-              failed(analysis.getPackedWidth(type, bindings, branch)))
+          if (!(payload(type) || (!isLinkedTransactionalPackage(branch) && isa<InferType>(type))) ||
+              (!isa<InferType>(type) && failed(analysis.getPackedWidth(type, bindings, branch))))
             return branch.emitOpError() << "helper branch requires closed "
                                            "payload results";
         for (Region &arm : branch->getRegions()) {

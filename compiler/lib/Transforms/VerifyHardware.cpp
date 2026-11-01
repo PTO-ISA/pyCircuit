@@ -59,6 +59,7 @@ void registerACIRPasses() {
   registerPass([] { return createNormalizeValueUpdatesPass(); });
   registerPass([] { return createNormalizeRecordConstructorsPass(); });
   registerPass([] { return createNormalizeSourceControlFlowPass(); });
+  registerPass([] { return createExpandStaticForPass(); });
   registerPass([] { return createExtractSourceInterfacePass(); });
   registerPass([] { return createSimplifyRecordWiresPass(); });
   registerPass([] { return createAnalyzeSourceMethodSummariesPass(); });

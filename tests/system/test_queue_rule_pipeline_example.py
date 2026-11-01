@@ -140,25 +140,27 @@ def test_queue_rule_pipeline_example_runs_one_verified_artifact(tmp_path):
     committed = [
         (0, 0, 0, 0, 0),
         (1, 1, 0, 0, 0),
-        (2, 2, 0, 12, 1),
+        (2, 1, 0, 12, 1),
         (3, 2, 0, 12, 1),
         (4, 2, 0, 12, 1),
         (5, 2, 0, 12, 1),
         (6, 2, 0, 12, 1),
-        (7, 3, 1, 25, 2),
-        (8, 4, 2, 39, 3),
-        (9, 4, 3, 54, 4),
-        (10, 4, 4, 54, 4),
-        (11, 4, 4, 54, 4),
+        (7, 2, 1, 12, 1),
+        (8, 2, 1, 25, 2),
+        (9, 3, 2, 25, 2),
+        (10, 3, 2, 39, 3),
+        (11, 4, 3, 39, 3),
+        (12, 4, 3, 54, 4),
+        (13, 4, 4, 54, 4),
     ]
     # Independent progress observes the same committed count as inspect;
     # it cannot see transfer's candidate within this Work evaluation.
     progress = [row[-1] for row in committed]
     received = [
         (6, 0, 12),
-        (7, 1, 25),
-        (8, 2, 39),
-        (9, 3, 54),
+        (8, 1, 25),
+        (10, 2, 39),
+        (12, 3, 54),
     ]
     expected_committed = [
         (2 * cycle + edge, values)
@@ -172,7 +174,7 @@ def test_queue_rule_pipeline_example_runs_one_verified_artifact(tmp_path):
     ]
     expected_received = [
         (2 * cycle + edge, values)
-        for cycle, values in zip(range(6, 10), received, strict=True)
+        for cycle, values in zip(range(6, 13, 2), received, strict=True)
         for edge in (0, 1)
     ]
 
@@ -185,9 +187,9 @@ def test_queue_rule_pipeline_example_runs_one_verified_artifact(tmp_path):
         manifests[target] = _assert_generated_source(target_root / target)
         for workers in (1, 2) if target == "cpp" else (1,):
             arguments = (
-                ["--cycles", "12", "--workers", str(workers)]
+                ["--cycles", "14", "--workers", str(workers)]
                 if target == "cpp"
-                else ["+cycles=12"]
+                else ["+cycles=14"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
             assert _values(rows, "queue committed") == expected_committed
@@ -201,7 +203,7 @@ def test_queue_rule_pipeline_example_runs_one_verified_artifact(tmp_path):
             result = [row for row in rows if row["kind"] == "result"]
             assert len(result) == 1
             assert result[0]["status"] == "TERMINATED"
-            assert int(result[0]["epoch_time"]) == 24
+            assert int(result[0]["epoch_time"]) == 28
             assert result[0]["error"] is None
             _assert_closed_observation_identities(rows)
             transcripts.append([row for row in rows if row["kind"] != "result"])

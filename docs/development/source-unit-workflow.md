@@ -59,7 +59,18 @@ for each target's current admission boundaries.
 
 `SourceUnit.cpp` imports declarations, solves local payload and Method constraints,
 publishes unresolved provider requirements, and verifies the unlinked unit.
-`SourceLink.cpp` binds the provider/instance closure, invokes resource, Method
+`SourceLink.cpp` makes an occurrence-private clone, binds its static parameters
+and invokes `ac-expand-static-for` before discovering its actual child instances.
+Source ACIR preserves `scf.for`, symbolic bounds and exact loop-slot types;
+`ac.source.static_index`, `ac.source.static_predicate`, `ac.source.index` and
+unassigned-local placeholders are
+transient Source operations. Nested iteration substitution precedes dependent
+bound/type resolution. Iteration provenance also distinguishes allocation names
+and instance reference paths. Pure helpers and source-global Rules use the same
+expansion core. Linked ACIR rejects remaining loops, induction references and
+transient bridges. The original Source templates remain publication authority.
+
+Link then binds the provider/instance closure, invokes resource, Method
 and payload closure in that order, then enters common transaction analysis.
 Unlinked requirements may remain unknown; linked analysis requires closure.
 Routing and storage lowering produce the same final IR for both emitters.

@@ -6,6 +6,7 @@ class Pass;
 }
 namespace acir {
 std::unique_ptr<mlir::Pass> createVerifyHardwarePass();
+std::unique_ptr<mlir::Pass> createExpandStaticForPass();
 std::unique_ptr<mlir::Pass> createInlinePureHelpersPass();
 std::unique_ptr<mlir::Pass> createNormalizeSourceControlFlowPass();
 std::unique_ptr<mlir::Pass> createExtractSourceInterfacePass();

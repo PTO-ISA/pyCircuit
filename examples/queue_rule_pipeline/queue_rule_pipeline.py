@@ -1,4 +1,4 @@
-# ruff: noqa: F823 -- captured module-owned state proposals.
+# ruff: noqa: F821, F823 -- captured module-owned state and instances.
 """Typed Queue calls and an atomic stateful processing stage."""
 
 import pycircuit as ac
@@ -19,8 +19,9 @@ def Accumulator():  # noqa: N802
         value = packet.value
         for _step in range(2):
             value = value + 1
-        total = total + value
-        return Packet(tag=packet.tag, value=total)
+        updated = total + value
+        total = updated
+        return Packet(tag=packet.tag, value=updated)
 
     @ac.method
     def snapshot() -> ac.u8:
@@ -29,9 +30,9 @@ def Accumulator():  # noqa: N802
 
 @ac.module
 def QueueRulePipeline():  # noqa: N802
-    ingress = ac.queue[Packet](depth=1, latency=1)
-    egress = ac.queue[Packet](depth=1, latency=1)
-    accumulator = Accumulator()
+    ingress = ac.queue[Packet](depth=1)
+    egress = ac.queue[Packet](depth=1)
+    accumulator: Accumulator
     transferred: ac.u8 = 0
 
     @ac.method
@@ -49,10 +50,13 @@ def QueueRulePipeline():  # noqa: N802
     @ac.rule
     def transfer() -> None:
         packet = ingress.pop()
-        result = accumulator.add(packet)
+        result: Packet = accumulator.add(packet)
         transferred = transferred + 1
         egress.push(result)
 
     @ac.rule
     def progress() -> None:
         ac.log("info", "queue progress", transferred)
+
+    transfer()
+    progress()

@@ -24,7 +24,10 @@ state/consumption traces, fifth-input blocking and output backpressure. Separate
 conditional-Method and four-state reset cases cover path admission and X defaults.
 Module, Rule and Method payload local joins execute through common branch analysis.
 Rule/Method early returns normalize to the same structured branch results and
-whole-transaction commit. Loops, dynamic instance/resource selection and dynamic unknown
+whole-transaction commit. Positive static `range` loops now retain Source SCF
+and expand per instance at Link; the owning execution fixture is
+`CodeGen/transactional-static-for.test`. General loop control, dynamic
+instance/resource selection and dynamic unknown
 control remain gaps. t-gfsim (transactional-gfsim) supports the bounded Bits State/Queue profile described
 in the source-unit workflow; Nominal payload generation remains a gap.
 Their independent expectations remain in test-owned models and source

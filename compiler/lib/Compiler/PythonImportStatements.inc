@@ -634,7 +634,7 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
     return fail(target,
                 "assignment cannot shadow imported or callable source names");
   if (found != scope.bindings.end() && isResource(found->second.type()) &&
-      !found->second.parameter) {
+      !found->second.parameter && !scope.loopRebindings.count(name)) {
     if (scope.module) {
       if (values.front() == found->second.value)
         return success();
@@ -658,7 +658,8 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
   }
   if (found != scope.bindings.end() &&
       (found->second.pending || found->second.pendingImport ||
-       isa_and_nonnull<ac::ModuleRefType>(found->second.type())))
+       (isa_and_nonnull<ac::ModuleRefType>(found->second.type()) &&
+        !scope.loopRebindings.count(name))))
     return fail(target, "instance identity cannot be reassigned");
   Value value = values.front();
   if (!scope.module) {
@@ -668,6 +669,8 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
     value = *loaded;
   }
   scope.bindings[name] = Binding{value, {}, {}, nullptr};
+  scope.staticLocals.erase(name);
+  scope.mathematicalStaticLocals.erase(name);
   return success();
 }
 
@@ -696,7 +699,7 @@ LogicalResult Importer::statements(const StatementRange &range, Scope &scope,
     if (scope.terminated)
       return fail(child, "statement after unconditional return is unreachable");
     SmallVector<StatementRange> tail;
-    if (child.kind() == "If") {
+    if (child.kind() == "If" || child.kind() == "For") {
       if (i + 1 < range.owner.array(range.field).size())
         tail.push_back({range.owner, range.field, i + 1});
       tail.append(continuation.begin(), continuation.end());
@@ -781,12 +784,436 @@ LogicalResult Importer::moduleReturn(const AstNode &node, Scope &scope) {
   return success();
 }
 
+FailureOr<std::set<std::string>> Importer::loopLiveNames(
+    const AstNode &node, ArrayRef<StatementRange> continuation) {
+  using Names = std::set<std::string>;
+  Names live;
+  auto defineTarget = [&](const AstNode &target, Names &defined) {
+    return detail::forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+      if (leaf.kind() == "Name")
+        defined.insert(leaf.string("id").str());
+      return success();
+    });
+  };
+  Names persistent;
+  if (activeScope && activeScope->module) {
+    std::function<LogicalResult(const AstNode &)> owners;
+    owners = [&](const AstNode &syntax) -> LogicalResult {
+      if (!charge(syntax))
+        return failure();
+      if (syntax.kind() == "FunctionDef")
+        return success();
+      if (syntax.kind() == "AnnAssign") {
+        auto nominal = resolve(syntax.child("annotation"));
+        bool instance = nominal && nominal->symbol &&
+                        (declarations.count(nominal->remote) ||
+                         isa_and_nonnull<ac::ModuleImportOp>(nominal->declaration));
+        if (!instance && failed(defineTarget(syntax.child("target"), persistent)))
+          return failure();
+      } else if (syntax.kind() == "Assign") {
+        auto value = syntax.child("value");
+        auto function = value.child("func");
+        if (value.kind() == "Call" && function.kind() == "Subscript" &&
+            marker(function.child("value"), "queue"))
+          for (size_t i = 0; i < syntax.array("targets").size(); ++i)
+            if (failed(defineTarget(syntax.item("targets", i), persistent)))
+              return failure();
+      }
+      for (StringRef field : {"body", "orelse"}) {
+        auto children = syntax.array(field);
+        for (size_t i = 0; children && i < children.size(); ++i)
+          if (failed(owners(syntax.item(field, i))))
+            return failure();
+      }
+      return success();
+    };
+    if (failed(owners(node)))
+      return failure();
+  }
+  std::function<LogicalResult(const AstNode &, const Names &)> readSyntax;
+  std::function<LogicalResult(const AstNode &, Names &)> scanStatement;
+  auto scanBody = [&](const AstNode &owner, StringRef field, size_t begin,
+                      Names &defined) -> LogicalResult {
+    auto body = owner.array(field);
+    for (size_t i = begin; body && i < body.size(); ++i)
+      if (failed(scanStatement(owner.item(field, i), defined)))
+        return failure();
+    return success();
+  };
+  auto defineParameters = [&](const AstNode &args, Names &defined) {
+    for (StringRef field : {"args", "posonlyargs", "kwonlyargs"}) {
+      auto parameters = args.array(field);
+      for (size_t i = 0; parameters && i < parameters.size(); ++i)
+        defined.insert(args.item(field, i).string("arg").str());
+    }
+    for (StringRef field : {"vararg", "kwarg"})
+      if (auto parameter = args.child(field))
+        defined.insert(parameter.string("arg").str());
+  };
+  readSyntax = [&](const AstNode &syntax, const Names &defined) -> LogicalResult {
+    if (!syntax || syntax.kind().empty())
+      return success();
+    if (!charge(syntax))
+      return failure();
+    if (syntax.kind() == "Name") {
+      if (syntax.child("ctx").kind() != "Store" &&
+          !defined.count(syntax.string("id").str()))
+        live.insert(syntax.string("id").str());
+      return success();
+    }
+    if (syntax.kind() == "Lambda") {
+      Names inner = defined;
+      defineParameters(syntax.child("args"), inner);
+      return readSyntax(syntax.child("body"), inner);
+    }
+    for (NamedAttribute field : syntax.fields()) {
+      auto name = field.getName().getValue();
+      if (isa<DictionaryAttr>(field.getValue())) {
+        if (failed(readSyntax(syntax.child(name), defined)))
+          return failure();
+      } else if (auto array = dyn_cast<ArrayAttr>(field.getValue())) {
+        for (size_t i = 0; i < array.size(); ++i)
+          if (isa<DictionaryAttr>(array[i]) &&
+              failed(readSyntax(syntax.item(name, i), defined)))
+            return failure();
+      }
+    }
+    return success();
+  };
+  scanStatement = [&](const AstNode &statement, Names &defined) -> LogicalResult {
+    if (!charge(statement))
+      return failure();
+    if (statement.kind() == "FunctionDef") {
+      // Rules and Methods read captured Module bindings before sequential
+      // rebinding. Only parameters and explicit local declarations mask those
+      // captures; ordinary helper functions retain Python lexical locals.
+      bool capturesAssignments = false;
+      auto decorators = statement.array("decorator_list");
+      for (size_t i = 0; decorators && i < decorators.size(); ++i) {
+        auto decorator = statement.item("decorator_list", i);
+        auto target = decorator.kind() == "Call" ? decorator.child("func")
+                                                 : decorator;
+        capturesAssignments |= marker(target, "rule") ||
+                               marker(target, "autorule") || marker(target, "method");
+      }
+      Names local, nonlocal, written;
+      defineParameters(statement.child("args"), local);
+      std::function<LogicalResult(const AstNode &)> bindings;
+      bindings = [&](const AstNode &syntax) -> LogicalResult {
+        if (!charge(syntax))
+          return failure();
+        if (syntax.kind() == "FunctionDef") {
+          local.insert(syntax.string("name").str());
+          return success();
+        }
+        if (syntax.kind() == "Nonlocal") {
+          for (Attribute raw : syntax.array("names"))
+            nonlocal.insert(cast<StringAttr>(raw).getValue().str());
+        } else if (syntax.kind() == "Assign") {
+          for (size_t i = 0; i < syntax.array("targets").size(); ++i)
+            if (failed(defineTarget(syntax.item("targets", i),
+                                    capturesAssignments ? written : local)))
+              return failure();
+        } else if (syntax.kind() == "AnnAssign" || syntax.kind() == "AugAssign" ||
+                   syntax.kind() == "For") {
+          Names &targets = capturesAssignments && syntax.kind() != "AnnAssign"
+                               ? written : local;
+          if (failed(defineTarget(syntax.child("target"), targets)))
+            return failure();
+        }
+        for (StringRef field : {"body", "orelse"}) {
+          auto children = syntax.array(field);
+          for (size_t i = 0; children && i < children.size(); ++i)
+            if (failed(bindings(syntax.item(field, i))))
+              return failure();
+        }
+        return success();
+      };
+      for (size_t i = 0; i < statement.array("body").size(); ++i)
+        if (failed(bindings(statement.item("body", i))))
+          return failure();
+      for (const auto &name : nonlocal)
+        local.erase(name);
+      // Writing captured storage uses its owner even when the new payload does
+      // not read the old value. Payload-only rebindings remain ordinary kills.
+      for (const auto &name : written)
+        if (persistent.count(name) && !local.count(name) && !defined.count(name))
+          live.insert(name);
+      Names inner = defined;
+      inner.insert(local.begin(), local.end());
+      if (failed(readSyntax(statement.child("args"), defined)) ||
+          failed(readSyntax(statement.child("returns"), defined)) ||
+          failed(scanBody(statement, "body", 0, inner)))
+        return failure();
+      for (size_t i = 0; decorators && i < decorators.size(); ++i)
+        if (failed(readSyntax(statement.item("decorator_list", i), defined)))
+          return failure();
+      defined.insert(statement.string("name").str());
+      return success();
+    }
+    if (statement.kind() == "If") {
+      if (failed(readSyntax(statement.child("test"), defined)))
+        return failure();
+      Names arms[2] = {defined, defined};
+      if (failed(scanBody(statement, "body", 0, arms[0])) ||
+          failed(scanBody(statement, "orelse", 0, arms[1])))
+        return failure();
+      for (const auto &name : arms[0])
+        if (arms[1].count(name))
+          defined.insert(name);
+      return success();
+    }
+    if (statement.kind() == "For") {
+      if (failed(readSyntax(statement.child("iter"), defined)))
+        return failure();
+      Names inner = defined;
+      if (failed(defineTarget(statement.child("target"), inner)) ||
+          failed(scanBody(statement, "body", 0, inner)))
+        return failure();
+      // The nested loop may execute zero times; its assignments are not
+      // definite in this containing iteration or continuation.
+      return success();
+    }
+    if (statement.kind() == "Assign" || statement.kind() == "AnnAssign" ||
+        statement.kind() == "AugAssign") {
+      if (failed(readSyntax(statement, defined)))
+        return failure();
+      if (statement.kind() == "Assign") {
+        for (size_t i = 0; i < statement.array("targets").size(); ++i)
+          if (failed(defineTarget(statement.item("targets", i), defined)))
+            return failure();
+      } else {
+        auto target = statement.child("target");
+        if (statement.kind() == "AugAssign" && target.kind() == "Name" &&
+            !defined.count(target.string("id").str()))
+          live.insert(target.string("id").str());
+        if (failed(defineTarget(target, defined)))
+          return failure();
+      }
+      return success();
+    }
+    return readSyntax(statement, defined);
+  };
+  Names defined{node.child("target").string("id").str()};
+  if (failed(scanBody(node, "body", 0, defined)))
+    return failure();
+  defined.clear();
+  for (const auto &range : continuation)
+    if (failed(scanBody(range.owner, range.field, range.begin, defined)))
+      return failure();
+  return live;
+}
+
+LogicalResult Importer::staticFor(const AstNode &node, Scope &scope,
+                                ArrayRef<StatementRange> continuation) {
+  auto target = node.child("target"), iterator = node.child("iter");
+  auto range = iterator.child("func");
+  if (target.kind() != "Name" || iterator.kind() != "Call" ||
+      range.kind() != "Name" || range.string("id") != "range" ||
+      scope.bindings.count("range") || names.count("range") ||
+      detail::sourceBindingShadowed(source, range, "range") ||
+      !iterator.array("keywords").empty() || iterator.array("args").empty() ||
+      iterator.array("args").size() > 3 || !node.array("orelse").empty())
+    return fail(node, "static for requires one name and range with one to three "
+                      "static arguments, without for-else");
+  std::string indexName = target.string("id").str();
+  if (names.count(indexName) || globalRules.count(indexName) ||
+      scope.owner->callables.count(indexName))
+    return fail(target, "loop target cannot shadow an imported or callable name");
+
+  // Determine the existing bindings that the body may replace. This is a
+  // syntactic binding scan, not evaluation or expansion of the loop body.
+  llvm::StringSet<> assigned;
+  auto assignmentName = [&](const AstNode &leaf) -> LogicalResult {
+    AstNode root = leaf;
+    while (root.kind() == "Attribute" || root.kind() == "Subscript")
+      root = root.child("value");
+    if (root.kind() == "Name")
+      assigned.insert(root.string("id"));
+    return success();
+  };
+  std::function<LogicalResult(const AstNode &)> scanBody;
+  scanBody = [&](const AstNode &statement) -> LogicalResult {
+    if (statement.kind() == "FunctionDef")
+      return fail(statement, "callables must be declared directly in their Module");
+    if (statement.kind() == "Return" || statement.kind() == "Break" ||
+        statement.kind() == "Continue")
+      return fail(statement, "static for does not support return, break or continue");
+    if (statement.kind() == "Assign") {
+      for (size_t i = 0; i < statement.array("targets").size(); ++i)
+        if (failed(detail::forEachAssignmentLeaf(
+                statement.item("targets", i), assignmentName)))
+          return failure();
+    } else if (statement.kind() == "AnnAssign" ||
+               statement.kind() == "AugAssign" || statement.kind() == "For") {
+      if (failed(detail::forEachAssignmentLeaf(statement.child("target"),
+                                               assignmentName)))
+        return failure();
+    }
+    for (StringRef field : {"body", "orelse"}) {
+      auto children = statement.array(field);
+      for (size_t i = 0; children && i < children.size(); ++i)
+        if (failed(scanBody(statement.item(field, i))))
+          return failure();
+    }
+    return success();
+  };
+  assigned.insert(indexName);
+  for (size_t i = 0; i < node.array("body").size(); ++i)
+    if (failed(scanBody(node.item("body", i))))
+      return failure();
+
+  auto loopOrigin = origin(node, currentDefinition);
+  SmallVector<ac::StaticExprAttr> bounds;
+  unsigned arity = iterator.array("args").size();
+  if (arity == 1)
+    bounds.push_back(staticLiteral(llvm::APSInt(llvm::APInt(2, 0), true),
+                                   node, scope.owner->symbol));
+  for (unsigned i = 0; i < arity; ++i) {
+    auto bound = staticExpr(iterator.item("args", i), scope.owner->symbol);
+    if (failed(bound))
+      return failure();
+    bounds.push_back(*bound);
+  }
+  if (arity < 3)
+    bounds.push_back(staticLiteral(llvm::APSInt(llvm::APInt(2, 1), true),
+                                   node, scope.owner->symbol));
+  SmallVector<Value> operands;
+  for (auto bound : bounds)
+    operands.push_back(op(node, "ac.source.static_index", {}, b.getIndexType(),
+                          {b.getNamedAttr("value", bound)})
+                           ->getResult(0));
+  SmallVector<std::string> carriedNames;
+  SmallVector<Type> types;
+  for (const auto &[name, binding] : scope.bindings) {
+    if (!assigned.count(name) || !binding.value)
+      continue;
+    if (name == indexName &&
+        (isResource(binding.type()) || isa<ac::ModuleRefType>(binding.type())))
+      return fail(target, "loop target requires a local payload binding");
+    if (isResource(binding.type()) && !binding.parameter &&
+        (!scope.module || isa<ac::StateType, ac::QueueType>(binding.type()))) {
+      continue;
+    }
+    if (isa<ac::ModuleRefType>(binding.type()) && !scope.module)
+      continue;
+    Value initial = binding.value;
+    if (!scope.module && binding.parameter && isResource(initial.getType())) {
+      auto loaded = read(initial, node, scope);
+      if (failed(loaded))
+        return failure();
+      initial = *loaded;
+    }
+    carriedNames.push_back(name);
+    types.push_back(initial.getType());
+    operands.push_back(initial);
+  }
+  auto live = loopLiveNames(node, continuation);
+  if (failed(live))
+    return failure();
+  std::set<std::string> freshNames;
+  for (const auto &name : assigned)
+    if (!scope.bindings.count(name.getKey().str()) &&
+        live->count(name.getKey().str()))
+      freshNames.insert(name.getKey().str());
+  for (const auto &name : freshNames) {
+    auto type = ac::InferType::get(b.getContext());
+    auto unbound = op(node, "ac.source.unbound", {}, type)->getResult(0);
+    carriedNames.push_back(name);
+    types.push_back(type);
+    operands.push_back(unbound);
+  }
+  auto *loop = op(node, "scf.for", operands, types,
+                  {b.getNamedAttr("occurrence", loopOrigin)}, 1);
+  auto *body = new Block;
+  loop->getRegion(0).push_back(body);
+  auto induction = body->addArgument(b.getIndexType(), loop->getLoc());
+  Scope inner = scope;
+  for (auto [name, type] : llvm::zip(carriedNames, types)) {
+    inner.bindings[name] = Binding{body->addArgument(type, loop->getLoc()),
+                                    {}, {}, nullptr};
+    inner.bindings[name].loopUnbound =
+        freshNames.count(name) || scope.bindings.at(name).loopUnbound;
+    if (scope.module &&
+        (freshNames.count(name) || isResource(type) || isa<ac::ModuleRefType>(type)))
+      inner.loopRebindings.insert(name);
+  }
+  {
+    OpBuilder::InsertionGuard save(b);
+    b.setInsertionPointToEnd(body);
+    Type indexType = ac::InferType::get(b.getContext());
+    auto incomingIndex = scope.bindings.find(indexName);
+    if (incomingIndex != scope.bindings.end() &&
+        isa<ac::BitsType>(incomingIndex->second.type()))
+      indexType = incomingIndex->second.type();
+    auto index = op(node, "ac.source.index", induction, indexType,
+                    {b.getNamedAttr("occurrence", loopOrigin),
+                     b.getNamedAttr("source_location",
+                                    detail::sourceSpan(b, source.path, node)),
+                     b.getNamedAttr("is_signed", b.getBoolAttr(true))})
+                     ->getResult(0);
+    inner.bindings[indexName] = Binding{index, {}, {}, nullptr};
+    auto ref = b.getDictionaryAttr(
+        {b.getNamedAttr("kind", b.getStringAttr("induction")),
+         b.getNamedAttr("loop", loopOrigin)});
+    auto expression = ac::StaticExprAttr::get(
+        b.getContext(), b.getDictionaryAttr({
+            b.getNamedAttr("kind", b.getStringAttr("reference")),
+            b.getNamedAttr("ref", ref),
+            b.getNamedAttr("origin", origin(target, scope.owner->symbol)),
+            b.getNamedAttr("location", detail::sourceSpan(b, source.path, target))}));
+    inner.inductions[indexName] = {index, expression};
+    if (failed(statements(node, "body", inner)))
+      return failure();
+    SmallVector<Value> values;
+    for (auto [name, type] : llvm::zip(carriedNames, types)) {
+      Value value = inner.bindings.at(name).value;
+      if (!value ||
+          (!scope.module && (isResource(value.getType()) ||
+                            isa<ac::ModuleRefType>(value.getType()))))
+        return fail(node, "loop-carried local requires a payload value");
+      if ((isResource(type) || isa<ac::ModuleRefType>(type) ||
+           isResource(value.getType()) ||
+           isa<ac::ModuleRefType>(value.getType())) &&
+          !isa<ac::InferType>(type) && !equal(value.getType(), type))
+        return fail(node, "loop-carried references require the same interface type");
+      if (value.getType() != type)
+        value = op(node, "ac.payload.pending", value, type,
+                    {b.getNamedAttr("kind", b.getStringAttr("convert")),
+                     b.getNamedAttr("ac.join_transport", b.getUnitAttr())})
+                    ->getResult(0);
+      values.push_back(value);
+    }
+    op(node, "scf.yield", values, {});
+  }
+  b.setInsertionPointAfter(loop);
+  for (auto [name, value] : llvm::zip(carriedNames, loop->getResults())) {
+    Binding binding = inner.bindings.at(name);
+    Type finalType = binding.type();
+    if (isa<ac::InferType>(value.getType()) && finalType &&
+        !isa<ac::InferType>(finalType))
+      value = op(node, "ac.payload.pending", value, finalType,
+                  {b.getNamedAttr("kind", b.getStringAttr("convert"))})
+                  ->getResult(0);
+    binding.value = value;
+    binding.parameter = false;
+    scope.bindings[name] = binding;
+    scope.inductions.erase(name);
+  }
+  return success();
+}
+
 LogicalResult Importer::statement(const AstNode &node, Scope &scope,
                                   ArrayRef<StatementRange> continuation) {
+  auto *previousScope = activeScope;
+  activeScope = &scope;
+  auto restoreScope = llvm::scope_exit([&] { activeScope = previousScope; });
   if (!charge(node))
     return failure();
   if (node.kind() == "Pass")
     return success();
+  if (node.kind() == "For")
+    return staticFor(node, scope, continuation);
   if (node.kind() == "FunctionDef") {
     if (!scope.module || scope.conditionalDepth)
       return fail(node,
@@ -808,8 +1235,10 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     if (target.kind() != "Name")
       return fail(target, "declaration requires one named binding");
     std::string name = target.string("id").str();
-    if (scope.bindings.count(name))
+    auto previous = scope.bindings.find(name);
+    if (previous != scope.bindings.end() && !previous->second.loopUnbound)
       return fail(target, "duplicate declared local");
+    scope.loopRebindings.erase(name);
     if (names.count(name) || globalRules.count(name) ||
         scope.owner->callables.count(name))
       return fail(
@@ -920,6 +1349,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
               leaf, "output bindings require names or a direct tuple of names");
         auto found = scope.bindings.find(leaf.string("id").str());
         destinations.push_back(found != scope.bindings.end() &&
+                                       !scope.loopRebindings.count(
+                                           leaf.string("id").str()) &&
                                        isResource(found->second.type())
                                    ? found->second.value
                                    : Value());
@@ -944,7 +1375,28 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     scope.pendingResultArity = savedArity;
     if (failed(values))
       return failure();
-    return bind(target, *values, scope);
+    ac::StaticExprAttr staticValue;
+    bool mathematicalValue = false;
+    if (target.kind() == "Name" && values->size() == 1 &&
+        isStaticExpression(node.child("value"), scope)) {
+      auto captured = staticExpr(node.child("value"), scope.owner->symbol);
+      if (failed(captured))
+        return failure();
+      staticValue = *captured;
+      mathematicalValue = isStaticExpression(node.child("value"), scope, true);
+    }
+    if (failed(bind(target, *values, scope)))
+      return failure();
+    if (staticValue) {
+      auto name = target.string("id").str();
+      const auto &binding = scope.bindings.at(name);
+      if (!isResource(binding.type()) && !isa<ac::ModuleRefType>(binding.type())) {
+        scope.staticLocals[name] = {binding.value, staticValue};
+        if (mathematicalValue && isa<ac::InferType>(binding.type()))
+          scope.mathematicalStaticLocals.insert(name);
+      }
+    }
+    return success();
   }
   if (node.kind() == "AugAssign") {
     auto target = node.child("target");
@@ -1080,15 +1532,35 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     return success();
   }
   if (node.kind() == "If") {
-    auto condition = scalar(node.child("test"), scope, bits(1, node));
-    if (failed(condition))
-      return failure();
-    if (!scope.module)
-      if (auto known = constantPredicate(*condition, node))
-        return statements(node, *known ? "body" : "orelse", scope,
-                          continuation);
-    auto selected = op(node, "ac.source.predicate", *condition, b.getI1Type())
-                        ->getResult(0);
+    auto test = node.child("test");
+    bool staticComparison = false;
+    if (test.kind() == "Compare" && test.array("ops").size() == 1 &&
+        test.array("comparators").size() == 1) {
+      auto form = test.item("ops", 0).kind();
+      staticComparison =
+          (form == "Eq" || form == "NotEq" || form == "Lt" || form == "LtE" ||
+           form == "Gt" || form == "GtE") &&
+          isStaticExpression(test.child("left"), scope, true) &&
+          isStaticExpression(test.item("comparators", 0), scope, true);
+    }
+    Value selected;
+    if (staticComparison) {
+      auto value = staticExpr(test, scope.owner->symbol);
+      if (failed(value))
+        return failure();
+      selected = op(node, "ac.source.static_predicate", {}, b.getI1Type(),
+                     {b.getNamedAttr("value", *value)})->getResult(0);
+    } else {
+      auto condition = scalar(test, scope, bits(1, node));
+      if (failed(condition))
+        return failure();
+      if (!scope.module)
+        if (auto known = constantPredicate(*condition, node))
+          return statements(node, *known ? "body" : "orelse", scope,
+                            continuation);
+      selected = op(node, "ac.source.predicate", *condition, b.getI1Type())
+                     ->getResult(0);
+    }
     auto *branch = op(node, "scf.if", selected, {}, {}, 2);
     std::map<std::string, Binding> branchResources;
     Scope arms[2] = {scope, scope};
@@ -1187,6 +1659,13 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     for (unsigned arm = 0; arm < 2; ++arm) {
       merged->getRegion(arm).takeBody(branch->getRegion(arm));
       b.setInsertionPointToEnd(&merged->getRegion(arm).front());
+      for (auto [index, type] : llvm::enumerate(types))
+        if (values[arm][index].getType() != type)
+          values[arm][index] =
+              op(node, "ac.payload.pending", values[arm][index], type,
+                 {b.getNamedAttr("kind", b.getStringAttr("convert")),
+                  b.getNamedAttr("ac.join_transport", b.getUnitAttr())})
+                  ->getResult(0);
       op(node, "scf.yield", values[arm], {});
     }
     branch->erase();

@@ -9,4 +9,4 @@ pycircuit_add_example(queue_rule_pipeline
   TOP example_queue_rule_pipeline.bench.QueueRulePipelineSystem
   ENTRY_SOURCE bench
   SOURCES queue_rule_pipeline.py bench.py
-  CYCLES 12)
+  CYCLES 14)

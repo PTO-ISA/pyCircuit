@@ -144,12 +144,15 @@ LogicalResult preflight(Operation *op) {
             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
             TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
             TableChooseOp, TableFoldOp, SourceExpectOp, SourceObserveOp,
-            ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(
+            ConstantOp, SystemOp, SourcePredicateOp, SourceStaticPredicateOp, SourceStaticIndexOp, SourceUnboundOp, SourceIndexOp, scf::ForOp, scf::IfOp, scf::YieldOp>(
           [](auto typed) { return typed.verifyInvariantsImpl(); })
       .Default([](Operation *) { return success(); });
 }
 LogicalResult ownedName(Operation *op) {
-  auto parent = dyn_cast_or_null<ModuleOp>(op->getParentOp());
+  Operation *scope = op->getParentOp();
+  while (!isLinkedTransactionalPackage(op) && isa_and_nonnull<scf::ForOp>(scope))
+    scope = scope->getParentOp();
+  auto parent = dyn_cast_or_null<ModuleOp>(scope);
   auto name = op->getAttrOfType<StringAttr>("instance_name");
   if (!parent || !name || name.getValue().empty() ||
       name.getValue().contains('\0'))
@@ -272,7 +275,7 @@ Operation *methodTarget(TransactionMethodCallOp call) {
 }
 bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
   if (purePayload(op) || isa<PayloadUseOp>(op) ||
-      isa<YieldOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(op))
+      isa<YieldOp, SourcePredicateOp, SourceIndexOp, SourceUnboundOp, SourceStaticPredicateOp, SourceStaticIndexOp, scf::ForOp, scf::IfOp, scf::YieldOp>(op))
     return true;
   if (auto call = dyn_cast<func::CallOp>(op)) {
     auto target = dyn_cast_or_null<func::FuncOp>(
@@ -330,13 +333,13 @@ bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
 // Module control is structural nesting, never a new callable/resource owner.
 ModuleOp controlOwner(Operation *op) {
   auto *parent = op->getParentOp();
-  while (isa_and_nonnull<scf::IfOp>(parent))
+  while (isa_and_nonnull<scf::IfOp, scf::ForOp>(parent))
     parent = parent->getParentOp();
   return dyn_cast_or_null<ModuleOp>(parent);
 }
 bool inCallableBody(Operation *op) {
   Operation *child = op;
-  while (isa_and_nonnull<scf::IfOp>(child->getParentOp()))
+  while (isa_and_nonnull<scf::IfOp, scf::ForOp>(child->getParentOp()))
     child = child->getParentOp();
   auto *owner = child->getParentOp();
   return isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) &&
@@ -344,15 +347,24 @@ bool inCallableBody(Operation *op) {
 }
 LogicalResult verifyModuleControl(Operation *op) {
   Operation *scope = op->getParentOp();
-  while (isa_and_nonnull<scf::IfOp>(scope))
+  while (isa_and_nonnull<scf::IfOp, scf::ForOp>(scope))
     scope = scope->getParentOp();
   if (!controlOwner(op) &&
       !isa_and_nonnull<TransactionRuleOp, TransactionMethodOp,
                       func::FuncOp>(scope))
     return op->emitOpError("transactional SCF control requires Module or "
                            "pure helper or Rule/Method placement");
-  if (auto branch = dyn_cast<scf::IfOp>(op)) {
-    if (!branch.getCondition().getDefiningOp<SourcePredicateOp>())
+  if (auto loop = dyn_cast<scf::ForOp>(op)) {
+    if (isLinkedTransactionalPackage(op))
+      return op->emitOpError("Linked ACIR cannot retain static loops");
+    if (failed(detail::verifyOccurrence(op->getAttrOfType<DictionaryAttr>("occurrence"),
+                                        [&] { return op->emitOpError(); })))
+      return failure();
+    if (!loop.getLowerBound().getType().isIndex() || loop.getUnsignedCmp())
+      return op->emitOpError("static loops require signed index bounds");
+  } else if (auto branch = dyn_cast<scf::IfOp>(op)) {
+    if (!branch.getCondition().getDefiningOp<SourcePredicateOp>() &&
+        !branch.getCondition().getDefiningOp<SourceStaticPredicateOp>())
       return op->emitOpError("transactional scf.if requires an original Bits "
                              "predicate bridge");
     for (Type type : branch.getResultTypes())
@@ -377,8 +389,9 @@ LogicalResult verifyModuleControl(Operation *op) {
       return op->emitOpError(
           "transactional payload branch requires an else region");
   } else if (isa<scf::YieldOp>(op)) {
-    auto branch = dyn_cast<scf::IfOp>(op->getParentOp());
-    if (!branch || op->getOperandTypes() != branch.getResultTypes())
+    auto *control = op->getParentOp();
+    if (!isa_and_nonnull<scf::IfOp, scf::ForOp>(control) ||
+        op->getOperandTypes() != control->getResultTypes())
       return op->emitOpError(
           "transactional scf.yield must match its branch results");
   }
@@ -1017,8 +1030,10 @@ LogicalResult ResourceConnectionOp::verify() {
   if (!isTransactionalPackage(*this) || isLinkedTransactionalPackage(*this))
     return emitOpError(
         "resource connections require an unlinked transactional package");
-  if (!isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
-    return emitOpError("resource connections require direct Module ownership");
+  Operation *scope = (*this)->getParentOp();
+  while (isa_and_nonnull<scf::ForOp>(scope)) scope = scope->getParentOp();
+  if (!isa_and_nonnull<ModuleOp>(scope))
+    return emitOpError("resource connections require structural Module ownership");
   Type data = payload(getResource().getType());
   for (Value value : getConnections())
     if (!transactionalTypesEqual(payload(value.getType()), data))
@@ -1069,8 +1084,13 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
       return op->emitOpError("payload use requires a callable payload value");
     return success();
   }
-  if (isa<scf::IfOp, scf::YieldOp, SourcePredicateOp>(op))
+  if (isa<scf::ForOp, scf::IfOp, scf::YieldOp, SourcePredicateOp>(op))
     return verifyModuleControl(op);
+  if (isa<SourceStaticPredicateOp, SourceStaticIndexOp, SourceUnboundOp, SourceIndexOp>(op)) {
+    if (isLinkedTransactionalPackage(op))
+      return op->emitOpError("Linked ACIR cannot retain static index bridges");
+    return success();
+  }
   if (auto observe = dyn_cast<SourceObserveOp>(op)) {
     if (!inCallableBody(op) ||
         observe.getKind() != "log" || op->hasAttr("ac.observation_id"))
@@ -1395,9 +1415,10 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     return success();
   }
   if (auto ref = dyn_cast<InstanceRefOp>(op)) {
-    if (!isa_and_nonnull<ModuleOp>(op->getParentOp()))
-      return op->emitOpError(
-          "instance reference requires direct module placement");
+    if (!controlOwner(op))
+      return op->emitOpError("instance reference requires structural Module placement");
+    if (!isLinkedTransactionalPackage(op) && op->getParentOfType<scf::ForOp>())
+      return success();
     auto *target = resolvePath(op, ref.getInstancePath());
     auto symbol =
         target ? target->getAttrOfType<StringAttr>("sym_name") : StringAttr();
@@ -1572,6 +1593,12 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     return success(succeeded(analysis.getPackedWidth(type, bindings, site)));
   };
   fail = package.walk([&](Operation *op) {
+    if (failed(verifyStaticLoopReferences(op)))
+      return WalkResult::interrupt();
+    if (linked && isa<scf::ForOp, SourceIndexOp, SourceUnboundOp, SourceStaticPredicateOp, SourceStaticIndexOp>(op)) {
+      op->emitOpError("Linked ACIR cannot retain static loop machinery");
+      return WalkResult::interrupt();
+    }
     // Helpers have their own complete source, signature, purity and region
     // verification above. They are templates until lowering preparation.
     if (isa<func::FuncOp>(op) || op->getParentOfType<func::FuncOp>())
@@ -1590,6 +1617,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
                                     attr.getName());
       bool provenance =
           (!root && name == "ac.origin") ||
+          (isa<scf::ForOp>(op) && name == "occurrence") ||
           (isa<BitsCompareOp>(op) && name == "ac.verification_observer") ||
           (isa<StructOp, EnumOp, ConstantOp, ModuleOp, ModuleImportOp,
                TransactionRuleOp>(op) &&
@@ -1636,7 +1664,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
                         });
       if (!isa<UnitAttr>(op->getAttr("ac.join_transport")) || !conversion ||
           op->getNumOperands() != 1 || !yieldsOnly ||
-          !isa<scf::IfOp>(op->getParentOp())) {
+          !isa<scf::IfOp, scf::ForOp>(op->getParentOp())) {
         op->emitOpError("join transport requires a branch yield conversion");
         return WalkResult::interrupt();
       }
@@ -1647,7 +1675,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
               StateWritePartialOp, InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
               TransactionMethodCallOp, PayloadUseOp, SourceExpectOp, SourceObserveOp,
-              ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp,
+              ConstantOp, SystemOp, SourcePredicateOp, SourceStaticPredicateOp, SourceStaticIndexOp, SourceUnboundOp, SourceIndexOp, scf::ForOp, scf::IfOp, scf::YieldOp,
               func::CallOp>(
              op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
@@ -1664,10 +1692,12 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     }
     for (Type type : op->getOperandTypes())
       if (!(isa<scf::IfOp>(op) && type.isSignlessInteger(1)) &&
+          !(isa<scf::ForOp, SourceIndexOp>(op) && type.isIndex()) &&
           failed(checkType(type, op)))
         return WalkResult::interrupt();
     for (Type type : op->getResultTypes())
-      if (!(isa<SourcePredicateOp>(op) && type.isSignlessInteger(1)) &&
+      if (!(isa<SourcePredicateOp, SourceStaticPredicateOp>(op) && type.isSignlessInteger(1)) &&
+          !(isa<SourceStaticIndexOp>(op) && type.isIndex()) &&
           failed(checkType(type, op)))
         return WalkResult::interrupt();
     if (isa_and_nonnull<scf::IfOp>(op->getParentOp())) {
@@ -1793,9 +1823,14 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
         }
         Origin origin;
         if (auto arg = dyn_cast<BlockArgument>(value)) {
-          if (arg.getOwner() != &module.getBody().front())
-            return failure();
-          origin = arg.getArgNumber();
+          if (arg.getOwner() != &module.getBody().front()) {
+            if (linked || !isa<scf::ForOp>(arg.getOwner()->getParentOp()))
+              return failure();
+            // Static connection slots are closed against actual iterations at
+            // link; they do not allocate or select a runtime resource.
+          } else {
+            origin = arg.getArgNumber();
+          }
         } else if (auto instance = value.getDefiningOp<InstanceOp>()) {
           auto *target = lookup(instance, instance.getCallee());
           if (failed(summarize(target)))
@@ -1821,6 +1856,14 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
             if (*result)
               origin = *result;
           }
+        } else if (!linked && value.getDefiningOp<scf::ForOp>()) {
+          // The source interface may depend on an unbound trip count. The
+          // expanded occurrence supplies the concrete alias/owner summary.
+        } else if (auto transport = value.getDefiningOp<PendingExprOp>();
+                   !linked && transport && transport.getKind() == "convert") {
+          auto result = resolve(transport.getOperand(0));
+          if (failed(result)) return failure();
+          origin = *result;
         } else if (!value.getDefiningOp<ResourceAllocOp>()) {
           declaration->emitOpError("resource reference requires an existing "
                                    "allocation, instance export or formal");

@@ -605,7 +605,7 @@ struct Normalizer {
                  << "negative induction needs signed Integer representation";
         OpBuilder builder(index);
         auto folded =
-            bitsConstant(builder, index, index.getResult().getType(), *value,
+            bitsConstant(builder, index, cast<ac::BitsType>(index.getResult().getType()), *value,
                          index.getIsSigned(), index.getOccurrence(),
                          index.getSourceLocation());
         if (failed(folded))

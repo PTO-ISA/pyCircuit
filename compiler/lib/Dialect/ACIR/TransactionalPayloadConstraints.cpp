@@ -225,7 +225,8 @@ class PayloadConstraints {
     auto restoreExclusion =
         llvm::scope_exit([&] { excludedRelations.erase(expr); });
     if (kind == "convert") {
-      request(expr.getOperand(0), expr.getResult().getType(), expr);
+      Type target = expr.getResult().getType();
+      request(expr.getOperand(0), unknown(target) ? context : target, expr);
     } else if (kind == "binary" || kind == "compare" || kind == "select") {
       llvm::DenseSet<Value> active;
       for (Value operand : expr.getInputs())
@@ -269,7 +270,13 @@ class PayloadConstraints {
   }
   LogicalResult infer(PendingExprOp expr) {
     auto kind = expr.getKind();
-    if (kind == "literal" || kind == "convert")
+    if (kind == "convert") {
+      if (unknown(expr.getResult().getType()) &&
+          !expr->hasAttr("ac.join_transport"))
+        return setFact(expr.getResult(), fact(expr.getOperand(0)));
+      return success();
+    }
+    if (kind == "literal")
       return success();
     for (Value input : expr.getInputs())
       if (!fact(input))
@@ -462,9 +469,19 @@ public:
     // Static templates retain their SSA constraints until occurrence binding.
     // Choosing literal widths or resize directions here would use defaults in
     // place of the actual instance's parameters.
+    llvm::DenseSet<Operation *> loopTemplates;
+    if (!requireClosed)
+      package.walk([&](scf::ForOp loop) {
+        for (auto *at = loop->getParentOp(); at; at = at->getParentOp())
+          if (isa<ModuleOp, func::FuncOp, TransactionRuleOp>(at))
+            loopTemplates.insert(at);
+      });
     auto deferred = [&](Operation *op) {
+      if (requireClosed) return false;
+      for (auto *at = op; at; at = at->getParentOp())
+        if (loopTemplates.contains(at)) return true;
       auto owner = op->getParentOfType<ModuleOp>();
-      return !requireClosed && owner && !owner.getParameters().empty();
+      return owner && !owner.getParameters().empty();
     };
     auto literals = package.walk([&](PendingExprOp expr) {
       if (deferred(expr))
@@ -691,17 +708,17 @@ public:
     if (boundaries.wasInterrupted())
       return failure();
     if (requireClosed) {
-      bool unresolved = false;
+      Operation *unresolved = nullptr;
       package.walk([&](Operation *op) {
-        if (isa<PendingExprOp>(op))
-          unresolved = true;
-        for (Type type : op->getResultTypes())
-          if (unknown(type))
-            unresolved = true;
+        if (!unresolved && (isa<PendingExprOp>(op) ||
+            llvm::any_of(op->getResultTypes(), unknown)))
+          unresolved = op;
       });
       if (unresolved)
-        return package.emitOpError(
-            "payload constraints await a provider or actual binding");
+        return unresolved->emitOpError(
+            "payload constraints await a provider or actual binding")
+            << "; operands " << unresolved->getOperandTypes()
+            << ", results " << unresolved->getResultTypes();
     }
     return success();
   }
@@ -883,7 +900,9 @@ LogicalResult PendingExprOp::verify() {
     if (failed(StaticExprAttr::verify([&] { return emitOpError(); },
                                      expression.getTree())) ||
         failed(detail::verifyHardwareAttributeScope(
-            expression, (*this)->getParentOfType<ModuleOp>())))
+            expression, (*this)->getParentOfType<ModuleOp>()
+                            ? (*this)->getParentOfType<ModuleOp>().getOperation()
+                            : (*this)->getParentOfType<func::FuncOp>().getOperation())))
       return failure();
   return success();
 }

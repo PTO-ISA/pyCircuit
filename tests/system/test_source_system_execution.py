@@ -219,7 +219,13 @@ def _assert_closed_observation_identities(rows):
         assert set(registration) == {"site", "expansion"}, registration
         identity = json.loads(row["site"])
         assert set(identity) == {"site", "invocation", "ordinal"}, identity
-        assert identity["invocation"] == [], identity
+        assert isinstance(identity["invocation"], list), identity
+        for frame in identity["invocation"]:
+            assert set(frame) == {"call", "receiver"}, frame
+            assert set(frame["call"]) == {"site", "expansion"}, frame
+            assert set(frame["receiver"]) == {"instance_path"}, frame
+            for occurrence in frame["receiver"]["instance_path"]:
+                assert set(occurrence) == {"site", "expansion"}, occurrence
         assert isinstance(identity["ordinal"], int) and identity["ordinal"] >= 0
         key = (row["instance"], row["kind"], json.dumps(row["spec"], sort_keys=True))
         value = (row["registration"], row["site"])

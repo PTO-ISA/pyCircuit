@@ -4,6 +4,7 @@ add_acir_library(ACIRTransforms SOURCES
   NormalizeValueUpdates.cpp
   NormalizeRecordConstructors.cpp
   NormalizeSourceControlFlow.cpp
+  ExpandStaticFor.cpp
   ExtractSourceInterface.cpp
   SimplifyRecordWires.cpp
   AnalyzeSourceMethods.cpp

@@ -206,13 +206,50 @@ Known closed defaults are checked even when overridden or unused. Closed
 default-bound definitions and their internal instances retain validation
 occurrences without registering another System. Required static arguments and
 external resources still need real bindings. This does not admit Table storage,
-static loops, type parameters or external root Queue interfaces. See
+type parameters or external root Queue interfaces. See
 `tests/system/test_stateful_static_parameters.py` and the parameterized shared
 Counter in `examples/resource_composition`.
 
-Field assignment, constructor defaults, ordinary helpers, loops
-and remaining advanced payloads are
-implementation gaps. Retained tests
+Static `for` loops use the unshadowed builtin `range(stop)`,
+`range(start, stop)` or `range(start, stop, step)` with a positive static step.
+Bounds are mathematical integers from literals, source constants, closed static
+expressions, Module static parameters or enclosing induction values. Ordinary
+runtime inputs are not static bounds. Module, Rule, Method and pure helper
+bodies share this path. For example:
+
+```python
+def sum_indices(value: ac.u16) -> ac.u16:
+    total = value
+    for index in range(1, 6, 2):
+        total += ac.u16(index)
+    return total
+```
+
+Capture records one `scf.for`, including loop-carried locals and branch yields;
+it never executes or unrolls the Python function. Link binds each instance's
+parameters, expands its loops with `ac-expand-static-for`, discovers the actual
+child instances and closes resource, Method and payload constraints. Nested
+bounds can depend on an outer index. Static connection references may pass from
+one iteration's child output to the next child's input. Each child retains its
+own storage identity. Linked ACIR contains no loops or transient index bridges;
+pure helpers remain functions until the existing inlining stage.
+
+Iterations add neither cycles nor transaction boundaries. Ordinary locals carry
+values in order; persistent state reads still observe committed Q. Existing
+write-conflict and whole-transaction admission rules apply after expansion.
+Disjoint partial writes compose through common analysis. Rebinding the visible
+index does not change the hidden iteration counter. Zero iterations preserve
+incoming bindings, create no children or effects, and do not define new locals;
+a later read must be definitely assigned. Static expansion uses the existing
+work and instance-closure budgets. Failed linking publishes no partial result.
+
+Negative steps, dynamic trip counts, `break`, `continue`, loop-body `return`,
+`for-else` and `while` remain migration obligations. Their retained tests are
+not passing evidence for this bounded path. Physical C++/RTL execution coverage
+belongs to `CodeGen/transactional-static-for.test`; this does not extend t-gfsim's
+supported payload or execution profile.
+
+Remaining advanced payloads and control forms are implementation gaps. Retained tests
 and independent oracles for these capabilities are not passing evidence for the
 replacement. See the [replacement status](../development/transactional-frontend-status.md)
 for migration accounting and evidence policy.

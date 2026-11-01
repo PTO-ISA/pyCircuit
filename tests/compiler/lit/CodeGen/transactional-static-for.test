@@ -1,0 +1,7 @@
+# REQUIRES: verilator, iverilog, vvp
+# RUN: %python %inputs/transactional-static-for.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.main.cpp cpp main
+# RUN: %python %inputs/transactional-static-for.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.main.rtl verilog main
+# RUN: %python %inputs/transactional-static-for.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.cpp cpp reset
+# RUN: %python %inputs/transactional-static-for.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.rtl verilog reset
+# RUN: %python %inputs/transactional-static-for.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure.cpp cpp failure
+# RUN: %python %inputs/transactional-static-for.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure.rtl verilog failure

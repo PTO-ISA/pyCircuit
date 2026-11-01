@@ -1,7 +1,8 @@
 #include "SourceLink.h"
+#include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "SourceHeaderHelpers.h"
-#include "Dialect/ACIR/ACIRSourceContracts.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -9,9 +10,10 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
+#include "pycircuit/Transforms/ExpandStaticFor.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -44,6 +46,14 @@ class ReferenceLinker {
   ModuleOp package;
   ac::HardwareAnalysis hardware;
   SmallVector<Occurrence> instances;
+  SmallVector<OwningOpRef<ac::ModuleOp>> working;
+  uint64_t remaining = ac::HardwareSourceCheckLimits{}.maxWorkUnits;
+  LogicalResult debit(uint64_t units, Operation *site) {
+    if (units > remaining)
+      return site->emitOpError("static instance expansion budget exceeded");
+    remaining -= units;
+    return success();
+  }
   llvm::DenseSet<Operation *> expanding;
   llvm::DenseSet<std::pair<unsigned, Value>> resolving;
 
@@ -72,7 +82,70 @@ class ReferenceLinker {
                          {},
                          {},
                          std::move(bindings)});
-    for (auto child : module.getBody().front().getOps<ac::InstanceOp>()) {
+    uint64_t bodySize = 0;
+    module.walk([&](Operation *) { ++bodySize; });
+    if (failed(debit(bodySize, module)))
+      return failure();
+    working.push_back(
+        OwningOpRef<ac::ModuleOp>(cast<ac::ModuleOp>(module->clone())));
+    instances[id].linked = *working.back();
+    Builder builder(package.getContext());
+    // Qualified static expressions still name the authored template here.
+    // Rebind every type/attribute, including unused Method bodies and capture
+    // arguments, before changing the occurrence's symbol identity.
+    AttrTypeReplacer replace;
+    bool failedType = false;
+    replace.addReplacement([&](ac::StaticExprAttr expr) -> Attribute {
+      return hardware.substituteAttribute(expr, instances[id].bindings);
+    });
+    replace.recursivelyReplaceElementsIn(instances[id].linked, true, false,
+                                         true);
+    if (failed(expandStaticFor(instances[id].linked, hardware,
+                               instances[id].bindings,
+                               [&](uint64_t units, Operation *site) {
+                                 return debit(units, site);
+                               })))
+      return failure();
+    AttrTypeReplacer resolve;
+    resolve.addReplacement([&](Type type) -> std::optional<Type> {
+      if (!isa<ac::BitsType, ac::TableType, ac::TypeParamType>(type))
+        return std::nullopt;
+      auto resolved = hardware.resolveType(type, instances[id].bindings,
+                                           instances[id].original);
+      if (failed(resolved)) {
+        failedType = true;
+        return type;
+      }
+      return *resolved;
+    });
+    resolve.recursivelyReplaceElementsIn(instances[id].linked, true, false,
+                                         true);
+    if (failedType)
+      return failure();
+    for (auto allocation :
+         instances[id].linked.getBody().front().getOps<ac::ResourceAllocOp>()) {
+      auto depth = allocation->getAttrOfType<ac::StaticExprAttr>("depth");
+      if (!depth)
+        continue;
+      auto evaluated = hardware.evaluateStatic(depth, instances[id].bindings,
+                                               instances[id].original);
+      auto integer = succeeded(evaluated)
+                         ? dyn_cast<ac::MathIntAttr>(*evaluated)
+                         : ac::MathIntAttr();
+      if (!integer)
+        return allocation.emitOpError("Queue depth requires a static Integer");
+      llvm::APSInt value(integer.getCanonicalValue());
+      if (value.isNegative() || value.isZero() || value.getActiveBits() > 63)
+        return allocation.emitOpError("Queue depth requires a positive i64");
+      allocation->setAttr("depth",
+                          builder.getI64IntegerAttr(value.getZExtValue()));
+    }
+    instances[id].linked->setAttr("parameters", builder.getArrayAttr({}));
+    instances[id].linked->setAttr("type_parameters", builder.getArrayAttr({}));
+    instances[id].linked->setAttr(
+        "sym_name", StringAttr::get(package.getContext(), instances[id].name));
+    for (auto child :
+         instances[id].linked.getBody().front().getOps<ac::InstanceOp>()) {
       auto target = dyn_cast_or_null<ac::ModuleOp>(lookup(child.getCallee()));
       if (!target)
         return child.emitOpError(
@@ -97,7 +170,7 @@ class ReferenceLinker {
     auto cleanup = llvm::scope_exit([&] { resolving.erase(key); });
     if (auto arg = dyn_cast<BlockArgument>(value)) {
       auto *scope = arg.getOwner()->getParentOp();
-      if (scope == instances[owner].original) {
+      if (scope == instances[owner].linked) {
         auto &instance = instances[owner];
         if (instance.parent == NoParent ||
             arg.getArgNumber() >= instance.allocation.getNumOperands()) {
@@ -161,6 +234,13 @@ public:
         hardware.bindRoot(root, overrides.getDictionary(package.getContext()));
     if (failed(rootBindings))
       return failure();
+    for (Operation &definition : package.getBody()->getOperations())
+      if (isa<func::FuncOp, ac::TransactionRuleOp>(definition) &&
+          failed(expandStaticFor(&definition, hardware, {},
+                                 [&](uint64_t units, Operation *site) {
+                                   return debit(units, site);
+                                 })))
+        return failure();
     if (failed(expand(root, {}, NoParent, *rootBindings)))
       return failure();
     // A selected entry does not excuse invalid default-bound declarations or
@@ -192,63 +272,12 @@ public:
           failed(expand(module, {}, NoParent, *defaults, true)))
         return failure();
     }
-    // Clone all bodies before rewriting any provider or signature. The mapping
-    // keeps captures and region arguments tied to the original occurrence.
-    SmallVector<IRMapping> mappings(instances.size());
-    for (unsigned index = 0; index < instances.size(); ++index) {
-      auto &instance = instances[index];
-      OwningOpRef<ac::ModuleOp> specialized(
-          cast<ac::ModuleOp>(instance.original->clone(mappings[index])));
-      instance.linked = *specialized;
-      // Qualified static expressions still name the authored template here.
-      // Rebind every type/attribute, including unused Method bodies and capture
-      // arguments, before changing the occurrence's symbol identity.
-      AttrTypeReplacer replace;
-      bool failedType = false;
-      replace.addReplacement([&](ac::StaticExprAttr expr) -> Attribute {
-        return hardware.substituteAttribute(expr, instance.bindings);
-      });
-      replace.addReplacement([&](Type type) -> std::optional<Type> {
-        if (!isa<ac::BitsType, ac::TableType, ac::TypeParamType>(type))
-          return std::nullopt;
-        auto resolved =
-            hardware.resolveType(type, instance.bindings, instance.original);
-        if (failed(resolved)) {
-          failedType = true;
-          return type;
-        }
-        return *resolved;
-      });
-      replace.recursivelyReplaceElementsIn(instance.linked, true, false, true);
-      if (failedType)
-        return failure();
-      for (auto allocation :
-           instance.linked.getBody().front().getOps<ac::ResourceAllocOp>()) {
-        auto depth = allocation->getAttrOfType<ac::StaticExprAttr>("depth");
-        if (!depth)
-          continue;
-        auto evaluated = hardware.evaluateStatic(depth, instance.bindings,
-                                                instance.original);
-        auto integer = succeeded(evaluated)
-                           ? dyn_cast<ac::MathIntAttr>(*evaluated)
-                           : ac::MathIntAttr();
-        if (!integer)
-          return allocation.emitOpError("Queue depth requires a static Integer");
-        llvm::APSInt value(integer.getCanonicalValue());
-        if (value.isNegative() || value.isZero() || value.getActiveBits() > 63)
-          return allocation.emitOpError("Queue depth requires a positive i64");
-        allocation->setAttr("depth", builder.getI64IntegerAttr(value.getZExtValue()));
-      }
-      instance.linked->setAttr("parameters", builder.getArrayAttr({}));
-      instance.linked->setAttr("type_parameters", builder.getArrayAttr({}));
-      instance.linked->setAttr(
-          "sym_name", StringAttr::get(package.getContext(), instance.name));
-      package.getBody()->push_back(instance.linked);
-      specialized.release();
+    for (auto &body : working) {
+      package.getBody()->push_back(*body);
+      body.release();
     }
     for (unsigned index = 0; index < instances.size(); ++index) {
       auto &instance = instances[index];
-      auto &mapping = mappings[index];
       bool failedReference = false;
       auto rewrite = [&](Value original) {
         if (failedReference || !isa<ac::ModuleRefType>(original.getType()))
@@ -258,12 +287,12 @@ public:
           failedReference = true;
           return;
         }
-        mapping.lookup(original).setType(ac::ModuleRefType::get(
+        original.setType(ac::ModuleRefType::get(
             package.getContext(),
             FlatSymbolRefAttr::get(package.getContext(),
                                    instances[*target].name)));
       };
-      instance.original.walk([&](Operation *op) {
+      instance.linked.walk([&](Operation *op) {
         for (Value result : op->getResults())
           rewrite(result);
         for (Region &region : op->getRegions())
@@ -272,11 +301,10 @@ public:
               rewrite(argument);
         if (auto allocation = dyn_cast<ac::InstanceOp>(op)) {
           auto child = instance.children.lookup(allocation.getInstanceName());
-          mapping.lookup(op)->setAttr(
-              "callee", FlatSymbolRefAttr::get(package.getContext(),
-                                               instances[child].name));
-          mapping.lookup(op)->setAttr("parameters", builder.getArrayAttr({}));
-          mapping.lookup(op)->setAttr("type_arguments", builder.getArrayAttr({}));
+          op->setAttr("callee", FlatSymbolRefAttr::get(package.getContext(),
+                                                       instances[child].name));
+          op->setAttr("parameters", builder.getArrayAttr({}));
+          op->setAttr("type_arguments", builder.getArrayAttr({}));
         }
       });
       if (failedReference)
@@ -298,9 +326,12 @@ public:
     if (failed(ac::resolveTransactionalResourceConnections(package, modules)))
       return failure();
     for (unsigned index = 0; index < instances.size(); ++index) {
-      auto module = instances[index].original;
-      for (BlockArgument argument : module.getBody().front().getArguments()) {
-        auto ref = dyn_cast<ac::ModuleRefType>(argument.getType());
+      auto module = instances[index].linked;
+      auto original = instances[index].original;
+      for (auto [declaration, argument] :
+           llvm::zip(original.getBody().front().getArguments(),
+                     module.getBody().front().getArguments())) {
+        auto ref = dyn_cast<ac::ModuleRefType>(declaration.getType());
         if (!ref)
           continue;
         auto target = reference(index, argument);
@@ -614,13 +645,15 @@ analyzeLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
       if (!owner)
         owner = operation.getAttrOfType<DictionaryAttr>("ac.source_owner");
       if (!owner || !sourceOwners.contains(owner))
-        return operation.emitOpError("source owner is absent from linked inventory");
+        return operation.emitOpError(
+            "source owner is absent from linked inventory");
     }
   auto systems = source.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(systems))
     return emitError() << "linked artifact requires one System entry";
   auto entry = (*systems.begin())->getAttrOfType<DictionaryAttr>("entry");
-  auto top = entry ? entry.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
+  auto top =
+      entry ? entry.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
   if (!top)
     return emitError() << "linked artifact requires a selected root";
   return ac::TransactionalPreparation::create(source, top.getValue(), debit);
@@ -628,7 +661,8 @@ analyzeLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
 
 FailureOr<OwningOpRef<ModuleOp>>
 continueLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
-                     SourceLinkTarget target, SourceLinkStages *retainedStages) {
+                     SourceLinkTarget target,
+                     SourceLinkStages *retainedStages) {
   ac::HardwareSourceCheckLimits limits;
   limits.maxWorkUnits = 16 * 1024 * 1024;
   ac::detail::SourceCheckBudget budget(limits);

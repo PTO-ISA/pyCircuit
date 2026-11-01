@@ -55,6 +55,10 @@ LogicalResult verifyHardwareAttributeScope(Attribute attr, Operation *owner) {
     if (tag && tag.getValue() == "reference") {
       auto ref = tree.getAs<DictionaryAttr>("ref");
       auto kind = ref ? ref.getAs<StringAttr>("kind") : StringAttr();
+      // Lexical induction scope is checked at each operation use by the
+      // transactional verifier; declaration-only type checks see no use site.
+      if (kind && kind.getValue() == "induction")
+        return success();
       auto symbol =
           ref ? ref.getAs<FlatSymbolRefAttr>("owner") : FlatSymbolRefAttr();
       auto name = ref ? ref.getAs<StringAttr>("name") : StringAttr();

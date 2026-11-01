@@ -33,12 +33,32 @@ def ACIR_MathConstantOp : ACIR_Op<"math.constant"> {
 }
 
 // These bridges are transient source transport, never executable hardware.
-// The source-control-flow normalizer must eliminate them before publication.
+// Static loop bridges are eliminated during occurrence binding at link.
+def ACIR_SourceStaticPredicateOp : ACIR_Op<"source.static_predicate", [Pure]> {
+  let summary = "A mathematical static condition awaiting occurrence binding";
+  let arguments = (ins ACIR_StaticExprAttr:$value);
+  let results = (outs I1:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceUnboundOp : ACIR_Op<"source.unbound", [Pure]> {
+  let summary = "Unassigned source local, requiring elimination before Linked ACIR";
+  let results = (outs AnyType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceStaticIndexOp : ACIR_Op<"source.static_index", [Pure]> {
+  let summary = "Bridge a source static mathematical expression to an SCF index";
+  let arguments = (ins ACIR_StaticExprAttr:$value);
+  let results = (outs Index:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_SourceIndexOp : ACIR_Op<"source.index", [Pure]> {
   let summary = "Represent one finite source SCF induction value as Integer bits";
   let arguments = (ins Index:$input, DictionaryAttr:$occurrence,
       DictionaryAttr:$source_location, BoolAttr:$is_signed);
-  let results = (outs ACIR_BitsType:$result);
+  let results = (outs AnyType:$result);
   let hasVerifier = 1;
 }
 

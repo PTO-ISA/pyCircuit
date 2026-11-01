@@ -4,7 +4,7 @@ This small complete System combines typed Module hierarchy, cross-module Method
 calls, a finite loop, persistent state, Queue admission and independent current
 state observations through the existing compile/link/emit flow.
 
-`QueueRulePipeline` contains two depth-one, latency-one queues and an
+`QueueRulePipeline` contains two depth-one queues and an
 `Accumulator` child. A `Packet` groups its tag and value into one interface.
 The transfer Rule expresses the entire processing step:
 
@@ -12,7 +12,7 @@ The transfer Rule expresses the entire processing step:
 @ac.rule
 def transfer() -> None:
     packet = ingress.pop()
-    result = accumulator.add(packet)
+    result: Packet = accumulator.add(packet)
     transferred = transferred + 1
     egress.push(result)
 ```
@@ -23,7 +23,7 @@ and the parent's `transferred` become storage. No loop iteration adds a cycle.
 
 If the output queue cannot accept the result, **all** transfer proposals are discarded: the
 input head, child total and parent count stay unchanged. Authors write no
-ready/valid tests. The `transfer` and `progress` Rule declarations activate
+ready/valid tests. The `transfer()` and `progress()` registration calls activate the Rules
 independently. `progress` and the `snapshot` Method both read committed state;
 a transfer becomes visible to them after its rising-edge commit. Callable
 `put`, `get`, `add` and `snapshot` operations are Methods, without autonomous
@@ -37,10 +37,14 @@ authored validity field, zero substitute or holding register is needed.
 
 | Cycles | Expected behavior |
 | --- | --- |
-| 0–1 | Accept two inputs; transfer the first into the output queue. |
-| 2–5 | Full output without a simultaneous pop blocks transfer and input acceptance; total stays 12, count stays 1. |
-| 6–9 | Drain tags 0, 1, 2, 3 with totals 12, 25, 39, 54. |
-| 10–11 | Both queues are empty; counts and total hold. |
+| 0–2 | Accept two inputs; transfer the first into the output queue. |
+| 3–5 | Full output blocks transfer and input acceptance; total stays 12, count stays 1. |
+| 6–12 | Drain tags 0, 1, 2, 3 on cycles 6, 8, 10, 12 with totals 12, 25, 39, 54. |
+| 13 | Both queues are empty; counts and total hold. |
+
+Admission uses committed occupancy. A full queue cannot borrow capacity from a
+pop on the same edge, and an empty queue cannot pass through a new push. With
+depth-one queues, transfers and consumption therefore alternate after the pause.
 
 `bench.py` checks packet order, payloads, blocked state and final completion.
 The independent regression in
@@ -51,8 +55,8 @@ publication and interface-only consumer compilation.
 ## Run
 
 ```sh
-pycircuit run examples/queue_rule_pipeline --target cpp --cycles 12
-pycircuit run examples/queue_rule_pipeline --target verilog --cycles 12
+pycircuit run examples/queue_rule_pipeline --target cpp --cycles 14
+pycircuit run examples/queue_rule_pipeline --target verilog --cycles 14
 ```
 
 For the existing C++ workers 1/2 and RTL comparison:
@@ -65,11 +69,11 @@ ctest --test-dir /absolute/build/queue_rule_pipeline --output-on-failure --no-te
 ```
 
 The source files compile independently; both targets consume the same linked
-artifact. This twelve-cycle example uses known inputs and the regular System
+artifact. This fourteen-cycle example uses known inputs and the regular System
 clock/reset harness. Existing API regressions own X/Z, explicit Discard/retry
 and failing-check rollback coverage.
 
 This is the minimal combined flow for issue #319, not completion of that issue.
 Queue uses ordinary native FIFO instances and Method calls internally.
-The migration preserves the packet stimuli, accumulated payloads and drain
-schedule; progress observations follow the committed count.
+The migration preserves the packet stimuli and accumulated payloads. Its drain
+schedule follows committed occupancy, and progress observes the committed count.

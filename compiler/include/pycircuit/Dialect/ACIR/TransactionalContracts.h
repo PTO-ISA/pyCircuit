@@ -8,6 +8,7 @@ namespace acir::ac {
 // Presence selects this contract; malformed markers never select old semantics.
 bool isTransactionalPackage(mlir::Operation *operation);
 bool isLinkedTransactionalPackage(mlir::Operation *operation);
+mlir::LogicalResult verifyStaticLoopReferences(mlir::Operation *operation);
 bool transactionalTypesEqual(mlir::Type lhs, mlir::Type rhs);
 // Read-only reachability proof for closed payload conditions. Unknown values
 // retain control flow; this never replaces payload/type validation.

@@ -97,18 +97,22 @@ FailureOr<Value> Importer::scalar(const AstNode &node, Scope &scope,
 FailureOr<SmallVector<Value>>
 Importer::expression(const AstNode &node, Scope &scope, Type expected,
                      ArrayRef<Value> destinations) {
+  auto *previousScope = activeScope;
+  activeScope = &scope;
+  auto restoreScope = llvm::scope_exit([&] { activeScope = previousScope; });
   if (!charge(node))
     return failure();
   auto staticParameter = [&](auto &&self, const AstNode &syntax) -> bool {
     if (integer(syntax))
       return true;
-    if (syntax.kind() == "Name")
+    if (syntax.kind() == "Name") {
       return !scope.bindings.count(syntax.string("id").str()) &&
              llvm::any_of(scope.owner->parameters, [&](Attribute raw) {
                return cast<DictionaryAttr>(raw)
                           .getAs<StringAttr>("name")
                           .getValue() == syntax.string("id");
              });
+    }
     return syntax.kind() == "BinOp" && self(self, syntax.child("left")) &&
            self(self, syntax.child("right"));
   };
