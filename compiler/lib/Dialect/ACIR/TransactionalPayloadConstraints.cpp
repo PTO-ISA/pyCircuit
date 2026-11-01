@@ -384,6 +384,12 @@ class PayloadConstraints {
             "nominal payload conversion requires exact types");
       if (width(result, expr) < width(inputs[0].getType(), expr))
         return expr.emitOpError("Bits narrowing requires an explicit slice");
+      if (width(result, expr) == width(inputs[0].getType(), expr)) {
+        Value replacement = resize(builder, inputs[0], result, true, false);
+        expr.getResult().replaceAllUsesWith(replacement);
+        expr.erase();
+        return success();
+      }
       state.name = OperationName("ac.bits.resize", package.getContext());
       attrs.set("mode", builder.getStringAttr("zext"));
     } else {

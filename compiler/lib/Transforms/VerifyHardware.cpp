@@ -55,8 +55,9 @@ void registerACIRPasses() {
   PassRegistration<VerifyHardwarePass>();
   PassRegistration<VerifyRoutedPass>();
   registerPass([] { return createRouteTransactionsPass(); });
-  registerPass([] { return createNormalizeRecordConstructorsPass(); });
   registerPass([] { return createInlinePureHelpersPass(); });
+  registerPass([] { return createNormalizeValueUpdatesPass(); });
+  registerPass([] { return createNormalizeRecordConstructorsPass(); });
   registerPass([] { return createNormalizeSourceControlFlowPass(); });
   registerPass([] { return createExtractSourceInterfacePass(); });
   registerPass([] { return createSimplifyRecordWiresPass(); });

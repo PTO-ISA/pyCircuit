@@ -942,8 +942,8 @@ private:
     // every possible proposal is known. Queue payloads are known only under
     // the nonempty admission requirement and only if all pushes are known;
     // an empty head itself is never assumed known. Reads refer to old storage.
-    // Track each packed leaf separately: an unknown data field must not poison
-    // its known sibling control. Bits (including wide Bits) and Enum are leaves.
+    // Track packed bits so extracting a known region does not inherit X/Z
+    // from an unrelated field or from the rest of the same Bits leaf.
     using KnownLeaves = std::vector<bool>;
     llvm::DenseMap<Type, SmallVector<PackedLeaf>> layouts;
     auto layout = [&](Type type) -> LogicalResult {
@@ -959,7 +959,10 @@ private:
     for (auto &resource : p.resources_) {
       if (failed(layout(resource.getPayload())))
         return failure();
-      auto count = layouts[resource.getPayload()].size();
+      auto width = p.getPayloadWidth(resource.getPayload());
+      if (failed(width))
+        return failure();
+      auto count = *width;
       if (failed(charge(count, resource.allocation)))
         return failure();
       resources.emplace_back(count, true);
@@ -967,7 +970,10 @@ private:
     for (auto &value : p.values_) {
       if (failed(layout(value.type)))
         return failure();
-      auto count = layouts[value.type].size();
+      auto width = p.getPayloadWidth(value.type);
+      if (failed(width))
+        return failure();
+      auto count = *width;
       if (failed(charge(count, p.getTop())))
         return failure();
       values.emplace_back(count, false);
@@ -998,21 +1004,68 @@ private:
           known = true;
           for (unsigned operand : step.operands)
             known = known && allKnown(values[operand]);
-          if (isa<StructCreateOp>(step.operation)) {
-            // The common layout visits leaves in constructor field order.
-            for (unsigned operand : step.operands)
-              fields.insert(fields.end(), values[operand].begin(),
-                            values[operand].end());
+          if (auto create = dyn_cast<StructCreateOp>(step.operation)) {
+            auto declaration = hardware.lookupStruct(create.getResult().getType());
+            auto width = p.getPayloadWidth(create.getResult().getType());
+            if (failed(width))
+              return failure();
+            fields.resize(*width, false);
+            for (auto [index, raw] : llvm::enumerate(declaration.getFields())) {
+              auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
+              uint64_t low = *width;
+              for (const auto &leaf : layouts[create.getResult().getType()])
+                if (leaf.path.front() == name)
+                  low = std::min(low, leaf.low);
+              const auto &operand = values[step.operands[index]];
+              for (unsigned bit = 0; bit < operand.size(); ++bit)
+                fields[low + bit] = operand[bit];
+            }
           } else if (auto get = dyn_cast<StructGetOp>(step.operation)) {
             unsigned operand = step.operands.front();
-            for (auto [index, leaf] :
-                 llvm::enumerate(layouts[p.values_[operand].type]))
+            auto width = p.getPayloadWidth(get.getResult().getType());
+            if (failed(width))
+              return failure();
+            uint64_t low = values[operand].size();
+            for (const auto &leaf : layouts[p.values_[operand].type])
               if (leaf.path.front() == get.getFieldAttr())
-                fields.push_back(values[operand][index]);
+                low = std::min(low, leaf.low);
+            for (unsigned bit = 0; bit < *width; ++bit)
+              fields.push_back(values[operand][low + bit]);
+          } else if (auto literal = dyn_cast<BitsConstant4Op>(step.operation)) {
+            for (char digit : llvm::reverse(literal.getPattern()))
+              fields.push_back(digit == '0' || digit == '1');
+          } else if (auto extract = dyn_cast<BitsExtractOp>(step.operation)) {
+            auto lowValue = hardware.evaluateStatic(extract.getLow(), bindings,
+                                                    step.operation);
+            auto width = p.getPayloadWidth(extract.getResult().getType());
+            if (failed(lowValue) || failed(width))
+              return failure();
+            auto integer = dyn_cast<MathIntAttr>(*lowValue);
+            if (!integer)
+              return failure();
+            auto low = llvm::APSInt(integer.getCanonicalValue()).getZExtValue();
+            for (unsigned bit = 0; bit < *width; ++bit)
+              fields.push_back(values[step.operands.front()][low + bit]);
+          } else if (isa<BitsSelectOp>(step.operation)) {
+            fields = values[step.operands[1]];
+            bool condition = allKnown(values[step.operands[0]]);
+            for (unsigned bit = 0; bit < fields.size(); ++bit)
+              fields[bit] = condition && fields[bit] &&
+                            values[step.operands[2]][bit];
+          } else if (isa<BitsConcatOp>(step.operation)) {
+            for (unsigned operand : llvm::reverse(step.operands))
+              fields.insert(fields.end(), values[operand].begin(),
+                            values[operand].end());
+          } else if (isa<EnumToBitsOp>(step.operation)) {
+            fields = values[step.operands.front()];
+          } else if (auto resize = dyn_cast<BitsResizeOp>(step.operation)) {
+            fields = values[step.operands.front()];
+            auto width = p.getPayloadWidth(resize.getResult().getType());
+            if (failed(width))
+              return failure();
+            bool extension = resize.getMode() == "zext" || fields.back();
+            fields.resize(*width, extension);
           }
-          if (auto literal = dyn_cast<BitsConstant4Op>(step.operation))
-            known =
-                literal.getPattern().find_first_of("xzXZ") == StringRef::npos;
           if (auto binary = dyn_cast<BitsBinaryOp>(step.operation))
             if (binary.getOpcode() == "udiv" || binary.getOpcode() == "urem")
               known = false;
@@ -1040,10 +1093,11 @@ private:
       for (auto &rule : p.rules_)
         if (failed(evaluate(rule.guard)) || failed(evaluate(rule.body)))
           return failure();
-      auto constrain = [&](unsigned id, const KnownLeaves &known) {
+      auto constrain = [&](unsigned id, const KnownLeaves &known,
+                           uint64_t low = 0) {
         for (unsigned i = 0; i < known.size(); ++i)
-          if (resources[id][i] && !known[i]) {
-            resources[id][i] = false;
+          if (resources[id][low + i] && !known[i]) {
+            resources[id][low + i] = false;
             changed = true;
           }
       };
@@ -1054,7 +1108,8 @@ private:
         for (auto &step : rule.body.steps)
           if (step->kind == TransactionalStepKind::StateWrite ||
               step->kind == TransactionalStepKind::QueuePush)
-            constrain(step->resource, values[step->operands.front()]);
+            constrain(step->resource, values[step->operands.front()],
+                      0);
     } while (changed);
     for (auto [site, value] : combControls)
       if (!allKnown(values[value]))

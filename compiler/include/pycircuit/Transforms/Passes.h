@@ -15,6 +15,7 @@ std::unique_ptr<mlir::Pass> createAnalyzeTransactionStateSSAPass();
 std::unique_ptr<mlir::Pass> createRouteTransactionsPass();
 std::unique_ptr<mlir::Pass> createVerifyRoutedPass();
 std::unique_ptr<mlir::Pass> createLowerTransactionsPass();
+std::unique_ptr<mlir::Pass> createNormalizeValueUpdatesPass();
 std::unique_ptr<mlir::Pass> createNormalizeRecordConstructorsPass();
 void registerACIRPasses();
 } // namespace acir

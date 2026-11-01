@@ -175,6 +175,16 @@ private:
   void yield(const AstNode &node, ValueRange values = {}) {
     op(node, "ac.yield", values, {});
   }
+  struct AssignmentTarget {
+    std::string name;
+    Value root;
+    Type type;
+    SmallVector<Attribute> fields;
+    ac::StaticExprAttr low, high;
+    bool state = false;
+  };
+  FailureOr<AssignmentTarget> assignmentTarget(const AstNode &, Scope &);
+  LogicalResult assignTarget(const AssignmentTarget &, Value, const AstNode &, Scope &);
   FailureOr<Attribute> recordDefault(const AstNode &node, StringRef definition);
   FailureOr<ac::StaticExprAttr> staticExpr(const AstNode &node,
                                            StringRef definition);

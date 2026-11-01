@@ -203,6 +203,23 @@ def ACIR_BitsResizeOp : ACIR_Op<"bits.resize", [Pure]> {
   let hasVerifier = 1;
 }
 
+def ACIR_BitsUpdateOp : ACIR_Op<"bits.update", [Pure]> {
+  let summary = "Replace a static interval of an immutable Bits value";
+  let arguments = (ins ACIR_BitsType:$base, ACIR_HardwareType:$replacement,
+      ACIR_StaticExprAttr:$low, ACIR_StaticExprAttr:$high);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_StructUpdateOp : ACIR_Op<"struct.update", [Pure]> {
+  let summary = "Replace a field path of an immutable nominal Struct";
+  let arguments = (ins ACIR_StructType:$base, ACIR_HardwareType:$replacement,
+      ArrayAttr:$fields);
+  let results = (outs ACIR_StructType:$result);
+  let hasVerifier = 1;
+}
+
+
 def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let summary = "Declare a source-owned hardware module or standard leaf";
   let description = [{
@@ -907,6 +924,13 @@ def ACIR_StructCreateOp : ACIR_Op<"struct.create", [Pure]> {
       "`(` $values `)` attr-dict `:` functional-type($values, results)";
 }
 
+def ACIR_StructConstructOp : ACIR_Op<"struct.construct", [Pure]> {
+  let summary = "Bind source constructor arguments before completing defaults";
+  let arguments = (ins Variadic<ACIR_HardwareType>:$values, ArrayAttr:$field_names);
+  let results = (outs ACIR_StructType:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_StructGetOp : ACIR_Op<"struct.get", [Pure]> {
   let summary = "Project one field wire from a packed struct wire";
   let description = [{
@@ -933,10 +957,3 @@ def ACIR_ResourceConnectionOp : ACIR_Op<"resource.connection"> {
 }
 
 #endif // ACIR_DIALECT_ACIR_ACIROPS_TD
-
-def ACIR_StructConstructOp : ACIR_Op<"struct.construct", [Pure]> {
-  let summary = "Bind source constructor arguments before completing defaults";
-  let arguments = (ins Variadic<ACIR_HardwareType>:$values, ArrayAttr:$field_names);
-  let results = (outs ACIR_StructType:$result);
-  let hasVerifier = 1;
-}

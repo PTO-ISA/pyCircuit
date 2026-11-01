@@ -1,7 +1,8 @@
 add_acir_library(ACIRTransforms SOURCES
   VerifyHardware.cpp
-  NormalizeRecordConstructors.cpp
   InlinePureHelpers.cpp
+  NormalizeValueUpdates.cpp
+  NormalizeRecordConstructors.cpp
   NormalizeSourceControlFlow.cpp
   ExtractSourceInterface.cpp
   SimplifyRecordWires.cpp

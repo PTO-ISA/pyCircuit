@@ -492,6 +492,123 @@ LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
   return success();
 }
 
+FailureOr<Importer::AssignmentTarget>
+Importer::assignmentTarget(const AstNode &node, Scope &scope) {
+  AssignmentTarget target;
+  AstNode root = node;
+  AstNode slice;
+  if (root.kind() == "Subscript") {
+    slice = root.child("slice"); root = root.child("value");
+  }
+  SmallVector<Attribute> reversed;
+  while (root.kind() == "Attribute") {
+    reversed.push_back(b.getStringAttr(root.string("attr")));
+    root = root.child("value");
+  }
+  if (root.kind() != "Name")
+    return (void)fail(node,"assignment requires a local or State field/slice"), failure();
+  target.name = root.string("id").str();
+  auto found = scope.bindings.find(target.name);
+  if (found == scope.bindings.end())
+    return (void)fail(node,"partial assignment requires an existing binding"), failure();
+  target.root = found->second.value;
+  target.type = found->second.type();
+  if (isResource(target.type)) {
+    Type data = payload(target.type);
+    if (found->second.parameter) {
+      // Typed Rule parameters denote loaded payloads. Rebinding any part of
+      // that value is local SSA, just like an ordinary whole-name assignment.
+      auto loaded = read(target.root, node, scope);
+      if (failed(loaded)) return failure();
+      target.root = *loaded;
+    } else {
+      if (!isa<ac::StateType>(target.type))
+        return (void)fail(node,"partial resource writes require Module-owned State; read Queue payloads explicitly"), failure();
+      target.state = true;
+    }
+    target.type = data;
+  }
+  for (Attribute name : llvm::reverse(reversed)) {
+    auto structure = dyn_cast<ac::StructType>(target.type);
+    auto *decl = structure ? SymbolTable::lookupSymbolIn(*result, structure.getName().getValue()) : nullptr;
+    Type next;
+    if (decl)
+      for (Attribute raw : decl->getAttrOfType<ArrayAttr>("fields")) {
+        auto field = cast<DictionaryAttr>(raw);
+        if (field.getAs<StringAttr>("name") == name)
+          next = field.getAs<TypeAttr>("type").getValue();
+      }
+    if (!next) return (void)fail(node,"assignment requires a declared Struct field"),failure();
+    target.fields.push_back(name); target.type = next;
+  }
+  if (slice) {
+    auto input = dyn_cast<ac::BitsType>(target.type);
+    if (!input) return (void)fail(node,"slice assignment requires Bits"),failure();
+    target.low = staticLiteral(llvm::APSInt(llvm::APInt(1,0),true),node,scope.owner->symbol);
+    target.high = input.getWidth();
+    if (slice.kind() == "Slice") {
+      if (slice.child("step")) return (void)fail(slice,"static slices require unit stride"),failure();
+      if (auto lower = slice.child("lower")) {
+        auto expr = staticExpr(lower,scope.owner->symbol);
+        if (failed(expr)) return failure(); target.low = *expr;
+      }
+      if (auto upper = slice.child("upper")) {
+        auto expr = staticExpr(upper,scope.owner->symbol);
+        if (failed(expr)) return failure(); target.high = *expr;
+      }
+    } else {
+      auto expr = staticExpr(slice,scope.owner->symbol);
+      if (failed(expr)) return failure(); target.low = *expr;
+      target.high = ac::StaticExprAttr::get(b.getContext(),b.getDictionaryAttr({
+        b.getNamedAttr("kind",b.getStringAttr("binary")),
+        b.getNamedAttr("operator",b.getStringAttr("add")),
+        b.getNamedAttr("lhs",target.low),
+        b.getNamedAttr("rhs",staticLiteral(llvm::APSInt(llvm::APInt(2,1),true),node,scope.owner->symbol)),
+        b.getNamedAttr("origin",origin(node,scope.owner->symbol)),
+        b.getNamedAttr("location",detail::sourceSpan(b,source.path,node))}));
+    }
+    auto width = ac::StaticExprAttr::get(b.getContext(),b.getDictionaryAttr({
+        b.getNamedAttr("kind",b.getStringAttr("binary")),
+        b.getNamedAttr("operator",b.getStringAttr("sub")),
+        b.getNamedAttr("lhs",target.high),b.getNamedAttr("rhs",target.low),
+        b.getNamedAttr("origin",origin(node,scope.owner->symbol)),
+        b.getNamedAttr("location",detail::sourceSpan(b,source.path,node))}));
+    target.type = ac::BitsType::get(b.getContext(),width);
+  }
+  return target;
+}
+LogicalResult Importer::assignTarget(const AssignmentTarget &target, Value value,
+                                    const AstNode &node, Scope &scope) {
+  auto converted = convert(value,target.type,node);
+  if (failed(converted)) return failure();
+  auto fields = b.getArrayAttr(target.fields);
+  if (target.state)
+    return fail(node, "partial State proposals require the dependent transaction step");
+  Value replacement = *converted;
+  Value base = target.root;
+  // A mixed field/slice assignment first patches its Bits leaf, then uses the
+  // same immutable field update operation to rebuild the containing record.
+  if (target.low) {
+    for (Attribute raw : target.fields) {
+      auto structure = cast<ac::StructType>(base.getType());
+      auto *decl = SymbolTable::lookupSymbolIn(*result,structure.getName().getValue());
+      Type type;
+      for (auto field : decl->getAttrOfType<ArrayAttr>("fields")) {
+        auto data = cast<DictionaryAttr>(field);
+        if (data.getAs<StringAttr>("name") == raw) type = data.getAs<TypeAttr>("type").getValue();
+      }
+      base = op(node,"ac.struct.get",base,type,{b.getNamedAttr("field",raw)})->getResult(0);
+    }
+    replacement = op(node,"ac.bits.update",ValueRange{base,replacement},base.getType(),
+        {b.getNamedAttr("low",target.low),b.getNamedAttr("high",target.high)})->getResult(0);
+  }
+  if (!target.fields.empty())
+    replacement = op(node,"ac.struct.update",ValueRange{target.root,replacement},target.root.getType(),
+        {b.getNamedAttr("fields",fields)})->getResult(0);
+  scope.bindings[target.name] = Binding{replacement,{}, {},nullptr};
+  return success();
+}
+
 LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
                              Scope &scope) {
   if (target.kind() == "Tuple") {
@@ -751,7 +868,6 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
         typeNode = typeNode.child("func");
       }
       Type type = annotation(typeNode, scope.owner->symbol);
-
       if (!type)
         return failure();
       if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type))
@@ -778,6 +894,13 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     if (node.array("targets").size() != 1)
       return fail(node, "chained assignment is not supported");
     auto target = node.item("targets", 0);
+    if (target.kind() == "Attribute" || target.kind() == "Subscript") {
+      auto destination = assignmentTarget(target, scope);
+      if (failed(destination)) return failure();
+      auto value = scalar(node.child("value"), scope, destination->type);
+      if (failed(value)) return failure();
+      return assignTarget(*destination, *value, target, scope);
+    }
     Type expected;
     if (target.kind() == "Name") {
       auto name = target.string("id").str();
@@ -821,9 +944,12 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
   }
   if (node.kind() == "AugAssign") {
     auto target = node.child("target");
-    if (target.kind() != "Name")
-      return fail(target,
-                  "compound assignment requires a named resource or local");
+    std::optional<AssignmentTarget> destination;
+    if (target.kind() != "Name") {
+      auto parsed = assignmentTarget(target, scope);
+      if (failed(parsed)) return failure();
+      destination = *parsed;
+    }
     auto lhs = scalar(target, scope);
     if (failed(lhs))
       return failure();
@@ -844,6 +970,7 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
                      {b.getNamedAttr("kind", b.getStringAttr("binary")),
                       b.getNamedAttr("opcode", b.getStringAttr(opcode))})
                       ->getResult(0);
+    if (destination) return assignTarget(*destination, value, target, scope);
     return bind(target, ArrayRef<Value>(value), scope);
   }
   if (node.kind() == "Return") {
@@ -1043,6 +1170,15 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
         complete ? scope.resultTypes
                  : SmallVector<Type>(mergedNames.size(),
                                      ac::InferType::get(b.getContext()));
+    if (!complete)
+      for (unsigned i = 0; i < types.size(); ++i) {
+        Type declared = values[0][i].getType();
+        // Matching declared SSA types retain their field/slice contract;
+        // differing types remain constraints for common analysis.
+        if (!isa<ac::InferType>(declared) &&
+            declared == values[1][i].getType())
+          types[i] = declared;
+      }
     auto *merged = op(node, "scf.if", selected, types, {}, 2);
     for (unsigned arm = 0; arm < 2; ++arm) {
       merged->getRegion(arm).takeBody(branch->getRegion(arm));

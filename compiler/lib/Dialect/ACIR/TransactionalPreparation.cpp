@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/ACIR/TransactionalPreparation.h"
+#include "pycircuit/Dialect/ACIR/ValueUpdates.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -124,7 +125,8 @@ TransactionalPreparation::create(mlir::ModuleOp source, StringRef top,
   auto prepared = std::unique_ptr<TransactionalPreparation>(
       new TransactionalPreparation(source));
   prepared->expanded_ = cast<mlir::ModuleOp>(source->clone());
-  if (failed(expandAndVerify(*prepared->expanded_, debit)))
+  if (failed(expandAndVerify(*prepared->expanded_, debit)) ||
+      failed(normalizeValueUpdates(*prepared->expanded_)))
     return failure();
   auto analysis =
       TransactionalAnalysis::create(*prepared->expanded_, top, debit);
