@@ -117,32 +117,36 @@ class SourceTest:
             for body, saved in hidden:
                 saved.rename(body)
 
+    def compile_cpp(self, bundle, generated, executable, *adapters, exclude=()):
+        runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
+        if not runtime.is_file():
+            runtime = Path(self.emitter).parent.parent / "lib/libpyc6_runtime.a"
+        self.run(
+            [
+                self.cxx,
+                "-std=c++20",
+                "-pthread",
+                f"-I{self.repo / 'include'}",
+                f"-I{bundle}",
+                *adapters,
+                *(
+                    bundle / row["path"]
+                    for row in generated["files"]
+                    if row["path"].endswith(".cpp") and row["path"] not in exclude
+                ),
+                runtime,
+                "-o",
+                executable,
+            ]
+        )
+
     def build_system(self, final, target, *, name=None):
         bundle = self.scratch / (name or target)
         self.cli("emit", final, "--target", target, "-o", bundle)
         generated = json.loads((bundle / "generated.json").read_text())
         executable = self.scratch / f"system-{name or target}.exe"
         if target in ("cpp", "t-gfsim"):
-            runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
-            if not runtime.is_file():
-                runtime = Path(self.emitter).parent.parent / "lib/libpyc6_runtime.a"
-            self.run(
-                [
-                    self.cxx,
-                    "-std=c++20",
-                    "-pthread",
-                    f"-I{self.repo / 'include'}",
-                    f"-I{bundle}",
-                    *(
-                        bundle / row["path"]
-                        for row in generated["files"]
-                        if row["path"].endswith(".cpp")
-                    ),
-                    runtime,
-                    "-o",
-                    executable,
-                ]
-            )
+            self.compile_cpp(bundle, generated, executable)
         else:
             self.run(
                 [
@@ -165,27 +169,7 @@ class SourceTest:
             bundle = self.scratch / "cpp"
             self.cli("emit", final, "--target", target, "-o", bundle)
             generated = json.loads((bundle / "generated.json").read_text())
-            runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
-            if not runtime.is_file():
-                runtime = Path(self.emitter).parent.parent / "lib/libpyc6_runtime.a"
-            self.run(
-                [
-                    self.cxx,
-                    "-std=c++20",
-                    "-pthread",
-                    f"-I{self.repo / 'include'}",
-                    f"-I{bundle}",
-                    cpp_adapter,
-                    *(
-                        bundle / row["path"]
-                        for row in generated["files"]
-                        if row["path"].endswith(".cpp")
-                    ),
-                    runtime,
-                    "-o",
-                    executable,
-                ]
-            )
+            self.compile_cpp(bundle, generated, executable, cpp_adapter)
         else:
             rtl = self.scratch / "module.sv"
             rtl.write_text(

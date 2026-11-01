@@ -56,7 +56,6 @@ class ReferenceLinker {
     return success();
   }
   llvm::DenseSet<Operation *> expanding;
-  llvm::DenseSet<Operation *> tableInstances;
   llvm::DenseSet<std::pair<unsigned, Value>> resolving;
 
   Operation *lookup(StringRef name) {
@@ -210,7 +209,7 @@ class ReferenceLinker {
           member.addAttribute("type_arguments", b.getArrayAttr({}));
           member.addAttribute("occurrence", memberOrigin ? memberOrigin : b.getDictionaryAttr({}));
           if (memberOrigin) member.addAttribute("ac.origin", memberOrigin);
-          tableInstances.insert(b.create(member));
+          b.create(member);
           OperationState ref(allocation.getLoc(), "ac.instance.ref");
           ref.addTypes(reference);
           if (memberOrigin) ref.addAttribute("ac.origin", memberOrigin);
@@ -386,18 +385,58 @@ class ReferenceLinker {
       if (failed(childBindings) ||
           failed(expand(target, child, id, *childBindings)))
         return failure();
-      if (tableInstances.contains(child)) {
-        auto specialized = instances[childID].linked.getFunctionType();
-        unsigned bound = 0;
-        for (auto [output, result] : llvm::enumerate(child.getResults())) {
-          Type type = specialized.getResult(output);
-          result.setType(type);
-          if (cast<StringAttr>(target.getOutputKindsAttr()[output]).getValue() != "bound") continue;
-          Type payload = isa<ac::PrimitiveType>(type) ? cast<ac::PrimitiveType>(type).getPayload()
-                         : isa<ac::StateType>(type) ? cast<ac::StateType>(type).getPayload()
-                                                   : cast<ac::QueueType>(type).getPayload();
-          child.getOperand(bound++).setType(ac::PrimitiveType::get(package.getContext(), payload));
+      // Resolve the authored results in the child's actual parameter context,
+      // for ordinary and Table allocations alike. Check before rebinding SSA.
+      auto specialized = instances[childID].linked.getFunctionType();
+      bool invalidType = false;
+      AttrTypeReplacer resultTypes;
+      resultTypes.addReplacement([&](Type type) -> std::optional<Type> {
+        if (!isa<ac::BitsType, ac::ArrayType, ac::TypeParamType>(type))
+          return std::nullopt;
+        auto resolved = hardware.resolveType(type, *childBindings, child);
+        if (failed(resolved)) {
+          invalidType = true;
+          return type;
         }
+        return *resolved;
+      });
+      auto payload = [](Type type) -> Type {
+        if (auto resource = dyn_cast<ac::PrimitiveType>(type)) return resource.getPayload();
+        if (auto resource = dyn_cast<ac::StateType>(type)) return resource.getPayload();
+        if (auto resource = dyn_cast<ac::QueueType>(type)) return resource.getPayload();
+        return {};
+      };
+      auto matches = [&](Type actual, Type formal) {
+        if (ac::transactionalTypesEqual(actual, formal)) return true;
+        // Unresolved interface formals constrain payload, not storage kind.
+        return isa<ac::PrimitiveType>(formal) && payload(actual) &&
+               ac::transactionalTypesEqual(payload(actual), payload(formal));
+      };
+      if (child.getNumResults() != specialized.getNumResults())
+        return child.emitOpError("instance result arity differs from bound provider");
+      unsigned bound = specialized.getNumInputs();
+      for (auto [output, result] : llvm::enumerate(child.getResults())) {
+        Type type = specialized.getResult(output);
+        Type resolved = resultTypes.replace(result.getType());
+        if (invalidType || !matches(resolved, type))
+          return child.emitOpError("instance result type differs from bound provider");
+        result.setType(resolved);
+        if (cast<StringAttr>(target.getOutputKindsAttr()[output]).getValue() != "bound")
+          continue;
+        Type payload = isa<ac::PrimitiveType>(type) ? cast<ac::PrimitiveType>(type).getPayload()
+                       : isa<ac::StateType>(type) ? cast<ac::StateType>(type).getPayload()
+                                                 : cast<ac::QueueType>(type).getPayload();
+        Type connection = ac::PrimitiveType::get(package.getContext(), payload);
+        if (bound >= child.getNumOperands())
+          return child.emitOpError("instance is missing a bound output connection");
+        Value operand = child.getOperand(bound++);
+        Type actual = resultTypes.replace(operand.getType());
+        if (invalidType || !matches(actual, connection))
+          return child.emitOpError("instance output connection differs from bound provider");
+        // Only compiler-owned connection declarations need specialization.
+        // Explicit State/Queue bindings retain their resource kind and owner.
+        if (operand.getDefiningOp<ac::ResourceConnectionOp>())
+          operand.setType(actual);
       }
     }
     expanding.erase(module);

@@ -557,6 +557,28 @@ private:
     return decoded;
   }
 
+  unsigned merge(Operation *op, Type type, unsigned condition,
+                 unsigned yes, unsigned no, TransactionalSequence &sequence,
+                 unsigned rule) {
+    auto owned = std::make_unique<TransactionalStep>();
+    auto &step = *owned;
+    step.kind = TransactionalStepKind::Merge;
+    step.operation = op;
+    step.id = nextStep++;
+    step.instance = instance;
+    step.rule = rule;
+    step.methodInvocation = methodInvocation;
+    step.invocation = invocation;
+    step.path = path;
+    step.operands = {condition, yes, no};
+    unsigned id = p.values_.size();
+    p.values_.push_back({type, instance, rule});
+    step.results.push_back(id);
+    producers[id] = &step;
+    sequence.steps.push_back(std::move(owned));
+    return id;
+  }
+
   LogicalResult selectedCall(Operation *op, unsigned selected,
                              Environment &env, TransactionalSequence &sequence,
                              unsigned rule, bool pure) {
@@ -583,23 +605,8 @@ private:
     for (auto [ordinal, result] : llvm::enumerate(op->getResults())) {
       unsigned value = results[ordinal].back();
       for (unsigned member = members.size() - 1; member-- > 0;) {
-        auto owned = std::make_unique<TransactionalStep>();
-        auto &step = *owned;
-        step.kind = TransactionalStepKind::Merge;
-        step.operation = op;
-        step.id = nextStep++;
-        step.instance = instance;
-        step.rule = rule;
-        step.methodInvocation = methodInvocation;
-        step.invocation = invocation;
-        step.path = path;
-        step.operands = {reference.selectors[member], results[ordinal][member],
-                         value};
-        value = p.values_.size();
-        p.values_.push_back({result.getType(), instance, rule});
-        step.results.push_back(value);
-        producers[value] = &step;
-        sequence.steps.push_back(std::move(owned));
+        value = merge(op, result.getType(), reference.selectors[member],
+                      results[ordinal][member], value, sequence, rule);
       }
       env[result] = {Binding::Payload, value};
     }
@@ -660,23 +667,9 @@ private:
       for (auto [index, result] : llvm::enumerate(branch.getResults())) {
         if (index >= arms[0].size() || index >= arms[1].size())
           return branch.emitError("branch result requires a payload from both arms");
-        auto owned = std::make_unique<TransactionalStep>();
-        auto &step = *owned;
-        step.kind = TransactionalStepKind::Merge;
-        step.operation = branch;
-        step.id = nextStep++;
-        step.instance = instance;
-        step.rule = rule;
-        step.methodInvocation = methodInvocation;
-        step.invocation = invocation;
-        step.path = path;
-        step.operands = {*condition, arms[0][index], arms[1][index]};
-        unsigned id = p.values_.size();
-        p.values_.push_back({result.getType(), instance, rule});
-        step.results.push_back(id);
-        producers[id] = &step;
+        unsigned id = merge(branch, result.getType(), *condition,
+                            arms[0][index], arms[1][index], sequence, rule);
         env[result] = {Binding::Payload, id};
-        sequence.steps.push_back(std::move(owned));
       }
       return success();
     }
