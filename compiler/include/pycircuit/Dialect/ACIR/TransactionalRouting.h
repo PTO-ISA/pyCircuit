@@ -2,7 +2,7 @@
 #define PYCIRCUIT_DIALECT_ACIR_TRANSACTIONALROUTING_H
 
 #include "mlir/IR/OwningOpRef.h"
-#include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalPreparation.h"
 
 namespace acir::ac {
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
@@ -10,7 +10,7 @@ routeTransactionalPackage(mlir::ModuleOp source, llvm::StringRef top,
                           TransactionalDebit debit);
 // Reuse analysis only while its borrowed source remains alive and unchanged.
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
-routeTransactionalPackage(const TransactionalAnalysis &plan,
+routeTransactionalPackage(const TransactionalPreparation &prepared,
                           TransactionalDebit debit);
 // Replays source semantics against actual Routed or final graph endpoints.
 // Serialized source is authority; generated IDs only locate candidate objects.

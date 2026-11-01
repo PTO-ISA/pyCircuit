@@ -98,7 +98,8 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   auto role = operation->getAttrOfType<StringAttr>("ac.declaration_role");
   auto name =
       operation->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
-  if (!isa<SymbolOpInterface>(operation) || !name || name.getValue().empty() ||
+  if (!isa<SymbolOpInterface, TransactionRuleOp>(operation) || !name ||
+      name.getValue().empty() ||
       failed(detail::verifySourceOwner(declarationOwner, emitError)) ||
       failed(detail::verifyOccurrence(origin, emitError)) ||
       failed(detail::verifyOriginDefinition(

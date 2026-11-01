@@ -22,7 +22,9 @@ FailureOr<Value> Importer::read(Value handle, const AstNode &node,
   if (!isResource(handle.getType())) {
     // An authored evaluation must survive identity conversions and aliases.
     // Branch-yield transport does not call read(), so it remains deferred.
-    if (!scope.module && !isa<ac::ModuleRefType>(handle.getType()) &&
+    if (!scope.module &&
+        !(scope.callable && scope.callable->kind == "helper") &&
+        !isa<ac::ModuleRefType>(handle.getType()) &&
         !op(node, "ac.payload.use", handle, {}))
       return failure();
     return handle;
@@ -466,6 +468,8 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
     call.results.append(type.getResults().begin(), type.getResults().end());
     return registerRule(call, node, scope, destinations);
   }
+  if (resolved && isa_and_nonnull<func::FuncOp>(resolved->declaration))
+    return helperCall(cast<func::FuncOp>(resolved->declaration), node, scope);
   // Payload constructors are ordinary combinational values.
   bool bitsConstructor =
       (resolved && resolved->module == "pycircuit" &&
@@ -667,6 +671,40 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
                        destinations);
   (void)fail(node, "unsupported callable in transactional source");
   return failure();
+}
+
+FailureOr<SmallVector<Value>>
+Importer::helperCall(func::FuncOp helper, const AstNode &node, Scope &scope) {
+  auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
+  auto parameters = helper->getAttrOfType<ArrayAttr>("ac.parameters");
+  auto type = helper.getFunctionType();
+  if (!kind || kind.getValue() != "value" || !parameters ||
+      parameters.size() != type.getNumInputs())
+    return (void)fail(node,
+                      "call requires an ordinary explicit-input value helper"),
+           failure();
+  SmallVector<StringRef> names;
+  for (Attribute raw : parameters)
+    names.push_back(
+        cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue());
+  SmallVector<size_t> evaluationOrder;
+  auto actuals = detail::normalizeCallArguments(
+      node, names, error, "helper argument arity mismatch", &evaluationOrder);
+  if (failed(actuals))
+    return failure();
+  SmallVector<Value> operands(type.getNumInputs());
+  for (size_t index : evaluationOrder) {
+    auto actual = (*actuals)[index];
+    Type formal = type.getInput(index);
+    auto value = scalar(actual, scope, formal);
+    if (failed(value))
+      return failure();
+    operands[index] = *value;
+  }
+  auto *invocation =
+      op(node, "func.call", operands, type.getResults(),
+         {b.getNamedAttr("callee", symbol(helper.getSymName()))});
+  return SmallVector<Value>(invocation->getResults());
 }
 
 FailureOr<SmallVector<Value>>

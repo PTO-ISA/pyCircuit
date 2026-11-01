@@ -2,11 +2,18 @@
 import pycircuit as ac
 
 
+def biased(value: ac.u8) -> ac.u8:
+    return value + 1
+
+
+def accumulated(total: ac.u16, value: ac.u8) -> ac.u16:
+    return total + value
+
+
 # 外部 Rule：通过显式输入输出连接。
 @ac.rule
 def add_one(src: ac.u8) -> ac.u8:
-    x = src
-    return x + 1
+    return biased(src)
 
 
 @ac.module
@@ -22,7 +29,7 @@ def Accumulator():
 
     @ac.method(guard=lambda: samples < 4)
     def add(x: ac.u8) -> ac.u16:
-        new_total = total + x
+        new_total = accumulated(total, x)
         total = new_total
         samples = samples + 1
         return new_total  # 返回同拍计算值

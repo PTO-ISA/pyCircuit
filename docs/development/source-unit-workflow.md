@@ -510,6 +510,15 @@ routing and lowering implementation. The cpp/verilog targets consume Final ACIR.
 Linked and Final files have distinct publication owners; `--replace` uses the
 existing ownership and failed-output protection protocol.
 
+Pure helper definitions and calls remain in saved Linked ACIR. Physical routing
+prepares a disposable copy, runs `ac-inline-pure-helpers`, and builds common
+transaction analysis once against that immutable copy. Linked publication uses
+the same admission but writes the original function structure. Routed/Final
+provenance embeds the original Linked snapshot; reload and independent replay
+rebuild the same preparation without Python sources. The standalone pass is
+available through `pycircuit-opt --ac-inline-pure-helpers` for compiler inspection.
+This expanded copy is a lowering intermediate, not another public stage.
+
 The direct transaction simulator is named **t-gfsim** (transactional-gfsim).
 It consumes saved Linked ACIR and uses the `pycircuit::transactional_gfsim`
 runtime in `<pycircuit/transactional_gfsim/runtime.h>`. The lower-level physical
@@ -525,7 +534,7 @@ cmake --build .pycircuit_out/t-gfsim-build
 .pycircuit_out/t-gfsim-build/bin/pycircuit_sim --cycles 10 --workers 1
 ```
 
-This target supports closed single-clock Systems with Bits State and Queue, Rules and local or cross-instance Methods. Common transaction analysis supplies admission,
+This target supports closed single-clock Systems with Bits State and Queue, Rules and local or cross-instance Methods. Pure helper calls remain outside its current support. Common transaction analysis supplies admission,
 paths and effects. Generated instance objects own each State or Queue once and expose combination,
 Rule and Method functions. Whole-system checks precede commit and successful
 log publication. The initial direct target publishes logs; other observation

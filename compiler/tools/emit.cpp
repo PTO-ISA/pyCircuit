@@ -10,6 +10,7 @@
 #include "Compiler/FinalSourceMap.h"
 #include "Compiler/FinalVerilogSourceParts.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -41,7 +42,8 @@ std::string attributeText(Attribute attr) {
 
 int main(int argc, char **argv) {
   DialectRegistry dialects;
-  dialects.insert<acir::ac::ACIRDialect, mlir::scf::SCFDialect>();
+  dialects.insert<acir::ac::ACIRDialect, mlir::func::FuncDialect,
+                  mlir::scf::SCFDialect>();
   MLIRContext context(dialects);
   context.loadAllAvailableDialects();
   auto emitError = [&] { return mlir::emitError(UnknownLoc::get(&context)); };
@@ -85,6 +87,11 @@ int main(int argc, char **argv) {
   if (!package)
     return 1;
   if (target == "t-gfsim") {
+    // This target retains its existing helper-free support boundary.
+    if (!package->getOps<func::FuncOp>().empty()) {
+      package->emitError("pure helpers are not supported by t-gfsim");
+      return 1;
+    }
     acir::ac::HardwareSourceCheckLimits limits;
     limits.maxWorkUnits = 16 * 1024 * 1024;
     acir::ac::detail::SourceCheckBudget budget(limits);
@@ -94,7 +101,8 @@ int main(int argc, char **argv) {
         });
     if (failed(plan))
       return 1;
-    auto root = (*plan)->getTop();
+    const auto &analysis = (*plan)->getAnalysis();
+    auto root = analysis.getTop();
     auto kind = root->getAttrOfType<StringAttr>("ac.root_kind");
     if (!kind || kind.getValue() != "system") {
       root.emitError("t-gfsim requires a closed System root");
@@ -116,7 +124,7 @@ int main(int argc, char **argv) {
     }
     std::string header, main;
     llvm::raw_string_ostream headerStream(header), mainStream(main);
-    if (failed(acir::compiler::emitTransactionalGfsim(**plan, headerStream)))
+    if (failed(acir::compiler::emitTransactionalGfsim(analysis, headerStream)))
       return 1;
     acir::compiler::emitTransactionalGfsimMain(
         mainStream, *samples,
@@ -146,7 +154,7 @@ int main(int argc, char **argv) {
                              {"path", map.path},
                              {"text", map.text}});
     unsigned checks = 0;
-    for (const auto &rule : (*plan)->getRules())
+    for (const auto &rule : analysis.getRules())
       for (const auto &step : rule.body.steps)
         checks += step->kind == acir::ac::TransactionalStepKind::Assert;
     llvm::json::Object result{

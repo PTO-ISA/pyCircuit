@@ -8,6 +8,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
+#include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
@@ -272,6 +273,13 @@ bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
   if (purePayload(op) || isa<PayloadUseOp>(op) ||
       isa<YieldOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(op))
     return true;
+  if (auto call = dyn_cast<func::CallOp>(op)) {
+    auto target = dyn_cast_or_null<func::FuncOp>(
+        lookup(op, call.getCallee()));
+    auto kind = target ? target->getAttrOfType<StringAttr>("ac.helper_kind")
+                       : StringAttr();
+    return kind && kind.getValue() == "value";
+  }
   if (auto pending = dyn_cast<TransactionMethodPendingOp>(op))
     return pending.getReadOnly() && !isLinkedTransactionalPackage(op);
   auto call = dyn_cast<TransactionMethodCallOp>(op);
@@ -334,9 +342,14 @@ bool inCallableBody(Operation *op) {
          child->getParentRegion() == &owner->getRegion(1);
 }
 LogicalResult verifyModuleControl(Operation *op) {
-  if (!controlOwner(op) && !inCallableBody(op))
+  Operation *scope = op->getParentOp();
+  while (isa_and_nonnull<scf::IfOp>(scope))
+    scope = scope->getParentOp();
+  if (!controlOwner(op) &&
+      !isa_and_nonnull<TransactionRuleOp, TransactionMethodOp,
+                      func::FuncOp>(scope))
     return op->emitOpError("transactional SCF control requires Module or "
-                           "Rule/Method body placement");
+                           "pure helper or Rule/Method placement");
   if (auto branch = dyn_cast<scf::IfOp>(op)) {
     if (!branch.getCondition().getDefiningOp<SourcePredicateOp>())
       return op->emitOpError("transactional scf.if requires an original Bits "
@@ -1032,6 +1045,19 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         failed(detail::verifyOccurrence(op->getAttrOfType<DictionaryAttr>(key),
                                         [&] { return op->emitOpError(); })))
       return failure();
+  if (auto call = dyn_cast<func::CallOp>(op)) {
+    auto target = dyn_cast_or_null<func::FuncOp>(lookup(op, call.getCallee()));
+    auto kind = target ? target->getAttrOfType<StringAttr>("ac.helper_kind")
+                       : StringAttr();
+    if (!kind || kind.getValue() != "value" || target.isExternal() ||
+        target.getFunctionType() != call.getCalleeType() ||
+        !(op->getParentOfType<ModuleOp>() ||
+          op->getParentOfType<TransactionRuleOp>() ||
+          op->getParentOfType<func::FuncOp>()))
+      return op->emitOpError("pure helper call requires a resolved matching "
+                             "signature and computation scope");
+    return success();
+  }
   if (auto use = dyn_cast<PayloadUseOp>(op)) {
     Type type = use.getValue().getType();
     bool data = isa<BitsType, EnumType, StructType, TableType>(type) ||
@@ -1494,7 +1520,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
       continue;
     }
     if (!isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ConstantOp,
-             TransactionRuleOp>(op))
+             TransactionRuleOp, func::FuncOp>(op))
       return op.emitOpError(
           "unsupported declaration in transactional resource contract");
     auto name = op.getAttrOfType<StringAttr>("sym_name");
@@ -1502,6 +1528,13 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
         !symbols.insert(name.getValue()).second)
       return op.emitOpError("package symbols must be nonempty and unique");
   }
+  SmallVector<func::FuncOp> helpers(package.getOps<func::FuncOp>());
+  if (failed(verifySourceValueHelperClosure(
+          helpers, [&](FlatSymbolRefAttr symbol) {
+            return dyn_cast_or_null<func::FuncOp>(
+                lookup(package, symbol.getValue()));
+          })))
+    return failure();
   HardwareAnalysis analysis(package);
   std::function<LogicalResult(Type, Operation *)> checkType =
       [&](Type type, Operation *site) -> LogicalResult {
@@ -1533,6 +1566,10 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     return success(succeeded(analysis.getPackedWidth(type, bindings, site)));
   };
   fail = package.walk([&](Operation *op) {
+    // Helpers have their own complete source, signature, purity and region
+    // verification above. They are templates until lowering preparation.
+    if (isa<func::FuncOp>(op) || op->getParentOfType<func::FuncOp>())
+      return WalkResult::advance();
     bool root = op == package.getOperation();
     for (auto attr : op->getAttrs()) {
       auto name = attr.getName().getValue();
@@ -1604,7 +1641,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
               InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
               TransactionMethodCallOp, PayloadUseOp, SourceExpectOp, SourceObserveOp,
-              ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(
+              ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp,
+              func::CallOp>(
              op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
          !op->getParentOfType<TransactionRuleOp>())) {

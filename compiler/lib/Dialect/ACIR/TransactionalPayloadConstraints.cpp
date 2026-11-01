@@ -1,6 +1,8 @@
 #include "TransactionalRepresentation.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
@@ -309,14 +311,15 @@ class PayloadConstraints {
     return success();
   }
 
-  Value resize(OpBuilder &builder, Value value, Type type, bool exact = false) {
+  Value resize(OpBuilder &builder, Value value, Type type, bool exact = false,
+               bool joinTransport = true) {
     if (exact ? value.getType() == type
               : transactionalTypesEqual(value.getType(), type))
       return value;
     OperationState state(value.getLoc(), "ac.bits.resize");
     state.addOperands(value);
     state.addTypes(type);
-    if (exact)
+    if (exact && joinTransport)
       state.addAttribute("ac.join_transport", builder.getUnitAttr());
     unsigned inputWidth =
         width(value.getType(), value.getParentBlock()->getParentOp());
@@ -638,6 +641,49 @@ public:
           yield.setOperand(index, resize(builder, arm, result.getType(), true));
         }
       }
+    // Function boundaries use exact MLIR signatures. Preserve closed source
+    // width provenance with the same value transport used for branch yields.
+    auto boundaries = package.walk([&](Operation *operation) {
+      TypeRange expected;
+      if (auto call = dyn_cast<func::CallOp>(operation)) {
+        auto target = dyn_cast_or_null<func::FuncOp>(
+            SymbolTable::lookupSymbolIn(package, call.getCalleeAttr()));
+        if (!target) {
+          call.emitOpError("helper call requires its published signature");
+          return WalkResult::interrupt();
+        }
+        expected = target.getFunctionType().getInputs();
+      } else if (auto returned = dyn_cast<func::ReturnOp>(operation)) {
+        auto target = returned->getParentOfType<func::FuncOp>();
+        if (!target)
+          return WalkResult::interrupt();
+        expected = target.getFunctionType().getResults();
+      } else {
+        return WalkResult::advance();
+      }
+      if (expected.size() != operation->getNumOperands()) {
+        operation->emitOpError("helper boundary arity differs from signature");
+        return WalkResult::interrupt();
+      }
+      OpBuilder builder(operation);
+      for (auto [index, type] : llvm::enumerate(expected)) {
+        Value value = operation->getOperand(index);
+        if (value.getType() == type)
+          continue;
+        if (!transactionalTypesEqual(value.getType(), type) ||
+            !isa<BitsType>(type)) {
+          operation->emitOpError("helper boundary payload differs from signature");
+          return WalkResult::interrupt();
+        }
+        Value transported = resize(builder, value, type, true, false);
+        if (auto origin = operation->getAttr("ac.origin"))
+          transported.getDefiningOp()->setAttr("ac.origin", origin);
+        operation->setOperand(index, transported);
+      }
+      return WalkResult::advance();
+    });
+    if (boundaries.wasInterrupted())
+      return failure();
     if (requireClosed) {
       bool unresolved = false;
       package.walk([&](Operation *op) {

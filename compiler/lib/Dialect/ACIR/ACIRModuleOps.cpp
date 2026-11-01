@@ -222,6 +222,14 @@ LogicalResult ModuleOp::verify() {
   return detail::verifyModuleSignature(*this);
 }
 LogicalResult ModuleOp::verifyRegions() {
+  // Retain the lexical declaration uniqueness formerly supplied by the MLIR
+  // SymbolTable trait without hiding package-level value helpers from func.call.
+  llvm::StringSet<> names;
+  if (getBody().hasOneBlock())
+    for (Operation &operation : getBody().front())
+      if (auto name = operation.getAttrOfType<StringAttr>("sym_name");
+          name && !names.insert(name.getValue()).second)
+        return operation.emitOpError("declaration name must be unique in its Module");
   if (isTransactionalPackage(*this)) return verifyTransactionalRegions(*this);
   if (failed(body(*this, getFunctionType().getInputs(),
                   getFunctionType().getResults())))

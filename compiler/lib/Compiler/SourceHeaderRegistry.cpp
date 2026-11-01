@@ -394,7 +394,7 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
   for (ModuleOp header : registry.headers_) {
     for (Operation &operation : header.getBody()->getOperations()) {
       auto symbol = dyn_cast<SymbolOpInterface>(&operation);
-      if (!symbol)
+      if (!symbol && !isa<ac::TransactionRuleOp>(operation))
         return emitError() << "interface contains a non-symbol operation";
       StringRef name = symbolName(&operation);
       auto role = operation.getAttrOfType<StringAttr>("ac.declaration_role");

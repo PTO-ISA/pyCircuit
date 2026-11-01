@@ -696,8 +696,7 @@ TEST_F(TransactionEffectsTest,
       nested->setOperand(3, body.getArgument(0));
     }
     body.getOperations().insert(body.getTerminator()->getIterator(), nested);
-    reject(*file,
-           name == "ac.legacy.method" ? "SymbolTable" : "direct module placement");
+    reject(*file, "direct module placement");
   }
 }
 

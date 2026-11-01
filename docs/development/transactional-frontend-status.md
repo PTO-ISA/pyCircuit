@@ -82,10 +82,19 @@ do not migrate the retained Table parameter matrix or resolve external resources
 
 The full API/example registries retain additional migration failures beyond
 Table: legacy automatic registration/value interfaces,
-ordinary helpers, Struct defaults and retained anchor/source fixtures. These
+helper closures/loops/Table callbacks, Struct defaults and retained anchor/source fixtures. These
 remain required work in their existing owners. A smaller passing transactional
 selection does not close those gaps. Do not reduce the registries or restore
 old semantics to obtain a passing gate.
+
+Source-global pure typed helpers retain definitions/calls in Linked ACIR and
+expand only in the common physical-lowering preparation. The bounded slice
+covers local computation, branch joins, early returns, nested acyclic calls,
+ordered tuple results and separately compiled providers. The cumulative example
+extracts its pure bias and accumulation calculations without changing its oracle
+or cycle count. `CodeGen/transactional-pure-helpers.test` owns independent data,
+transaction-admission and saved-stage histories. Closures, loops, Table callbacks
+and wider expression migration remain open; t-gfsim helper support is deferred.
 
 ## Validation and evidence
 

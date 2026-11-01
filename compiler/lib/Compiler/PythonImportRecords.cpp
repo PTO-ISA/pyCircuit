@@ -3,6 +3,7 @@
 #include "PythonImportAST.h"
 #include "PythonImportContext.h"
 #include "PythonImportEnumSyntax.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Builders.h"
@@ -94,6 +95,7 @@ public:
         b(owner.getContext()),
         result(ModuleOp::create(UnknownLoc::get(owner.getContext()))) {
     owner.getContext()->getOrLoadDialect<scf::SCFDialect>();
+    owner.getContext()->getOrLoadDialect<func::FuncDialect>();
     prefix = owner.getAs<StringAttr>("package").getValue().str();
     StringRef path = owner.getAs<StringAttr>("path").getValue();
     SmallVector<StringRef> parts;
@@ -119,7 +121,7 @@ private:
   std::string currentDefinition;
   std::map<std::string, ImportedName> names;
   std::map<std::string, std::unique_ptr<Declaration>> declarations;
-  std::map<std::string, Callable> globalRules;
+  std::map<std::string, Callable> globalRules, helpers;
   SmallVector<Attribute> dependencies, exports, imports;
   unsigned spent = 0, unique = 0;
   bool invalid = false;
@@ -401,6 +403,10 @@ private:
                                              Scope &scope,
                                              ArrayRef<Value> destinations = {});
   LogicalResult emitMethod(Callable &call, Scope &scope);
+  LogicalResult declareHelper(Callable &call);
+  LogicalResult defineHelper(Callable &call);
+  FailureOr<SmallVector<Value>> helperCall(func::FuncOp helper,
+                                           const AstNode &node, Scope &scope);
   FailureOr<SmallVector<Value>> methodCall(Callable &call, const AstNode &node,
                                            Scope &scope);
   LogicalResult emitGuard(Callable &call, Scope &scope);
@@ -723,24 +729,36 @@ LogicalResult Importer::scan() {
     if (node.kind() != "FunctionDef")
       continue;
     std::string kind = decorator(node);
-    if (kind != "module" && kind != "system" && kind != "rule")
+    bool helper = node.array("decorator_list").empty();
+    if (!helper && kind != "module" && kind != "system" && kind != "rule")
       return fail(node, "transactional source functions require "
                         "module/system/rule decoration");
     auto name = node.string("name").str();
     if (names.count(name))
       return fail(node,
                   "source declaration shadows an imported or nominal binding");
-    if (kind == "rule") {
+    if (helper || kind == "rule") {
       Callable call;
       call.node = node;
-      call.kind = "rule";
+      call.kind = helper ? "helper" : "rule";
       call.name = qualify(name);
       call.global = true;
       call.guard = {};
       decorator(node, &call.guard);
       if (failed(signature(call, call.name)))
         return failure();
-      globalRules.emplace(name, std::move(call));
+      if (helper) {
+        if (!node.child("returns"))
+          return fail(node, "value helper requires an explicit result annotation");
+        for (auto &input : call.inputs)
+          if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(input.type))
+            return fail(input.node, "value helper parameters require payload types");
+        for (Type type : call.results)
+          if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type))
+            return fail(node, "value helper results require payload types");
+        helpers.emplace(name, std::move(call));
+      } else
+        globalRules.emplace(name, std::move(call));
       names.emplace(
           name,
           ImportedName{"", name, symbol(qualify(name)), nullptr, {}, node});
@@ -969,6 +987,12 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   globalScope.owner = &globalOwner;
   globalScope.module = true;
   b.setInsertionPointToEnd(result->getBody());
+  for (auto &[name, call] : helpers)
+    if (failed(declareHelper(call)))
+      return failure();
+  for (auto &[name, call] : helpers)
+    if (failed(defineHelper(call)))
+      return failure();
   for (auto &[name, call] : globalRules) {
     if (failed(defineRule(call, globalScope)))
       return failure();

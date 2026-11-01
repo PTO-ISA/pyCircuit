@@ -1,5 +1,7 @@
 #include "TransactionalRepresentation.h"
 #include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Verifier.h"
@@ -275,14 +277,16 @@ struct Check {
 
 class Router {
 public:
-  Router(const TransactionalAnalysis &plan, TransactionalDebit debit)
-      : p(plan), debit(std::move(debit)), b(plan.getPackage().getContext()),
+  Router(const TransactionalAnalysis &plan, mlir::ModuleOp source,
+         TransactionalDebit debit)
+      : p(plan), source(source), debit(std::move(debit)), b(plan.getPackage().getContext()),
         loc(plan.getPackage().getLoc()), top(plan.getTop().getSymName()),
         bit(predicateType(b, top)) {}
   FailureOr<OwningOpRef<mlir::ModuleOp>> run();
 
 private:
   const TransactionalAnalysis &p;
+  mlir::ModuleOp source;
   TransactionalDebit debit;
   OpBuilder b;
   Location loc;
@@ -428,7 +432,7 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   auto package = OwningOpRef<mlir::ModuleOp>(mlir::ModuleOp::create(loc));
   std::string snapshot;
   llvm::raw_string_ostream stream(snapshot);
-  p.getPackage().print(stream);
+  source.print(stream, OpPrintingFlags().enableDebugInfo());
   if (failed(debit(snapshot.size(), p.getPackage())))
     return failure();
   (*package)->setAttr(sourceKey, b.getStringAttr(snapshot));
@@ -1659,19 +1663,20 @@ routeTransactionalPackage(mlir::ModuleOp source, StringRef top,
   if (!debit)
     return source.emitError(
         "transactional routing requires a verification budget");
-  auto plan = TransactionalAnalysis::create(source, top, debit);
+  auto plan = TransactionalPreparation::create(source, top, debit);
   if (failed(plan))
     return failure();
   return routeTransactionalPackage(**plan, debit);
 }
 
 FailureOr<OwningOpRef<mlir::ModuleOp>>
-routeTransactionalPackage(const TransactionalAnalysis &plan,
+routeTransactionalPackage(const TransactionalPreparation &prepared,
                           TransactionalDebit debit) {
+  const auto &plan = prepared.getAnalysis();
   if (!debit)
     return plan.getPackage().emitError(
         "transactional routing requires a verification budget");
-  auto candidate = Router(plan, debit).run();
+  auto candidate = Router(plan, prepared.getSource(), debit).run();
   if (failed(candidate) || failed(Replay(plan, **candidate, debit).run()))
     return failure();
   return std::move(*candidate);
@@ -1691,13 +1696,16 @@ LogicalResult verifyTransactionalRouting(mlir::ModuleOp package,
                              "source provenance and top");
   if (failed(debit(source.getValue().size() + 128, package)))
     return failure();
+  // Final hardware may contain no function or SCF operations itself. Its
+  // authoritative Linked snapshot can still require both dialects on replay.
+  package.getContext()->loadDialect<func::FuncDialect, scf::SCFDialect>();
   auto parsed = parseSourceString<mlir::ModuleOp>(
       source.getValue(), ParserConfig(package.getContext()));
   if (!parsed)
     return package.emitError("transactional source snapshot cannot be parsed");
-  auto plan = TransactionalAnalysis::create(*parsed, top.getValue(), debit);
+  auto plan = TransactionalPreparation::create(*parsed, top.getValue(), debit);
   if (failed(plan))
     return failure();
-  return Replay(**plan, package, debit).run();
+  return Replay((*plan)->getAnalysis(), package, debit).run();
 }
 } // namespace acir::ac

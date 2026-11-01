@@ -352,6 +352,93 @@ Importer::registerRule(Callable &call, const AstNode &registration,
   return outputs;
 }
 
+LogicalResult Importer::declareHelper(Callable &call) {
+  SmallVector<Type> inputs;
+  SmallVector<Attribute> parameters, constraints;
+  auto constraint = [&](Type type, const AstNode &annotation) {
+    bool boolean =
+        annotation.kind() == "Name" && annotation.string("id") == "bool";
+    SmallVector<NamedAttribute> fields{
+        b.getNamedAttr("kind", b.getStringAttr("hardware")),
+        b.getNamedAttr("type", TypeAttr::get(type)),
+        b.getNamedAttr("source_kind",
+                       b.getStringAttr(boolean                   ? "boolean"
+                                       : isa<ac::BitsType>(type) ? "fixed_bits"
+                                                                 : "nominal"))};
+    if (boolean)
+      fields.push_back(b.getNamedAttr(
+          "domain",
+          ac::SourceDomainAttr::get(b.getContext(),
+                                    b.getDictionaryAttr({b.getNamedAttr(
+                                        "kind", b.getStringAttr("bool"))}))));
+    return b.getDictionaryAttr(fields);
+  };
+  for (auto &input : call.inputs) {
+    inputs.push_back(input.type);
+    parameters.push_back(b.getDictionaryAttr(
+        {b.getNamedAttr("name", b.getStringAttr(input.name)),
+         b.getNamedAttr("binding", b.getStringAttr("positional_or_keyword")),
+         b.getNamedAttr("constraint",
+                        constraint(input.type, input.node.child("annotation"))),
+         b.getNamedAttr("default", detail::absentDefault(b)),
+         b.getNamedAttr("origin", origin(input.node, call.name)),
+         b.getNamedAttr("location",
+                        detail::sourceSpan(b, source.path, input.node))}));
+  }
+  auto returns = call.node.child("returns");
+  for (auto [index, type] : llvm::enumerate(call.results)) {
+    auto annotation = call.results.size() > 1
+                          ? returns.child("slice").item("elts", index)
+                          : returns;
+    constraints.push_back(constraint(type, annotation));
+  }
+  auto *definition = op(
+      call.node, "func.func", {}, {},
+      {b.getNamedAttr("sym_name", b.getStringAttr(call.name)),
+       b.getNamedAttr("function_type",
+                      TypeAttr::get(b.getFunctionType(inputs, call.results))),
+       b.getNamedAttr("ac.helper_kind", b.getStringAttr("value")),
+       b.getNamedAttr("ac.source_owner", owner),
+       b.getNamedAttr("ac.origin", origin(call.node, call.name)),
+       b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition")),
+       b.getNamedAttr("ac.parameters", b.getArrayAttr(parameters)),
+       b.getNamedAttr("ac.result_constraints", b.getArrayAttr(constraints)),
+       b.getNamedAttr("ac.capture_types", b.getArrayAttr({})),
+       b.getNamedAttr("ac.return_form",
+                      b.getStringAttr(call.results.empty()       ? "none"
+                                      : call.results.size() == 1 ? "single"
+                                                                 : "tuple"))},
+      1);
+  names[call.node.string("name").str()].declaration = definition;
+  return success();
+}
+
+LogicalResult Importer::defineHelper(Callable &call) {
+  auto helper =
+      cast<func::FuncOp>(names.at(call.node.string("name").str()).declaration);
+  auto *block = helper.addEntryBlock();
+  OpBuilder::InsertionGuard save(b);
+  b.setInsertionPointToEnd(block);
+  auto previousDefinition = currentDefinition;
+  currentDefinition = call.name;
+  auto restore =
+      llvm::scope_exit([&] { currentDefinition = previousDefinition; });
+  Declaration owner;
+  owner.node = call.node;
+  owner.symbol = call.name;
+  Scope scope;
+  scope.owner = &owner;
+  scope.callable = &call;
+  scope.pure = true;
+  scope.resultTypes = call.results;
+  for (auto [input, value] : llvm::zip(call.inputs, block->getArguments()))
+    scope.bindings[input.name] = Binding{value, {}, {}, nullptr};
+  if (failed(callableBody(call, scope)))
+    return failure();
+  op(call.node, "func.return", scope.returned, {});
+  return success();
+}
+
 LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
   SmallVector<Value> captures;
   Scope captured = scope;

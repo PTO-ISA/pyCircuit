@@ -27,7 +27,7 @@ selection, commands and reporting.
 
 | Area | Remaining work and retained obligation |
 | --- | --- |
-| Source expressions and effects | Field assignment, constructor defaults, ordinary helpers and loops require migration. Retain their source fixtures and independent oracles. |
+| Source expressions and effects | Source-global pure typed helpers support branches, early returns and tuple results through physical C++/RTL. Closures, helper loops, Table callbacks, field assignment and constructor defaults still require migration; retain their fixtures and oracles. |
 | Control knownness | Current execution admission requires provably known controls. Unknown payload support does not establish dynamic X/Z guard semantics; unresolved choices remain in the replacement plan. |
 | External Queue interfaces | A root Queue cannot be exported as an external payload-only interface. Nested exports preserve resource identity; a System can consume them internally. |
 | Memory, Table and collections | Existing storage/runtime foundations and historical scenarios remain requirements. Their transactional timing, partial-write and family-call migration is not established by Bits/Struct Queue support. Preserve approved timing decisions and resolve only genuinely unspecified semantics. |

@@ -1,0 +1,7 @@
+# REQUIRES: verilator
+# RUN: %python %inputs/transactional-pure-helpers.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.data.cpp cpp data
+# RUN: %python %inputs/transactional-pure-helpers.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.data.rtl verilog data
+# RUN: %python %inputs/transactional-pure-helpers.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.integration.cpp cpp integration
+# RUN: %python %inputs/transactional-pure-helpers.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.integration.rtl verilog integration
+# RUN: %python %inputs/transactional-pure-helpers.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cross.cpp cpp cross
+# RUN: %python %inputs/transactional-pure-helpers.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cross.rtl verilog cross

@@ -8,6 +8,16 @@
 using namespace mlir;
 
 namespace acir::ac {
+namespace {
+Operation *localDeclaration(ac::ModuleOp module, StringRef name) {
+  for (Operation &operation : module.getBody().front())
+    if (auto symbol = operation.getAttrOfType<StringAttr>("sym_name");
+        symbol && symbol.getValue() == name)
+      return &operation;
+  return nullptr;
+}
+} // namespace
+
 
 // Close resource identity constraints after every instance occurrence is bound.
 // Allocation is deliberately later than both alias and payload validation.
@@ -22,7 +32,7 @@ resolveTransactionalResourceConnections(mlir::ModuleOp package,
     SmallVector<ac::TransactionRuleCallOp> calls;
     module.walk([&](ac::TransactionRuleCallOp call) { calls.push_back(call); });
     for (auto call : calls) {
-      Operation *target = SymbolTable::lookupSymbolIn(module, call.getCallee());
+      Operation *target = localDeclaration(module, call.getCallee());
       if (!target)
         target = SymbolTable::lookupSymbolIn(package, call.getCallee());
       auto rule = dyn_cast_or_null<ac::TransactionRuleOp>(target);
@@ -32,7 +42,7 @@ resolveTransactionalResourceConnections(mlir::ModuleOp package,
       std::string name;
       do {
         name = "__bound_rule_" + std::to_string(ruleIndex++);
-      } while (SymbolTable::lookupSymbolIn(module, name));
+      } while (localDeclaration(module, name));
       specialized.insert(clone);
       clone->setAttr("sym_name", StringAttr::get(package.getContext(), name));
       module.getBody().front().getOperations().insert(
@@ -104,7 +114,7 @@ resolveTransactionalResourceConnections(mlir::ModuleOp package,
       }
       if (auto call = dyn_cast<ac::TransactionRuleCallOp>(op)) {
         auto rule = cast<ac::TransactionRuleOp>(
-            SymbolTable::lookupSymbolIn(module, call.getCallee()));
+            localDeclaration(module, call.getCallee()));
         SmallVector<Value> actual(call.getInterfaces());
         actual.append(rule.getCaptures().begin(), rule.getCaptures().end());
         for (Region &region : rule->getRegions())

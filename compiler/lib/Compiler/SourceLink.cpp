@@ -473,7 +473,7 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
           // nominal definition over an equivalent consumer snapshot, preserving
           // provider metadata and location independently of link input order.
           if (isa<ac::StructOp, ac::EnumOp, ac::ConstantOp,
-                  ac::TransactionRuleOp>(operation) &&
+                  ac::TransactionRuleOp, func::FuncOp>(operation) &&
               role.getValue() == "definition" &&
               priorRole.getValue() == "import_snapshot") {
             prior->second->erase();
@@ -595,7 +595,7 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   return continueLinkedSource(*linked, emitError, target, retainedStages);
 }
 
-FailureOr<std::unique_ptr<ac::TransactionalAnalysis>>
+FailureOr<std::unique_ptr<ac::TransactionalPreparation>>
 analyzeLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
                     ac::TransactionalDebit debit) {
   auto owners = source->getAttrOfType<ArrayAttr>("ac.source_units");
@@ -623,7 +623,7 @@ analyzeLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
   auto top = entry ? entry.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
   if (!top)
     return emitError() << "linked artifact requires a selected root";
-  return ac::TransactionalAnalysis::create(source, top.getValue(), debit);
+  return ac::TransactionalPreparation::create(source, top.getValue(), debit);
 }
 
 FailureOr<OwningOpRef<ModuleOp>>

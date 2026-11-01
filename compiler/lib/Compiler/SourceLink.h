@@ -2,7 +2,7 @@
 #define ACIR_LIB_COMPILER_SOURCELINK_H
 
 #include "SourceUnit.h"
-#include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalPreparation.h"
 
 namespace acir::compiler {
 
@@ -40,8 +40,8 @@ linkSourceUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,
                   llvm::StringRef resetSemantics = "strict");
 
 // Validate Linked source ownership and entry, then build common analysis.
-// The returned plan borrows source; keep it alive and unchanged while in use.
-mlir::FailureOr<std::unique_ptr<ac::TransactionalAnalysis>>
+// The returned preparation owns expanded SSA and borrows source for provenance.
+mlir::FailureOr<std::unique_ptr<ac::TransactionalPreparation>>
 analyzeLinkedSource(mlir::ModuleOp source, ac::detail::EmitError emitError,
                     ac::TransactionalDebit debit);
 

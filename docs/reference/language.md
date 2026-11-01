@@ -9,7 +9,8 @@ analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback.
 
 The current replacement slice admits closed Modules and default-clock Systems,
-Bits/Enum/Struct state, pure payload computation, nested Rules, guards,
+Bits/Enum/Struct state, pure payload computation and source-global typed helpers,
+nested Rules, guards,
 assertions, logs and imported literal constants. Modules export existing State
 identities. Ordinary `@ac.rule` declarations require explicit registration calls.
 A directly nested, parameterless `@ac.autorule` with no results registers once at
@@ -1451,59 +1452,46 @@ width/range mismatches remain errors.
 
 ## Pure value helpers
 
-Use an ordinary typed `def` for reusable combinational computation. A helper
-may be top-level or declared directly inside a Module/System. `@rule` identifies
-an autonomous registration and is not a helper decorator.
+Use a source-global ordinary typed `def` for reusable pure computation. Helpers
+accept explicitly typed required data parameters and return a scalar, independent
+ordered tuple results, or `None`. Bits, `bool`, Enum and Struct values use the
+existing payload types and nominal identities.
 
 ```python
-from pycircuit import u8
+import pycircuit as ac
 
-def bump(value: u8) -> u8:
-    result: u8 = value + 1
-    return result
+
+def adjust(value: ac.u8, enabled: bool) -> ac.u8:
+    if enabled:
+        return value + 1
+    return value
 ```
 
-Helpers require typed ordinary positional parameters and an explicit zero/one
-result contract (`-> None` for no result). They reuse the existing hardware
-binding boundaries and logical types; physical width alone does not permit an
-Integer/Boolean/fixed-Bits conversion. Actual arguments are evaluated and bound
-once, in source order. Defaults, keywords, variadic and positional-only
-parameters are not admitted.
+Bodies support ordinary local computations, annotations, `if/else`, local value
+joins, early returns and nonrecursive helper calls. Intermediate operations keep
+their natural execution width: converting an already computed `u8` result to
+`u16` does not widen the earlier computation. Tuple results use direct unpacking;
+no extra Struct is introduced. Each call computes independently, while multiple
+uses of one call result share that SSA value.
 
-Bodies use existing typed expressions, local assignments and annotations,
-immutable Struct field and Table element updates, `if/else`, bounded literal-range
-loops, `pass` and one final return. Branches
-retain definite-assignment and four-state selection rules. Existing arithmetic,
-projection, constructor and Table restrictions still apply. Acyclic helper calls
-are allowed. Loops follow the [bounded source loop contract](#bounded-source-loops):
-iterations carry local SSA values within the same Work evaluation, and zero-trip
-bodies still undergo capability validation. Updating a Table parameter or ordinary
-captured aggregate constructs a new local value; it does not change the caller's
-saved value or create persistent state. Directly nested loops, `while`, early
-returns, nested declarations inside helpers,
-allocation, Rule/Method calls, assertions and I/O are rejected even in dead
-paths. A helper cannot read a persistent owner implicitly; pass its ordinary
-payload explicitly.
+Helpers can be called from Module combination and pure positions in Rule/Method
+bodies and guards. They access only explicit parameters, legal source constants
+and local values. Resource reads/writes, Rule/Method calls, instances, assertions
+and logs are not pure helper operations, including in unused definitions.
 
-A nested helper captures ordinary SSA values at its declaration, including
-ordinary module-result wires. Later rebinding of the same name does not change
-the capture. Calls between nested helpers use each callee's declaration snapshot;
-local parameter/variable bindings retain normal lexical precedence. Helpers do
-not capture owner or instance handles, clocks or reset. Top-level helpers have
-no runtime captures; nested helpers remain private to their lexical module.
+Capture records syntax without executing functions. Source units retain helper
+signatures and the existing authenticated body snapshots. A consumer compiles
+from the published interface without provider Python or the provider body file;
+link still requires the actual implementation and its transitive providers.
+Linked ACIR retains `func.func` and `func.call` and can be reloaded without Python
+sources. Lowering uses `ac-inline-pure-helpers` on a verified working copy before
+common transaction analysis. Routed provenance retains the original Linked
+snapshot; independent replay uses the same preparation. No backend interprets
+helper calls, and t-gfsim retains its helper-free support boundary.
 
-Source units publish typed helper bodies through the existing interface owner.
-Consumers resolve that published closure without reading provider Python; link
-checks the owning body against the interface. Native validation checks purity,
-logical types, lexical ownership, recursion and bounded expansion before
-inlining or elimination. Source helper functions/calls do not survive in final
-hardware IR, and neither backend interprets Python helpers.
-
-Ordinary expressions, registered Rule/Method bodies, named Table callbacks and
-the existing bounded-loop caller share this helper implementation. Named Table
-callbacks retain their fixed-Bits and zero-capture restrictions; calls inside
-Table expression lambdas remain unsupported. Helper purity is separate from the
-transaction execution and resource boundaries described below.
+Module-local closures/captures, loops, Table callbacks, additional Integer
+operations and new intrinsics remain migration work. Retained fixtures and
+oracles for these capabilities are not cancelled by this bounded helper slice.
 
 Defining a Rule does not execute it. Each Module/System-scope Rule call creates
 a distinct registration, including repeated calls to one declaration. A call

@@ -2,6 +2,7 @@
 #include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
@@ -66,12 +67,27 @@ LogicalResult preflightBody(func::FuncOp helper, SourceHelperLookup lookup,
           return operation.emitOpError() << "value helper reads outside its "
                                            "explicit inputs and captures";
       }
-      if (!isa<func::CallOp, func::ReturnOp, YieldOp>(operation) &&
+      if (auto origin = operation.getAttr("ac.origin"))
+        if (failed(detail::verifyOccurrence(
+                dyn_cast<DictionaryAttr>(origin),
+                [&] { return operation.emitOpError(); })))
+          return failure();
+      for (Type type : operation.getOperandTypes())
+        if (failed(detail::verifyHardwareTypeScope(type, helper)))
+          return failure();
+      for (Type type : operation.getResultTypes())
+        if (failed(detail::verifyHardwareTypeScope(type, helper)))
+          return failure();
+      for (NamedAttribute attribute : operation.getAttrs())
+        if (failed(detail::verifyHardwareAttributeScope(attribute.getValue(), helper)))
+          return failure();
+      if (!isa<func::CallOp, func::ReturnOp, YieldOp, scf::IfOp,
+               scf::YieldOp, SourcePredicateOp>(operation) &&
           !detail::isCombinationalHardwareOperation(&operation))
         return operation.emitOpError() << "unsupported operation in pure value "
                                          "helper body";
       if (operation.getNumRegions() &&
-          !isa<TableMapOp, TableMatchOp>(operation))
+          !isa<TableMapOp, TableMatchOp, scf::IfOp>(operation))
         return operation.emitOpError() << "unsupported value helper region";
       if (isa<func::CallOp>(operation)) {
         auto callee = operation.getAttrOfType<FlatSymbolRefAttr>("callee");
@@ -117,10 +133,10 @@ LogicalResult verifySignature(func::FuncOp helper, uint64_t &work) {
   FunctionType signature = helper.getFunctionType();
   if (signature.getNumInputs() != parameters.size() + captures.size() ||
       signature.getNumResults() != constraints.size() ||
-      constraints.size() > 1 ||
-      form.getValue() != (constraints.empty() ? "none" : "single"))
+      form.getValue() != (constraints.empty() ? "none" :
+                          constraints.size() == 1 ? "single" : "tuple"))
     return error() << "value helper signature must contain explicit inputs, "
-                      "capture suffix, and zero or one ordinary result";
+                      "capture suffix, and ordered ordinary results";
   auto lexicalOwner = helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");
   if (helper->hasAttr("ac.lexical_owner") && !lexicalOwner)
     return error() << "value helper lexical owner must be a FlatSymbolRefAttr";
@@ -223,10 +239,38 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
           return operation.emitOpError() << "value helper cannot return early";
         continue;
       }
-      if (isa<YieldOp>(operation)) {
+      if (isa<YieldOp, scf::YieldOp>(operation)) {
         if (&region == &helper.getBody() ||
             &operation != &region.front().back())
           return operation.emitOpError() << "value helper region yield is invalid";
+        if (isa<scf::YieldOp>(operation) &&
+            !isa_and_nonnull<scf::IfOp>(operation.getParentOp()))
+          return operation.emitOpError() << "helper SCF yield requires an if";
+        continue;
+      }
+      if (auto branch = dyn_cast<scf::IfOp>(operation)) {
+        if (!branch.getCondition().getDefiningOp<SourcePredicateOp>())
+          return branch.emitOpError() << "helper condition requires the source "
+                                         "predicate bridge";
+        for (Type type : branch.getResultTypes())
+          if (!payload(type) ||
+              failed(analysis.getPackedWidth(type, bindings, branch)))
+            return branch.emitOpError() << "helper branch requires closed "
+                                           "payload results";
+        for (Region &arm : branch->getRegions()) {
+          if (!arm.hasOneBlock() || arm.front().getNumArguments() ||
+              arm.front().empty() ||
+              !isa<scf::YieldOp>(arm.front().back()))
+            return branch.emitOpError() << "helper branch requires both "
+                                           "argument-free yield arms";
+          if (failed(visit(arm, depth + 1)))
+            return failure();
+        }
+        continue;
+      }
+      if (isa<SourcePredicateOp>(operation)) {
+        if (failed(cast<SourcePredicateOp>(operation).verify()))
+          return failure();
         continue;
       }
       bool hardware = detail::isCombinationalHardwareOperation(&operation);
@@ -236,15 +280,6 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
       if (operation.getNumRegions() &&
           !isa<TableMapOp, TableMatchOp>(operation))
         return operation.emitOpError() << "unsupported value helper region";
-      for (Type type : operation.getOperandTypes())
-        if (failed(detail::verifyHardwareTypeScope(type, helper)))
-          return failure();
-      for (Type type : operation.getResultTypes())
-        if (failed(detail::verifyHardwareTypeScope(type, helper)))
-          return failure();
-      for (NamedAttribute attribute : operation.getAttrs())
-        if (failed(detail::verifyHardwareAttributeScope(attribute.getValue(), helper)))
-          return failure();
       if (hardware && failed(analysis.verifyResolvedOperation(&operation, bindings)))
         return failure();
       for (Region &nested : operation.getRegions())

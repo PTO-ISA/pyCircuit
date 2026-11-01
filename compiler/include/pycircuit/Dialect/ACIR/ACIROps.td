@@ -278,9 +278,11 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let hasVerifier = 1;
 }
 
-def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
+def ACIR_ModuleOp : ACIR_Op<"module", [Symbol,
     IsolatedFromAbove, SingleBlock, RegionKindInterface,
     HasOnlyGraphRegion]> {
+  // Hardware owners are lexical namespaces for Rules and Methods, not MLIR
+  // symbol tables. Ordinary func.call resolves helpers in the package table.
   let summary = "Define reusable hardware structure and its Work rules";
   let description = [{
     With ac.transactional = 2, output_kinds explicitly classifies each resource
@@ -481,7 +483,7 @@ def ACIR_PayloadUseOp : ACIR_Op<"payload.use", [
 }
 
 // Transactional callable definitions own isolated, explicit capture regions.
-def ACIR_TransactionRuleOp : ACIR_Op<"rule", [Symbol, IsolatedFromAbove]> {
+def ACIR_TransactionRuleOp : ACIR_Op<"rule", [IsolatedFromAbove]> {
   let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
       TypeAttrOf<FunctionType>:$function_type);
   let regions = (region AnyRegion:$guard, AnyRegion:$body);
@@ -489,7 +491,7 @@ def ACIR_TransactionRuleOp : ACIR_Op<"rule", [Symbol, IsolatedFromAbove]> {
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }
-def ACIR_TransactionMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove]> {
+def ACIR_TransactionMethodOp : ACIR_Op<"method", [IsolatedFromAbove]> {
   let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
       TypeAttrOf<FunctionType>:$function_type);
   let regions = (region AnyRegion:$guard, AnyRegion:$body);
@@ -521,7 +523,7 @@ def ACIR_TransactionMethodPendingOp : ACIR_Op<"method.pending"> {
   let hasVerifier = 1;
 }
 
-def ACIR_SourceMethodOp : ACIR_Op<"legacy.method", [Symbol, IsolatedFromAbove,
+def ACIR_SourceMethodOp : ACIR_Op<"legacy.method", [IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Define an instance operation with entry guard and ordered body";
   let description = [{
