@@ -261,6 +261,8 @@ LogicalResult Emitter::prepare(const Step &step) {
   return success();
 }
 LogicalResult Emitter::execute(const Step &step) {
+  if (step.updateTarget)
+    return step.operation->emitError("partial State writes are not supported by t-gfsim");
   if (step.kind == Kind::Pure || step.kind == Kind::Merge ||
       step.kind == Kind::StateRead || step.kind == Kind::QueueHead ||
       (step.kind == Kind::QueuePop && step.ruleParameter != NoID))

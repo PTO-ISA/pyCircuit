@@ -3,3 +3,7 @@
 # RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.constructors.rtl verilog constructors
 # RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.locals.cpp cpp locals
 # RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.locals.rtl verilog locals
+# RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.state.cpp cpp state
+# RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.state.rtl verilog state
+# RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure.cpp cpp failure
+# RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure.rtl verilog failure

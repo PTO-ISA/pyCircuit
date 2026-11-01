@@ -3,6 +3,8 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/ACIR/ValueUpdates.h"
+#include <optional>
 #include "llvm/ADT/SmallVector.h"
 #include <functional>
 #include <memory>
@@ -85,6 +87,8 @@ struct TransactionalStep {
   unsigned ruleParameter = TransactionalNoID;
   unsigned rule = TransactionalNoID;
   unsigned activation = TransactionalNoID;
+  // Present only for a State partial proposal; operands remain replacement SSA.
+  std::optional<ValueUpdateTarget> updateTarget;
   unsigned methodInvocation = TransactionalNoID;
   llvm::SmallVector<TransactionalPathTerm> path;
   llvm::SmallVector<TransactionalValueID> operands, results;

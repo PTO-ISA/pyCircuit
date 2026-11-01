@@ -582,8 +582,12 @@ LogicalResult Importer::assignTarget(const AssignmentTarget &target, Value value
   auto converted = convert(value,target.type,node);
   if (failed(converted)) return failure();
   auto fields = b.getArrayAttr(target.fields);
-  if (target.state)
-    return fail(node, "partial State proposals require the dependent transaction step");
+  if (target.state) {
+    if (scope.module || scope.pure) return fail(node,"State updates require a Rule or Method body");
+    SmallVector<NamedAttribute> attrs{b.getNamedAttr("fields",fields)};
+    if (target.low) { attrs.push_back(b.getNamedAttr("low",target.low)); attrs.push_back(b.getNamedAttr("high",target.high)); }
+    return success(op(node,"ac.state.write_partial",ValueRange{target.root,*converted},{},attrs) != nullptr);
+  }
   Value replacement = *converted;
   Value base = target.root;
   // A mixed field/slice assignment first patches its Bits leaf, then uses the

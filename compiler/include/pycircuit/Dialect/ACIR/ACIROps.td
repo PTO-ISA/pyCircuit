@@ -219,6 +219,14 @@ def ACIR_StructUpdateOp : ACIR_Op<"struct.update", [Pure]> {
   let hasVerifier = 1;
 }
 
+def ACIR_StateWritePartialOp : ACIR_Op<"state.write_partial", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Propose a field or static bit interval update of State";
+  let arguments = (ins ACIR_StateType:$resource, ACIR_HardwareType:$replacement,
+      ArrayAttr:$fields, OptionalAttr<ACIR_StaticExprAttr>:$low,
+      OptionalAttr<ACIR_StaticExprAttr>:$high);
+  let hasVerifier = 1;
+}
 
 def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let summary = "Declare a source-owned hardware module or standard leaf";

@@ -607,7 +607,26 @@ private:
     step.methodInvocation = methodInvocation;
     step.id = nextStep++;
     step.path = path;
-    if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
+    if (auto partial = dyn_cast<StateWritePartialOp>(op)) {
+      if (pure)
+        return op->emitError("State partial proposals require a Rule body");
+      auto receiver = lookup(op->getOperand(0), env, op);
+      if (failed(receiver) || receiver->kind != Binding::Resource ||
+          p.resources_[receiver->id].isQueue())
+        return op->emitError("partial proposal requires an allocated State");
+      step.kind = TransactionalStepKind::StateWrite;
+      step.resource = receiver->id;
+      auto target = resolveValueUpdateTarget(
+          p.resources_[step.resource].getPayload(),
+          op->getAttrOfType<ArrayAttr>("fields"),
+          op->getAttrOfType<StaticExprAttr>("low"),
+          op->getAttrOfType<StaticExprAttr>("high"), op);
+      auto replacement = payload(op->getOperand(1), env, op);
+      if (failed(target) || failed(replacement))
+        return failure();
+      step.updateTarget = *target;
+      step.operands.push_back(*replacement);
+    } else if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
       auto receiver = lookup(call.getReceiver(), env, op);
       if (failed(receiver) || receiver->kind != Binding::Resource)
         return op->emitError(
@@ -1109,7 +1128,7 @@ private:
           if (step->kind == TransactionalStepKind::StateWrite ||
               step->kind == TransactionalStepKind::QueuePush)
             constrain(step->resource, values[step->operands.front()],
-                      0);
+                      step->updateTarget ? step->updateTarget->low : 0);
     } while (changed);
     for (auto [site, value] : combControls)
       if (!allKnown(values[value]))
@@ -1350,6 +1369,16 @@ private:
           return failure();
         bool exclusive = a.step->resource != b.step->resource ||
                          a.step->kind != b.step->kind;
+        // Disjoint fields/bits belong to one atomic outer transaction. Across
+        // independently registered Rules the resource remains the conflict unit.
+        if (a.step->kind == TransactionalStepKind::StateWrite &&
+            b.step->kind == TransactionalStepKind::StateWrite &&
+            a.step->rule == b.step->rule && a.step->updateTarget &&
+            b.step->updateTarget) {
+          const auto &left = *a.step->updateTarget;
+          const auto &right = *b.step->updateTarget;
+          exclusive |= left.high <= right.low || right.high <= left.low;
+        }
         // Repeated implicit reads are path demands of one registered formal,
         // not competing pops. The common access identity is independent of
         // concrete aliases; the adapters OR these selected paths into one

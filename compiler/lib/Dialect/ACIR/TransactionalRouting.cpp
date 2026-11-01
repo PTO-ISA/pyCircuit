@@ -406,7 +406,15 @@ private:
       } else if (step.kind == Kind::StateWrite ||
                  step.kind == Kind::QueuePush) {
         auto id = step.resource;
-        auto selected = selection(guard, values[step.operands.front()], data[id]);
+        Value replacement = values[step.operands.front()];
+        if (step.updateTarget) {
+          auto updated = replaceValue(b, step.operation->getLoc(), data[id],
+                                      replacement, *step.updateTarget);
+          if (failed(updated))
+            return failure();
+          replacement = *updated;
+        }
+        auto selected = selection(guard, replacement, data[id]);
         if (failed(selected))
           return failure();
         data[id] = *selected;
@@ -850,6 +858,7 @@ public:
 private:
   struct Write {
     Value guard, payload;
+    const ValueUpdateTarget *target = nullptr;
   };
   const TransactionalAnalysis &p;
   mlir::ModuleOp package;
@@ -873,6 +882,7 @@ private:
   llvm::DenseMap<unsigned, Operation *> pure;
   llvm::DenseSet<std::pair<Value, Value>> initializers;
   llvm::DenseSet<Operation *> claimed;
+  SmallVector<Operation *> claimOrder;
   Value zero, one;
   bool final = false;
   LogicalResult reject(StringRef reason) {
@@ -883,7 +893,8 @@ private:
     if (!op ||
         failed(debit(8 + op->getNumOperands() + op->getNumResults(), op)))
       return failure();
-    claimed.insert(op);
+    if (claimed.insert(op).second)
+      claimOrder.push_back(op);
     return success();
   }
   bool attrs(Operation *op, ArrayRef<NamedAttribute> expected) {
@@ -988,6 +999,145 @@ private:
       return failure();
     return *no;
   }
+  // Recover the proposed whole value from a selection's first physical leaf.
+  // selection() subsequently authenticates all leaves and their common roots.
+  Value selectedPayload(Value actual, Type type, FieldPath path = {}) {
+    if (auto record = dyn_cast<StructType>(type)) {
+      auto create = actual.getDefiningOp<StructCreateOp>();
+      auto declaration = HardwareAnalysis(p.getPackage()).lookupStruct(record);
+      if (!create || create.getValues().empty() || !declaration ||
+          declaration.getFields().empty())
+        return {};
+      auto field = cast<DictionaryAttr>(declaration.getFields()[0]);
+      path.push_back(field.getAs<StringAttr>("name"));
+      return selectedPayload(create.getValues()[0],
+                             field.getAs<TypeAttr>("type").getValue(), path);
+    }
+    bool enumeration = isa<EnumType>(type);
+    if (enumeration) {
+      auto from = actual.getDefiningOp<EnumFromBitsOp>();
+      if (!from)
+        return {};
+      actual = from->getOperand(0);
+    }
+    auto select = actual.getDefiningOp<BitsSelectOp>();
+    if (!select)
+      return {};
+    Value value = select->getOperand(1);
+    if (enumeration) {
+      auto to = value.getDefiningOp<EnumToBitsOp>();
+      if (!to)
+        return {};
+      value = to->getOperand(0);
+    }
+    for (auto field : llvm::reverse(path)) {
+      auto get = value.getDefiningOp<StructGetOp>();
+      if (!get || get.getFieldAttr() != field)
+        return {};
+      value = get.getValue();
+    }
+    return value;
+  }
+  bool projection(Value actual, Value base, StringAttr field) {
+    auto get = actual.getDefiningOp<StructGetOp>();
+    return get && get.getValue() == base && get.getFieldAttr() == field &&
+           attrs(get, {b.getNamedAttr("field", field)}) &&
+           succeeded(claim(get));
+  }
+  bool extract(Value actual, Value base, uint64_t low, uint64_t width) {
+    auto slice = actual.getDefiningOp<BitsExtractOp>();
+    auto actualWidth = p.getPayloadWidth(actual.getType());
+    if (!slice || slice.getInput() != base || failed(actualWidth) ||
+        *actualWidth != width)
+      return false;
+    auto evaluated = HardwareAnalysis(p.getPackage()).evaluateStatic(
+        slice.getLow(), HardwareBindings{p.getTop()}, slice);
+    if (failed(evaluated))
+      return false;
+    auto integer = dyn_cast<MathIntAttr>(*evaluated);
+    if (!integer || llvm::APSInt(integer.getCanonicalValue()).getZExtValue() != low)
+      return false;
+    return attrs(slice, {b.getNamedAttr("low", slice.getLow())}) &&
+           succeeded(claim(slice));
+  }
+  // Verify immutable replacement independently against the actual previous
+  // candidate; no expected graph is generated and no Router is called.
+  LogicalResult replacement(Value actual, Value base, Value payload,
+                            const ValueUpdateTarget &target, unsigned depth = 0) {
+    if (depth < target.fields.size()) {
+      auto create = actual.getDefiningOp<StructCreateOp>();
+      auto record = dyn_cast<StructType>(base.getType());
+      auto declaration = record ? HardwareAnalysis(p.getPackage()).lookupStruct(record)
+                                : StructOp();
+      if (!create || !declaration || !attrs(create, {}) ||
+          actual.getType() != base.getType() ||
+          create.getValues().size() != declaration.getFields().size() ||
+          failed(claim(create)))
+        return failure();
+      auto selected = cast<StringAttr>(target.fields[depth]);
+      for (auto [index, raw] : llvm::enumerate(declaration.getFields())) {
+        auto field = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
+        Value value = create.getValues()[index];
+        if (field != selected) {
+          if (!projection(value, base, field))
+            return failure();
+        } else if (depth + 1 == target.fields.size() && !target.sliced) {
+          if (value != payload)
+            return failure();
+        } else {
+          // Every retained subtree must project from this exact candidate.
+          Value old;
+          for (Operation *user : base.getUsers()) {
+            if (failed(debit(4, user)))
+              return failure();
+            auto get = dyn_cast<StructGetOp>(user);
+            if (!get || get.getFieldAttr() != field)
+              continue;
+            auto checkpoint = claimOrder.size();
+            old = get.getResult();
+            if (projection(old, base, field) &&
+                succeeded(replacement(value, old, payload, target, depth + 1)))
+              break;
+            while (claimOrder.size() > checkpoint)
+              claimed.erase(claimOrder.pop_back_val());
+            old = {};
+          }
+          if (!old)
+            return failure();
+        }
+      }
+      return success();
+    }
+    if (!target.sliced)
+      return success(actual == payload);
+    auto width = p.getPayloadWidth(base.getType());
+    if (failed(width))
+      return failure();
+    if (target.sliceLow == 0 && target.sliceHigh == *width) {
+      if (base.getType() == payload.getType())
+        return success(actual == payload);
+      return success(actual.getType() == base.getType() &&
+                     extract(actual, payload, 0, *width));
+    }
+    auto concat = actual.getDefiningOp<BitsConcatOp>();
+    if (!concat || !attrs(concat, {}) || actual.getType() != base.getType() ||
+        failed(claim(concat)))
+      return failure();
+    unsigned count = 1 + (target.sliceHigh < *width) + (target.sliceLow > 0);
+    if (concat.getInputs().size() != count)
+      return failure();
+    unsigned index = 0;
+    if (target.sliceHigh < *width &&
+        !extract(concat.getInputs()[index++], base, target.sliceHigh,
+                 *width - target.sliceHigh))
+      return failure();
+    if (concat.getInputs()[index++] != payload)
+      return failure();
+    if (target.sliceLow &&
+        !extract(concat.getInputs()[index], base, 0, target.sliceLow))
+      return failure();
+    return success();
+  }
   Value findBinary(Block *block, StringRef opcode, Value lhs, Value rhs) {
     if (!lhs || !rhs)
       return {};
@@ -1073,7 +1223,9 @@ private:
       else if (step.kind == Kind::QueuePop)
         pops[step.resource].push_back(guard);
       else if (step.kind == Kind::StateWrite || step.kind == Kind::QueuePush)
-        writes[step.resource].push_back({guard, values[step.operands.front()]});
+        writes[step.resource].push_back(
+            {guard, values[step.operands.front()],
+             step.updateTarget ? &*step.updateTarget : nullptr});
       else if (step.kind == Kind::Observe)
         observations.push_back({&step, guard});
       else
@@ -1524,7 +1676,14 @@ LogicalResult Replay::run() {
     Value data = yield.getValues()[proposalOffset],
           enable = yield.getValues()[proposalOffset + 1];
     for (const auto &write : llvm::reverse(writes[id])) {
-      auto previous = selection(data, write.guard, write.payload, q[id].getType());
+      Value proposed = write.target ? selectedPayload(data, q[id].getType())
+                                    : write.payload;
+      if (!proposed)
+        return reject("partial proposal has no selected payload");
+      auto previous = selection(data, write.guard, proposed, q[id].getType());
+      if (succeeded(previous) && write.target &&
+          failed(replacement(proposed, *previous, write.payload, *write.target)))
+        return reject("partial replacement/retained subtree differs");
       auto join = enable.getDefiningOp<BitsBinaryOp>();
       if (failed(previous) || !join ||
           !binary(enable, "or", join->getOperand(0), write.guard))

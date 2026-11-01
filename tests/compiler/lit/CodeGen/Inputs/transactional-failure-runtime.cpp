@@ -8,6 +8,7 @@ static void require(bool value) {
 
 int main(int argc, char **argv) {
   pyc_dut dut(argc > 1 ? std::atoi(argv[1]) : 1);
+  const unsigned failureEpoch = argc > 2 ? std::atoi(argv[2]) : 6;
   pyc_dut::Inputs inputs{};
   auto bit = [](unsigned value) {
     return gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{value});
@@ -23,11 +24,11 @@ int main(int argc, char **argv) {
     require(system.state() == gfsim::SimSystemState::Ready);
     require(system.cycle() == 0 && dut.observations().Events().empty());
     std::vector<gfsim::CommittedEventSlot> lastEvents;
-    for (unsigned epoch = 0; epoch != 7; ++epoch) {
+    for (unsigned epoch = 0; epoch <= failureEpoch; ++epoch) {
       inputs.pyc_7079635f636c6b = bit(epoch & 1);
       dut.drive(inputs);
       const auto result = system.Step();
-      if (epoch != 6) {
+      if (epoch != failureEpoch) {
         require(result == gfsim::SimStepResult::Running);
         require(system.cycle() == epoch + 1);
         const auto events = dut.observations().Events();
@@ -35,7 +36,7 @@ int main(int argc, char **argv) {
       } else {
         require(result == gfsim::SimStepResult::Failed);
         require(system.state() == gfsim::SimSystemState::Failed);
-        require(system.cycle() == 6);
+        require(system.cycle() == failureEpoch);
         require(system.failureInfo().phase == gfsim::SimFailurePhase::Check);
         // Failed epochs do not publish even unrelated pending observations.
         const auto events = dut.observations().Events();

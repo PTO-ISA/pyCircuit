@@ -140,7 +140,7 @@ LogicalResult preflight(Operation *op) {
             BitsConstant4Op, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
             StructCreateOp, StructGetOp, StructConstructOp, StructUpdateOp,
-            BitsUpdateOp, EnumCreateOp, EnumToBitsOp,
+            BitsUpdateOp, StateWritePartialOp, EnumCreateOp, EnumToBitsOp,
             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
             TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
             TableChooseOp, TableFoldOp, SourceExpectOp, SourceObserveOp,
@@ -1127,6 +1127,11 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     return detail::verifySourceSpan(expect.getLocationAttr(),
                                     [&] { return op->emitOpError(); });
   }
+  if (isa<StateWritePartialOp>(op)) {
+    if (!inCallableBody(op))
+      return op->emitOpError("partial State proposals require Rule/Method body placement");
+    return success();
+  }
   if (callable(op) || isa<TransactionRuleCallOp, TransactionMethodCallOp>(op))
     return verifyCallable(op);
   if (isa<ModuleOp, ModuleImportOp>(op)) {
@@ -1639,7 +1644,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     if ((!purePayload(op) &&
          !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
               ResourceConnectionOp, TransactionMethodPendingOp, PendingExprOp,
-              InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
+              StateWritePartialOp, InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
               TransactionMethodCallOp, PayloadUseOp, SourceExpectOp, SourceObserveOp,
               ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp,

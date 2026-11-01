@@ -210,14 +210,25 @@ LogicalResult BitsUpdateOp::verify() {
                       ArrayAttr::get(getContext(), {}), getLow(), getHigh(),
                       *this);
 }
+LogicalResult StateWritePartialOp::verify() {
+  if (getFields().empty() && !getLowAttr())
+    return emitOpError("partial write requires a field or interval");
+  return verifyTarget(getResource().getType().getPayload(),
+                      getReplacement().getType(), getFields(), getLowAttr(),
+                      getHighAttr(), *this);
+}
+void StateWritePartialOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get());
+}
 LogicalResult normalizeValueUpdates(mlir::ModuleOp package) {
   SmallVector<Operation *> updates;
   package.walk([&](Operation *op) {
-    if (isa<StructUpdateOp, BitsUpdateOp>(op))
+    if (isa<StructUpdateOp, BitsUpdateOp, StateWritePartialOp>(op))
       updates.push_back(op);
   });
   for (Operation *op : updates) {
-    bool state = false;
+    bool state = isa<StateWritePartialOp>(op);
     Type base = op->getOperand(0).getType();
     if (state)
       base = cast<StateType>(base).getPayload();
