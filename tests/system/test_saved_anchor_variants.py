@@ -182,7 +182,7 @@ def test_saved_anchor_keeps_table_state_compact_through_refinement(tmp_path):
     assert len(states) == 2  # One four-lane state plus the scalar position.
     table_states = [line for line in states if 'instance_name = "rows"' in line]
     assert len(table_states) == 1
-    assert re.search(r"!ac.table<\[.*#ac.math_int<4>", table_states[0])
+    assert re.search(r"!ac.array<\[.*#ac.math_int<4>", table_states[0])
     assert not re.search(r'instance_name = "rows[._\[]', body)
     shutil.rmtree(source)
     shutil.rmtree(unit)

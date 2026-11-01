@@ -698,7 +698,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
           if (failed(inspect(TypeAttr::get(value), bindings, site, false)))
             return failure();
       }
-      if (auto table = dyn_cast<ac::TableType>(type.getValue())) {
+      if (auto table = dyn_cast<ac::ArrayType>(type.getValue())) {
         if (failed(inspect(table.getShape(), bindings, site, false)))
           return failure();
         return inspect(TypeAttr::get(table.getElementType()), bindings, site,
@@ -722,7 +722,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
                         Operation *site,
                         uint64_t multiplicity) -> LogicalResult {
     if (!isa<ac::BitsType, ac::StructType, ac::EnumType, ac::TypeParamType,
-             ac::TableType>(type))
+             ac::ArrayType>(type))
       return success();
     auto width = analysis.getPackedWidth(type, bindings, site);
     if (failed(width))
@@ -1106,7 +1106,7 @@ FailureOr<std::string> HardwareEmitContext::cppType(Type type,
       return failure();
     return "gfsim::Bits<" + *width + ">";
   }
-  if (auto table = dyn_cast<ac::TableType>(type)) {
+  if (auto table = dyn_cast<ac::ArrayType>(type)) {
     auto element = cppType(table.getElementType(), site);
     if (failed(element))
       return failure();
@@ -1145,7 +1145,7 @@ FailureOr<std::string> HardwareEmitContext::rtlType(Type type,
       return failure();
     return "logic [(" + *width + ")-1:0]";
   }
-  if (auto table = dyn_cast<ac::TableType>(type)) {
+  if (auto table = dyn_cast<ac::ArrayType>(type)) {
     auto width = payloadWidth(table, site, true);
     if (failed(width))
       return failure();
@@ -1468,7 +1468,7 @@ HardwareEmitContext::payloadWidth(Type type, Operation *site, bool rtl,
   if (failed(resolved))
     return failure();
   type = *resolved;
-  if (auto table = dyn_cast<ac::TableType>(type)) {
+  if (auto table = dyn_cast<ac::ArrayType>(type)) {
     auto count = shapeSize(table.getShape(), site, rtl, bindings);
     auto element = payloadWidth(table.getElementType(), site, rtl, bindings);
     if (failed(count) || failed(element))
@@ -1537,11 +1537,11 @@ HardwareEmitContext::cppBoundModuleType(Operation *definition,
   return actuals.empty() ? name : name + "<" + join(actuals, ", ") + ">";
 }
 FailureOr<std::string>
-HardwareEmitContext::viewIndex(ac::TableViewOp view, StringRef ordinal,
+HardwareEmitContext::viewIndex(ac::ArrayViewOp view, StringRef ordinal,
                                bool rtl,
                                const ac::HardwareBindings &bindings) const {
-  auto input = cast<ac::TableType>(view.getInput().getType());
-  auto output = cast<ac::TableType>(view.getResult().getType());
+  auto input = cast<ac::ArrayType>(view.getInput().getType());
+  auto output = cast<ac::ArrayType>(view.getResult().getType());
   auto kind = view.getKind();
   if (kind == "reshape")
     return ordinal.str();

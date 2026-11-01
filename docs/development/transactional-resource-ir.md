@@ -7,7 +7,7 @@ certifies structural closure, not executable transactions.
 
 ## Unlinked constraints
 
-Source body/interface pairs carry `ac.source_contract = 4 : i64`; older source
+Source body/interface pairs carry `ac.source_contract = 5 : i64`; older source
 artifacts require regeneration. This source publication version is separate from
 the transactional resource contract and Routed contract versions.
 

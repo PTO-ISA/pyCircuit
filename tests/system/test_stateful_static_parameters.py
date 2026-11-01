@@ -558,7 +558,7 @@ def test_saved_mixed_instance_anchor_runs_without_sources(tmp_path):
     )
     manifest = json.loads((anchor / "anchor.json").read_text())
     assert any(
-        '"ac.table.read"' in (anchor / row["body"]).read_text()
+        '"ac.array.read"' in (anchor / row["body"]).read_text()
         for row in manifest["definitions"]
     ), "saved bodies must retain the intrinsic checked-read opcode"
     for directory in (source, provider, bench):
@@ -572,7 +572,7 @@ def test_saved_mixed_instance_anchor_runs_without_sources(tmp_path):
         )
     )
     _execute(final, tmp_path)
-    assert '"ac.table.read"' in final.read_text()
+    assert '"ac.array.read"' in final.read_text()
     assert _tree(anchor) == before
 
 
@@ -1058,7 +1058,7 @@ def WriteOnly(enable: ac.u1, index: ac.u2, *, N: int = 4) -> ac.table[N, ac.u8]:
     receipt = json.loads((unit / "unit.json").read_text())
     body = (unit / receipt["files"]["body"]).read_text()
     assert '"ac.state.write"' in body
-    assert '"ac.table.read"' not in body and '"ac.table.get"' not in body
+    assert '"ac.array.read"' not in body and '"ac.array.get"' not in body
     _ok(
         _link(
             [unit],
@@ -1210,12 +1210,12 @@ def _checked_index_dag(depth, sharing):
                 f'%right{level} = "ac.bits.select"(%choose, %right{previous}, %left{previous}) : (!bit, !wide, !wide) -> !wide'
             )
     lines += [
-        f'%result = "ac.table.read"(%values, %left{depth}) : (!table, !wide) -> !byte',
+        f'%result = "ac.array.read"(%values, %left{depth}) : (!table, !wide) -> !byte',
         '"ac.yield"(%result) : (!byte) -> ()',
     ]
     return (
         aliases
-        + "\n!bit = !ac.bits<#n1>\n!byte = !ac.bits<#n8>\n!wide = !ac.bits<#n64>\n!table = !ac.table<[#n5], !byte>\n"
+        + "\n!bit = !ac.bits<#n1>\n!byte = !ac.bits<#n8>\n!wide = !ac.bits<#n64>\n!table = !ac.array<[#n5], !byte>\n"
         + """module {
   "ac.module"() ({
   ^bb0(%values: !table, %choose: !bit):
@@ -1244,7 +1244,7 @@ def test_checked_index_shared_select_dag_has_bounded_verification(
     # A correct shared-DAG proof is tiny. TimeoutExpired is a failing outcome,
     # never evidence of rejection or successful bounded verification.
     _ok(_run([optimizer, str(source), "-o", str(output)], timeout=5))
-    assert '"ac.table.read"' in output.read_text()
+    assert '"ac.array.read"' in output.read_text()
 
 
 def test_unknown_direct_table_read_preserves_full_selector(tmp_path):
@@ -1371,10 +1371,10 @@ def test_resigned_checked_read_anchor_rejects_malformed_opcode_without_sources(
     definition = next(
         row
         for row in manifest["definitions"]
-        if '"ac.table.read"' in (anchor / row["body"]).read_text()
+        if '"ac.array.read"' in (anchor / row["body"]).read_text()
     )
     body = anchor / definition["body"]
-    body.write_text(body.read_text().replace('"ac.table.read"', '"ac.table.get"', 1))
+    body.write_text(body.read_text().replace('"ac.array.read"', '"ac.array.get"', 1))
     definition["body_sha256"] = hashlib.sha256(body.read_bytes()).hexdigest()
     old_variant = definition["variant_id"]
     new_variant = hashlib.sha256(

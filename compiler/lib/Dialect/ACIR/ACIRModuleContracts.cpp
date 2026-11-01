@@ -176,7 +176,7 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
         layout.inputValidity, static_cast<int64_t>(layout.sourceInputCount + index));
     if (!value || !value.getType().isSignlessInteger(64) ||
         value.getInt() != (available ? 1 : 0) ||
-        !isa<BitsType, EnumType, StructType, TableType>(type))
+        !isa<BitsType, EnumType, StructType, ArrayType>(type))
       return error() << "ac.internal_ports root inputs require finite payloads "
                         "and i64 zero defaults, except declared availability "
                         "companions which require one";
@@ -295,8 +295,8 @@ LogicalResult verifySourceTemplateType(
     if (auto bits = dyn_cast<BitsType>(original)) {
       if (failed(BitsType::verify(error, bits.getWidth())) ||
           failed(expression(bits.getWidth(), depth + 1))) return failure();
-    } else if (auto table = dyn_cast<TableType>(original)) {
-      if (failed(TableType::verify(error, table.getShape(), table.getElementType()))) return failure();
+    } else if (auto table = dyn_cast<ArrayType>(original)) {
+      if (failed(ArrayType::verify(error, table.getShape(), table.getElementType()))) return failure();
       for (Attribute raw : table.getShape())
         if (failed(expression(cast<StaticExprAttr>(raw), depth + 1))) return failure();
     }
@@ -308,7 +308,7 @@ LogicalResult verifySourceTemplateType(
         closed = false;
         return success();
       }
-    } else if (auto table = dyn_cast<TableType>(value)) {
+    } else if (auto table = dyn_cast<ArrayType>(value)) {
       // ResolveType checks closed axes even when another axis is symbolic.
       if (!analysis.isStaticEvaluable(table.getShape(), bindings)) closed = false;
       if (failed(check(table.getElementType(), depth + 1))) return failure();
@@ -366,7 +366,7 @@ LogicalResult verifySourceCallHardwareConstraint(
                      << " nominal constraint requires "
                         "a struct or enum";
   } else if (source == "table") {
-    auto table = dyn_cast<TableType>(physical);
+    auto table = dyn_cast<ArrayType>(physical);
     if (!table || table.getShape().size() != 1 ||
         !isa<BitsType, StructType, EnumType>(table.getElementType()))
       return error() << description
@@ -424,7 +424,7 @@ LogicalResult verifyNominalStructField(
   Attribute constraint = field ? field.get("source_constraint") : Attribute();
   if (!field || field.size() != (constraint ? 3 : 2) || !name ||
       name.getValue().empty() || !type ||
-      !isa<BitsType, StructType, EnumType, TableType>(type.getValue()))
+      !isa<BitsType, StructType, EnumType, ArrayType>(type.getValue()))
     return diagnosticOperation->emitOpError()
            << "fields require unique names and finite bits/struct/enum/table "
               "types, with optional Boolean source_constraint";

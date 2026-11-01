@@ -497,7 +497,7 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
     This source operation must be materialized and cannot remain in final IR.
   }];
   let arguments = (ins ACIR_BitsType:$condition, DictionaryAttr:$occurrence);
-  let results = (outs Variadic<AnyTypeOf<[ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TableType]>>:$results);
+  let results = (outs Variadic<AnyTypeOf<[ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_ArrayType]>>:$results);
   let regions = (region AnyRegion:$then_region, AnyRegion:$else_region);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
@@ -796,37 +796,60 @@ def ACIR_QueueOp : ACIR_Op<"queue"> {
   let hasVerifier = 1;
 }
 
+def ACIR_TableAllocOp : ACIR_Op<"table.alloc"> {
+  let summary = "Allocate independently owned fixed Table members";
+  let arguments = (ins Variadic<ACIR_HardwareType>:$initial, StrAttr:$instance_name,
+      DefaultValuedAttr<BoolAttr, "false">:$initial_image);
+  let results = (outs ACIR_TableType:$result);
+  let assemblyFormat = "$instance_name `(` $initial `)` attr-dict `:` functional-type($initial, $result)";
+  let hasVerifier = 1;
+}
 def ACIR_TableCreateOp : ACIR_Op<"table.create", [Pure]> {
+  let summary = "Group existing component references without allocation";
+  let arguments = (ins Variadic<AnyType>:$members);
+  let results = (outs ACIR_TableType:$result);
+  let assemblyFormat = "$members attr-dict `:` functional-type($members, $result)";
+  let hasVerifier = 1;
+}
+def ACIR_TableSelectOp : ACIR_Op<"table.select", [Pure]> {
+  let arguments = (ins ACIR_TableType:$table,
+      AnyTypeOf<[ACIR_BitsType, ACIR_InferType]>:$index);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$table `[` $index `]` attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
+}
+
+def ACIR_ArrayCreateOp : ACIR_Op<"array.create", [Pure]> {
   let arguments = (ins Variadic<ACIR_ScalarHardwareType>:$inputs);
-  let results = (outs ACIR_TableType:$result);
+  let results = (outs ACIR_ArrayType:$result);
   let hasVerifier = 1;
 }
-def ACIR_TableSplatOp : ACIR_Op<"table.splat", [Pure]> {
+def ACIR_ArraySplatOp : ACIR_Op<"array.splat", [Pure]> {
   let arguments = (ins ACIR_HardwareType:$input, ArrayAttr:$shape);
-  let results = (outs ACIR_TableType:$result);
+  let results = (outs ACIR_ArrayType:$result);
   let hasVerifier = 1;
 }
-def ACIR_TableMapOp : ACIR_Op<"table.map", [Pure, IsolatedFromAbove,
+def ACIR_ArrayMapOp : ACIR_Op<"array.map", [Pure, IsolatedFromAbove,
     SingleBlock, AttrSizedOperandSegments]> {
-  let arguments = (ins Variadic<ACIR_TableType>:$tables,
+  let arguments = (ins Variadic<ACIR_ArrayType>:$tables,
       Variadic<ACIR_ScalarHardwareType>:$captures, ArrayAttr:$shape);
-  let results = (outs Variadic<ACIR_TableType>:$results);
+  let results = (outs Variadic<ACIR_ArrayType>:$results);
   let regions = (region AnyRegion:$body);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }
-def ACIR_TableViewOp : ACIR_Op<"table.view", [Pure]> {
-  let arguments = (ins ACIR_TableType:$input, StrAttr:$kind,
+def ACIR_ArrayViewOp : ACIR_Op<"array.view", [Pure]> {
+  let arguments = (ins ACIR_ArrayType:$input, StrAttr:$kind,
       DictionaryAttr:$parameters);
-  let results = (outs ACIR_TableType:$result);
+  let results = (outs ACIR_ArrayType:$result);
   let hasVerifier = 1;
 }
-def ACIR_TableIndexOp : ACIR_Op<"table.index", [Pure]> {
+def ACIR_ArrayIndexOp : ACIR_Op<"array.index", [Pure]> {
   let arguments = (ins Variadic<ACIR_BitsType>:$coords, ArrayAttr:$shape);
   let results = (outs ACIR_BitsType:$result);
   let hasVerifier = 1;
 }
-def ACIR_TableReadOp : ACIR_Op<"table.read", [Pure]> {
+def ACIR_ArrayReadOp : ACIR_Op<"array.read", [Pure]> {
   let summary = "Read one statically checked source Table element";
   let description = [{
     The index's complete admitted unsigned range must fit the bound rank-one
@@ -834,32 +857,32 @@ def ACIR_TableReadOp : ACIR_Op<"table.read", [Pure]> {
     Static admission does not grant knownness: payload selection retains the
     same full-width four-state behavior as table.get's payload result.
   }];
-  let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
+  let arguments = (ins ACIR_ArrayType:$input, ACIR_BitsType:$index);
   let results = (outs ACIR_ScalarHardwareType:$value);
   let hasVerifier = 1;
 }
-def ACIR_TableGetOp : ACIR_Op<"table.get", [Pure]> {
-  let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
+def ACIR_ArrayGetOp : ACIR_Op<"array.get", [Pure]> {
+  let arguments = (ins ACIR_ArrayType:$input, ACIR_BitsType:$index);
   let results = (outs ACIR_ScalarHardwareType:$value, ACIR_BitsType:$in_range);
   let hasVerifier = 1;
 }
-def ACIR_TableMatchOp : ACIR_Op<"table.match", [Pure, IsolatedFromAbove,
+def ACIR_ArrayMatchOp : ACIR_Op<"array.match", [Pure, IsolatedFromAbove,
     SingleBlock]> {
-  let arguments = (ins ACIR_TableType:$input,
+  let arguments = (ins ACIR_ArrayType:$input,
       Variadic<ACIR_ScalarHardwareType>:$captures);
   let results = (outs ACIR_BitsType:$mask);
   let regions = (region AnyRegion:$body);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }
-def ACIR_TableChooseOp : ACIR_Op<"table.choose", [Pure]> {
-  let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$mask,
+def ACIR_ArrayChooseOp : ACIR_Op<"array.choose", [Pure]> {
+  let arguments = (ins ACIR_ArrayType:$input, ACIR_BitsType:$mask,
       I64Attr:$count, StrAttr:$policy, StrAttr:$order);
   let results = (outs Variadic<ACIR_BitsType>:$results);
   let hasVerifier = 1;
 }
-def ACIR_TableFoldOp : ACIR_Op<"table.fold", [Pure]> {
-  let arguments = (ins ACIR_TableType:$input, StrAttr:$kind);
+def ACIR_ArrayFoldOp : ACIR_Op<"array.fold", [Pure]> {
+  let arguments = (ins ACIR_ArrayType:$input, StrAttr:$kind);
   let results = (outs ACIR_BitsType:$result);
   let hasVerifier = 1;
 }

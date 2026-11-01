@@ -3,9 +3,9 @@
 #w2 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = {site = {definition = @execution.collections.Top, ast_path = [{kind = "index", value = 0 : i64}]}, expansion = []}, location = {path = "collections.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w3 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<3>}, origin = {site = {definition = @execution.collections.Top, ast_path = [{kind = "index", value = 0 : i64}]}, expansion = []}, location = {path = "collections.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
-!controls = !ac.table<[#w2, #w3], !b1>
+!controls = !ac.array<[#w2, #w3], !b1>
 !result = !ac.struct<"execution.collections.Flag">
-!results = !ac.table<[#w2, #w3], !result>
+!results = !ac.array<[#w2, #w3], !result>
 module {
   ac.struct "execution.collections.Flag" fields [{name = "value", type = !b1}] {ac.source_owner = {package = "execution", path = "collections.py"}}
   "ac.module"() ({

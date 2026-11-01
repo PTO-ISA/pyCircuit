@@ -28,10 +28,10 @@ const char *preamble = R"mlir(
 #w8 = #ac.static_expr<{kind = "literal", location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @unit.Declared, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<8>}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!t2 = !ac.table<[#w2], !b8>
-!t3 = !ac.table<[#w3], !b8>
-!pair2 = !ac.table<[#w2], !ac.struct<"types.Pair">>
-!pair3 = !ac.table<[#w3], !ac.struct<"types.Pair">>
+!t2 = !ac.array<[#w2], !b8>
+!t3 = !ac.array<[#w3], !b8>
+!pair2 = !ac.array<[#w2], !ac.struct<"types.Pair">>
+!pair3 = !ac.array<[#w3], !ac.struct<"types.Pair">>
 )mlir";
 const char *records = R"mlir(
 ac.struct "types.Pair" fields [{name = "left", type = !b8}, {name = "right", type = !b1}]
@@ -224,9 +224,9 @@ TEST_F(TableDependencySummaryTest,
        OpaqueFormalIdentityRemainsStrictAfterTablePeeling) {
   for (bool matching : {true, false}) {
     auto unit = parse(declaration(
-        matching ? "(!ac.table<[#w3], !ac.type_param<@unit.Declared, \"T\">>) "
+        matching ? "(!ac.array<[#w3], !ac.type_param<@unit.Declared, \"T\">>) "
                    "-> !ac.type_param<@unit.Declared, \"T\">"
-                 : "(!ac.table<[#w3], !ac.type_param<@unit.Declared, \"T\">>) "
+                 : "(!ac.array<[#w3], !ac.type_param<@unit.Declared, \"T\">>) "
                    "-> !ac.type_param<@unit.Declared, \"U\">",
         "[\"T\", \"U\"]"));
     ASSERT_TRUE(unit);
@@ -268,7 +268,7 @@ TEST_F(TableDependencySummaryTest,
   auto unit = parse(R"mlir(
     "ac.module"() ({
     ^bb0(%input: !t3):
-      %out = "ac.table.view"(%input) {kind = "slice", parameters = {offsets = [#w0], sizes = [#w2], strides = [#w1]}} : (!t3) -> !t2
+      %out = "ac.array.view"(%input) {kind = "slice", parameters = {offsets = [#w0], sizes = [#w2], strides = [#w1]}} : (!t3) -> !t2
       "ac.yield"(%out) : (!t2) -> ()
     }) {sym_name = "unit.View", source_owner = {package = "", path = "unit.py"}, parameters = [], type_parameters = [], function_type = (!t3) -> !t2, input_names = ["input"], output_names = ["out"]} : () -> ()
   )mlir");
@@ -288,7 +288,7 @@ TEST_F(TableDependencySummaryTest,
   auto unit = parse(R"mlir(
     "ac.module"() ({
     ^bb0(%input: !pair3, %index: !b8):
-      %picked, %valid = "ac.table.get"(%input, %index) : (!pair3, !b8) -> (!ac.struct<"types.Pair">, !b1)
+      %picked, %valid = "ac.array.get"(%input, %index) : (!pair3, !b8) -> (!ac.struct<"types.Pair">, !b1)
       %left = ac.struct.get %picked["left"] : (!ac.struct<"types.Pair">) -> !b8
       "ac.yield"(%left, %valid) : (!b8, !b1) -> ()
     }) {sym_name = "unit.Project", source_owner = {package = "", path = "unit.py"}, parameters = [], type_parameters = [], function_type = (!pair3, !b8) -> (!b8, !b1), input_names = ["input", "index"], output_names = ["left", "valid"]} : () -> ()
@@ -319,7 +319,7 @@ TEST_F(TableDependencySummaryTest,
   auto malformed = parse(R"mlir(
     "ac.module"() ({
     ^bb0(%input: !t3):
-      %out = "ac.table.view"(%input) {kind = "reshape", parameters = {shape = [#w2]}} : (!t3) -> !t2
+      %out = "ac.array.view"(%input) {kind = "reshape", parameters = {shape = [#w2]}} : (!t3) -> !t2
       "ac.yield"(%out) : (!t2) -> ()
     }) {sym_name = "unit.BadView", source_owner = {package = "", path = "unit.py"}, parameters = [], type_parameters = [], function_type = (!t3) -> !t2, input_names = ["input"], output_names = ["out"]} : () -> ()
   )mlir");
@@ -331,9 +331,9 @@ TEST_F(TableDependencySummaryTest,
   auto unit = parse(R"mlir(
     "ac.enum"() {sym_name = "types.Mode", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<0>}, {name = "RUN", code = #ac.math_int<5>}]} : () -> ()
     ac.struct "types.Cell" fields [{name = "header", type = !b1}, {name = "lanes", type = !t3}]
-    ac.struct "types.Envelope" fields [{name = "prefix", type = !b8}, {name = "cells", type = !ac.table<[#w3], !ac.struct<"types.Cell">>}, {name = "suffix", type = !b1}]
+    ac.struct "types.Envelope" fields [{name = "prefix", type = !b8}, {name = "cells", type = !ac.array<[#w3], !ac.struct<"types.Cell">>}, {name = "suffix", type = !b1}]
     ac.struct "types.Shared" fields [{name = "first", type = !ac.struct<"types.Cell">}, {name = "second", type = !ac.struct<"types.Cell">}]
-    ac.struct "types.Modes" fields [{name = "modes", type = !ac.table<[#w3], !ac.enum<"types.Mode">>}]
+    ac.struct "types.Modes" fields [{name = "modes", type = !ac.array<[#w3], !ac.enum<"types.Mode">>}]
   )mlir");
   ASSERT_TRUE(unit);
   ASSERT_TRUE(succeeded(mlir::verify(*unit)));
@@ -350,7 +350,7 @@ TEST_F(TableDependencySummaryTest,
     EXPECT_EQ((*leaves)[i].low, lows[i]);
     EXPECT_EQ((*leaves)[i].width, widths[i]);
   }
-  EXPECT_TRUE(isa<ac::TableType>((*leaves)[1].type));
+  EXPECT_TRUE(isa<ac::ArrayType>((*leaves)[1].type));
   auto width = analysis.getPackedWidth(envelope, {}, *unit);
   ASSERT_TRUE(succeeded(width));
   EXPECT_EQ(*width, 84u); // 8 + 3 * (1 + 3 * 8) + 1, crossing 64 bits.
@@ -368,8 +368,8 @@ TEST_F(TableDependencySummaryTest,
        AlternatingStructTablePathsRetainExactDependencyLeaves) {
   auto unit = parse(R"mlir(
     ac.struct "types.Cell" fields [{name = "header", type = !b1}, {name = "lanes", type = !t3}]
-    ac.struct "types.Envelope" fields [{name = "prefix", type = !b8}, {name = "cells", type = !ac.table<[#w3], !ac.struct<"types.Cell">>}, {name = "suffix", type = !b1}]
-  )mlir" + declaration("(!ac.table<[#w2], !ac.struct<\"types.Envelope\">>) -> !ac.struct<\"types.Envelope\">"));
+    ac.struct "types.Envelope" fields [{name = "prefix", type = !b8}, {name = "cells", type = !ac.array<[#w3], !ac.struct<"types.Cell">>}, {name = "suffix", type = !b1}]
+  )mlir" + declaration("(!ac.array<[#w2], !ac.struct<\"types.Envelope\">>) -> !ac.struct<\"types.Envelope\">"));
   ASSERT_TRUE(unit);
   setSummary(imported(*unit), {{{0, {}}, {{0, {}}}}});
   ASSERT_TRUE(succeeded(mlir::verify(*unit)));
@@ -393,9 +393,9 @@ TEST_F(TableDependencySummaryTest,
 TEST_F(TableDependencySummaryTest,
        CyclesThroughTablesAndUnresolvedNominalsFailLayout) {
   for (StringRef fields : {
-           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.table<[#w3], !ac.struct<\"types.Cycle\">>}]",
-           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.table<[#w3], !ac.struct<\"types.Child\">>}]\nac.struct \"types.Child\" fields [{name = \"parent\", type = !ac.struct<\"types.Cycle\">}]",
-           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.table<[#w3], !ac.struct<\"types.Missing\">>}]"}) {
+           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.array<[#w3], !ac.struct<\"types.Cycle\">>}]",
+           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.array<[#w3], !ac.struct<\"types.Child\">>}]\nac.struct \"types.Child\" fields [{name = \"parent\", type = !ac.struct<\"types.Cycle\">}]",
+           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.array<[#w3], !ac.struct<\"types.Missing\">>}]"}) {
     SCOPED_TRACE(fields.str());
     auto unit = parse(fields, false);
     ASSERT_TRUE(unit);
@@ -425,12 +425,12 @@ TEST_F(TableDependencySummaryTest,
   auto byte = ac::BitsType::get(&context, integer("8"));
   auto huge = ac::BitsType::get(&context, integer("18446744073709551615"));
   const std::vector<std::vector<Type>> cases{
-      {ac::TableType::get(&context, b.getArrayAttr({integer("0")}), byte)},
-      {ac::TableType::get(&context, b.getArrayAttr({integer("-1")}), byte)},
-      {ac::TableType::get(&context,
+      {ac::ArrayType::get(&context, b.getArrayAttr({integer("0")}), byte)},
+      {ac::ArrayType::get(&context, b.getArrayAttr({integer("-1")}), byte)},
+      {ac::ArrayType::get(&context,
                          b.getArrayAttr({integer("9223372036854775807"),
                                          integer("3")}), byte)},
-      {ac::TableType::get(&context, b.getArrayAttr({integer("3")}), huge)},
+      {ac::ArrayType::get(&context, b.getArrayAttr({integer("3")}), huge)},
       {huge, byte}};
   for (auto [i, types] : llvm::enumerate(cases)) {
     SCOPED_TRACE(i);

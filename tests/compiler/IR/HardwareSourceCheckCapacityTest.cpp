@@ -210,7 +210,7 @@ protected:
     auto shape = b.getArrayAttr(dimensions);
     return cast<ac::CollectionOp>(op(
         ac::CollectionOp::getOperationName(), {},
-        {ac::TableType::get(&context, shape, output())},
+        {ac::ArrayType::get(&context, shape, output())},
         {f("callee", FlatSymbolRefAttr::get(&context, child.getSymName())),
          f("instance_name", b.getStringAttr("family" + std::to_string(index))),
          f("parameters", b.getArrayAttr({})),

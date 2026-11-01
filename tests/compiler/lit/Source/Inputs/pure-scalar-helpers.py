@@ -271,7 +271,7 @@ receipts = [execute(**case) for case in cases]
 count_receipt = next(row for row in receipts if row["name"] == "pure_count")
 count_body = payload(Path(count_receipt["output"]) / "unit", "body")
 folds = [
-    line for line in count_body.read_text().splitlines() if '"ac.table.fold"' in line
+    line for line in count_body.read_text().splitlines() if '"ac.array.fold"' in line
 ]
 expected_sites = {(node.lineno, node.col_offset + 1) for node in count_sites}
 observed_sites = []
@@ -315,7 +315,7 @@ map_stage = next(
 map_lines = [
     line
     for line in Path(map_stage["source_import"]).read_text().splitlines()
-    if '"ac.table.map"' in line
+    if '"ac.array.map"' in line
 ]
 observed_map_sites = []
 for line in map_lines:

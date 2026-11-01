@@ -185,7 +185,7 @@ protected:
     ownReset = instance(root, localReset, 23, "own_reset", {clk, rst});
     b.setInsertionPoint(root.getBody().front().getTerminator());
     auto shape = b.getArrayAttr({literal(2), literal(3)});
-    auto table = ac::TableType::get(&context, shape, resultType());
+    auto table = ac::ArrayType::get(&context, shape, resultType());
     lanes = cast<ac::CollectionOp>(
         op(ac::CollectionOp::getOperationName(), {}, {table},
            {f("callee", FlatSymbolRefAttr::get(&context, leaf.getSymName())),
@@ -301,8 +301,8 @@ protected:
     auto shape = b.getArrayAttr({literal(2), literal(3)});
     SmallVector<Value> laneInputs;
     for (Value input : root.getBody().front().getArguments())
-      laneInputs.push_back(op(ac::TableSplatOp::getOperationName(), {input},
-                              {ac::TableType::get(&context, shape, bits(1))},
+      laneInputs.push_back(op(ac::ArraySplatOp::getOperationName(), {input},
+                              {ac::ArrayType::get(&context, shape, bits(1))},
                               {f("shape", shape)})
                                ->getResult(0));
     lanes = cast<ac::CollectionOp>(
@@ -374,8 +374,8 @@ protected:
     auto shape = lanes.getShape();
     SmallVector<Value> appended;
     for (unsigned i = 0; i < 2; ++i)
-      appended.push_back(op(ac::TableSplatOp::getOperationName(), {zero},
-                            {ac::TableType::get(&context, shape, bits(1))},
+      appended.push_back(op(ac::ArraySplatOp::getOperationName(), {zero},
+                            {ac::ArrayType::get(&context, shape, bits(1))},
                             {f("shape", shape)})
                              ->getResult(0));
     lanes->insertOperands(lanes.getNumOperands(), appended);

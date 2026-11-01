@@ -24,6 +24,14 @@
       "system_scope": "Nested Value, Action and ActionValue Methods with old-Q reads, by-value parameters and whole-Rule admission; independent C++ workers 1/2 and RTL traces."
     },
     {
+      "name": "table_dispatch",
+      "folder": "examples/table_dispatch",
+      "source": "table_dispatch.py",
+      "system": "TableDispatch",
+      "system_cycles": 9,
+      "system_scope": "Four independent component Table accumulators, dynamic Method selection and computed results with old-Q observations; C++ workers 1/2 and RTL traces."
+    },
+    {
       "name": "sibling_method_calls",
       "folder": "examples/sibling_method_calls",
       "source": "Top.py",

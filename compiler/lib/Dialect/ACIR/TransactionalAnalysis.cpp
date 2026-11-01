@@ -20,8 +20,15 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 struct Binding {
-  enum Kind { Payload, Resource, Instance } kind;
+  enum Kind { Payload, Resource, Instance, Table, Selected } kind;
   unsigned id;
+};
+struct TableBinding {
+  SmallVector<Binding> members;
+};
+struct SelectedBinding {
+  unsigned table, index;
+  SmallVector<unsigned> selectors;
 };
 using Environment = llvm::DenseMap<Value, Binding>;
 using Predicate = std::pair<std::string, bool>;
@@ -141,6 +148,10 @@ private:
   HardwareAnalysis hardware;
   HardwareBindings bindings;
   std::vector<Environment> environments;
+  std::vector<TableBinding> tables;
+  std::vector<SelectedBinding> selectedReferences;
+  SmallVector<std::pair<Operation *, unsigned>> selectedIndices;
+  std::map<std::pair<unsigned, unsigned>, SmallVector<unsigned>> selectorCache;
   unsigned instance = 0;
   SmallVector<TransactionalInvocationPlan> invocation;
   unsigned methodInvocation = TransactionalNoID;
@@ -474,6 +485,127 @@ private:
     }
     return success();
   }
+  // Decode is shared by selections of the same analysis SSA value. The
+  // generated pure operations are owned by the immutable plan, like omitted
+  // initializers; they do not alter the saved Linked source package.
+  FailureOr<SmallVector<unsigned>> selectors(TableSelectOp select,
+                                             unsigned index, unsigned count,
+                                             TransactionalSequence &sequence,
+                                             unsigned rule) {
+    auto key = std::make_pair(index, count);
+    if (auto found = selectorCache.find(key); found != selectorCache.end())
+      return found->second;
+    auto width = p.getPayloadWidth(select.getIndex().getType());
+    if (failed(width))
+      return failure();
+    if (!p.initializers_)
+      p.initializers_ = mlir::ModuleOp::create(select.getLoc());
+    OpBuilder builder(p.package_.getContext());
+    builder.setInsertionPointToEnd(p.initializers_->getBody());
+    auto create = [&](StringRef name, ValueRange operands, Type type,
+                      NamedAttribute attr) {
+      OperationState state(select.getLoc(), name);
+      state.addOperands(operands);
+      state.addTypes(type);
+      state.addAttribute(attr.getName(), attr.getValue());
+      return builder.create(state);
+    };
+    SmallVector<unsigned> decoded;
+    Environment local;
+    // An analysis-local formal keeps the owned expression graph isolated from
+    // the source IR. Step operand IDs bind it to the actual index exactly once.
+    auto *formal = create(
+        BitsConstant4Op::getOperationName(), {}, select.getIndex().getType(),
+        builder.getNamedAttr("pattern",
+                             builder.getStringAttr(std::string(*width, '0'))));
+    local[formal->getResult(0)] = {Binding::Payload, index};
+    for (unsigned member = 0; member < count; ++member) {
+      if (failed(charge(*width + 32, select)))
+        return failure();
+      if (*width < 64 && (uint64_t(member) >> *width)) {
+        // A narrower index is legal, but unreachable ordinals must not wrap
+        // onto another member's selector.
+        auto *never = create(
+            BitsConstant4Op::getOperationName(), {},
+            detail::transactionalBits(builder, 1, p.getTop().getSymName()),
+            builder.getNamedAttr("pattern", builder.getStringAttr("0")));
+        if (failed(operation(never, local, sequence, rule, true)))
+          return failure();
+        decoded.push_back(local[never->getResult(0)].id);
+        continue;
+      }
+      std::string pattern(*width, '0');
+      for (unsigned bit = 0; bit < *width && bit < 64; ++bit)
+        if ((uint64_t(member) >> bit) & 1)
+          pattern[*width - bit - 1] = '1';
+      auto *literal = create(BitsConstant4Op::getOperationName(), {},
+                             select.getIndex().getType(),
+                             builder.getNamedAttr("pattern",
+                                                  builder.getStringAttr(pattern)));
+      if (failed(operation(literal, local, sequence, rule, true)))
+        return failure();
+      auto *compare = create(
+          BitsCompareOp::getOperationName(),
+          ValueRange{formal->getResult(0), literal->getResult(0)},
+          detail::transactionalBits(builder, 1, p.getTop().getSymName()),
+          builder.getNamedAttr("predicate", builder.getStringAttr("eq")));
+      if (failed(operation(compare, local, sequence, rule, true)))
+        return failure();
+      decoded.push_back(local[compare->getResult(0)].id);
+    }
+    selectorCache[key] = decoded;
+    return decoded;
+  }
+
+  LogicalResult selectedCall(Operation *op, unsigned selected,
+                             Environment &env, TransactionalSequence &sequence,
+                             unsigned rule, bool pure) {
+    // Copy the binding: recursive Method bodies can append other selections.
+    auto reference = selectedReferences[selected];
+    auto members = tables[reference.table].members;
+    SmallVector<SmallVector<unsigned>> results(op->getNumResults());
+    for (auto [ordinal, member] : llvm::enumerate(members)) {
+      Environment local = env;
+      local[op->getOperand(0)] = member;
+      path.push_back({reference.selectors[ordinal], true});
+      auto restore = llvm::scope_exit([&] { path.pop_back(); });
+      if (failed(operation(op, local, sequence, rule, pure)))
+        return failure();
+      for (auto [resultIndex, value] : llvm::enumerate(op->getResults())) {
+        auto valueID = payload(value, local, op);
+        if (failed(valueID))
+          return failure();
+        results[resultIndex].push_back(*valueID);
+      }
+    }
+    // The range proof makes the last member a complete default. Merge carries
+    // selected-arm availability through exactly the existing branch machinery.
+    for (auto [ordinal, result] : llvm::enumerate(op->getResults())) {
+      unsigned value = results[ordinal].back();
+      for (unsigned member = members.size() - 1; member-- > 0;) {
+        auto owned = std::make_unique<TransactionalStep>();
+        auto &step = *owned;
+        step.kind = TransactionalStepKind::Merge;
+        step.operation = op;
+        step.id = nextStep++;
+        step.instance = instance;
+        step.rule = rule;
+        step.methodInvocation = methodInvocation;
+        step.invocation = invocation;
+        step.path = path;
+        step.operands = {reference.selectors[member], results[ordinal][member],
+                         value};
+        value = p.values_.size();
+        p.values_.push_back({result.getType(), instance, rule});
+        step.results.push_back(value);
+        producers[value] = &step;
+        sequence.steps.push_back(std::move(owned));
+      }
+      env[result] = {Binding::Payload, value};
+    }
+    return success();
+  }
+
   LogicalResult operation(Operation *op, Environment &env,
                           TransactionalSequence &sequence, unsigned rule,
                           bool pure) {
@@ -547,6 +679,52 @@ private:
         sequence.steps.push_back(std::move(owned));
       }
       return success();
+    }
+    if (auto table = dyn_cast<TableCreateOp>(op)) {
+      TableBinding binding;
+      for (Value member : table.getMembers()) {
+        auto item = lookup(member, env, table);
+        if (failed(item) || (item->kind != Binding::Resource &&
+                            item->kind != Binding::Instance))
+          return table.emitError("Table members require actual component bindings");
+        binding.members.push_back(*item);
+      }
+      unsigned id = tables.size();
+      tables.push_back(std::move(binding));
+      env[table.getResult()] = {Binding::Table, id};
+      return success();
+    }
+    if (auto select = dyn_cast<TableSelectOp>(op)) {
+      auto table = lookup(select.getTable(), env, select);
+      auto index = payload(select.getIndex(), env, select);
+      if (failed(table) || failed(index) || table->kind != Binding::Table)
+        return select.emitError("Table selection requires fixed member bindings");
+      auto type = cast<TableType>(select.getTable().getType());
+      Builder builder(p.package_.getContext());
+      auto extent = ArrayType::get(builder.getContext(),
+                                   builder.getArrayAttr({type.getCapacity()}),
+                                   select.getIndex().getType());
+      HardwareBindings actual;
+      actual.owner = p.instances_[instance].definition;
+      if (failed(hardware.verifySourceIndex(select.getIndex(), extent, actual,
+                                            select)))
+        return failure();
+      auto decoded = selectors(select, *index, tables[table->id].members.size(),
+                                sequence, rule);
+      if (failed(decoded))
+        return failure();
+      unsigned id = selectedReferences.size();
+      selectedReferences.push_back({table->id, *index, std::move(*decoded)});
+      selectedIndices.push_back({select, *index});
+      env[select.getResult()] = {Binding::Selected, id};
+      return success();
+    }
+    if (isa<TransactionMethodCallOp, StateWritePartialOp>(op)) {
+      auto receiver = lookup(op->getOperand(0), env, op);
+      if (failed(receiver))
+        return failure();
+      if (receiver->kind == Binding::Selected)
+        return selectedCall(op, receiver->id, env, sequence, rule, pure);
     }
     if (auto reference = dyn_cast<InstanceRefOp>(op)) {
       unsigned target = instance;
@@ -1130,6 +1308,9 @@ private:
             constrain(step->resource, values[step->operands.front()],
                       step->updateTarget ? step->updateTarget->low : 0);
     } while (changed);
+    for (auto [site, value] : selectedIndices)
+      if (!allKnown(values[value]))
+        return site->emitError("Table selection index is not proven free of X/Z");
     for (auto [site, value] : combControls)
       if (!allKnown(values[value]))
         return site->emitError(
@@ -1265,6 +1446,7 @@ private:
     Predicate predicate;
     unsigned resource = TransactionalNoID;
     std::string constant;
+    unsigned selector = TransactionalNoID;
   };
   LogicalResult facts(unsigned id, bool positive, SmallVectorImpl<Fact> &out,
                       unsigned depth = 0) {
@@ -1291,6 +1473,11 @@ private:
             auto constant = predicate(step->operands[1 - side]);
             if (failed(constant))
               return failure();
+            if (constant->second &&
+                StringRef(constant->first).starts_with("constant_")) {
+              fact.selector = step->operands[side];
+              fact.constant = constant->first;
+            }
             if (read && read->kind == TransactionalStepKind::StateRead &&
                 constant->second &&
                 StringRef(constant->first).starts_with("constant_")) {
@@ -1316,6 +1503,8 @@ private:
     return (a.predicate.first == b.predicate.first &&
             a.predicate.second != b.predicate.second) ||
            (a.resource != TransactionalNoID && a.resource == b.resource &&
+            a.constant != b.constant) ||
+           (a.selector != TransactionalNoID && a.selector == b.selector &&
             a.constant != b.constant);
   }
   LogicalResult conflicts() {

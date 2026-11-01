@@ -107,14 +107,14 @@ def ACIR_ScalarHardwareType : AnyTypeOf<[
     ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TypeParamType],
     "bits, nominal enum, packed struct, or declared hardware type parameter">;
 
-def ACIR_TableType : ACIR_Type<"Table", "table"> {
+def ACIR_ArrayType : ACIR_Type<"Array", "array"> {
   let summary = "Static row-major table of four-state hardware payloads";
   let parameters = (ins "::mlir::ArrayAttr":$shape, "::mlir::Type":$elementType);
   let assemblyFormat = "`<` $shape `,` $elementType `>`";
   let builders = [TypeBuilder<(ins "::mlir::ArrayAttr":$shape,
       "::mlir::Type":$elementType), [{
     ::llvm::SmallVector<::mlir::Attribute> dimensions(shape.begin(), shape.end());
-    while (auto nested = ::mlir::dyn_cast<TableType>(elementType)) {
+    while (auto nested = ::mlir::dyn_cast<ArrayType>(elementType)) {
       for (auto dimension : nested.getShape()) dimensions.push_back(dimension);
       elementType = nested.getElementType();
     }
@@ -125,13 +125,21 @@ def ACIR_TableType : ACIR_Type<"Table", "table"> {
 }
 
 def ACIR_HardwareType : AnyTypeOf<[
-    ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TypeParamType, ACIR_TableType],
+    ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TypeParamType, ACIR_ArrayType],
     "scalar hardware payload or static table">;
 
 // Only structural boundary operations accept references. Payload operations do not.
+def ACIR_TableType : ACIR_Type<"Table", "table"> {
+  let summary = "Fixed capacity container of component references";
+  let parameters = (ins "::acir::ac::StaticExprAttr":$capacity,
+                         "::mlir::Type":$elementType);
+  let assemblyFormat = "`<` $capacity `,` $elementType `>`";
+  let genVerifyDecl = 1;
+}
+
 def ACIR_StructuralValueType : AnyTypeOf<[
     ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TypeParamType,
-    ACIR_TableType, ACIR_PrimitiveType, ACIR_StateType, ACIR_QueueType,
-    ACIR_ModuleRefType], "hardware payload, resource or module reference">;
+    ACIR_ArrayType, ACIR_PrimitiveType, ACIR_StateType, ACIR_QueueType,
+    ACIR_ModuleRefType, ACIR_TableType], "hardware payload, resource or module reference">;
 
 #endif // ACIR_DIALECT_ACIR_ACIRTYPES_TD

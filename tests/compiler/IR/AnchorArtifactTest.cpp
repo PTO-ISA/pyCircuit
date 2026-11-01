@@ -221,7 +221,7 @@ std::string collectionSource(uint64_t lanes) {
 #extent = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<)ir" +
          std::to_string(lanes) + R"ir(>}, origin = #root, location = #span}>
 !b7 = !ac.bits<#w7>
-!lanes = !ac.table<[#extent], !b7>
+!lanes = !ac.array<[#extent], !b7>
 module attributes {ac.stage = "source", ac.unit_kind = "implementation", ac.source_owner = #owner, ac.interfaces = [#owner], ac.exports = [], ac.import_bindings = []} {
   "ac.module"() ({
   ^bb0(%value: !b7):

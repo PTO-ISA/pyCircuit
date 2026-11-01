@@ -172,7 +172,7 @@ LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
                         ? operation->getResult(0)
                         : operation->getOperand(1);
     if (!selectors ||
-        !isa<BitsType, EnumType, StructType, TableType>(payload.getType()))
+        !isa<BitsType, EnumType, StructType, ArrayType>(payload.getType()))
       return operation->emitOpError()
              << "source branch arms require selected finite state accesses";
     return success();
@@ -234,7 +234,7 @@ FailureOr<Type> selectedPayloadType(Operation *operation, Type root,
       continue;
     }
     auto ordinal = selector.getAs<IntegerAttr>("index");
-    auto table = dyn_cast<TableType>(current);
+    auto table = dyn_cast<ArrayType>(current);
     if (!ordinal || !ordinal.getType().isSignlessInteger(64) ||
         ordinal.getValue().isNegative() ||
         ordinal.getValue().getZExtValue() != nextIndex ||
@@ -253,7 +253,7 @@ FailureOr<Type> selectedPayloadType(Operation *operation, Type root,
     if (table.getShape().size() == 1)
       current = table.getElementType();
     else
-      current = TableType::get(
+      current = ArrayType::get(
           operation->getContext(),
           ArrayAttr::get(operation->getContext(),
                          table.getShape().getValue().drop_front()),
@@ -305,7 +305,7 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
     auto *operation = value.getDefiningOp();
     if (!operation || operation->getParentOp() != bindings.owner ||
         !isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp, StructCreateOp,
-             TableCreateOp, TableSplatOp, StructGetOp, EnumToBitsOp, EnumFromBitsOp,
+             ArrayCreateOp, ArraySplatOp, StructGetOp, EnumToBitsOp, EnumFromBitsOp,
              BitsExtractOp, BitsResizeOp>(operation))
       return state->emitOpError()
              << "state initializer requires a closed static "
@@ -548,7 +548,7 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
       } else {
         if (failed(pay(1))) return failure();
         Type current = entry.node.get<Type>();
-        if (auto table = dyn_cast<TableType>(current)) {
+        if (auto table = dyn_cast<ArrayType>(current)) {
           shapeSlots = add(shapeSlots, table.getShape().size());
           shapeArrays = add(shapeArrays, 1);
         }
@@ -635,7 +635,7 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
     auto &frame = stack.back();
     if (!frame.entered) {
       frame.entered = true;
-      if (!isa<BitsType, EnumType, StructType, TableType>(frame.type))
+      if (!isa<BitsType, EnumType, StructType, ArrayType>(frame.type))
         return error() << "source branch results require finite hardware payloads";
       Operation *declaration = nullptr;
       if (auto record = dyn_cast<StructType>(frame.type))
@@ -678,9 +678,9 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
         }
       }
     }
-    if (auto table = dyn_cast<TableType>(frame.type); table && frame.next == 0) {
+    if (auto table = dyn_cast<ArrayType>(frame.type); table && frame.next == 0) {
       ++frame.next;
-      if (failed(TableType::verify(error, table.getShape(), table.getElementType())) ||
+      if (failed(ArrayType::verify(error, table.getShape(), table.getElementType())) ||
           failed(push(table.getElementType()))) return failure();
       continue;
     }
@@ -691,7 +691,7 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
       // It resolves positive, closed dimensions after the complete closure is
       // paid below; this does not admit multidimensional or Table-of-Table
       // source fields.
-      if (auto table = dyn_cast<TableType>(child))
+      if (auto table = dyn_cast<ArrayType>(child))
         if (table.getShape().size() != 1 ||
             !isa<BitsType, EnumType, StructType>(table.getElementType()))
           return error() << "source branch Struct Table fields require one "
@@ -930,7 +930,7 @@ LogicalResult SourceStateWriteOp::verify() {
     auto bindings = scope(*this);
     for (auto state : owner.getBody().front().getOps<SourceStateOp>()) {
       if (state.getInstanceNameAttr() != getStateAttr()) continue;
-      auto table = dyn_cast<TableType>(state.getQ().getType());
+      auto table = dyn_cast<ArrayType>(state.getQ().getType());
       if (table && analysis.isStaticEvaluable(table.getShape(), bindings) &&
           (getIndices().size() != 1 ||
            failed(analysis.verifySourceIndex(getIndices().front(), table, bindings, *this))))
@@ -1091,7 +1091,7 @@ LogicalResult SourceMethodOp::verify() {
     return failure();
   for (TypeRange types : {signature.getInputs(), signature.getResults()})
     for (Type type : types) {
-      if (!isa<BitsType, StructType, EnumType, TypeParamType, TableType>(type))
+      if (!isa<BitsType, StructType, EnumType, TypeParamType, ArrayType>(type))
         return emitOpError()
                << "method signature requires hardware payload types";
       if (failed(detail::verifyHardwareTypeScope(type, lexicalModule)))

@@ -136,14 +136,14 @@ LogicalResult preflight(Operation *op) {
       .Case<TransactionRuleOp, TransactionMethodOp, TransactionRuleCallOp,
             TransactionMethodCallOp, ModuleOp, ModuleImportOp, StructOp, EnumOp,
             ResourceAllocOp, ResourceConnectionOp, TransactionMethodPendingOp,
-            PendingExprOp, PayloadUseOp, InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp,
+            PendingExprOp, PayloadUseOp, InstanceOp, InstanceRefOp, TableAllocOp, TableCreateOp, TableSelectOp, YieldOp, BitsConstantOp,
             BitsConstant4Op, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
             StructCreateOp, StructGetOp, StructConstructOp, StructUpdateOp,
             BitsUpdateOp, StateWritePartialOp, EnumCreateOp, EnumToBitsOp,
-            EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
-            TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
-            TableChooseOp, TableFoldOp, SourceExpectOp, SourceObserveOp,
+            EnumFromBitsOp, ArrayCreateOp, ArraySplatOp, ArrayViewOp,
+            ArrayIndexOp, ArrayReadOp, ArrayGetOp, ArrayMapOp, ArrayMatchOp,
+            ArrayChooseOp, ArrayFoldOp, SourceExpectOp, SourceObserveOp,
             ConstantOp, SystemOp, SourcePredicateOp, SourceStaticPredicateOp, SourceStaticIndexOp, SourceUnboundOp, SourceIndexOp, scf::ForOp, scf::IfOp, scf::YieldOp>(
           [](auto typed) { return typed.verifyInvariantsImpl(); })
       .Default([](Operation *) { return success(); });
@@ -195,6 +195,8 @@ LogicalResult moduleSignature(Operation *op) {
         "transactional module requires package placement and a signature");
   if (failed(bodyInputs(op)))
     return failure();
+  if (llvm::any_of(sig.getInputs(), [](Type type) { return isa<TableType>(type); }))
+    return op->emitOpError("whole Table Module interfaces are not yet supported");
   llvm::StringSet<> names;
   for (auto [key, count] :
        {std::pair<StringRef, unsigned>{"input_names", sig.getNumInputs()},
@@ -274,7 +276,7 @@ Operation *methodTarget(TransactionMethodCallOp call) {
               : nullptr;
 }
 bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
-  if (purePayload(op) || isa<PayloadUseOp>(op) ||
+  if (purePayload(op) || isa<PayloadUseOp, TableCreateOp, TableSelectOp>(op) ||
       isa<YieldOp, SourcePredicateOp, SourceIndexOp, SourceUnboundOp, SourceStaticPredicateOp, SourceStaticIndexOp, scf::ForOp, scf::IfOp, scf::YieldOp>(op))
     return true;
   if (auto call = dyn_cast<func::CallOp>(op)) {
@@ -423,11 +425,11 @@ LogicalResult verifyCallable(Operation *op) {
         op->getNumOperands())
       return op->emitOpError("global Rule templates cannot capture");
     for (Type type : sig.getInputs())
-      if (rule ? !resource(type) : resource(type) || isa<ModuleRefType>(type))
+      if (rule ? !resource(type) : resource(type) || isa<ModuleRefType, TableType>(type))
         return op->emitOpError("Rule interfaces require resources; Method "
                                "interfaces require payloads");
     for (Type type : sig.getResults())
-      if (rule ? !resource(type) : resource(type) || isa<ModuleRefType>(type))
+      if (rule ? !resource(type) : resource(type) || isa<ModuleRefType, TableType>(type))
         return op->emitOpError("Rule interfaces require resources; Method "
                                "interfaces require payloads");
     auto visibility = op->getAttrOfType<StringAttr>("sym_visibility");
@@ -775,7 +777,7 @@ bool transactionalTypesEqual(Type a, Type b) {
   if (resource(a) || resource(b))
     return a.getTypeID() == b.getTypeID() &&
            areEquivalentHardwareTypes(payload(a), payload(b));
-  if (isa<ModuleRefType>(a) || isa<ModuleRefType>(b))
+  if (isa<ModuleRefType, TableType>(a) || isa<ModuleRefType, TableType>(b))
     return a == b;
   return areEquivalentHardwareTypes(a, b);
 }
@@ -1076,7 +1078,7 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
   }
   if (auto use = dyn_cast<PayloadUseOp>(op)) {
     Type type = use.getValue().getType();
-    bool data = isa<BitsType, EnumType, StructType, TableType>(type) ||
+    bool data = isa<BitsType, EnumType, StructType, ArrayType>(type) ||
                 (!isLinkedTransactionalPackage(op) && isa<InferType>(type));
     if (!data ||
         !(op->getParentOfType<TransactionRuleOp>() ||
@@ -1235,7 +1237,7 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
           HardwareBindings bindings;
           bindings.owner = op;
           for (Type payload : payloads)
-            if (!isa<BitsType, EnumType, StructType, TableType>(payload) ||
+            if (!isa<BitsType, EnumType, StructType, ArrayType>(payload) ||
                 failed(detail::verifyHardwareTypeScope(payload, op)) ||
                 failed(detail::verifySourceTemplateType(analysis, payload,
                                                         bindings, op)))
@@ -1255,6 +1257,8 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     }
     return success();
   }
+  if (isa<TableAllocOp>(op))
+    return ownedName(op);
   if (auto allocation = dyn_cast<ResourceAllocOp>(op)) {
     if (failed(ownedName(op)))
       return failure();
@@ -1363,7 +1367,7 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     bool invalidType = false;
     AttrTypeReplacer canonicalize;
     canonicalize.addReplacement([&](Type type) -> std::optional<Type> {
-      if (!isa<BitsType, TableType>(type))
+      if (!isa<BitsType, ArrayType>(type))
         return std::nullopt;
       auto resolved = hardware.resolveType(type, parent, op);
       if (failed(resolved)) {
@@ -1430,7 +1434,7 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
   }
   if (isa<YieldOp>(op)) {
     if (!isa_and_nonnull<ModuleOp, TransactionRuleOp, TransactionMethodOp,
-                         TableMapOp, TableMatchOp>(op->getParentOp()))
+                         ArrayMapOp, ArrayMatchOp>(op->getParentOp()))
       return op->emitOpError("resource contract yield must terminate a module "
                              "or pure table region");
     return success();
@@ -1575,10 +1579,25 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
             "module reference type requires a declared module");
       return success();
     }
+    if (auto table = dyn_cast<TableType>(type)) {
+      if (failed(TableType::verify([&] { return site->emitOpError(); },
+                                  table.getCapacity(), table.getElementType())))
+        return failure();
+      if (linked) {
+        auto kind = table.getCapacity().getTree().getAs<StringAttr>("kind");
+        if (!kind || kind.getValue() != "literal")
+          return site->emitOpError("linked Table capacity must be closed");
+      } else {
+        auto owner = site->getParentOfType<ModuleOp>();
+        if (owner && failed(detail::verifyHardwareAttributeScope(table.getCapacity(), owner)))
+          return failure();
+      }
+      return checkType(table.getElementType(), site);
+    }
     type = payload(type);
     if (!linked && isa<InferType>(type))
       return success();
-    if (!isa<BitsType, EnumType, StructType, TableType>(type))
+    if (!isa<BitsType, EnumType, StructType, ArrayType>(type))
       return site->emitOpError("transactional resource contract requires "
                                "concrete hardware payloads");
     HardwareBindings bindings;
@@ -1638,7 +1657,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
            (name == "occurrence" || name == "ac.message")) ||
           (isa<TransactionRuleOp, TransactionRuleCallOp,
                TransactionMethodCallOp, TransactionMethodPendingOp,
-               ResourceAllocOp>(op) &&
+               ResourceAllocOp, TableAllocOp>(op) &&
            name == "occurrence");
       bool visibility = isa<ModuleOp, ModuleImportOp, StructOp, EnumOp,
                             TransactionRuleOp, TransactionMethodOp>(op) &&
@@ -1672,7 +1691,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     if ((!purePayload(op) &&
          !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
               ResourceConnectionOp, TransactionMethodPendingOp, PendingExprOp,
-              StateWritePartialOp, InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
+              StateWritePartialOp, InstanceOp, InstanceRefOp, TableAllocOp, TableCreateOp, TableSelectOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
               TransactionMethodCallOp, PayloadUseOp, SourceExpectOp, SourceObserveOp,
               ConstantOp, SystemOp, SourcePredicateOp, SourceStaticPredicateOp, SourceStaticIndexOp, SourceUnboundOp, SourceIndexOp, scf::ForOp, scf::IfOp, scf::YieldOp,

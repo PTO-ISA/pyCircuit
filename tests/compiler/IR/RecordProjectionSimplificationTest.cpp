@@ -289,12 +289,12 @@ TEST_F(RecordProjectionSimplificationTest, EquivalentProvenancePreservesProducer
 TEST_F(RecordProjectionSimplificationTest,
        EquivalentTableProvenanceRetainsProjectionAndDependencies) {
   auto unit = parse(R"mlir(
-  ac.struct "unit.TableParcel" fields [{name = "values", type = !ac.table<[#w3], !b8>}, {name = "tag", type = !b1}] {ac.source_owner = {package = "", path = "unit.py"}}
-  )mlir" + module("TableProvenance", R"mlir(^bb0(%values: !ac.table<[#alternate3], !b8>, %tag: !b1):
-    %record = ac.struct.create(%values, %tag) : (!ac.table<[#alternate3], !b8>, !b1) -> !ac.struct<"unit.TableParcel">
-    %get = ac.struct.get %record["values"] : (!ac.struct<"unit.TableParcel">) -> !ac.table<[#w3], !b8>
-    "ac.yield"(%get) : (!ac.table<[#w3], !b8>) -> ()
-  )mlir", "(!ac.table<[#alternate3], !b8>, !b1) -> !ac.table<[#w3], !b8>",
+  ac.struct "unit.TableParcel" fields [{name = "values", type = !ac.array<[#w3], !b8>}, {name = "tag", type = !b1}] {ac.source_owner = {package = "", path = "unit.py"}}
+  )mlir" + module("TableProvenance", R"mlir(^bb0(%values: !ac.array<[#alternate3], !b8>, %tag: !b1):
+    %record = ac.struct.create(%values, %tag) : (!ac.array<[#alternate3], !b8>, !b1) -> !ac.struct<"unit.TableParcel">
+    %get = ac.struct.get %record["values"] : (!ac.struct<"unit.TableParcel">) -> !ac.array<[#w3], !b8>
+    "ac.yield"(%get) : (!ac.array<[#w3], !b8>) -> ()
+  )mlir", "(!ac.array<[#alternate3], !b8>, !b1) -> !ac.array<[#w3], !b8>",
                     "[\"values\", \"tag\"]", "[\"projected\"]"));
   ASSERT_TRUE(unit);
   auto op = definition(*unit, "unit.TableProvenance");
@@ -325,12 +325,12 @@ TEST_F(RecordProjectionSimplificationTest,
   for (unsigned mutation = 0; mutation < 2; ++mutation) {
     SCOPED_TRACE(mutation);
     auto unit = parse(R"mlir(
-    ac.struct "unit.TableParcel" fields [{name = "values", type = !ac.table<[#w3], !b8>}, {name = "tag", type = !b1}] {ac.source_owner = {package = "", path = "unit.py"}}
-    )mlir" + module("TableMismatch", R"mlir(^bb0(%matching: !ac.table<[#w3], !b8>, %extent: !ac.table<[#w2], !b8>, %element: !ac.table<[#w3], !b5>, %tag: !b1):
-      %record = ac.struct.create(%matching, %tag) : (!ac.table<[#w3], !b8>, !b1) -> !ac.struct<"unit.TableParcel">
-      %get = ac.struct.get %record["values"] : (!ac.struct<"unit.TableParcel">) -> !ac.table<[#w3], !b8>
-      "ac.yield"(%get) : (!ac.table<[#w3], !b8>) -> ()
-    )mlir", "(!ac.table<[#w3], !b8>, !ac.table<[#w2], !b8>, !ac.table<[#w3], !b5>, !b1) -> !ac.table<[#w3], !b8>",
+    ac.struct "unit.TableParcel" fields [{name = "values", type = !ac.array<[#w3], !b8>}, {name = "tag", type = !b1}] {ac.source_owner = {package = "", path = "unit.py"}}
+    )mlir" + module("TableMismatch", R"mlir(^bb0(%matching: !ac.array<[#w3], !b8>, %extent: !ac.array<[#w2], !b8>, %element: !ac.array<[#w3], !b5>, %tag: !b1):
+      %record = ac.struct.create(%matching, %tag) : (!ac.array<[#w3], !b8>, !b1) -> !ac.struct<"unit.TableParcel">
+      %get = ac.struct.get %record["values"] : (!ac.struct<"unit.TableParcel">) -> !ac.array<[#w3], !b8>
+      "ac.yield"(%get) : (!ac.array<[#w3], !b8>) -> ()
+    )mlir", "(!ac.array<[#w3], !b8>, !ac.array<[#w2], !b8>, !ac.array<[#w3], !b5>, !b1) -> !ac.array<[#w3], !b8>",
                       "[\"matching\", \"extent\", \"element\", \"tag\"]",
                       "[\"projected\"]"));
     ASSERT_TRUE(unit);

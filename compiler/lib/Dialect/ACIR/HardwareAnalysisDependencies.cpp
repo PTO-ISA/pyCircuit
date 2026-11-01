@@ -9,7 +9,7 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 Type dependencyPayload(Type type) {
-  while (auto table = dyn_cast<TableType>(type))
+  while (auto table = dyn_cast<ArrayType>(type))
     type = table.getElementType();
   return type;
 }
@@ -90,7 +90,7 @@ struct Engine {
     if (failed(resolved))
       return failure();
     SmallVector<FieldPath> out;
-    if (auto table = dyn_cast<TableType>(*resolved))
+    if (auto table = dyn_cast<ArrayType>(*resolved))
       return paths(table.getElementType(), bindings, site, base);
     if (auto record = dyn_cast<StructType>(*resolved)) {
       auto decl = analysis.lookupStruct(record);
@@ -133,7 +133,7 @@ struct Engine {
       return failure();
     type = *resolved;
     for (auto name : path) {
-      if (auto table = dyn_cast<TableType>(type))
+      if (auto table = dyn_cast<ArrayType>(type))
         type = table.getElementType();
       auto record = dyn_cast<StructType>(type);
       if (!record)
@@ -286,12 +286,12 @@ struct Engine {
     if (auto arg = dyn_cast<BlockArgument>(value)) {
       if (auto rule = dyn_cast_or_null<RuleOp>(arg.getOwner()->getParentOp()))
         out.push_back({rule.getCaptures()[arg.getArgNumber()], endpoint.path});
-      else if (auto map = dyn_cast_or_null<TableMapOp>(
+      else if (auto map = dyn_cast_or_null<ArrayMapOp>(
                    arg.getOwner()->getParentOp())) {
         unsigned i = arg.getArgNumber();
         if (i)
           out.push_back({map.getOperand(i - 1), endpoint.path});
-      } else if (auto match = dyn_cast_or_null<TableMatchOp>(
+      } else if (auto match = dyn_cast_or_null<ArrayMatchOp>(
                      arg.getOwner()->getParentOp()))
         out.push_back({match.getOperand(arg.getArgNumber()), endpoint.path});
       return out;
@@ -384,13 +384,13 @@ struct Engine {
         }
       return instance->emitOpError() << "missing resolved field dependency";
     }
-    if (auto map = dyn_cast<TableMapOp>(op)) {
+    if (auto map = dyn_cast<ArrayMapOp>(op)) {
       auto yield = cast<YieldOp>(map.getBody().front().back());
       out.push_back({yield.getValues()[cast<OpResult>(value).getResultNumber()],
                      endpoint.path});
       return out;
     }
-    if (auto match = dyn_cast<TableMatchOp>(op)) {
+    if (auto match = dyn_cast<ArrayMatchOp>(op)) {
       auto yield = cast<YieldOp>(match.getBody().front().back());
       out.push_back({yield.getValues()[0], {}});
       return out;
@@ -415,40 +415,40 @@ struct Engine {
       }
       return out;
     }
-    if (auto create = dyn_cast<TableCreateOp>(op)) {
+    if (auto create = dyn_cast<ArrayCreateOp>(op)) {
       for (Value input : create.getInputs())
         out.push_back({input, endpoint.path});
       return out;
     }
-    if (auto splat = dyn_cast<TableSplatOp>(op)) {
+    if (auto splat = dyn_cast<ArraySplatOp>(op)) {
       out.push_back({splat.getInput(), endpoint.path});
       return out;
     }
-    if (auto view = dyn_cast<TableViewOp>(op)) {
+    if (auto view = dyn_cast<ArrayViewOp>(op)) {
       out.push_back({view.getInput(), endpoint.path});
       return out;
     }
-    if (auto read = dyn_cast<TableReadOp>(op)) {
+    if (auto read = dyn_cast<ArrayReadOp>(op)) {
       out.push_back({read.getInput(), endpoint.path});
       out.push_back({read.getIndex(), {}});
       return out;
     }
-    if (auto get = dyn_cast<TableGetOp>(op)) {
+    if (auto get = dyn_cast<ArrayGetOp>(op)) {
       if (cast<OpResult>(value).getResultNumber() == 0)
         out.push_back({get.getInput(), endpoint.path});
       out.push_back({get.getIndex(), {}});
       return out;
     }
-    if (auto index = dyn_cast<TableIndexOp>(op)) {
+    if (auto index = dyn_cast<ArrayIndexOp>(op)) {
       for (Value coord : index.getCoords())
         out.push_back({coord, {}});
       return out;
     }
-    if (auto choose = dyn_cast<TableChooseOp>(op)) {
+    if (auto choose = dyn_cast<ArrayChooseOp>(op)) {
       out.push_back({choose.getMask(), {}});
       return out;
     }
-    if (auto fold = dyn_cast<TableFoldOp>(op)) {
+    if (auto fold = dyn_cast<ArrayFoldOp>(op)) {
       out.push_back({fold.getInput(), {}});
       return out;
     }
@@ -585,7 +585,7 @@ struct Engine {
         bool tableSummary =
             llvm::any_of(llvm::make_range(cycle, visiting.end()),
                          [](const StoredWire &node) {
-                           return isa<TableType>(node.value.getType());
+                           return isa<ArrayType>(node.value.getType());
                          });
         return module.emitOpError()
                << (tableSummary

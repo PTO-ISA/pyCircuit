@@ -12,12 +12,12 @@
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -45,12 +45,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -79,12 +79,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -113,12 +113,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -148,12 +148,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -181,12 +181,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -215,12 +215,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {
@@ -250,12 +250,12 @@ module {
 !b13 = !ac.bits<#n13>
 !b65 = !ac.bits<#n65>
 !b130 = !ac.bits<#n130>
-!table130 = !ac.table<[#n3], !b130>
+!table130 = !ac.array<[#n3], !b130>
 #depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Generic, name = "D"}}>
 !generic = !ac.type_param<@Generic, "T">
 #token_depth = #ac.static_expr<{kind = "reference", location = {path = "__init__.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Token3, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Token3, name = "D"}}>
 !token = !ac.type_param<@Token3, "T">
-!tableToken = !ac.table<[#n3], !token>
+!tableToken = !ac.array<[#n3], !token>
 !fifo_local_t = !ac.type_param<@pycircuit.__builtins__.fifo_local, "T">
 !fifo_pop_t = !ac.type_param<@pycircuit.__builtins__.fifo_downstream_pop, "T">
 module {

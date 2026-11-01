@@ -36,7 +36,7 @@ FailureOr<bool> hasUniformTableAvailability(
       }
     } else {
       auto *operation = current.getDefiningOp();
-      if (isa_and_nonnull<SourceStateOp, TableSplatOp, InstanceOp>(operation))
+      if (isa_and_nonnull<SourceStateOp, ArraySplatOp, InstanceOp>(operation))
         result = true;
       else if (auto collection = dyn_cast_or_null<CollectionOp>(operation))
         result = !analysis.getPrimitiveKind(analysis.resolveCallee(collection)).empty();
@@ -50,7 +50,7 @@ FailureOr<bool> hasUniformTableAvailability(
         }
       } else if (auto merge = dyn_cast_or_null<ValueMergeOp>(operation);
                  merge && current == merge.getNext() &&
-                 isa<TableType>(current.getType()) &&
+                 isa<ArrayType>(current.getType()) &&
                  merge.getGuards().size() <= 1 &&
                  merge.getPaths().size() == merge.getGuards().size() &&
                  merge.getValues().size() == merge.getGuards().size()) {
@@ -98,7 +98,7 @@ class AvailabilityProof {
   std::set<std::string> active;
   bool invalid = false;
   struct RowFrame {
-    TableMapOp map;
+    ArrayMapOp map;
     Expr ordinal;
     DenseMap<Value, Expr> raw, formulas;
     std::map<std::string, Expr> available, rows, rawRows, rowFormulas, constantRows;
@@ -205,7 +205,7 @@ class AvailabilityProof {
     return "invalid";
   }
   std::string typeKey(Type type, Operation *site) {
-    if (auto table = dyn_cast<TableType>(type)) {
+    if (auto table = dyn_cast<ArrayType>(type)) {
       std::string key = "table";
       appendKeyPart(key, shapeKey(table, site));
       appendKeyPart(key, typeKey(table.getElementType(), site));
@@ -224,7 +224,7 @@ class AvailabilityProof {
     reject(site, "unsupported row predicate hardware type");
     return "invalid";
   }
-  std::string shapeKey(TableType type, Operation *site) {
+  std::string shapeKey(ArrayType type, Operation *site) {
     if (!charge(16 + 32 * uint64_t(type.getShape().size()), site)) return "invalid";
     auto logical = attributeKey(type.getShape());
     if (invalid) return "invalid";
@@ -235,10 +235,10 @@ class AvailabilityProof {
     for (auto extent : *shape) key += ":" + std::to_string(extent);
     return key;
   }
-  Expr rowDomain(TableType type, Operation *site) {
+  Expr rowDomain(ArrayType type, Operation *site) {
     return node("ordinal" + shapeKey(type, site));
   }
-  Expr viewDomain(TableViewOp view, Expr ordinal) {
+  Expr viewDomain(ArrayViewOp view, Expr ordinal) {
     std::string key = "view";
     appendKeyPart(key, view.getKind());
     appendKeyPart(key, attributeKey(view.getParameters()));
@@ -462,9 +462,9 @@ class AvailabilityProof {
       llvm::append_range(nested, path);
       return uniformAvailability(get.getValue(), nested);
     }
-    if (auto splat = dyn_cast<TableSplatOp>(op))
+    if (auto splat = dyn_cast<ArraySplatOp>(op))
       return uniformAvailability(splat.getInput(), path);
-    if (auto view = dyn_cast<TableViewOp>(op))
+    if (auto view = dyn_cast<ArrayViewOp>(op))
       return uniformAvailability(view.getInput(), path);
     if (auto create = dyn_cast<StructCreateOp>(op); create && !path.empty()) {
       auto declaration = analysis.lookupStruct(create.getResult().getType());
@@ -475,7 +475,7 @@ class AvailabilityProof {
       }
       return Uniform();
     }
-    if (isa<StructCreateOp, TableCreateOp>(op)) {
+    if (isa<StructCreateOp, ArrayCreateOp>(op)) {
       Uniform common;
       for (Value input : op->getOperands()) {
         if (!charge(4, op)) return failure();
@@ -544,7 +544,7 @@ class AvailabilityProof {
     SmallVector<FieldPath> leaves;
     FieldPath prefix;
     DenseSet<Type> visiting;
-    if (!elementLeaves(cast<TableType>(merge.getBase().getType()).getElementType(), prefix,
+    if (!elementLeaves(cast<ArrayType>(merge.getBase().getType()).getElementType(), prefix,
                        leaves, visiting, merge)) return 0;
     SmallVector<Expr> fields;
     Expr guardAvailable = availability(merge.getGuards().front());
@@ -601,9 +601,9 @@ class AvailabilityProof {
         result = rowValue(yield.getValues()[cast<OpResult>(table).getResultNumber()],
                           ordinal, mode, path);
       }
-    } else if (auto splat = table.getDefiningOp<TableSplatOp>())
+    } else if (auto splat = table.getDefiningOp<ArraySplatOp>())
       result = mode == 1 ? availability(splat.getInput(), path) : mode == 2 ? formula(splat.getInput()) : rawExpression(splat.getInput());
-    else if (auto create = table.getDefiningOp<TableCreateOp>()) {
+    else if (auto create = table.getDefiningOp<ArrayCreateOp>()) {
       if (!charge(8 + create.getInputs().size(), create)) return 0;
       if (auto index = ordinalConstant(ordinal)) {
         if (*index >= create.getInputs().size())
@@ -620,7 +620,7 @@ class AvailabilityProof {
         elements.push_back(mode == 1 ? availability(input, path) : mode == 2 ? formula(input) : rawExpression(input));
       if (mode != 0 && llvm::all_of(ArrayRef<Expr>(elements).drop_front(), [](Expr e) { return e == 1; })) result = 1;
       else result = node("row-create:" + shapeKey(create.getResult().getType(), create), elements);
-    } else if (auto view = table.getDefiningOp<TableViewOp>()) {
+    } else if (auto view = table.getDefiningOp<ArrayViewOp>()) {
       Expr source;
       if (auto index = ordinalConstant(ordinal)) {
         auto mapped = analysis.getViewSourceOrdinal(view, *index);
@@ -629,7 +629,7 @@ class AvailabilityProof {
       } else
         source = viewDomain(view, ordinal);
       result = rowValue(view.getInput(), source, mode, path);
-    } else if (auto map = table.getDefiningOp<TableMapOp>()) {
+    } else if (auto map = table.getDefiningOp<ArrayMapOp>()) {
       if (!charge(16 + map.getBody().front().getNumArguments(), map)) return 0;
       RowFrame frame;
       frame.map = map;
@@ -645,11 +645,11 @@ class AvailabilityProof {
       result = mergeRowAvailability(merge, ordinal, path);
     else if (mode == 1) result = availability(table, path);
     else result = node("row-source:" + valueKey(table) + ":" +
-        typeKey(cast<TableType>(table.getType()).getElementType(), table.getParentBlock()->getParentOp()), {ordinal});
+        typeKey(cast<ArrayType>(table.getType()).getElementType(), table.getParentBlock()->getParentOp()), {ordinal});
     cache.emplace(std::move(key), result);
     return result;
   }
-  Expr reduceRows(Expr row, Expr domain, TableType type, Operation *site,
+  Expr reduceRows(Expr row, Expr domain, ArrayType type, Operation *site,
                   unsigned depth = 0) {
     if (!charge(16, site)) return 0;
     auto key = std::make_pair(row, domain);
@@ -698,7 +698,7 @@ class AvailabilityProof {
     return result;
   }
   Expr wholeRows(Value table, bool available, ArrayRef<StringAttr> path = {}) {
-    auto type = cast<TableType>(table.getType());
+    auto type = cast<ArrayType>(table.getType());
     Operation *site = table.getParentBlock()->getParentOp();
     Expr domain = rowDomain(type, site);
     Expr row = rowValue(table, domain, available ? 1 : 2, path);
@@ -814,11 +814,11 @@ class AvailabilityProof {
     else if (auto number = constant(value);
              number && (*number == "0" || *number == "1"))
       result = *number == "1" ? 1 : 0;
-    else if (auto get = value.getDefiningOp<TableGetOp>();
+    else if (auto get = value.getDefiningOp<ArrayGetOp>();
              get && value == get->getResult(0) && constant(get.getIndex())) {
       uint64_t ordinal;
       auto number = constant(get.getIndex());
-      auto type = cast<TableType>(get.getInput().getType());
+      auto type = cast<ArrayType>(get.getInput().getType());
       if (StringRef(*number).getAsInteger(10, ordinal) ||
           !analysis.isStaticEvaluable(type.getShape(), {}))
         result = scalar(value);
@@ -835,7 +835,7 @@ class AvailabilityProof {
                      : scalar(value);
       }
     }
-    else if (auto fold = value.getDefiningOp<TableFoldOp>(); fold && fold.getKind() == "and")
+    else if (auto fold = value.getDefiningOp<ArrayFoldOp>(); fold && fold.getKind() == "and")
       result = wholeRows(fold.getInput(), false);
     else if (inRow(value) && isa<BlockArgument>(value)) {
       auto argument = cast<BlockArgument>(value);
@@ -907,9 +907,9 @@ class AvailabilityProof {
     if (auto merge = table.getDefiningOp<ValueMergeOp>();
         merge && table == merge.getNext())
       return mergeRowAvailability(merge, 0, path, ordinal);
-    if (auto splat = table.getDefiningOp<TableSplatOp>())
+    if (auto splat = table.getDefiningOp<ArraySplatOp>())
       return availability(splat.getInput(), path);
-    if (auto view = table.getDefiningOp<TableViewOp>()) {
+    if (auto view = table.getDefiningOp<ArrayViewOp>()) {
       auto source = analysis.getViewSourceOrdinal(view, ordinal);
       if (failed(source)) {
         invalid = true;
@@ -917,11 +917,11 @@ class AvailabilityProof {
       }
       return tableAt(view.getInput(), *source, path);
     }
-    if (auto create = table.getDefiningOp<TableCreateOp>())
+    if (auto create = table.getDefiningOp<ArrayCreateOp>())
       return ordinal < create.getInputs().size()
                  ? availability(create.getInputs()[ordinal], path)
                  : 1;
-    if (auto map = table.getDefiningOp<TableMapOp>()) {
+    if (auto map = table.getDefiningOp<ArrayMapOp>()) {
       if (llvm::all_of(map->getOperands(), [&](Value input) { return availability(input) == 1; }))
         return 1;
       return rowValue(table, node("constant:" + std::to_string(ordinal)), 1, path);
@@ -929,7 +929,7 @@ class AvailabilityProof {
     return availability(table, path);
   }
   Expr tableElement(Value table, Value index, ArrayRef<StringAttr> path) {
-    auto size = analysis.getTableSize(cast<TableType>(table.getType()), {},
+    auto size = analysis.getTableSize(cast<ArrayType>(table.getType()), {},
                                       table.getParentRegion()->getParentOp());
     if (failed(size)) {
       invalid = true;
@@ -1119,7 +1119,7 @@ class AvailabilityProof {
         for (Value guard : merge.getGuards()) guards.push_back(availability(guard));
         return all(guards);
       }
-      if (isa<TableType>(value.getType()) && !checkWholeTableMerge(merge)) return 0;
+      if (isa<ArrayType>(value.getType()) && !checkWholeTableMerge(merge)) return 0;
       if (merge.getGuards().empty() && merge.getPaths().empty() && merge.getValues().empty())
         return availability(merge.getBase(), path);
       if (merge.getGuards().size() == 1 && merge.getPaths().size() == 1 &&
@@ -1131,7 +1131,7 @@ class AvailabilityProof {
           return all({availability(merge.getGuards().front()),
               availability(**known ? merge.getValues().front() : merge.getBase(), path)});
       }
-      if (isa<TableType>(value.getType())) {
+      if (isa<ArrayType>(value.getType())) {
         auto uniform = uniformAvailability(value, path);
         if (failed(uniform)) return 0;
         if (*uniform) return **uniform;
@@ -1154,24 +1154,24 @@ class AvailabilityProof {
       }
       return all(fields);
     }
-    if (auto splat = dyn_cast<TableSplatOp>(op)) return availability(splat.getInput(), path);
-    if (auto create = dyn_cast<TableCreateOp>(op)) {
+    if (auto splat = dyn_cast<ArraySplatOp>(op)) return availability(splat.getInput(), path);
+    if (auto create = dyn_cast<ArrayCreateOp>(op)) {
       SmallVector<Expr> inputs;
       for (Value input : create.getInputs()) inputs.push_back(availability(input, path));
       return all(inputs);
     }
-    if (isa<TableMapOp, TableViewOp>(op)) {
+    if (isa<ArrayMapOp, ArrayViewOp>(op)) {
       if (llvm::all_of(op->getOperands(), [&](Value input) { return availability(input) == 1; })) return 1;
       return wholeRows(value, true, path);
     }
-    if (auto read = dyn_cast<TableReadOp>(op)) {
+    if (auto read = dyn_cast<ArrayReadOp>(op)) {
       auto uniform = hasUniformTableAvailability(read.getInput(), analysis, debit);
       if (failed(uniform)) { invalid = true; return 0; }
       Expr selected = *uniform ? tableAt(read.getInput(), 0, path)
                               : tableElement(read.getInput(), read.getIndex(), path);
       return all({availability(read.getIndex()), selected});
     }
-    if (auto get = dyn_cast<TableGetOp>(op)) {
+    if (auto get = dyn_cast<ArrayGetOp>(op)) {
       Expr index = availability(get.getIndex());
       return cast<OpResult>(value).getResultNumber() == 1
                  ? index
@@ -1185,7 +1185,7 @@ class AvailabilityProof {
       bool total = llvm::all_of(op->getOperands(), [&](Value input) {
         return availability(input) == 1;
       });
-      if (total && isa<TableMapOp, TableMatchOp>(op))
+      if (total && isa<ArrayMapOp, ArrayMatchOp>(op))
         return 1;
       return reject(op, "availability requires normalized region provenance");
     }
@@ -1367,12 +1367,12 @@ class AvailabilityUses {
     if (backward.insert(&use).second)
       pending.push_back(&use);
   }
-  bool constantCompanionRead(TableGetOp get) {
+  bool constantCompanionRead(ArrayGetOp get) {
     // This is the exact scalar transport emitted when selecting one row of a
     // Boolean companion. The index and membership result are never private
     // availability transports, and a dynamic index must not acquire one here.
     if (!get->getResult(1).use_empty()) return false;
-    auto table = dyn_cast<TableType>(get.getInput().getType());
+    auto table = dyn_cast<ArrayType>(get.getInput().getType());
     auto bit = table ? dyn_cast<BitsType>(table.getElementType()) : BitsType();
     auto index = get.getIndex().getDefiningOp<BitsConstantOp>();
     auto indexType = dyn_cast<BitsType>(get.getIndex().getType());
@@ -1427,18 +1427,18 @@ class AvailabilityUses {
     else if (auto yield = dyn_cast<YieldOp>(owner)) {
       if (auto rule = dyn_cast<RuleOp>(yield->getParentOp()))
         allowed = allUsers(rule->getResult(use.getOperandNumber()));
-      else if (auto map = dyn_cast<TableMapOp>(yield->getParentOp()))
+      else if (auto map = dyn_cast<ArrayMapOp>(yield->getParentOp()))
         allowed = allUsers(map->getResult(use.getOperandNumber()));
-    } else if (auto map = dyn_cast<TableMapOp>(owner)) {
+    } else if (auto map = dyn_cast<ArrayMapOp>(owner)) {
       allowed = allUsers(map.getBody().front().getArgument(use.getOperandNumber() + 1));
-    } else if (auto get = dyn_cast<TableGetOp>(owner))
+    } else if (auto get = dyn_cast<ArrayGetOp>(owner))
       allowed = use.getOperandNumber() == 0 && constantCompanionRead(get) &&
                 allUsers(get->getResult(0));
-    else if (isa<BitsBinaryOp, BitsSelectOp, TableCreateOp, TableSplatOp,
-                   TableViewOp>(owner))
+    else if (isa<BitsBinaryOp, BitsSelectOp, ArrayCreateOp, ArraySplatOp,
+                   ArrayViewOp>(owner))
       allowed = llvm::all_of(owner->getResults(),
                              [&](Value value) { return allUsers(value); });
-    else if (auto fold = dyn_cast<TableFoldOp>(owner))
+    else if (auto fold = dyn_cast<ArrayFoldOp>(owner))
       allowed = fold.getKind() == "and" && allUsers(fold.getResult());
     closed.try_emplace(&use, allowed);
     return allowed;
@@ -1484,7 +1484,7 @@ public:
       if (auto argument = dyn_cast<BlockArgument>(value)) {
         if (auto rule = dyn_cast<RuleOp>(argument.getOwner()->getParentOp()))
           add(rule->getOpOperand(argument.getArgNumber()));
-        else if (auto map = dyn_cast<TableMapOp>(argument.getOwner()->getParentOp())) {
+        else if (auto map = dyn_cast<ArrayMapOp>(argument.getOwner()->getParentOp())) {
           if (argument.getArgNumber()) add(map->getOpOperand(argument.getArgNumber() - 1));
         }
         continue;
@@ -1498,14 +1498,14 @@ public:
         // The selector is a raw predicate reference, not an availability route.
         add(op->getOpOperand(1));
         add(op->getOpOperand(2));
-      } else if (auto get = dyn_cast<TableGetOp>(producer);
+      } else if (auto get = dyn_cast<ArrayGetOp>(producer);
                  get && value == get->getResult(0) && constantCompanionRead(get)) {
         add(get->getOpOperand(0));
-      } else if (auto fold = dyn_cast<TableFoldOp>(producer); fold && fold.getKind() == "and") {
+      } else if (auto fold = dyn_cast<ArrayFoldOp>(producer); fold && fold.getKind() == "and") {
         add(fold->getOpOperand(0));
-      } else if (auto map = dyn_cast<TableMapOp>(producer)) {
+      } else if (auto map = dyn_cast<ArrayMapOp>(producer)) {
         add(map.getBody().front().getTerminator()->getOpOperand(cast<OpResult>(value).getResultNumber()));
-      } else if (isa<TableSplatOp, TableViewOp, TableCreateOp>(producer)) {
+      } else if (isa<ArraySplatOp, ArrayViewOp, ArrayCreateOp>(producer)) {
         for (OpOperand &operand : producer->getOpOperands()) add(operand);
       } else if (auto rule = dyn_cast<RuleOp>(producer)) {
         auto sampled =

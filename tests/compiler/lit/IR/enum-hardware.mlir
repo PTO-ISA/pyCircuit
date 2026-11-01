@@ -19,9 +19,9 @@
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -57,8 +57,8 @@ module {
     %packet = "ac.struct.create"(%rule_value, %inner, %zero) : (!a, !inner, !b3) -> !outer
     %updated_packet, %updated_en = "ac.value.merge"(%packet, %en, %candidate) {paths = [["tag"]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!outer, !b1, !a) -> (!outer, !b1)
     %tag = "ac.struct.get"(%updated_packet) {field = "tag"} : (!outer) -> !a
-    %lanes = "ac.table.splat"(%tag) {shape = [#w2, #w3]} : (!a) -> !lanes
-    %mapped = "ac.table.map"(%lanes, %candidate) ({
+    %lanes = "ac.array.splat"(%tag) {shape = [#w2, #w3]} : (!a) -> !lanes
+    %mapped = "ac.array.map"(%lanes, %candidate) ({
     ^bb0(%ordinal: !b3, %entry: !a, %capture: !a):
       %literal = "ac.enum.create"() {member = "ZERO"} : () -> !a
       %entry_bits = "ac.enum.to_bits"(%entry) : (!a) -> !b65
@@ -68,18 +68,18 @@ module {
       %next, %enabled = "ac.value.merge"(%entry, %hit, %carrier) {paths = [[]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!a, !b1, !a) -> (!a, !b1)
       "ac.yield"(%next) : (!a) -> ()
     }) {shape = [#w2, #w3], operandSegmentSizes = array<i32: 1, 1>} : (!lanes, !a) -> !lanes
-    %mask = "ac.table.match"(%mapped, %candidate) ({
+    %mask = "ac.array.match"(%mapped, %candidate) ({
     ^bb0(%entry: !a, %capture: !a):
       %entry_bits = "ac.enum.to_bits"(%entry) : (!a) -> !b65
       %capture_bits = "ac.enum.to_bits"(%capture) : (!a) -> !b65
       %hit = "ac.bits.compare"(%entry_bits, %capture_bits) {predicate = "eq"} : (!b65, !b65) -> !b1
       "ac.yield"(%hit) : (!b1) -> ()
     }) : (!lanes, !a) -> !b6
-    %selected, %in_range = "ac.table.get"(%mapped, %zero) : (!lanes, !b3) -> (!a, !b1)
-    %pair = "ac.table.create"(%init, %candidate) : (!a, !a) -> !pair
-    %clock = "ac.table.splat"(%clk) {shape = [#w2]} : (!b1) -> !controls
-    %reset = "ac.table.splat"(%rst) {shape = [#w2]} : (!b1) -> !controls
-    %enable = "ac.table.splat"(%en) {shape = [#w2]} : (!b1) -> !controls
+    %selected, %in_range = "ac.array.get"(%mapped, %zero) : (!lanes, !b3) -> (!a, !b1)
+    %pair = "ac.array.create"(%init, %candidate) : (!a, !a) -> !pair
+    %clock = "ac.array.splat"(%clk) {shape = [#w2]} : (!b1) -> !controls
+    %reset = "ac.array.splat"(%rst) {shape = [#w2]} : (!b1) -> !controls
+    %enable = "ac.array.splat"(%en) {shape = [#w2]} : (!b1) -> !controls
     %array_q = "ac.collection"(%clock, %reset, %enable, %pair, %pair) {instance_name = "array", callee = @storage, parameters = [], type_arguments = [!a], shape = [#w2], occurrence = {site = {definition = @top, ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 17 : i64}]}, expansion = []}} : (!controls, !controls, !controls, !pair, !pair) -> !pair
     %other_copy = "ac.instance"(%other) {instance_name = "other", callee = @forward, parameters = [], type_arguments = [!b], occurrence = {site = {definition = @top, ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 18 : i64}]}, expansion = []}} : (!b) -> !b
     "ac.yield"(%q, %updated_packet, %mapped, %mask, %selected, %array_q, %other_copy) : (!a, !outer, !lanes, !b6, !a, !pair, !b) -> ()
@@ -108,9 +108,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 #width = #ac.static_expr<{kind = "reference", ref = {kind = "parameter", owner = @convert, name = "W"}, origin = {site = {definition = @convert, ast_path = []}, expansion = []}, location = {path = "convert.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -158,9 +158,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 #width = #ac.static_expr<{kind = "reference", ref = {kind = "parameter", owner = @pack, name = "W"}, origin = {site = {definition = @pack, ast_path = []}, expansion = []}, location = {path = "pack.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -189,10 +189,10 @@ module {
 // CHECK: "ac.enum.create"
 // CHECK: "ac.value.merge"
 // CHECK: ac.struct.create
-// CHECK: "ac.table.map"
+// CHECK: "ac.array.map"
 // CHECK: "ac.enum.from_bits"
-// CHECK: "ac.table.match"
-// CHECK: "ac.table.get"
+// CHECK: "ac.array.match"
+// CHECK: "ac.array.get"
 // CHECK: "ac.collection"
 // CHECK: callee = @forward
 // CHECK: sym_name = "convert"

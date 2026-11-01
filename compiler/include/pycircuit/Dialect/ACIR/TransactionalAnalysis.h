@@ -152,6 +152,7 @@ private:
   friend class TransactionalPlanBuilder;
   explicit TransactionalAnalysis(mlir::ModuleOp package) : package_(package) {}
   mlir::ModuleOp package_;
+  // Own synthesized defaults and selection expressions without changing source IR.
   mlir::OwningOpRef<mlir::ModuleOp> initializers_;
   std::vector<TransactionalInstancePlan> instances_;
   std::vector<TransactionalResourcePlan> resources_;

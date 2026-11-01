@@ -20,7 +20,7 @@ constexpr uint64_t maxWork = 1024 * 1024;
 constexpr unsigned maxDepth = 128;
 
 bool payload(Type type) {
-  return isa<BitsType, StructType, EnumType, TableType>(type);
+  return isa<BitsType, StructType, EnumType, ArrayType>(type);
 }
 
 LogicalResult charge(Operation *site, uint64_t amount, uint64_t &work) {
@@ -93,7 +93,7 @@ LogicalResult preflightBody(func::FuncOp helper, SourceHelperLookup lookup,
         return operation.emitOpError() << "unsupported operation in pure value "
                                          "helper body";
       if (operation.getNumRegions() &&
-          !isa<TableMapOp, TableMatchOp, scf::ForOp, scf::IfOp>(operation))
+          !isa<ArrayMapOp, ArrayMatchOp, scf::ForOp, scf::IfOp>(operation))
         return operation.emitOpError() << "unsupported value helper region";
       if (isa<func::CallOp>(operation)) {
         auto callee = operation.getAttrOfType<FlatSymbolRefAttr>("callee");
@@ -298,7 +298,7 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
         return operation.emitOpError() << "unsupported operation in pure value "
                                          "helper body";
       if (operation.getNumRegions() &&
-          !isa<TableMapOp, TableMatchOp>(operation))
+          !isa<ArrayMapOp, ArrayMatchOp>(operation))
         return operation.emitOpError() << "unsupported value helper region";
       if (hardware && failed(analysis.verifyResolvedOperation(&operation, bindings)))
         return failure();

@@ -250,7 +250,7 @@ LogicalResult verifyObserverUses(
           if (user->getParentRegion() == &transaction.getGuard())
             return reject(user);
         if (!isa<RuleOp, SourceTransactionOp, TransactionRuleOp, SourceBranchOp,
-                 TableMapOp, TableMatchOp>(owner) &&
+                 ArrayMapOp, ArrayMatchOp>(owner) &&
             owner->getName().getStringRef() != "scf.if")
           return reject(user);
         if (index >= owner->getNumResults())
@@ -265,7 +265,7 @@ LogicalResult verifyObserverUses(
         continue;
       }
       // Index/admission/resource/call operands remain functional boundaries.
-      if ((isa<TableReadOp, TableGetOp>(user) && index != 0) || isa<TableIndexOp>(user))
+      if ((isa<ArrayReadOp, ArrayGetOp>(user) && index != 0) || isa<ArrayIndexOp>(user))
         return reject(user);
       if (detail::isCombinationalHardwareOperation(user)) {
         if (failed(propagate(user, endpoint)))
@@ -1492,9 +1492,9 @@ FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
           *inWidth == *outWidth)
         return identity(extract.getInput(), owner, depth + 1);
     }
-    if (auto splat = value.getDefiningOp<TableSplatOp>())
+    if (auto splat = value.getDefiningOp<ArraySplatOp>())
       return identity(splat.getInput(), owner, depth + 1);
-    if (auto create = value.getDefiningOp<TableCreateOp>()) {
+    if (auto create = value.getDefiningOp<ArrayCreateOp>()) {
       unsigned uniform = 0;
       for (Value element : create->getOperands()) {
         auto part = identity(element, owner, depth + 1);
@@ -1583,8 +1583,8 @@ FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
           return WalkResult::interrupt();
         if (*id != 1)
           continue;
-        bool transport = isa<TableSplatOp>(op);
-        if (auto create = dyn_cast<TableCreateOp>(op)) {
+        bool transport = isa<ArraySplatOp>(op);
+        if (auto create = dyn_cast<ArrayCreateOp>(op)) {
           auto result = identity(create.getResult(), owner, 0);
           if (failed(result))
             return WalkResult::interrupt();

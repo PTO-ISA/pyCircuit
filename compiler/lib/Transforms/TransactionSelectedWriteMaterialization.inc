@@ -70,13 +70,13 @@
     if (failed(index)) return failure();
     SmallVector<Value> tables{table};
     for (Value value : {*index, rhs, result.rawPath}) {
-      Type type = ac::TableType::get(builder.getContext(), domain.table.getShape(), value.getType());
-      auto splat = make(builder, ac::TableSplatOp::getOperationName(), {value}, {type},
+      Type type = ac::ArrayType::get(builder.getContext(), domain.table.getShape(), value.getType());
+      auto splat = make(builder, ac::ArraySplatOp::getOperationName(), {value}, {type},
                         {builder.getNamedAttr("shape", domain.table.getShape())});
       if (failed(splat)) return failure();
       tables.push_back((*splat)->getResult(0));
     }
-    auto mapped = make(builder, ac::TableMapOp::getOperationName(), tables,
+    auto mapped = make(builder, ac::ArrayMapOp::getOperationName(), tables,
         {domain.table, domain.maskType},
         {builder.getNamedAttr("shape", domain.table.getShape()),
          builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({4, 0}))}, 1);

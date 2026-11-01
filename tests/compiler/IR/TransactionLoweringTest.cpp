@@ -600,9 +600,9 @@ protected:
     auto shape = builder.getArrayAttr({yes.getValue()});
     llvm::SmallVector<mlir::Type> inputs, outputs;
     for (auto input : child.getFunctionType().getInputs())
-      inputs.push_back(TableType::get(&context, shape, input));
+      inputs.push_back(ArrayType::get(&context, shape, input));
     for (auto output : child.getFunctionType().getResults())
-      outputs.push_back(TableType::get(&context, shape, output));
+      outputs.push_back(ArrayType::get(&context, shape, output));
     grouped->setAttr(
         "function_type",
         mlir::TypeAttr::get(builder.getFunctionType(inputs, outputs)));
@@ -667,7 +667,7 @@ protected:
               mlir::cast<MathIntAttr>(*literal).getCanonicalValue().str());
         }
       }
-      if (mlir::isa<TableSplatOp, TableFoldOp>(op))
+      if (mlir::isa<ArraySplatOp, ArrayFoldOp>(op))
         return evaluate(file, op->getOperand(0), scope, seed);
       if (mlir::isa<StructCreateOp>(op)) {
         EXPECT_EQ(op->getNumOperands(), 1u);
@@ -970,10 +970,10 @@ protected:
                        named<SourceTransactionOp>(file, "run")
                            .getBody().front().getArgument(1).getType())
                        .getWidth();
-      auto type = TableType::get(&context, builder.getArrayAttr({width}),
+      auto type = ArrayType::get(&context, builder.getArrayAttr({width}),
                                  values[0].getType());
       for (auto &value : values) {
-        value = make(TableSplatOp::getOperationName(), value, type);
+        value = make(ArraySplatOp::getOperationName(), value, type);
         value.getDefiningOp()->setAttr("shape", type.getShape());
       }
     }
@@ -1395,7 +1395,7 @@ TEST_F(TransactionLoweringTest,
     auto dataField = mlir::cast<mlir::DictionaryAttr>(fields[0]);
     auto byte = dataField.getAs<mlir::TypeAttr>("type").getValue();
     auto shape = builder.getArrayAttr({mlir::cast<BitsType>(byte).getWidth()});
-    auto table = TableType::get(&context, shape, byte);
+    auto table = ArrayType::get(&context, shape, byte);
     mlir::NamedAttrList changed(dataField);
     changed.set("type", mlir::TypeAttr::get(table));
     inner->setAttr("fields", builder.getArrayAttr(
@@ -1409,7 +1409,7 @@ TEST_F(TransactionLoweringTest,
     ASSERT_FALSE(creates.empty());
     for (auto create : creates) {
       builder.setInsertionPoint(create);
-      mlir::OperationState splat(create.getLoc(), TableSplatOp::getOperationName());
+      mlir::OperationState splat(create.getLoc(), ArraySplatOp::getOperationName());
       splat.addOperands(create->getOperand(0));
       splat.addTypes(table);
       splat.addAttribute("shape", shape);
@@ -1521,17 +1521,17 @@ TEST_F(TransactionLoweringTest,
                                                  "compiler", "compiler"}));
     builder.setInsertionPoint(body.getTerminator());
     auto shape = builder.getArrayAttr({literal(2)});
-    auto table = TableType::get(&context, shape, byte);
+    auto table = ArrayType::get(&context, shape, byte);
     auto seven = number(7, byte), nine = number(9, byte);
-    mlir::Value base = make(TableCreateOp::getOperationName(), {seven, nine},
+    mlir::Value base = make(ArrayCreateOp::getOperationName(), {seven, nine},
                             {table})->getResult(0);
-    mlir::OperationState mapState(run.getLoc(), TableMapOp::getOperationName());
+    mlir::OperationState mapState(run.getLoc(), ArrayMapOp::getOperationName());
     mapState.addOperands({base, run->getResult(0), body.getArgument(2)});
     mapState.addTypes(table);
     mapState.addAttribute("shape", shape);
     mapState.addAttribute("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 2}));
     mapState.addRegion();
-    auto map = mlir::cast<TableMapOp>(builder.create(mapState));
+    auto map = mlir::cast<ArrayMapOp>(builder.create(mapState));
     auto *row = new mlir::Block;
     map.getBody().push_back(row);
     for (auto type : {bit, byte, byte, bit})
@@ -1565,12 +1565,12 @@ TEST_F(TransactionLoweringTest,
                  {builder.getNamedAttr("name", builder.getStringAttr("t")),
                   builder.getNamedAttr("type", mlir::TypeAttr::get(table))})}))});
       }
-      auto inside = make(TableSplatOp::getOperationName(), {run->getResult(0)},
+      auto inside = make(ArraySplatOp::getOperationName(), {run->getResult(0)},
           {table}, {builder.getNamedAttr("shape", shape)})->getResult(0);
       auto record = make(StructCreateOp::getOperationName(), {inside},
                          {nestedRecord})->getResult(0);
-      mergedType = TableType::get(&context, shape, nestedRecord);
-      candidateValue = make(TableSplatOp::getOperationName(), {record},
+      mergedType = ArrayType::get(&context, shape, nestedRecord);
+      candidateValue = make(ArraySplatOp::getOperationName(), {record},
           {mergedType}, {builder.getNamedAttr("shape", shape)})->getResult(0);
       base = candidateValue;
       mergeGuard = body.getArgument(2);
@@ -1598,7 +1598,7 @@ TEST_F(TransactionLoweringTest,
         if (region == 0) {
           yield(gate, run.getLoc());
         } else {
-          auto total = make(TableCreateOp::getOperationName(),
+          auto total = make(ArrayCreateOp::getOperationName(),
                             {number(7, byte), number(9, byte)}, {table});
           yield(total->getResults(), run.getLoc());
         }
@@ -1606,7 +1606,7 @@ TEST_F(TransactionLoweringTest,
       builder.setInsertionPoint(body.getTerminator());
       // This base is deliberately not row-uniform. A whole-arm fold or loss
       // of the sampled producer fire must not prove the selected row formula.
-      base = make(TableCreateOp::getOperationName(), {run->getResult(0), nine},
+      base = make(ArrayCreateOp::getOperationName(), {run->getResult(0), nine},
                   {table})->getResult(0);
       candidateValue = producer.getResult(0);
       mergeGuard = body.getArgument(2);
@@ -1615,14 +1615,14 @@ TEST_F(TransactionLoweringTest,
         {base, mergeGuard, candidateValue}, {mergedType, bit},
         {builder.getNamedAttr("paths", builder.getArrayAttr({builder.getArrayAttr({})})),
          builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))});
-    auto readType = mlir::cast<TableType>(mergedType).getElementType();
-    auto read = make(TableGetOp::getOperationName(),
+    auto readType = mlir::cast<ArrayType>(mergedType).getElementType();
+    auto read = make(ArrayGetOp::getOperationName(),
         {merged->getResult(0), number(0, bit)}, {readType, bit});
     mlir::Value result = read->getResult(0);
     if (uniformZero) {
       auto inner = make(StructGetOp::getOperationName(), {result}, {table},
           {builder.getNamedAttr("field", builder.getStringAttr("t"))})->getResult(0);
-      result = make(TableGetOp::getOperationName(), {inner, number(0, bit)},
+      result = make(ArrayGetOp::getOperationName(), {inner, number(0, bit)},
                     {byte, bit})->getResult(0);
     }
     if (sampledTable) {
@@ -1650,10 +1650,10 @@ TEST_F(TransactionLoweringTest,
       return acir::detail::materializeTransactionLowering(*prepared, materializeBudget);
     });
     ASSERT_TRUE(mlir::succeeded(candidate)) << diagnostics;
-    TableGetOp companion;
+    ArrayGetOp companion;
     for (auto *operation : candidate->availabilityOperations)
-      if (auto get = mlir::dyn_cast<TableGetOp>(operation);
-          get && get.getInput().getDefiningOp<TableMapOp>()) {
+      if (auto get = mlir::dyn_cast<ArrayGetOp>(operation);
+          get && get.getInput().getDefiningOp<ArrayMapOp>()) {
         ASSERT_FALSE(companion);
         companion = get;
       }
@@ -1767,7 +1767,7 @@ TEST_F(TransactionLoweringTest,
       auto constant =
           *owner(*file).getBody().front().getOps<BitsConstantOp>().begin();
       invalid =
-          TableType::get(&context, builder.getArrayAttr({constant.getValue()}),
+          ArrayType::get(&context, builder.getArrayAttr({constant.getValue()}),
                          row.getAs<mlir::TypeAttr>("type").getValue());
     }
     if (mutation == 4) {
@@ -1973,14 +1973,14 @@ TEST_F(TransactionLoweringTest,
   auto one = (*owner(*file).getBody().front().getOps<BitsConstantOp>().begin())
                  .getValue();
   auto shape = builder.getArrayAttr({one});
-  auto table = TableType::get(&context, shape, next.getResult().getType());
+  auto table = ArrayType::get(&context, shape, next.getResult().getType());
   builder.setInsertionPoint(next->getNextNode());
-  mlir::OperationState splat(next.getLoc(), TableSplatOp::getOperationName());
+  mlir::OperationState splat(next.getLoc(), ArraySplatOp::getOperationName());
   splat.addOperands(next.getResult());
   splat.addTypes(table);
   splat.addAttribute("shape", shape);
   auto *input = builder.create(splat);
-  mlir::OperationState map(next.getLoc(), TableMapOp::getOperationName());
+  mlir::OperationState map(next.getLoc(), ArrayMapOp::getOperationName());
   map.addOperands(input->getResults());
   map.addTypes(table);
   map.addAttribute("shape", shape);
@@ -2004,7 +2004,7 @@ TEST_F(TransactionLoweringTest,
   // The unused map still requires valid complete region/SSA cloning.
   ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
   unsigned maps = 0;
-  named<RuleOp>(*file, "run")->walk([&](TableMapOp op) {
+  named<RuleOp>(*file, "run")->walk([&](ArrayMapOp op) {
     ++maps;
     auto &block = op->getRegion(0).front();
     auto computation = *block.getOps<BitsBinaryOp>().begin();
@@ -2027,14 +2027,14 @@ TEST_F(TransactionLoweringTest,
   auto one = (*owner(*file).getBody().front().getOps<BitsConstantOp>().begin())
                  .getValue();
   auto shape = builder.getArrayAttr({one});
-  auto table = TableType::get(&context, shape, next.getResult().getType());
+  auto table = ArrayType::get(&context, shape, next.getResult().getType());
   builder.setInsertionPoint(next->getNextNode());
-  mlir::OperationState splat(next.getLoc(), TableSplatOp::getOperationName());
+  mlir::OperationState splat(next.getLoc(), ArraySplatOp::getOperationName());
   splat.addOperands(next.getResult());
   splat.addTypes(table);
   splat.addAttribute("shape", shape);
   auto *input = builder.create(splat);
-  mlir::OperationState map(next.getLoc(), TableMapOp::getOperationName());
+  mlir::OperationState map(next.getLoc(), ArrayMapOp::getOperationName());
   map.addOperands(input->getResults());
   map.addTypes(table);
   map.addAttribute("shape", shape);
@@ -2732,10 +2732,10 @@ TEST_F(TransactionLoweringTest, WholeTableOwnerUsesTypedStorageCollection) {
   auto one = (*definition.getBody().front().getOps<BitsConstantOp>().begin())
                  .getValue();
   auto shape = builder.getArrayAttr({one});
-  auto table = TableType::get(&context, shape, exemplar.getQ().getType());
+  auto table = ArrayType::get(&context, shape, exemplar.getQ().getType());
   builder.setInsertionPoint(definition.getBody().front().getTerminator());
   mlir::OperationState initial(definition.getLoc(),
-                               TableSplatOp::getOperationName());
+                               ArraySplatOp::getOperationName());
   initial.addOperands(exemplar.getInitial());
   initial.addTypes(table);
   initial.addAttribute("shape", shape);
@@ -2761,7 +2761,7 @@ TEST_F(TransactionLoweringTest, WholeTableOwnerUsesTypedStorageCollection) {
   EXPECT_EQ(storage.getResult(0).getType(), table);
   ASSERT_EQ(storage->getNumOperands(), 5u);
   for (unsigned index = 0; index < 3; ++index) {
-    auto control = storage->getOperand(index).getDefiningOp<TableSplatOp>();
+    auto control = storage->getOperand(index).getDefiningOp<ArraySplatOp>();
     ASSERT_TRUE(control);
     EXPECT_EQ(control.getShape(), shape);
   }
@@ -3392,7 +3392,7 @@ TEST_F(TransactionLoweringTest,
     auto one = *constants.begin();
     inputs[layout->sourceInputCount] =
         aggregate
-            ? mlir::Type(TableType::get(&context,
+            ? mlir::Type(ArrayType::get(&context,
                                         builder.getArrayAttr({one.getValue()}),
                                         inputs[layout->sourceInputCount]))
             : mlir::Type(BitsType::get(&context, zero.getValue()));
@@ -3422,11 +3422,11 @@ TEST_F(TransactionLoweringTest,
   auto bump = named<SourceMethodOp>(provider, "bump");
   auto one = *provider.getBody().front().getOps<BitsConstantOp>().begin();
   auto shape = builder.getArrayAttr({one.getValue()});
-  auto table = TableType::get(
+  auto table = ArrayType::get(
       &context, shape, provider.getBody().front().getArgument(0).getType());
   builder.setInsertionPoint(bump);
   mlir::OperationState splat(provider.getLoc(),
-                             TableSplatOp::getOperationName());
+                             ArraySplatOp::getOperationName());
   splat.addOperands(provider.getBody().front().getArgument(0));
   splat.addTypes(table);
   splat.addAttribute("shape", shape);
@@ -3438,7 +3438,7 @@ TEST_F(TransactionLoweringTest,
     region.front().addArgument(table, bump.getLoc());
   auto step = *bump.getBody().front().getOps<BitsBinaryOp>().begin();
   builder.setInsertionPoint(step);
-  mlir::OperationState fold(provider.getLoc(), TableFoldOp::getOperationName());
+  mlir::OperationState fold(provider.getLoc(), ArrayFoldOp::getOperationName());
   fold.addOperands(bump.getBody().front().getArguments().back());
   fold.addTypes(provider.getFunctionType().getInput(0));
   fold.addAttribute("kind", builder.getStringAttr("xor"));

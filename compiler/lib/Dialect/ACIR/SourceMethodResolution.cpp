@@ -886,7 +886,7 @@ LogicalResult concreteRelativeMethod(const SourceMethodView &method,
       return site->emitOpError() << "relative Method signature requires a concrete type without provider defaults";
     if (auto bits = dyn_cast<BitsType>(value)) {
       if (failed(attribute(bits.getWidth(), depth + 1))) return failure();
-    } else if (auto table = dyn_cast<TableType>(value)) {
+    } else if (auto table = dyn_cast<ArrayType>(value)) {
       if (failed(attribute(table.getShape(), depth + 1)) ||
           failed(type(table.getElementType(), depth + 1))) return failure();
     } else if (auto record = dyn_cast<StructType>(value)) {

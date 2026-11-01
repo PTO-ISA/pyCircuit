@@ -31,8 +31,8 @@ const char *types = R"mlir(
 !b1 = !ac.bits<#w1>
 !b2 = !ac.bits<#w2>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 )mlir";
 
 std::string module(StringRef name, StringRef body, StringRef signature,
@@ -222,13 +222,13 @@ TEST_F(SourceInterfacePassTest,
   auto unit = parse(
       child() + module("Tables",
                        R"mlir(^bb0(%lanes: !lanes, %bias: !b8, %unused: !b8):
-    %mapped = "ac.table.map"(%lanes, %bias) ({
+    %mapped = "ac.array.map"(%lanes, %bias) ({
     ^bb0(%ordinal: !b2, %element: !b8, %capture: !b8):
       %value = "ac.bits.binary"(%element, %capture) {opcode = "xor"} : (!b8, !b8) -> !b8
       "ac.yield"(%value) : (!b8) -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 1>} : (!lanes, !b8) -> !lanes
     %children = "ac.collection"(%mapped) {instance_name = "lanes", callee = @unit.Child, parameters = [], type_arguments = [], shape = [#w3], occurrence = {site = {definition = @unit.Tables, ast_path = []}, expansion = []}} : (!lanes) -> !lanes
-    %reduced = "ac.table.fold"(%children) {kind = "xor"} : (!lanes) -> !b8
+    %reduced = "ac.array.fold"(%children) {kind = "xor"} : (!lanes) -> !b8
     "ac.yield"(%children, %reduced) : (!lanes, !b8) -> ()
   )mlir",
                        "(!lanes, !b8, !b8) -> (!lanes, !b8)",
@@ -257,11 +257,11 @@ TEST_F(SourceInterfacePassTest,
        SymbolicTableShapeDefaultAndTypeFormalCopyExactly) {
   auto unit = parse(module(
       "Generic",
-      R"mlir(^bb0(%x: !ac.table<[#n], !ac.type_param<@unit.Generic, "T">>):
-    "ac.yield"(%x) : (!ac.table<[#n], !ac.type_param<@unit.Generic, "T">>) -> ()
+      R"mlir(^bb0(%x: !ac.array<[#n], !ac.type_param<@unit.Generic, "T">>):
+    "ac.yield"(%x) : (!ac.array<[#n], !ac.type_param<@unit.Generic, "T">>) -> ()
   )mlir",
-      "(!ac.table<[#n], !ac.type_param<@unit.Generic, \"T\">>) -> "
-      "!ac.table<[#n], !ac.type_param<@unit.Generic, \"T\">>",
+      "(!ac.array<[#n], !ac.type_param<@unit.Generic, \"T\">>) -> "
+      "!ac.array<[#n], !ac.type_param<@unit.Generic, \"T\">>",
       "[\"x\"]", "[\"y\"]",
       "[{name = \"N\", type = !ac.math_int, default = #w3}]", "[\"T\"]"));
   ASSERT_TRUE(unit);

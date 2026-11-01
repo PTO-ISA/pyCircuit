@@ -189,6 +189,7 @@ private:
     Value root;
     Type type;
     SmallVector<Attribute> fields;
+    SmallVector<Type> fieldTypes;
     ac::StaticExprAttr low, high;
     bool state = false;
   };
@@ -454,6 +455,18 @@ private:
 
 FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
                                                    StringRef definition) {
+  if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
+      node.child("func").string("id") == "len" && activeScope &&
+      !activeScope->bindings.count("len") && !names.count("len") &&
+      node.array("args").size() == 1 && node.array("keywords").empty()) {
+    auto values = expression(node.item("args", 0), *activeScope);
+    if (failed(values) || values->size() != 1)
+      return failure();
+    if (auto table = dyn_cast<ac::TableType>(values->front().getType()))
+      return table.getCapacity();
+    (void)fail(node, "len requires a component Table");
+    return failure();
+  }
   auto wrap = [&](StringRef kind, ArrayRef<NamedAttribute> payload) {
     SmallVector<NamedAttribute> fields{
         b.getNamedAttr("kind", b.getStringAttr(kind))};
@@ -555,6 +568,15 @@ FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
 
 bool Importer::isStaticExpression(const AstNode &node, const Scope &scope,
                                   bool mathematical) {
+  if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
+      node.child("func").string("id") == "len" &&
+      !scope.bindings.count("len") && !names.count("len") &&
+      node.array("args").size() == 1 && node.array("keywords").empty() &&
+      node.item("args", 0).kind() == "Name") {
+    auto found = scope.bindings.find(node.item("args", 0).string("id").str());
+    return found != scope.bindings.end() &&
+           isa_and_nonnull<ac::TableType>(found->second.type());
+  }
   if (integer(node)) {
     if (mathematical) {
       if (node.kind() == "Constant" && isa_and_nonnull<BoolAttr>(node.get("value")))
@@ -660,6 +682,32 @@ Type Importer::annotation(const AstNode &node, StringRef definition) {
   if (node.kind() == "Subscript" && marker(node.child("value"), "queue")) {
     auto data = annotation(node.child("slice"), definition);
     return data ? resource(data, "queue") : Type();
+  }
+  if (node.kind() == "Subscript" && marker(node.child("value"), "table")) {
+    auto arguments = node.child("slice");
+    if (arguments.kind() != "Tuple" || arguments.array("elts").size() != 2) {
+      (void)fail(node, "Table requires a capacity and an element type");
+      return {};
+    }
+    auto capacity = staticExpr(arguments.item("elts", 0), definition);
+    if (failed(capacity))
+      return {};
+    auto elementSyntax = arguments.item("elts", 1);
+    Type element;
+    if (auto binding = resolve(elementSyntax); binding && binding->symbol &&
+        (declarations.count(binding->remote) ||
+         isa_and_nonnull<ac::ModuleImportOp>(binding->declaration))) {
+      if (declarations.count(binding->remote) &&
+          failed(lower(*declarations.at(binding->remote))))
+        return {};
+      element = ac::ModuleRefType::get(b.getContext(), binding->symbol);
+    } else {
+      Type data = annotation(elementSyntax, definition);
+      if (!data)
+        return {};
+      element = resource(data, "state");
+    }
+    return ac::TableType::get(b.getContext(), *capacity, element);
   }
   if (node.kind() == "Subscript" && marker(node.child("value"), "bits")) {
     auto width = staticExpr(node.child("slice"), definition);
@@ -1140,7 +1188,7 @@ LogicalResult Importer::nominals() {
 
 FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   result->getOperation()->setAttr("ac.transactional", b.getI64IntegerAttr(2));
-  result->getOperation()->setAttr("ac.source_contract", b.getI64IntegerAttr(4));
+  result->getOperation()->setAttr("ac.source_contract", b.getI64IntegerAttr(5));
   result->getOperation()->setAttr("ac.stage", b.getStringAttr("unlinked"));
   result->getOperation()->setAttr("ac.unit_kind",
                                   b.getStringAttr("implementation"));

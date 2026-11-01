@@ -6,7 +6,7 @@
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -38,7 +38,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -70,7 +70,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -102,7 +102,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -134,7 +134,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -166,7 +166,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -198,7 +198,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -231,7 +231,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
@@ -263,7 +263,7 @@ module {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
 #span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}

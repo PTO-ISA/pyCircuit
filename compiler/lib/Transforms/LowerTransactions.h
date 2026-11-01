@@ -125,7 +125,7 @@ struct TransactionWriteDomain {
   ac::StateWriteId write = 0;
   uint64_t candidate = 0, result = 0;
   mlir::ArrayAttr selectors, prefix, suffix;
-  ac::TableType table;
+  ac::ArrayType table;
   std::optional<ac::BoundValueId> index;
   mlir::Type maskType;
 };

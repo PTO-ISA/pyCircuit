@@ -99,8 +99,8 @@ private:
       os << "!ac.primitive<";
       type(primitive.getPayload());
       os << '>';
-    } else if (auto table = dyn_cast<TableType>(t)) {
-      os << "!ac.table<";
+    } else if (auto table = dyn_cast<ArrayType>(t)) {
+      os << "!ac.array<";
       attribute(table.getShape());
       os << ", ";
       type(table.getElementType());

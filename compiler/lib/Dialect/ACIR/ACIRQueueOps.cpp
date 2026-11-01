@@ -51,8 +51,8 @@ FailureOr<ResolvedQueueConfig> checkQueueConfiguration(
   syntax = [&](Type type) -> LogicalResult {
     if (auto bits = dyn_cast<BitsType>(type))
       return BitsType::verify(error, bits.getWidth());
-    if (auto table = dyn_cast<TableType>(type)) {
-      if (failed(TableType::verify(error, table.getShape(),
+    if (auto table = dyn_cast<ArrayType>(type)) {
+      if (failed(ArrayType::verify(error, table.getShape(),
                                    table.getElementType())))
         return failure();
       return syntax(table.getElementType());
@@ -152,8 +152,8 @@ FailureOr<ResolvedQueueConfig> checkQueueConfiguration(
         return error() << "queue payload requires a resolved finite type";
       return false;
     }
-    if (auto table = dyn_cast<TableType>(*resolved)) {
-      if (failed(TableType::verify(error, table.getShape(),
+    if (auto table = dyn_cast<ArrayType>(*resolved)) {
+      if (failed(ArrayType::verify(error, table.getShape(),
                                    table.getElementType())))
         return failure();
       bool shapeClosed = analysis.isStaticEvaluable(table.getShape(), bindings);
@@ -214,7 +214,7 @@ FailureOr<ResolvedQueueConfig> checkQueueConfiguration(
   config.packedWidth = *width;
   config.tokenCardinality = 1;
   Type element = *input;
-  while (auto table = dyn_cast<TableType>(element)) {
+  while (auto table = dyn_cast<ArrayType>(element)) {
     auto shape = analysis.getTableShape(table, bindings, queue);
     if (failed(shape))
       return failure();

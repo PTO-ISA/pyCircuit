@@ -20,6 +20,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <functional>
@@ -55,10 +56,224 @@ class ReferenceLinker {
     return success();
   }
   llvm::DenseSet<Operation *> expanding;
+  llvm::DenseSet<Operation *> tableInstances;
   llvm::DenseSet<std::pair<unsigned, Value>> resolving;
 
   Operation *lookup(StringRef name) {
     return SymbolTable::lookupSymbolIn(package, name);
+  }
+  FailureOr<uint64_t> tableCapacity(ac::TableType type, Operation *site,
+                                    const ac::HardwareBindings &bindings) {
+    auto evaluated = hardware.evaluateStatic(type.getCapacity(), bindings, site);
+    auto integer = succeeded(evaluated) ? dyn_cast<ac::MathIntAttr>(*evaluated)
+                                        : ac::MathIntAttr();
+    if (!integer) return site->emitOpError("Table capacity requires a static Integer");
+    llvm::APSInt value(integer.getCanonicalValue());
+    if (value.isNegative() || value.isZero() || value.getActiveBits() > 63)
+      return site->emitOpError("Table capacity requires a positive i64");
+    return value.getZExtValue();
+  }
+  FailureOr<SmallVector<Value>> tableMembers(unsigned owner, Value value,
+                                            unsigned depth = 0) {
+    if (depth >= 128) return failure();
+    if (auto create = value.getDefiningOp<ac::TableCreateOp>())
+      return SmallVector<Value>(create.getMembers());
+    auto arg = dyn_cast<BlockArgument>(value);
+    if (!arg) return failure();
+    auto *scope = arg.getOwner()->getParentOp();
+    if (scope == instances[owner].linked) {
+      auto &instance = instances[owner];
+      if (instance.parent == NoParent ||
+          arg.getArgNumber() >= instance.allocation.getNumOperands())
+        return failure();
+      return tableMembers(instance.parent,
+          instance.allocation.getOperand(arg.getArgNumber()), depth + 1);
+    }
+    if (isa<ac::TransactionRuleOp, ac::TransactionMethodOp>(scope)) {
+      auto sig = cast<FunctionType>(scope->getAttrOfType<TypeAttr>("function_type").getValue());
+      unsigned offset = sig.getNumInputs();
+      if (isa<ac::TransactionRuleOp>(scope)) offset += sig.getNumResults();
+      if (arg.getArgNumber() >= offset && arg.getArgNumber() - offset < scope->getNumOperands())
+        return tableMembers(owner, scope->getOperand(arg.getArgNumber() - offset), depth + 1);
+    }
+    return failure();
+  }
+  std::optional<llvm::APSInt> constantTableIndex(Value value, unsigned owner,
+                                                Operation *site, unsigned depth = 0) {
+    if (depth >= 128) return std::nullopt;
+    if (auto constant = value.getDefiningOp<ac::BitsConstantOp>()) {
+      auto evaluated = hardware.evaluateStatic(constant.getValue(), instances[owner].bindings, site);
+      auto number = succeeded(evaluated) ? dyn_cast<ac::MathIntAttr>(*evaluated) : ac::MathIntAttr();
+      if (number) return llvm::APSInt(number.getCanonicalValue());
+    }
+    auto pending = value.getDefiningOp<ac::PendingExprOp>();
+    if (!pending) return std::nullopt;
+    if (pending.getKind() == "literal") {
+      auto number = pending->getAttrOfType<ac::MathIntAttr>("number");
+      if (number) return llvm::APSInt(number.getCanonicalValue());
+      if (auto expression = pending->getAttrOfType<ac::StaticExprAttr>("number")) {
+        auto evaluated = hardware.evaluateStatic(expression, instances[owner].bindings, site);
+        if (succeeded(evaluated))
+          if (auto integer = dyn_cast<ac::MathIntAttr>(*evaluated))
+            return llvm::APSInt(integer.getCanonicalValue());
+      }
+    }
+    if (pending.getKind() == "convert" && pending.getNumOperands() == 1) {
+      auto number = constantTableIndex(pending.getOperand(0), owner, site, depth + 1);
+      if (!number) return std::nullopt;
+      if (isa<ac::InferType>(pending.getResult().getType())) return number;
+      if (!isa<ac::BitsType>(pending.getResult().getType())) return std::nullopt;
+      auto width = hardware.getPackedWidth(pending.getResult().getType(), instances[owner].bindings, site);
+      if (succeeded(width) && !number->isNegative() && number->getActiveBits() <= *width)
+        return number;
+    }
+    return std::nullopt;
+  }
+  LogicalResult expandTables(unsigned owner) {
+    auto module = instances[owner].linked;
+    SmallVector<ac::TableAllocOp> allocations;
+    module.walk([&](ac::TableAllocOp op) { allocations.push_back(op); });
+    llvm::StringSet<> names;
+    for (Operation &operation : module.getBody().front())
+      if (auto name = operation.getAttrOfType<StringAttr>("instance_name"))
+        names.insert(name.getValue());
+    auto uniqueName = [&](std::string base) {
+      std::string name = base;
+      for (uint64_t suffix = 1; !names.insert(name).second; ++suffix)
+        name = base + "__" + std::to_string(suffix);
+      return name;
+    };
+    for (auto allocation : allocations) {
+      auto type = allocation.getResult().getType();
+      auto count = tableCapacity(type, allocation, instances[owner].bindings);
+      if (failed(count) || failed(debit(succeeded(count) ? *count : 0, allocation)))
+        return failure();
+      if ((allocation.getInitialImage() || allocation.getInitial().size() > 1) &&
+          allocation.getInitial().size() != *count)
+        return allocation.emitOpError("Table initializer image must cover its capacity");
+      OpBuilder b(allocation);
+      SmallVector<Value> members;
+      for (uint64_t i = 0; i < *count; ++i) {
+        std::string name = uniqueName(allocation.getInstanceName().str() +
+                                      "__table_" + std::to_string(i));
+        auto origin = allocation->getAttrOfType<DictionaryAttr>("ac.origin");
+        if (!origin) origin = allocation->getAttrOfType<DictionaryAttr>("occurrence");
+        DictionaryAttr memberOrigin;
+        if (origin) {
+          SmallVector<Attribute> frames(origin.getAs<ArrayAttr>("expansion").getValue());
+          frames.push_back(b.getDictionaryAttr({
+              b.getNamedAttr("kind", b.getStringAttr("iteration")),
+              b.getNamedAttr("site", origin.getAs<DictionaryAttr>("site")),
+              b.getNamedAttr("ordinal", b.getI64IntegerAttr(i)),
+              b.getNamedAttr("value", b.getDictionaryAttr({
+                  b.getNamedAttr("kind", b.getStringAttr("integer")),
+                  b.getNamedAttr("value", ac::MathIntAttr::get(package.getContext(),
+                      llvm::APSInt(llvm::APInt(64, i), true)))}))}));
+          memberOrigin = b.getDictionaryAttr({
+              b.getNamedAttr("site", origin.getAs<DictionaryAttr>("site")),
+              b.getNamedAttr("expansion", b.getArrayAttr(frames))});
+        }
+        if (auto state = dyn_cast<ac::StateType>(type.getElementType())) {
+          OperationState member(allocation.getLoc(), "ac.resource.alloc");
+          member.addTypes(state);
+          member.addAttribute("instance_name", b.getStringAttr(name));
+          if (memberOrigin) member.addAttribute("ac.origin", memberOrigin);
+          if (!allocation.getInitial().empty())
+            member.addOperands(allocation.getInitial()[allocation.getInitial().size() == 1 ? 0 : i]);
+          members.push_back(b.create(member)->getResult(0));
+        } else {
+          auto reference = cast<ac::ModuleRefType>(type.getElementType());
+          auto provider = dyn_cast_or_null<ac::ModuleOp>(lookup(reference.getModule().getValue()));
+          if (!provider || provider.getFunctionType().getNumInputs())
+            return allocation.emitOpError("Module Table allocation requires a provider without runtime inputs");
+          SmallVector<Value> boundOutputs;
+          auto outputKinds = provider.getOutputKindsAttr();
+          for (auto [output, raw] : llvm::enumerate(outputKinds)) {
+            if (cast<StringAttr>(raw).getValue() != "bound") continue;
+            Type type = provider.getFunctionType().getResult(output);
+            Type payload = isa<ac::PrimitiveType>(type) ? cast<ac::PrimitiveType>(type).getPayload()
+                           : isa<ac::StateType>(type) ? cast<ac::StateType>(type).getPayload()
+                                                     : cast<ac::QueueType>(type).getPayload();
+            OperationState connection(allocation.getLoc(), "ac.resource.connection");
+            connection.addTypes(ac::PrimitiveType::get(package.getContext(), payload));
+            connection.addAttribute("instance_name", b.getStringAttr(uniqueName(name + "__out_" + std::to_string(output))));
+            if (memberOrigin) connection.addAttribute("ac.origin", memberOrigin);
+            boundOutputs.push_back(b.create(connection)->getResult(0));
+          }
+          OperationState member(allocation.getLoc(), "ac.instance");
+          member.addTypes(provider.getFunctionType().getResults());
+          member.addOperands(boundOutputs);
+          member.addAttribute("bound_count", b.getI64IntegerAttr(boundOutputs.size()));
+          member.addAttribute("instance_name", b.getStringAttr(name));
+          member.addAttribute("callee", reference.getModule());
+          member.addAttribute("parameters", b.getArrayAttr({}));
+          member.addAttribute("type_arguments", b.getArrayAttr({}));
+          member.addAttribute("occurrence", memberOrigin ? memberOrigin : b.getDictionaryAttr({}));
+          if (memberOrigin) member.addAttribute("ac.origin", memberOrigin);
+          tableInstances.insert(b.create(member));
+          OperationState ref(allocation.getLoc(), "ac.instance.ref");
+          ref.addTypes(reference);
+          if (memberOrigin) ref.addAttribute("ac.origin", memberOrigin);
+          ref.addAttribute("instance_path", b.getStrArrayAttr({name}));
+          members.push_back(b.create(ref)->getResult(0));
+        }
+      }
+      OperationState create(allocation.getLoc(), "ac.table.create");
+      create.addTypes(type);
+      create.addOperands(members);
+      if (auto origin = allocation->getAttr("ac.origin")) create.addAttribute("ac.origin", origin);
+      allocation.getResult().replaceAllUsesWith(b.create(create)->getResult(0));
+      allocation.erase();
+    }
+    SmallVector<ac::TableSelectOp> selections;
+    module.walk([&](ac::TableSelectOp op) { selections.push_back(op); });
+    for (auto select : selections) {
+      auto number = constantTableIndex(select.getIndex(), owner, select);
+      if (!number) continue;
+      auto members = tableMembers(owner, select.getTable());
+      if (failed(members)) continue;
+      const auto &integer = *number;
+      if (integer.isNegative() || integer.getActiveBits() > 63 || integer.getZExtValue() >= members->size())
+        return select.emitOpError("Table index is outside its capacity");
+      Value member = (*members)[integer.getZExtValue()];
+      if (member.getParentRegion()->getParentOfType<ac::ModuleOp>() != module)
+        continue; // Cross-Module bindings must retain their local Table formal.
+      Operation *callable = select->getParentOp();
+      while (callable && !isa<ac::TransactionRuleOp, ac::TransactionMethodOp, ac::ModuleOp>(callable))
+        callable = callable->getParentOp();
+      if (callable && isa<ac::TransactionRuleOp, ac::TransactionMethodOp>(callable)) {
+        auto sig = cast<FunctionType>(callable->getAttrOfType<TypeAttr>("function_type").getValue());
+        unsigned offset = sig.getNumInputs();
+        if (isa<ac::TransactionRuleOp>(callable)) offset += sig.getNumResults();
+        unsigned capture = 0;
+        while (capture < callable->getNumOperands() && callable->getOperand(capture) != member)
+          ++capture;
+        if (capture == callable->getNumOperands()) {
+          callable->insertOperands(capture, member);
+          for (Region &region : callable->getRegions())
+            region.front().addArgument(member.getType(), select.getLoc());
+        }
+        Region *region = select->getParentRegion();
+        while (region->getParentOp() != callable) region = region->getParentRegion();
+        member = region->front().getArgument(offset + capture);
+      }
+      Value index = select.getIndex();
+      select.getResult().replaceAllUsesWith(member);
+      select.erase();
+      while (auto pending = index.getDefiningOp<ac::PendingExprOp>()) {
+        if (pending.getKind() != "literal" && pending.getKind() != "convert") break;
+        // constantTableIndex proved this complete chain has no resource demand.
+        // Its evaluation markers must not keep an otherwise untyped literal alive.
+        for (Operation *user : llvm::make_early_inc_range(index.getUsers()))
+          if (isa<ac::PayloadUseOp>(user)) user->erase();
+        if (!index.use_empty()) break;
+        Value prior = pending.getNumOperands() == 1 ? pending.getOperand(0) : Value();
+        pending.erase();
+        if (!prior) break;
+        index = prior;
+      }
+    }
+    return success();
   }
   LogicalResult expand(ac::ModuleOp module, ac::InstanceOp allocation,
                        unsigned parent, ac::HardwareBindings bindings,
@@ -108,7 +323,22 @@ class ReferenceLinker {
       return failure();
     AttrTypeReplacer resolve;
     resolve.addReplacement([&](Type type) -> std::optional<Type> {
-      if (!isa<ac::BitsType, ac::TableType, ac::TypeParamType>(type))
+      if (auto table = dyn_cast<ac::TableType>(type)) {
+        auto value = hardware.evaluateStatic(table.getCapacity(), instances[id].bindings,
+                                             instances[id].original);
+        if (failed(value)) { failedType = true; return type; }
+        NamedAttrList tree;
+        tree.set("origin", table.getCapacity().getTree().get("origin"));
+        tree.set("location", table.getCapacity().getTree().get("location"));
+        tree.set("kind", builder.getStringAttr("literal"));
+        tree.set("value", builder.getDictionaryAttr({
+            builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+            builder.getNamedAttr("value", *value)}));
+        return ac::TableType::get(package.getContext(),
+            ac::StaticExprAttr::get(package.getContext(), tree.getDictionary(package.getContext())),
+            table.getElementType());
+      }
+      if (!isa<ac::BitsType, ac::ArrayType, ac::TypeParamType>(type))
         return std::nullopt;
       auto resolved = hardware.resolveType(type, instances[id].bindings,
                                            instances[id].original);
@@ -120,7 +350,7 @@ class ReferenceLinker {
     });
     resolve.recursivelyReplaceElementsIn(instances[id].linked, true, false,
                                          true);
-    if (failedType)
+    if (failedType || failed(expandTables(id)))
       return failure();
     for (auto allocation :
          instances[id].linked.getBody().front().getOps<ac::ResourceAllocOp>()) {
@@ -156,6 +386,19 @@ class ReferenceLinker {
       if (failed(childBindings) ||
           failed(expand(target, child, id, *childBindings)))
         return failure();
+      if (tableInstances.contains(child)) {
+        auto specialized = instances[childID].linked.getFunctionType();
+        unsigned bound = 0;
+        for (auto [output, result] : llvm::enumerate(child.getResults())) {
+          Type type = specialized.getResult(output);
+          result.setType(type);
+          if (cast<StringAttr>(target.getOutputKindsAttr()[output]).getValue() != "bound") continue;
+          Type payload = isa<ac::PrimitiveType>(type) ? cast<ac::PrimitiveType>(type).getPayload()
+                         : isa<ac::StateType>(type) ? cast<ac::StateType>(type).getPayload()
+                                                   : cast<ac::QueueType>(type).getPayload();
+          child.getOperand(bound++).setType(ac::PrimitiveType::get(package.getContext(), payload));
+        }
+      }
     }
     expanding.erase(module);
     return success();
@@ -192,6 +435,19 @@ class ReferenceLinker {
           return reference(
               owner, scope->getOperand(arg.getArgNumber() - explicitCount));
       }
+    }
+    if (auto selected = value.getDefiningOp<ac::TableSelectOp>()) {
+      auto members = tableMembers(owner, selected.getTable());
+      if (failed(members) || members->empty())
+        return selected.emitOpError("Table selection has no bound member closure");
+      // This lookup supplies the common provider interface only. The selection
+      // remains in Linked ACIR; common analysis retains every actual receiver.
+      Value representative = members->front();
+      auto declaration = representative.getParentRegion()->getParentOfType<ac::ModuleOp>();
+      for (auto [memberOwner, occurrence] : llvm::enumerate(instances))
+        if (occurrence.linked == declaration)
+          return reference(memberOwner, representative);
+      return selected.emitOpError("Table member has no actual Module owner");
     }
     if (auto ref = value.getDefiningOp<ac::InstanceRefOp>()) {
       unsigned target = owner;
@@ -309,6 +565,22 @@ public:
       });
       if (failedReference)
         return failure();
+      instance.linked.walk([&](Operation *op) {
+        auto rewriteTable = [&](Value value) {
+          auto table = dyn_cast<ac::TableType>(value.getType());
+          if (!table) return;
+          auto members = tableMembers(index, value);
+          if (failed(members) || members->empty()) { failedReference = true; return; }
+          value.setType(ac::TableType::get(package.getContext(), table.getCapacity(),
+                                           members->front().getType()));
+        };
+        for (Value value : op->getResults()) rewriteTable(value);
+        for (Region &region : op->getRegions())
+          for (Block &block : region)
+            for (BlockArgument argument : block.getArguments()) rewriteTable(argument);
+      });
+      if (failedReference)
+        return instance.linked.emitOpError("Table requires a statically bound member closure");
       SmallVector<Type> bodyInputs(
           instance.linked.getBody().front().getArgumentTypes());
       auto resolvedSignature = instance.linked.getFunctionType();
@@ -367,8 +639,8 @@ LogicalResult preflightSourceLinkPair(SourceLinkUnit unit, unsigned index,
   for (auto artifact : {unit.header, unit.body}) {
     auto contract = artifact->getAttrOfType<IntegerAttr>("ac.source_contract");
     if (!contract || !contract.getType().isSignlessInteger(64) ||
-        contract.getInt() != 4)
-      return emitError() << "source linking requires source contract 4; "
+        contract.getInt() != 5)
+      return emitError() << "source linking requires source contract 5; "
                             "regenerate this artifact";
   }
   auto headerOwner =

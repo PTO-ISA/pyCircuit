@@ -35,7 +35,7 @@ std::string preamble() {
 !wide = !ac.enum<"types.Wide">
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
-!table = !ac.table<[#w2, #w3], !outer>
+!table = !ac.array<[#w2, #w3], !outer>
 )mlir";
 }
 const char *declarations = R"mlir(
@@ -132,7 +132,7 @@ TEST_F(EnumHardwareAnalysisTest, NominalLeavesUseDeclaredWidthsAndFieldOrder) {
   for (unsigned i = 0; i < 4; ++i) EXPECT_EQ(names((*fields)[i]), expectedPaths[i]);
   auto shape = ArrayAttr::get(&context, {
       parseAttribute(literal(2), &context), parseAttribute(literal(3), &context)});
-  auto table = ac::TableType::get(&context, shape, outer);
+  auto table = ac::ArrayType::get(&context, shape, outer);
   auto packed = analysis.getLeaves(table, {}, *unit);
   ASSERT_TRUE(succeeded(packed)); ASSERT_EQ(packed->size(), 1u);
   EXPECT_EQ(packed->front().type, table); EXPECT_TRUE(packed->front().path.empty());
@@ -142,16 +142,16 @@ TEST_F(EnumHardwareAnalysisTest, NominalLeavesUseDeclaredWidthsAndFieldOrder) {
 TEST_F(EnumHardwareAnalysisTest, OneGenericDefinitionRetainsEachBindingIdentity) {
   auto unit = parse(R"mlir(
   "ac.module"() ({
-  ^bb0(%value: !ac.type_param<@forward, "T">, %lanes: !ac.table<[#w2], !ac.type_param<@forward, "T">>):
-    "ac.yield"(%value, %lanes) : (!ac.type_param<@forward, "T">, !ac.table<[#w2], !ac.type_param<@forward, "T">>) -> ()
-  }) {sym_name = "forward", source_owner = {package = "", path = "forward.py"}, parameters = [], type_parameters = ["T"], function_type = (!ac.type_param<@forward, "T">, !ac.table<[#w2], !ac.type_param<@forward, "T">>) -> (!ac.type_param<@forward, "T">, !ac.table<[#w2], !ac.type_param<@forward, "T">>), input_names = ["value", "lanes"], output_names = ["copy", "table_copy"]} : () -> ()
+  ^bb0(%value: !ac.type_param<@forward, "T">, %lanes: !ac.array<[#w2], !ac.type_param<@forward, "T">>):
+    "ac.yield"(%value, %lanes) : (!ac.type_param<@forward, "T">, !ac.array<[#w2], !ac.type_param<@forward, "T">>) -> ()
+  }) {sym_name = "forward", source_owner = {package = "", path = "forward.py"}, parameters = [], type_parameters = ["T"], function_type = (!ac.type_param<@forward, "T">, !ac.array<[#w2], !ac.type_param<@forward, "T">>) -> (!ac.type_param<@forward, "T">, !ac.array<[#w2], !ac.type_param<@forward, "T">>), input_names = ["value", "lanes"], output_names = ["copy", "table_copy"]} : () -> ()
   "ac.module"() ({
-  ^bb0(%a: !a, %b: !b, %wide: !wide, %ta: !ac.table<[#w2], !a>, %tb: !ac.table<[#w2], !b>, %tw: !ac.table<[#w2], !wide>):
-    %x, %x_table = "ac.instance"(%a, %ta) {instance_name = "x", callee = @forward, parameters = [], type_arguments = [!a], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!a, !ac.table<[#w2], !a>) -> (!a, !ac.table<[#w2], !a>)
-    %y, %y_table = "ac.instance"(%b, %tb) {instance_name = "y", callee = @forward, parameters = [], type_arguments = [!b], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b, !ac.table<[#w2], !b>) -> (!b, !ac.table<[#w2], !b>)
-    %z, %z_table = "ac.instance"(%wide, %tw) {instance_name = "z", callee = @forward, parameters = [], type_arguments = [!wide], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!wide, !ac.table<[#w2], !wide>) -> (!wide, !ac.table<[#w2], !wide>)
-    "ac.yield"(%x, %y, %z, %x_table, %y_table, %z_table) : (!a, !b, !wide, !ac.table<[#w2], !a>, !ac.table<[#w2], !b>, !ac.table<[#w2], !wide>) -> ()
-  }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !b, !wide, !ac.table<[#w2], !a>, !ac.table<[#w2], !b>, !ac.table<[#w2], !wide>) -> (!a, !b, !wide, !ac.table<[#w2], !a>, !ac.table<[#w2], !b>, !ac.table<[#w2], !wide>), input_names = ["a", "b", "wide", "ta", "tb", "tw"], output_names = ["x", "y", "z", "tx", "ty", "tz"]} : () -> ()
+  ^bb0(%a: !a, %b: !b, %wide: !wide, %ta: !ac.array<[#w2], !a>, %tb: !ac.array<[#w2], !b>, %tw: !ac.array<[#w2], !wide>):
+    %x, %x_table = "ac.instance"(%a, %ta) {instance_name = "x", callee = @forward, parameters = [], type_arguments = [!a], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!a, !ac.array<[#w2], !a>) -> (!a, !ac.array<[#w2], !a>)
+    %y, %y_table = "ac.instance"(%b, %tb) {instance_name = "y", callee = @forward, parameters = [], type_arguments = [!b], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b, !ac.array<[#w2], !b>) -> (!b, !ac.array<[#w2], !b>)
+    %z, %z_table = "ac.instance"(%wide, %tw) {instance_name = "z", callee = @forward, parameters = [], type_arguments = [!wide], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!wide, !ac.array<[#w2], !wide>) -> (!wide, !ac.array<[#w2], !wide>)
+    "ac.yield"(%x, %y, %z, %x_table, %y_table, %z_table) : (!a, !b, !wide, !ac.array<[#w2], !a>, !ac.array<[#w2], !b>, !ac.array<[#w2], !wide>) -> ()
+  }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !b, !wide, !ac.array<[#w2], !a>, !ac.array<[#w2], !b>, !ac.array<[#w2], !wide>) -> (!a, !b, !wide, !ac.array<[#w2], !a>, !ac.array<[#w2], !b>, !ac.array<[#w2], !wide>), input_names = ["a", "b", "wide", "ta", "tb", "tw"], output_names = ["x", "y", "z", "tx", "ty", "tz"]} : () -> ()
 )mlir"); ASSERT_TRUE(unit);
   ac::HardwareAnalysis analysis(*unit);
   auto forward = cast<ac::ModuleOp>(analysis.lookupDefinition("forward"));
@@ -173,7 +173,7 @@ TEST_F(EnumHardwareAnalysisTest, OneGenericDefinitionRetainsEachBindingIdentity)
     EXPECT_EQ(leaves->front().type, expected[i]);
     auto table = analysis.resolveType(forward.getFunctionType().getInput(1), *bound, forward);
     ASSERT_TRUE(succeeded(table));
-    EXPECT_EQ(cast<ac::TableType>(*table).getElementType(), expected[i]);
+    EXPECT_EQ(cast<ac::ArrayType>(*table).getElementType(), expected[i]);
     auto tableWidth = analysis.getPackedWidth(forward.getFunctionType().getInput(1), *bound, forward);
     ASSERT_TRUE(succeeded(tableWidth)); EXPECT_EQ(*tableWidth, widths[i] * 2);
   }

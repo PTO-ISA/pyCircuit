@@ -461,16 +461,16 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
       if (hardware.getPrimitiveKind(hardware.resolveCallee(collection)) ==
               "dffe" &&
           collection->getNumOperands() == 5 &&
-          isa<ac::TableType>(collection->getOperand(3).getType()))
+          isa<ac::ArrayType>(collection->getOperand(3).getType()))
         result = collection;
     });
     return result;
   }
-  ac::TableMapOp firstComposition(ac::CollectionOp storage) {
-    auto latest = storage->getOperand(3).getDefiningOp<ac::TableMapOp>();
+  ac::ArrayMapOp firstComposition(ac::CollectionOp storage) {
+    auto latest = storage->getOperand(3).getDefiningOp<ac::ArrayMapOp>();
     if (!latest || latest.getTables().empty())
       return {};
-    return latest.getTables()[0].getDefiningOp<ac::TableMapOp>();
+    return latest.getTables()[0].getDefiningOp<ac::ArrayMapOp>();
   }
   DictionaryAttr changed(DictionaryAttr row, StringRef key, Attribute value) {
     NamedAttrList fields(row);
@@ -745,7 +745,7 @@ TEST_F(HardwareWriteDomainsTest,
   auto domain = indexedDomain(*file);
   ASSERT_TRUE(domain.rule);
   EXPECT_EQ(domain.row.getAs<ArrayAttr>("selectors").size(), 2u);
-  auto map = domain.rawMask().getDefiningOp<ac::TableMapOp>();
+  auto map = domain.rawMask().getDefiningOp<ac::ArrayMapOp>();
   ASSERT_TRUE(map);
   EXPECT_EQ(map->getNumResults(), 2u);
   auto storage = tableStorage(*file);
@@ -796,7 +796,7 @@ TEST_F(HardwareWriteDomainsTest,
     OwningOpRef<ModuleOp> file(cast<ModuleOp>(original->clone()));
     auto domain = indexedDomain(*file);
     ASSERT_TRUE(domain.rule);
-    auto map = domain.rawMask().getDefiningOp<ac::TableMapOp>();
+    auto map = domain.rawMask().getDefiningOp<ac::ArrayMapOp>();
     ASSERT_TRUE(map);
     auto &body = map.getBody().front();
     auto yield = cast<ac::YieldOp>(body.getTerminator());
@@ -832,7 +832,7 @@ TEST_F(HardwareWriteDomainsTest,
   ASSERT_TRUE(succeeded(verifyFinal(*file))) << diagnostics;
   auto domain = indexedDomain(*file);
   ASSERT_TRUE(domain.rule);
-  auto map = domain.rawMask().getDefiningOp<ac::TableMapOp>();
+  auto map = domain.rawMask().getDefiningOp<ac::ArrayMapOp>();
   ASSERT_TRUE(map);
   auto &body = map.getBody().front();
   auto mask = cast<ac::YieldOp>(body.getTerminator())
@@ -906,7 +906,7 @@ TEST_F(HardwareWriteDomainsTest, UnorderedCommitRetainsPoisonFromEveryEnable) {
     OwningOpRef<ModuleOp> file(cast<ModuleOp>(original->clone()));
     auto storage = tableStorage(*file);
     ASSERT_TRUE(storage);
-    auto enables = storage->getOperand(2).getDefiningOp<ac::TableSplatOp>();
+    auto enables = storage->getOperand(2).getDefiningOp<ac::ArraySplatOp>();
     ASSERT_TRUE(enables);
     auto outer = enables.getInput().getDefiningOp<ac::BitsBinaryOp>();
     ASSERT_TRUE(outer);
@@ -933,11 +933,11 @@ TEST_F(HardwareWriteDomainsTest, PrivateMaskCannotGainAnUnrelatedPayloadUse) {
   auto domain = indexedDomain(*file);
   ASSERT_TRUE(domain.rule);
   auto parent = domain.rule->getParentOfType<ac::ModuleOp>();
-  auto table = cast<ac::TableType>(domain.mask().getType());
+  auto table = cast<ac::ArrayType>(domain.mask().getType());
   OpBuilder b(parent.getBody().front().getTerminator());
   auto index = constant(b, table.getElementType(), 0);
   OperationState state(domain.rule.getLoc(),
-                       ac::TableGetOp::getOperationName());
+                       ac::ArrayGetOp::getOperationName());
   state.addOperands({domain.mask(), index});
   state.addTypes({table.getElementType(), table.getElementType()});
   b.create(state);

@@ -24,7 +24,7 @@
         if (!selected) return site->emitOpError() << "selected write requires an actual owner field";
         current = selected;
       } else {
-        auto table = dyn_cast<TableType>(current);
+        auto table = dyn_cast<ArrayType>(current);
         auto ordinal = selector.getAs<IntegerAttr>("index");
         if (!table || !ordinal || ordinal.getInt() != nextIndex || nextIndex >= indices.size())
           return site->emitOpError() << "selected write requires sequential actual Table indices";
@@ -35,7 +35,7 @@
         auto shape = hardware.getTableShape(table, plan.instances[0].bindings, site);
         if (failed(shape) || shape->empty()) return failure();
         current = table.getShape().size() == 1 ? table.getElementType()
-            : Type(TableType::get(package.getContext(),
+            : Type(ArrayType::get(package.getContext(),
                 ArrayAttr::get(package.getContext(), table.getShape().getValue().drop_front()),
                 table.getElementType()));
         ++nextIndex;

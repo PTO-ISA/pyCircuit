@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
         if ((binary.getOpcode() == "udiv" || binary.getOpcode() == "urem") &&
             !knownNonzeroLiteral(binary.getRhs()))
           needsFourState = true;
-      if (isa<acir::ac::TableGetOp>(operation))
+      if (isa<acir::ac::ArrayGetOp>(operation))
         needsFourState = true;
       Operation *callee = nullptr;
       if (auto instance = dyn_cast<acir::ac::InstanceOp>(operation))

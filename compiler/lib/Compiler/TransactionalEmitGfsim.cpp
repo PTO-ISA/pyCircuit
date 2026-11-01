@@ -355,6 +355,14 @@ LogicalResult Emitter::schedule(ArrayRef<const Step *> sequence, unsigned owner,
   return success();
 }
 LogicalResult Emitter::run() {
+  auto tables = p.getPackage().walk([](Operation *op) {
+    if (isa<ac::TableAllocOp, ac::TableCreateOp, ac::TableSelectOp>(op)) {
+      op->emitError("t-gfsim does not yet support component Tables");
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (tables.wasInterrupted()) return failure();
   for (const auto &resource : p.getResources())
     if (!isa<ac::BitsType>(resource.getPayload()))
       return resource.allocation->emitError(

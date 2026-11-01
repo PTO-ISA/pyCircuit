@@ -36,7 +36,7 @@ std::string nativeFixture() {
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Child, ast_path = []}, expansion = []}, location = {path = "summary.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #span = {path = "summary.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
 #bit_constraint = {kind = "hardware", type = !b1, source_kind = "fixed_bits"}
 #byte_constraint = {kind = "hardware", type = !b8, source_kind = "fixed_bits"}
@@ -57,7 +57,7 @@ module {
     %yes = "ac.bits.constant"() {value = #w1} : () -> !b1
     %no = "ac.bits.constant"() {value = #w0} : () -> !b1
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
-    %initial_lanes = "ac.table.splat"(%initial) {shape = [#w2]} : (!b8) -> !lanes
+    %initial_lanes = "ac.array.splat"(%initial) {shape = [#w2]} : (!b8) -> !lanes
     %initial_packet = "ac.struct.create"(%initial_lanes) : (!lanes) -> !ac.struct<"Packet">
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #c0} : (!b1, !b1, !b8) -> !b8
     %packet_q = "ac.state"(%clk, %rst, %initial_packet) {instance_name = "packet", occurrence = #c1} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
@@ -382,9 +382,9 @@ protected:
       project.addAttribute("field", builder.getStringAttr("lanes"));
       auto value = builder.create(project)->getResult(0);
       mlir::OperationState element(method.getLoc(),
-                                   TableGetOp::getOperationName());
+                                   ArrayGetOp::getOperationName());
       element.addOperands({value, body.getArgument(1)});
-      element.addTypes({mlir::cast<TableType>(table).getElementType(),
+      element.addTypes({mlir::cast<ArrayType>(table).getElementType(),
                         body.getArgument(1).getType()});
       payload = builder.create(element)->getResult(0);
       selectors.push_back(builder.getDictionaryAttr(
@@ -1832,9 +1832,9 @@ TEST_F(MethodSummaryAuthorityTest,
   ASSERT_TRUE(tableDeclaration);
   auto originalFields = tableDeclaration.getFields();
   auto field = dict(originalFields[0]);
-  auto lanes = mlir::cast<TableType>(field.getAs<mlir::TypeAttr>("type").getValue());
+  auto lanes = mlir::cast<ArrayType>(field.getAs<mlir::TypeAttr>("type").getValue());
   auto missing = StructType::get(&context, builder.getStringAttr("MissingCell"));
-  auto invalidLanes = TableType::get(&context, lanes.getShape(), missing);
+  auto invalidLanes = ArrayType::get(&context, lanes.getShape(), missing);
   // Accepting Tables must continue resolving their nominal cell declarations;
   // an unknown foreign cell cannot hide behind a known Table-containing root.
   tableDeclaration->setAttr("fields", builder.getArrayAttr({changed(
@@ -2323,11 +2323,11 @@ TEST_F(MethodSummaryAuthorityTest,
     auto packet = *file->getOps<StructOp>().begin();
     auto field = mlir::cast<mlir::DictionaryAttr>(packet.getFields()[0]);
     auto lanes =
-        mlir::cast<TableType>(field.getAs<mlir::TypeAttr>("type").getValue());
+        mlir::cast<ArrayType>(field.getAs<mlir::TypeAttr>("type").getValue());
     auto shape = lanes.getShape();
     llvm::SmallVector<mlir::Type> inputTypes;
     for (auto input : declaration.getFunctionType().getInputs())
-      inputTypes.push_back(TableType::get(&context, shape, input));
+      inputTypes.push_back(ArrayType::get(&context, shape, input));
     auto signature = builder.getFunctionType(inputTypes, {});
     auto grouped = emptyDefinition(*file, "Grouped", signature,
                                    declaration.getInputNames());

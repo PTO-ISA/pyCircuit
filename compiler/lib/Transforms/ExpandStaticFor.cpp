@@ -197,7 +197,7 @@ struct Expander {
         if (failed(specialize(copy, origin, ordinal, index.sextOrTrunc(64))))
           return failure();
         copy->walk([&](Operation *allocation) {
-          if (isa<ac::InstanceOp, ac::ResourceAllocOp,
+          if (isa<ac::InstanceOp, ac::ResourceAllocOp, ac::TableAllocOp,
                   ac::ResourceConnectionOp>(allocation)) {
             auto name = allocation->getAttrOfType<StringAttr>("instance_name");
             std::string unique =

@@ -298,12 +298,12 @@ module {
     auto shape = attrs.getArrayAttr({integer(lanes)});
     SmallVector<Type> inputs, outputs;
     for (BlockArgument argument : root.getBody().front().getArguments()) {
-      auto table = ac::TableType::get(&context, shape, argument.getType());
+      auto table = ac::ArrayType::get(&context, shape, argument.getType());
       argument.setType(table);
       inputs.push_back(table);
     }
     for (Type type : leaf.getFunctionType().getResults())
-      outputs.push_back(ac::TableType::get(&context, shape, type));
+      outputs.push_back(ac::ArrayType::get(&context, shape, type));
     auto queue = onlyQueue(root);
     OpBuilder b(queue);
     OperationState collection(queue.getLoc(), "ac.collection");
@@ -1033,7 +1033,7 @@ TEST_F(QueueContractsTest,
   ac::HardwareBindings bindings;
   bindings.owner = module;
   Builder b(&context);
-  auto table = ac::TableType::get(&context, b.getArrayAttr({integer(3)}),
+  auto table = ac::ArrayType::get(&context, b.getArrayAttr({integer(3)}),
                                   queuePayload(queue));
   auto width =
       expression("type_width", {b.getNamedAttr("type", TypeAttr::get(table))});
@@ -1121,8 +1121,8 @@ TEST_F(QueueContractsTest, NominalAndTablePacketsKeepTokenGeometryAndIdentity) {
     for (unsigned depth : {1u, 2u, 3u, 5u})
       for (StringRef payload :
            {"!ac.struct<\"RecordA\">", "!ac.struct<\"RecordB\">",
-            "!ac.table<[#three], !ac.bits<#width>>",
-            "!ac.table<[#three], !ac.struct<\"RecordA\">>"}) {
+            "!ac.array<[#three], !ac.bits<#width>>",
+            "!ac.array<[#three], !ac.struct<\"RecordA\">>"}) {
         auto body = payloadProvider(payload, depth, policy);
         ASSERT_TRUE(body);
         auto module = definition(*body);
@@ -1132,7 +1132,7 @@ TEST_F(QueueContractsTest, NominalAndTablePacketsKeepTokenGeometryAndIdentity) {
         bindings.owner = module;
         auto config = analysis.resolveQueue(queue, bindings);
         ASSERT_TRUE(succeeded(config));
-        const bool table = payload.starts_with("!ac.table");
+        const bool table = payload.starts_with("!ac.array");
         const bool bits = payload.contains("!ac.bits");
         const uint64_t width = table ? (bits ? 390u : 237u) : 79u;
         EXPECT_EQ(config->packedWidth, width);
@@ -1219,7 +1219,7 @@ TEST_F(QueueContractsTest,
   EXPECT_FALSE(ac::areEquivalentHardwareTypes(payloads[4], payloads[5]));
 }
 
-TEST_F(QueueContractsTest, OrdinaryGenericModuleAcceptsWholeTableTypeActual) {
+TEST_F(QueueContractsTest, OrdinaryGenericModuleAcceptsWholeArrayTypeActual) {
   auto body = genericBody();
   ASSERT_TRUE(body);
   ac::HardwareAnalysis analysis(*body);
@@ -1230,7 +1230,7 @@ TEST_F(QueueContractsTest, OrdinaryGenericModuleAcceptsWholeTableTypeActual) {
       tableInstance = instance;
   ASSERT_TRUE(tableInstance);
   auto tableType = tableInstance.getInputs()[1].getType();
-  ASSERT_TRUE(isa<ac::TableType>(tableType));
+  ASSERT_TRUE(isa<ac::ArrayType>(tableType));
   Builder b(&context);
   tableInstance->setAttr("callee",
                          FlatSymbolRefAttr::get(&context, "Generic"));
@@ -1248,7 +1248,7 @@ TEST_F(QueueContractsTest, OrdinaryGenericModuleAcceptsWholeTableTypeActual) {
 }
 
 TEST_F(QueueContractsTest,
-       OrdinaryStoragePrimitiveStillRejectsWholeTableTypeActual) {
+       OrdinaryStoragePrimitiveStillRejectsWholeArrayTypeActual) {
   auto body = genericBody();
   ASSERT_TRUE(body);
   auto registry = compiler::SourceHeaderRegistry::create(
@@ -1261,7 +1261,7 @@ TEST_F(QueueContractsTest,
   auto root = cast<ac::ModuleOp>(analysis.lookupDefinition("Root"));
   auto &rootBody = root.getBody().front();
   auto tableType = rootBody.getArgument(2).getType();
-  ASSERT_TRUE(isa<ac::TableType>(tableType));
+  ASSERT_TRUE(isa<ac::ArrayType>(tableType));
   OpBuilder insertion(rootBody.getTerminator());
   OperationState state(root.getLoc(), ac::InstanceOp::getOperationName());
   state.addOperands({rootBody.getArgument(4), rootBody.getArgument(5),
@@ -1298,7 +1298,7 @@ TEST_F(QueueContractsTest, DirectBindingScalarContractCyclesAndAliasChain) {
   bound.owner = module;
   bound.integers["D"] = ac::MathIntAttr::get(&context, llvm::APSInt("3"));
   bound.types["T"] =
-      ac::TableType::get(&context, b.getArrayAttr({integer(3)}), t);
+      ac::ArrayType::get(&context, b.getArrayAttr({integer(3)}), t);
   rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
           "cyclic");
   rejects([&] { return analysis.resolveQueue(queue, bound); }, "cyclic");
@@ -1849,13 +1849,13 @@ TEST_F(QueueContractsTest, RuleAndMapPlacementRejectAtQueueOwner) {
     auto original = onlyQueue(module);
     OpBuilder b(original);
     OperationState region(original.getLoc(),
-                          mapped ? "ac.table.map" : "ac.comb");
+                          mapped ? "ac.array.map" : "ac.comb");
     auto inputTypes = module.getFunctionType().getInputs();
     SmallVector<Type> blockTypes;
     if (mapped) {
       auto shape = b.getArrayAttr({integer(1)});
-      auto table = ac::TableType::get(&context, shape, inputTypes[1]);
-      OperationState splat(original.getLoc(), "ac.table.splat");
+      auto table = ac::ArrayType::get(&context, shape, inputTypes[1]);
+      OperationState splat(original.getLoc(), "ac.array.splat");
       splat.addOperands(module.getBody().front().getArgument(1));
       splat.addTypes(table);
       splat.addAttribute("shape", shape);
@@ -1938,15 +1938,15 @@ TEST_F(QueueContractsTest, QueueInstanceAndCollectionNamesShareOneNamespace) {
         state.addTypes(module.getFunctionType().getResults());
       } else {
         for (Value arg : module.getBody().front().getArguments()) {
-          auto table = ac::TableType::get(&context, shape, arg.getType());
-          OperationState splat(queue.getLoc(), "ac.table.splat");
+          auto table = ac::ArrayType::get(&context, shape, arg.getType());
+          OperationState splat(queue.getLoc(), "ac.array.splat");
           splat.addOperands(arg);
           splat.addTypes(table);
           splat.addAttribute("shape", shape);
           state.addOperands(b.create(splat)->getResults());
         }
         for (Type result : module.getFunctionType().getResults())
-          state.addTypes(ac::TableType::get(&context, shape, result));
+          state.addTypes(ac::ArrayType::get(&context, shape, result));
         state.addAttribute("shape", shape);
       }
       state.addAttribute("instance_name", attrs.getStringAttr("other"));
@@ -2014,9 +2014,9 @@ TEST_F(QueueContractsTest,
     ac::HardwareAnalysis analysis(*body);
     auto module = cast<ac::ModuleOp>(analysis.lookupDefinition("Token3"));
     auto queue = onlyQueue(module);
-    auto original = cast<ac::TableType>(queuePayload(queue));
+    auto original = cast<ac::ArrayType>(queuePayload(queue));
     auto malformed =
-        ac::TableType::get(&context, b.getArrayAttr({exactInteger(axis)}),
+        ac::ArrayType::get(&context, b.getArrayAttr({exactInteger(axis)}),
                            original.getElementType());
     queue.getInputs()[3].setType(malformed);
     queue.getOutputs()[2].setType(malformed);

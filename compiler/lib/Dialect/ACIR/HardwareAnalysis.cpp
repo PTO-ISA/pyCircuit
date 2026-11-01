@@ -103,7 +103,7 @@ bool evaluableWidth(Type type, const HardwareBindings &bindings,
   if (auto bits = dyn_cast<BitsType>(type))
     return evaluable(substitute(bits.getWidth(), bindings), bindings, active,
                      analysis);
-  if (auto table = dyn_cast<TableType>(type))
+  if (auto table = dyn_cast<ArrayType>(type))
     return evaluable(substitute(table.getShape(), bindings), bindings, active,
                      analysis) &&
            evaluableWidth(table.getElementType(), bindings, active, analysis);
@@ -255,7 +255,7 @@ LogicalResult visitPackedLayout(const HardwareAnalysis &analysis, Type type,
     if (failed(definition))
       return failure();
     width = definition->width;
-  } else if (auto table = dyn_cast<TableType>(type)) {
+  } else if (auto table = dyn_cast<ArrayType>(type)) {
     auto count = analysis.getTableSize(table, bindings, site);
     if (failed(count))
       return failure();
@@ -300,7 +300,7 @@ LogicalResult visitPackedLayout(const HardwareAnalysis &analysis, Type type,
 bool areEquivalentHardwareTypes(Type lhs, Type rhs) {
   if (lhs == rhs)
     return true;
-  auto lt = dyn_cast<TableType>(lhs), rt = dyn_cast<TableType>(rhs);
+  auto lt = dyn_cast<ArrayType>(lhs), rt = dyn_cast<ArrayType>(rhs);
   if (lt && rt)
     return semantic(lt.getShape()) == semantic(rt.getShape()) &&
            areEquivalentHardwareTypes(lt.getElementType(), rt.getElementType());
@@ -455,7 +455,7 @@ Type HardwareAnalysis::substituteType(
 FailureOr<Type> HardwareAnalysis::resolveType(Type type,
                                               const HardwareBindings &bindings,
                                               Operation *site) const {
-  if (auto table = dyn_cast<TableType>(type)) {
+  if (auto table = dyn_cast<ArrayType>(type)) {
     SmallVector<Attribute> shape;
     for (auto raw : table.getShape()) {
       auto expr = dyn_cast<StaticExprAttr>(raw);
@@ -483,7 +483,7 @@ FailureOr<Type> HardwareAnalysis::resolveType(Type type,
     auto element = resolveType(table.getElementType(), bindings, site);
     if (failed(element))
       return failure();
-    return Type(TableType::get(
+    return Type(ArrayType::get(
         type.getContext(), ArrayAttr::get(type.getContext(), shape), *element));
   }
   if (isa<TypeParamType>(type)) {
@@ -502,7 +502,7 @@ FailureOr<Type> HardwareAnalysis::resolveType(Type type,
       auto found = bindings.types.find(formal.getName().getValue());
       if (found == bindings.types.end())
         return type;
-      if (!isa<BitsType, StructType, EnumType, TableType, TypeParamType>(found->second))
+      if (!isa<BitsType, StructType, EnumType, ArrayType, TypeParamType>(found->second))
         return site->emitOpError()
                << "hardware type parameter requires a finite hardware binding";
       type = found->second;
@@ -732,7 +732,7 @@ HardwareAnalysis::verifyOccurrence(Operation *instance,
   auto primitive = getPrimitiveKind(bindings->owner);
   if (!primitive.empty() && primitive != "fifo_local" &&
       primitive != "fifo_downstream_pop" &&
-      isa_and_nonnull<TableType>(bindings->types.lookup("T")))
+      isa_and_nonnull<ArrayType>(bindings->types.lookup("T")))
     return instance->emitOpError()
            << "storage and memory primitives require a scalar payload binding";
   auto sig = cast<FunctionType>(
@@ -747,7 +747,7 @@ HardwareAnalysis::verifyOccurrence(Operation *instance,
       return failure();
     if (auto collection = dyn_cast<CollectionOp>(instance)) {
       auto table = resolveType(
-          TableType::get(instance->getContext(), collection.getShape(), *e),
+          ArrayType::get(instance->getContext(), collection.getShape(), *e),
           parent, instance);
       if (failed(table))
         return failure();
@@ -783,7 +783,7 @@ LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
 } // namespace acir::ac
 namespace acir::ac {
 LogicalResult HardwareAnalysis::verifySourceIndex(
-    Value index, TableType table, const HardwareBindings &bindings,
+    Value index, ArrayType table, const HardwareBindings &bindings,
     Operation *site) const {
   using Range = llvm::ConstantRange;
   using Pred = llvm::CmpInst::Predicate;
@@ -1088,7 +1088,7 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
     Operation *op, const HardwareBindings &bindings) const {
   if (isa<QueueOp>(op))
     return op->emitOpError() << "ac.queue is retired; use a canonical FIFO instance";
-  if (auto read = dyn_cast<TableReadOp>(op)) {
+  if (auto read = dyn_cast<ArrayReadOp>(op)) {
     if (op->getNumOperands() != 2 || op->getNumResults() != 1 || op->getNumRegions() ||
         failed(read.verifyInvariantsImpl()))
       return op->emitOpError() << "checked Table read has malformed operands or results";
@@ -1097,8 +1097,8 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
     return verifyQueueOperation(instance, bindings, true);
   if (isa<EnumCreateOp, EnumToBitsOp, EnumFromBitsOp>(op))
     return verifyEnumValueOperation(op, bindings, true);
-  if (isa<CollectionOp, TableCreateOp, TableSplatOp, TableMapOp, TableViewOp,
-          TableIndexOp, TableReadOp, TableGetOp, TableMatchOp, TableChooseOp, TableFoldOp,
+  if (isa<CollectionOp, ArrayCreateOp, ArraySplatOp, ArrayMapOp, ArrayViewOp,
+          ArrayIndexOp, ArrayReadOp, ArrayGetOp, ArrayMatchOp, ArrayChooseOp, ArrayFoldOp,
           ValueMergeOp>(op) &&
       failed(verifyCollectionOperation(op, bindings, true)))
     return failure();
@@ -1107,7 +1107,7 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
     SourceStateOp state;
     for (auto candidate : owner.getBody().front().getOps<SourceStateOp>())
       if (candidate.getInstanceNameAttr() == write.getStateAttr()) state = candidate;
-    auto table = state ? dyn_cast<TableType>(state.getQ().getType()) : TableType();
+    auto table = state ? dyn_cast<ArrayType>(state.getQ().getType()) : ArrayType();
     if (table) {
       if (write.getIndices().size() != 1 ||
           failed(verifySourceIndex(write.getIndices().front(), table, bindings, write)))
@@ -1210,7 +1210,7 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
       uint64_t expected =
           *width / 8 + ((kind != "byte_mem" && *width % 8) ? 1 : 0);
       if (auto collection = dyn_cast<CollectionOp>(op)) {
-        auto table = cast<TableType>(collection.getInputs()[strobe].getType());
+        auto table = cast<ArrayType>(collection.getInputs()[strobe].getType());
         auto actual = getPackedWidth(table.getElementType(), bindings, op);
         if (failed(actual))
           return failure();

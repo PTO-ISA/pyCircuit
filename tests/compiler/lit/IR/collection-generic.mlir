@@ -15,19 +15,19 @@
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
 #n = #ac.static_expr<{kind = "reference", location = {path = "generic.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @generic, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @generic, name = "N"}}>
-!generic_result = !ac.table<[#n], !b8>
-!inputs = !ac.table<[#w2], !b8>
-!outputs = !ac.table<[#w2, #w4], !b8>
+!generic_result = !ac.array<[#n], !b8>
+!inputs = !ac.array<[#w2], !b8>
+!outputs = !ac.array<[#w2, #w4], !b8>
 module {
   "ac.module"() ({
   ^bb0(%x: !b8):
-    %broadcast = "ac.table.splat"(%x) {shape = [#n]} : (!b8) -> !generic_result
+    %broadcast = "ac.array.splat"(%x) {shape = [#n]} : (!b8) -> !generic_result
     "ac.yield"(%broadcast) : (!generic_result) -> ()
   }) {sym_name = "generic", source_owner = {package = "", path = "generic.py"}, parameters = [{name = "N", type = !ac.math_int}], type_parameters = [], function_type = (!b8) -> !generic_result, input_names = ["x"], output_names = ["out"]} : () -> ()
   "ac.module"() ({
@@ -37,5 +37,5 @@ module {
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!inputs) -> !outputs, input_names = ["x"], output_names = ["out"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
-// CHECK: "ac.table.splat"
+// CHECK: "ac.array.splat"
 // CHECK: "ac.collection"

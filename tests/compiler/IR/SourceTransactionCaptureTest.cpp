@@ -3397,7 +3397,7 @@ def Top(packet: Packet) -> Packet:
     ASSERT_TRUE(lanes);
     EXPECT_EQ(lanes.getField(), "lanes");
     EXPECT_TRUE(isa<BlockArgument>(lanes.getValue()));
-    EXPECT_TRUE(isa<ac::TableType>(lanes.getResult().getType()));
+    EXPECT_TRUE(isa<ac::ArrayType>(lanes.getResult().getType()));
     auto branches = operations<ac::SourceBranchOp>(*changed);
     ASSERT_EQ(branches.size(), 1u);
     EXPECT_EQ(branches[0].getResult(0).getType(), creates[0].getResult().getType());
@@ -4109,7 +4109,7 @@ def Top(index: ac.u1, data: ac.u8, flag: ac.u1) -> Cell:
   EXPECT_EQ(write.getSelectors().size(), 2u);
   ASSERT_EQ(write.getIndices().size(), 1u);
   EXPECT_EQ(write.getIndices()[0], selected.getBody().front().getArgument(1));
-  EXPECT_TRUE(isa<ac::TableType>(write.getCandidate().getType()));
+  EXPECT_TRUE(isa<ac::ArrayType>(write.getCandidate().getType()));
   EXPECT_TRUE(isa<ac::BitsType>(write.getPayload().getType()));
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
   EXPECT_TRUE(summaries.isValid()) << diagnostics;
@@ -4139,7 +4139,7 @@ def Top(data: ac.u4) -> Result:
   ASSERT_TRUE(file) << diagnostics;
   EXPECT_EQ(operations<ac::SourceStateOp>(*file).size(), 2u);
   EXPECT_EQ(operations<ac::SourceStateWriteOp>(*file).size(), 1u);
-  EXPECT_EQ(operations<ac::TableMapOp>(*file).size(), 1u);
+  EXPECT_EQ(operations<ac::ArrayMapOp>(*file).size(), 1u);
 }
 
 TEST_F(SourceTransactionCaptureTest, PureHelperUsesSharedFixedResultBinder) {
@@ -4983,9 +4983,9 @@ def Read(values: ac.table[N, ac.u8], index: ac.u2, *, N: int = 4) -> ac.u8:
   for (unsigned mutation = 0; mutation != 4; ++mutation) {
     auto file = typed(sourceText, "checked_read.py");
     ASSERT_TRUE(file);
-    auto reads = operations<ac::TableReadOp>(*file);
+    auto reads = operations<ac::ArrayReadOp>(*file);
     ASSERT_EQ(reads.size(), 1u);
-    EXPECT_TRUE(operations<ac::TableGetOp>(*file).empty());
+    EXPECT_TRUE(operations<ac::ArrayGetOp>(*file).empty());
     auto read = reads.front();
     ac::HardwareAnalysis hardware(*file);
     ac::HardwareBindings bindings;
@@ -5030,7 +5030,7 @@ def Read(values: ac.table[N, ac.u8], index: ac.u2, *, N: int = 4) -> ac.u8:
   fresh.loadDialect<ac::ACIRDialect>();
   auto reloaded = parseSourceString<ModuleOp>(text, &fresh);
   ASSERT_TRUE(reloaded);
-  auto reads = operations<ac::TableReadOp>(*reloaded);
+  auto reads = operations<ac::ArrayReadOp>(*reloaded);
   ASSERT_EQ(reads.size(), 1u);
   auto read = reads.front();
   ac::HardwareAnalysis hardware(*reloaded);
@@ -5056,7 +5056,7 @@ def Read(values: ac.table[N, ac.u8], index: ac.u2, *, N: int = 4) -> ac.u8:
       &fresh,
       ac::StaticExprAttr::get(&fresh, widthFields.getDictionary(&fresh)));
   OpBuilder builder(read);
-  OperationState raw(read.getLoc(), ac::TableGetOp::getOperationName());
+  OperationState raw(read.getLoc(), ac::ArrayGetOp::getOperationName());
   raw.addOperands({read.getInput(), read.getIndex()});
   raw.addTypes({read.getValue().getType(), bit});
   auto *membership = builder.create(raw);
@@ -5083,7 +5083,7 @@ def Bank(enable: ac.u1, *, N: int = 4) -> ac.table[N, ac.u8]:
             "1\n    return entries\n";
     auto file = typed(text, "checked_tail.py");
     ASSERT_TRUE(file) << captured;
-    auto reads = operations<ac::TableReadOp>(*file);
+    auto reads = operations<ac::ArrayReadOp>(*file);
     auto writes = operations<ac::SourceStateWriteOp>(*file);
     ASSERT_FALSE(reads.empty());
     ASSERT_EQ(writes.size(), 1u);
@@ -5119,8 +5119,8 @@ def Bank(enable: ac.u1, index: ac.u2, *, N: int = 4) -> ac.table[N, ac.u8]:
 )py",
                     "write_only.py");
   ASSERT_TRUE(file);
-  ASSERT_TRUE(operations<ac::TableReadOp>(*file).empty());
-  ASSERT_TRUE(operations<ac::TableGetOp>(*file).empty());
+  ASSERT_TRUE(operations<ac::ArrayReadOp>(*file).empty());
+  ASSERT_TRUE(operations<ac::ArrayGetOp>(*file).empty());
   auto writes = operations<ac::SourceStateWriteOp>(*file);
   ASSERT_EQ(writes.size(), 1u);
   ac::HardwareAnalysis hardware(*file);
@@ -5173,7 +5173,7 @@ def Bank(enable: ac.u1, *, N: int = 3) -> ac.table[N, ac.u8]:
                     : ac::verifyHardwarePackage(*reloaded);
     };
     ASSERT_TRUE(succeeded(check())) << diagnostics;
-    auto retained = operations<ac::TableReadOp>(*reloaded);
+    auto retained = operations<ac::ArrayReadOp>(*reloaded);
     ASSERT_FALSE(retained.empty()) << "checked opcode must survive both stages";
     auto read = retained.front();
     auto indexType = cast<ac::BitsType>(read.getIndex().getType());
@@ -5214,7 +5214,7 @@ def Bank(enable: ac.u1, *, N: int = 3) -> ac.table[N, ac.u8]:
   ASSERT_TRUE(succeeded(acir::detail::verifyTransactionMaterialization(
       *prepared, *candidate, proofBudget)))
       << diagnostics;
-  auto reads = operations<ac::TableReadOp>(*candidate->module);
+  auto reads = operations<ac::ArrayReadOp>(*candidate->module);
   ASSERT_FALSE(reads.empty());
   for (auto read : reads) {
     Builder b(&context);
@@ -5228,7 +5228,7 @@ def Bank(enable: ac.u1, *, N: int = 3) -> ac.table[N, ac.u8]:
         &context, ac::StaticExprAttr::get(
                       &context, changed(width.getTree(), "value", integer)));
     OpBuilder builder(read);
-    OperationState raw(read.getLoc(), ac::TableGetOp::getOperationName());
+    OperationState raw(read.getLoc(), ac::ArrayGetOp::getOperationName());
     raw.addOperands({read.getInput(), read.getIndex()});
     raw.addTypes({read.getValue().getType(), bit});
     auto *membership = builder.create(raw);
@@ -5323,8 +5323,8 @@ def Fixed(enable: ac.u1) -> ac.table[3, ac.u8]:
   ASSERT_TRUE(file);
   auto writes = operations<ac::SourceStateWriteOp>(*file);
   ASSERT_EQ(writes.size(), 1u);
-  ASSERT_TRUE(operations<ac::TableReadOp>(*file).empty());
-  ASSERT_TRUE(operations<ac::TableGetOp>(*file).empty());
+  ASSERT_TRUE(operations<ac::ArrayReadOp>(*file).empty());
+  ASSERT_TRUE(operations<ac::ArrayGetOp>(*file).empty());
   auto write = writes.front();
   ASSERT_EQ(write.getIndices().size(), 1u);
   auto type = cast<ac::BitsType>(write.getIndices().front().getType());

@@ -102,7 +102,7 @@ Importer::instantiate(Declaration *decl, Operation *imported,
   bool invalidType = false;
   AttrTypeReplacer canonicalize;
   canonicalize.addReplacement([&](Type payload) -> std::optional<Type> {
-    if (!isa<ac::BitsType, ac::TableType>(payload))
+    if (!isa<ac::BitsType, ac::ArrayType>(payload))
       return std::nullopt;
     auto resolved = hardware.resolveType(payload, {}, definition);
     if (failed(resolved)) {
@@ -497,7 +497,15 @@ Importer::assignmentTarget(const AstNode &node, Scope &scope) {
   AssignmentTarget target;
   AstNode root = node;
   AstNode slice;
-  if (root.kind() == "Subscript") {
+  auto tableSelection = [&](const AstNode &syntax) {
+    if (syntax.kind() != "Subscript" ||
+        syntax.child("value").kind() != "Name")
+      return false;
+    auto found = scope.bindings.find(syntax.child("value").string("id").str());
+    return found != scope.bindings.end() &&
+           isa_and_nonnull<ac::TableType>(found->second.type());
+  };
+  if (root.kind() == "Subscript" && !tableSelection(root)) {
     slice = root.child("slice"); root = root.child("value");
   }
   SmallVector<Attribute> reversed;
@@ -505,6 +513,18 @@ Importer::assignmentTarget(const AstNode &node, Scope &scope) {
     reversed.push_back(b.getStringAttr(root.string("attr")));
     root = root.child("value");
   }
+  if (tableSelection(root)) {
+    auto selected = expression(root, scope);
+    if (failed(selected) || selected->size() != 1)
+      return failure();
+    target.root = selected->front();
+    auto state = dyn_cast<ac::StateType>(target.root.getType());
+    if (!state)
+      return (void)fail(node, "Table assignment requires a State member"),
+             failure();
+    target.state = true;
+    target.type = state.getPayload();
+  } else {
   if (root.kind() != "Name")
     return (void)fail(node,"assignment requires a local or State field/slice"), failure();
   target.name = root.string("id").str();
@@ -528,6 +548,7 @@ Importer::assignmentTarget(const AstNode &node, Scope &scope) {
     }
     target.type = data;
   }
+  }
   for (Attribute name : llvm::reverse(reversed)) {
     auto structure = dyn_cast<ac::StructType>(target.type);
     auto *decl = structure ? SymbolTable::lookupSymbolIn(*result, structure.getName().getValue()) : nullptr;
@@ -539,7 +560,9 @@ Importer::assignmentTarget(const AstNode &node, Scope &scope) {
           next = field.getAs<TypeAttr>("type").getValue();
       }
     if (!next) return (void)fail(node,"assignment requires a declared Struct field"),failure();
-    target.fields.push_back(name); target.type = next;
+    target.fields.push_back(name);
+    target.fieldTypes.push_back(next);
+    target.type = next;
   }
   if (slice) {
     auto input = dyn_cast<ac::BitsType>(target.type);
@@ -584,6 +607,8 @@ LogicalResult Importer::assignTarget(const AssignmentTarget &target, Value value
   auto fields = b.getArrayAttr(target.fields);
   if (target.state) {
     if (scope.module || scope.pure) return fail(node,"State updates require a Rule or Method body");
+    if (target.fields.empty() && !target.low)
+      return write(target.root, *converted, node, scope);
     SmallVector<NamedAttribute> attrs{b.getNamedAttr("fields",fields)};
     if (target.low) { attrs.push_back(b.getNamedAttr("low",target.low)); attrs.push_back(b.getNamedAttr("high",target.high)); }
     return success(op(node,"ac.state.write_partial",ValueRange{target.root,*converted},{},attrs) != nullptr);
@@ -593,14 +618,7 @@ LogicalResult Importer::assignTarget(const AssignmentTarget &target, Value value
   // A mixed field/slice assignment first patches its Bits leaf, then uses the
   // same immutable field update operation to rebuild the containing record.
   if (target.low) {
-    for (Attribute raw : target.fields) {
-      auto structure = cast<ac::StructType>(base.getType());
-      auto *decl = SymbolTable::lookupSymbolIn(*result,structure.getName().getValue());
-      Type type;
-      for (auto field : decl->getAttrOfType<ArrayAttr>("fields")) {
-        auto data = cast<DictionaryAttr>(field);
-        if (data.getAs<StringAttr>("name") == raw) type = data.getAs<TypeAttr>("type").getValue();
-      }
+    for (auto [raw, type] : llvm::zip(target.fields, target.fieldTypes)) {
       base = op(node,"ac.struct.get",base,type,{b.getNamedAttr("field",raw)})->getResult(0);
     }
     replacement = op(node,"ac.bits.update",ValueRange{base,replacement},base.getType(),
@@ -1008,15 +1026,48 @@ LogicalResult Importer::staticFor(const AstNode &node, Scope &scope,
                                 ArrayRef<StatementRange> continuation) {
   auto target = node.child("target"), iterator = node.child("iter");
   auto range = iterator.child("func");
-  if (target.kind() != "Name" || iterator.kind() != "Call" ||
+  Value iterationTable;
+  std::string memberName;
+  bool enumerated = iterator.kind() == "Call" &&
+                    range.kind() == "Name" &&
+                    range.string("id") == "enumerate" &&
+                    !scope.bindings.count("enumerate") &&
+                    !names.count("enumerate") &&
+                    iterator.array("args").size() == 1 &&
+                    iterator.array("keywords").empty();
+  bool ranged = iterator.kind() == "Call" && range.kind() == "Name" &&
+                range.string("id") == "range";
+  if (!ranged) {
+    auto values = expression(enumerated ? iterator.item("args", 0) : iterator,
+                             scope);
+    if (failed(values) || values->size() != 1 ||
+        !isa<ac::TableType>(values->front().getType()))
+      return fail(iterator, "static iteration requires range or a component Table");
+    iterationTable = values->front();
+    if (enumerated) {
+      if (target.kind() != "Tuple" || target.array("elts").size() != 2 ||
+          target.item("elts", 0).kind() != "Name" ||
+          target.item("elts", 1).kind() != "Name")
+        return fail(target, "enumerate requires an index and a member name");
+      memberName = target.item("elts", 1).string("id").str();
+      target = target.item("elts", 0);
+    } else {
+      if (target.kind() != "Name")
+        return fail(target, "Table iteration requires one member name");
+      memberName = target.string("id").str();
+    }
+  }
+  if (target.kind() != "Name" || (!iterationTable && (iterator.kind() != "Call" ||
       range.kind() != "Name" || range.string("id") != "range" ||
       scope.bindings.count("range") || names.count("range") ||
       detail::sourceBindingShadowed(source, range, "range") ||
       !iterator.array("keywords").empty() || iterator.array("args").empty() ||
-      iterator.array("args").size() > 3 || !node.array("orelse").empty())
+      iterator.array("args").size() > 3)) || !node.array("orelse").empty())
     return fail(node, "static for requires one name and range with one to three "
                       "static arguments, without for-else");
-  std::string indexName = target.string("id").str();
+  std::string indexName = iterationTable && !enumerated
+                              ? "$table_index_" + std::to_string(unique++)
+                              : target.string("id").str();
   if (names.count(indexName) || globalRules.count(indexName) ||
       scope.owner->callables.count(indexName))
     return fail(target, "loop target cannot shadow an imported or callable name");
@@ -1059,18 +1110,23 @@ LogicalResult Importer::staticFor(const AstNode &node, Scope &scope,
     return success();
   };
   assigned.insert(indexName);
+  if (!memberName.empty())
+    assigned.erase(memberName);
   for (size_t i = 0; i < node.array("body").size(); ++i)
     if (failed(scanBody(node.item("body", i))))
       return failure();
 
   auto loopOrigin = origin(node, currentDefinition);
   SmallVector<ac::StaticExprAttr> bounds;
-  unsigned arity = iterator.array("args").size();
+  unsigned arity = iterationTable ? 1 : iterator.array("args").size();
   if (arity == 1)
     bounds.push_back(staticLiteral(llvm::APSInt(llvm::APInt(2, 0), true),
                                    node, scope.owner->symbol));
   for (unsigned i = 0; i < arity; ++i) {
-    auto bound = staticExpr(iterator.item("args", i), scope.owner->symbol);
+    auto bound = iterationTable
+                     ? FailureOr<ac::StaticExprAttr>(
+                           cast<ac::TableType>(iterationTable.getType()).getCapacity())
+                     : staticExpr(iterator.item("args", i), scope.owner->symbol);
     if (failed(bound))
       return failure();
     bounds.push_back(*bound);
@@ -1087,6 +1143,8 @@ LogicalResult Importer::staticFor(const AstNode &node, Scope &scope,
   SmallVector<Type> types;
   for (const auto &[name, binding] : scope.bindings) {
     if (!assigned.count(name) || !binding.value)
+      continue;
+    if (isa<ac::TableType>(binding.type()) || name == memberName)
       continue;
     if (name == indexName &&
         (isResource(binding.type()) || isa<ac::ModuleRefType>(binding.type())))
@@ -1163,6 +1221,12 @@ LogicalResult Importer::staticFor(const AstNode &node, Scope &scope,
             b.getNamedAttr("origin", origin(target, scope.owner->symbol)),
             b.getNamedAttr("location", detail::sourceSpan(b, source.path, target))}));
     inner.inductions[indexName] = {index, expression};
+    if (iterationTable) {
+      auto type = cast<ac::TableType>(iterationTable.getType()).getElementType();
+      auto selected = op(node, "ac.table.select", ValueRange{iterationTable, index},
+                         type)->getResult(0);
+      inner.bindings[memberName] = Binding{selected, {}, {}, nullptr};
+    }
     if (failed(statements(node, "body", inner)))
       return failure();
     SmallVector<Value> values;
@@ -1249,6 +1313,43 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
       if (scope.conditionalDepth)
         return fail(node,
                     "resources must be declared directly in their Module");
+      if (typeNode.kind() == "Subscript" &&
+          marker(typeNode.child("value"), "table")) {
+        auto type = dyn_cast_or_null<ac::TableType>(
+            annotation(typeNode, scope.owner->symbol));
+        if (!type)
+          return failure();
+        SmallVector<Value> initializers;
+        auto initial = node.child("value");
+        if (initial) {
+          auto state = dyn_cast<ac::StateType>(type.getElementType());
+          if (!state)
+            return fail(initial, "Module Table members use default construction");
+          if (initial.kind() == "Tuple" || initial.kind() == "List") {
+            for (size_t i = 0; i < initial.array("elts").size(); ++i) {
+              auto value = scalar(initial.item("elts", i), scope,
+                                  state.getPayload());
+              if (failed(value))
+                return failure();
+              initializers.push_back(*value);
+            }
+          } else {
+            auto value = scalar(initial, scope, state.getPayload());
+            if (failed(value))
+              return failure();
+            initializers.push_back(*value);
+          }
+        }
+        auto *allocation = op(
+            node, "ac.table.alloc", initializers, type,
+            {b.getNamedAttr("instance_name", b.getStringAttr(name)),
+             b.getNamedAttr("initial_image", b.getBoolAttr(
+                 initial && (initial.kind() == "Tuple" || initial.kind() == "List")))});
+        if (!allocation)
+          return failure();
+        scope.bindings[name] = Binding{allocation->getResult(0), {}, {}, nullptr};
+        return success();
+      }
       if (auto nominal = resolve(typeNode))
         if (nominal->symbol &&
             (declarations.count(nominal->remote) ||
@@ -1406,7 +1507,23 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
       if (failed(parsed)) return failure();
       destination = *parsed;
     }
-    auto lhs = scalar(target, scope);
+    // Resolve an indexed receiver once, as Python augmented assignment does.
+    // Re-evaluating the target could invoke an index-producing Method twice.
+    FailureOr<Value> lhs = failure();
+    if (destination) {
+      lhs = read(destination->root, target, scope);
+      if (failed(lhs))
+        return failure();
+      for (auto [field, type] :
+           llvm::zip(destination->fields, destination->fieldTypes))
+        lhs = op(target, "ac.struct.get", *lhs, type,
+                 {b.getNamedAttr("field", field)})->getResult(0);
+      if (destination->low)
+        lhs = op(target, "ac.bits.extract", *lhs, destination->type,
+                 {b.getNamedAttr("low", destination->low)})->getResult(0);
+    } else {
+      lhs = scalar(target, scope);
+    }
     if (failed(lhs))
       return failure();
     auto rhs = scalar(node.child("value"), scope);

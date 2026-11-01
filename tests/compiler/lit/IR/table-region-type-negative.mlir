@@ -12,12 +12,12 @@
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>):
       %zero = "ac.bits.constant"() {value = #w0} : () -> !b5
       "ac.yield"(%zero) : (!b5) -> ()
@@ -37,12 +37,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !b5, %extra: !b5):
       "ac.yield"(%entry) : (!b5) -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
@@ -61,12 +61,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{scalar region yield types do not match results}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !b5):
       "ac.yield"() : () -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
@@ -85,12 +85,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{scalar region yield types do not match results}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !b5):
       "ac.yield"(%entry, %entry) : (!b5, !b5) -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
@@ -109,12 +109,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !b6):
       %slice = "ac.bits.extract"(%entry) {low = #w0} : (!b6) -> !b5
       "ac.yield"(%slice) : (!b5) -> ()
@@ -134,12 +134,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{scalar region yield types do not match results}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !b5):
       %wide = "ac.bits.resize"(%entry) {mode = "zext"} : (!b5) -> !b6
       "ac.yield"(%wide) : (!b6) -> ()
@@ -159,15 +159,15 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
-!records = !ac.table<[#w3], !ac.struct<"First">>
+!a = !ac.array<[#w3], !b5>
+!records = !ac.array<[#w3], !ac.struct<"First">>
 module {
   ac.struct "First" fields [{name = "value", type = !b5}]
   ac.struct "Second" fields [{name = "value", type = !b5}]
   "ac.module"() ({
   ^bb0(%a: !records):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !ac.struct<"Second">):
       "ac.yield"(%entry) : (!ac.struct<"Second">) -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 0>} : (!records) -> !records
@@ -186,15 +186,15 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
-!records = !ac.table<[#w3], !ac.struct<"First">>
+!a = !ac.array<[#w3], !b5>
+!records = !ac.array<[#w3], !ac.struct<"First">>
 module {
   ac.struct "First" fields [{name = "value", type = !b5}]
   ac.struct "Second" fields [{name = "value", type = !b5}]
   "ac.module"() ({
   ^bb0(%a: !records):
     // expected-error @+1 {{scalar region yield types do not match results}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !ac.struct<"First">):
       %field = "ac.struct.get"(%entry) {field = "value"} : (!ac.struct<"First">) -> !b5
       %other = "ac.struct.create"(%field) : (!b5) -> !ac.struct<"Second">
@@ -214,12 +214,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a, %data: !b5):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mask = "ac.table.match"(%a, %data) ({
+    %mask = "ac.array.match"(%a, %data) ({
     ^bb0(%entry: !b5):
       %hit = "ac.bits.constant"() {value = #w0} : () -> !b1
       "ac.yield"(%hit) : (!b1) -> ()
@@ -238,12 +238,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a, %data: !b5):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mask = "ac.table.match"(%a, %data) ({
+    %mask = "ac.array.match"(%a, %data) ({
     ^bb0(%entry: !b5, %capture: !b5, %extra: !b5):
       %hit = "ac.bits.constant"() {value = #w0} : () -> !b1
       "ac.yield"(%hit) : (!b1) -> ()
@@ -262,12 +262,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a, %data: !b5):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mask = "ac.table.match"(%a, %data) ({
+    %mask = "ac.array.match"(%a, %data) ({
     ^bb0(%entry: !b5, %capture: !b6):
       %hit = "ac.bits.constant"() {value = #w0} : () -> !b1
       "ac.yield"(%hit) : (!b1) -> ()
@@ -286,12 +286,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
     // expected-error @+1 {{table.match predicate must yield one bit}}
-    %mask = "ac.table.match"(%a) ({
+    %mask = "ac.array.match"(%a) ({
     ^bb0(%entry: !b5):
       "ac.yield"() : () -> ()
     }) : (!a) -> !ac.bits<#w3>
@@ -310,16 +310,16 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 #top_w = #ac.static_expr<{kind = "reference", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @top, name = "W"}}>
 #other_w = #ac.static_expr<{kind = "reference", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @other, name = "W"}}>
-!formal_table = !ac.table<[#w3], !ac.bits<#top_w>>
+!formal_table = !ac.array<[#w3], !ac.bits<#top_w>>
 module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "other", source_owner = {package = "", path = "other.py"}, parameters = [{name = "W", type = !ac.math_int}], type_parameters = [], function_type = () -> (), input_names = [], output_names = [], dependency_summary = []} : () -> ()
   "ac.module"() ({
   ^bb0(%a: !formal_table):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !ac.bits<#other_w>):
       %zero = "ac.bits.constant"() {value = #w0} : () -> !b5
       "ac.yield"(%zero) : (!b5) -> ()

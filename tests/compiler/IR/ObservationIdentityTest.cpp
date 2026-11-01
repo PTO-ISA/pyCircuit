@@ -200,7 +200,7 @@ protected:
                               StringRef name) {
     b.setInsertionPointToEnd(&parent.getBody().front());
     auto shape = b.getArrayAttr({extent});
-    auto result = ac::TableType::get(&context, shape, bit(child.getSymName()));
+    auto result = ac::ArrayType::get(&context, shape, bit(child.getSymName()));
     return cast<ac::CollectionOp>(
         op(ac::CollectionOp::getOperationName(), {}, {result},
            {f("callee", FlatSymbolRefAttr::get(&context, child.getSymName())),

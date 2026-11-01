@@ -15,13 +15,13 @@
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
@@ -48,13 +48,13 @@ module {
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
@@ -81,13 +81,13 @@ module {
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
@@ -114,13 +114,13 @@ module {
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({

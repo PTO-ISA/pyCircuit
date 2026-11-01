@@ -130,7 +130,7 @@ assert " = " in extension and "%" in extension and "->" in extension
 
 # The display never binds symbolic static expressions to instance arguments.
 symbolic = display(fixture.repo / "tests/compiler/lit/IR/collection-generic.mlir")
-assert "!ac.table<" in symbolic
+assert "!ac.array<" in symbolic
 assert "N" in symbolic
 assert "@generic" in symbolic
 assert "ast_path" not in symbolic

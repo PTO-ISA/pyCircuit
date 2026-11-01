@@ -238,20 +238,20 @@ GENERIC = [
     ),
     module(
         "family",
-        [("value", f"!ac.table<[#w2], {F}>")],
-        [("out", f"!ac.table<[#w2], {F}>")],
+        [("value", f"!ac.array<[#w2], {F}>")],
+        [("out", f"!ac.array<[#w2], {F}>")],
         [
             "%out = "
             + instance(
                 "lanes",
                 "forward",
                 ["%value"],
-                [f"!ac.table<[#w2], {F}>"],
-                [f"!ac.table<[#w2], {F}>"],
+                [f"!ac.array<[#w2], {F}>"],
+                [f"!ac.array<[#w2], {F}>"],
                 [F],
                 True,
             ),
-            yield_values([("%out", f"!ac.table<[#w2], {F}>")]),
+            yield_values([("%out", f"!ac.array<[#w2], {F}>")]),
         ],
         ("F",),
     ),
@@ -355,9 +355,9 @@ def build_com():
             lambda row, n=input_name, codes=ENUMS[key][2]: membership(row[n], codes),
         )
     other, _ = enum_from(body, "other_left", "%r2b", "left")
-    array_type = "!ac.table<[#w2], !e_left>"
+    array_type = "!ac.array<[#w2], !e_left>"
     body.append(
-        f'%pair = "ac.table.create"(%decoded_left, {other}) : (!e_left, !e_left) -> {array_type}'
+        f'%pair = "ac.array.create"(%decoded_left, {other}) : (!e_left, !e_left) -> {array_type}'
     )
     body.append(
         "%family = "
@@ -414,9 +414,9 @@ def build_com():
     body.append(
         '%outer_other = "ac.struct.create"(%inner_other, %decoded_huge, %r3) : (!ac.struct<"Inner">, !e_huge, !b3) -> !ac.struct<"Outer">'
     )
-    records_type = '!ac.table<[#w2], !ac.struct<"Outer">>'
+    records_type = '!ac.array<[#w2], !ac.struct<"Outer">>'
     body.append(
-        f'%records = "ac.table.create"(%outer, %outer_other) : (!ac.struct<"Outer">, !ac.struct<"Outer">) -> {records_type}'
+        f'%records = "ac.array.create"(%outer, %outer_other) : (!ac.struct<"Outer">, !ac.struct<"Outer">) -> {records_type}'
     )
     body.append(
         "%forward_records = "
@@ -559,18 +559,18 @@ def build_storage():
             ["!b13"],
         )
     )
-    et = "!ac.table<[#w2], !e_left>"
-    gt = "!ac.table<[#w2], !b1>"
+    et = "!ac.array<[#w2], !e_left>"
+    gt = "!ac.array<[#w2], !b1>"
     for stem, value in (("clocks", "%clk"), ("resets", "%rst")):
         body.append(
-            f'%{stem} = "ac.table.splat"({value}) {{shape = [#w2]}} : (!b1) -> {gt}'
+            f'%{stem} = "ac.array.splat"({value}) {{shape = [#w2]}} : (!b1) -> {gt}'
         )
-    body.append(f'%enables = "ac.table.create"(%en0, %en1) : (!b1, !b1) -> {gt}')
+    body.append(f'%enables = "ac.array.create"(%en0, %en1) : (!b1, !b1) -> {gt}')
     body.append(
-        f'%data_pair = "ac.table.create"({e0}, {e1}) : (!e_left, !e_left) -> {et}'
+        f'%data_pair = "ac.array.create"({e0}, {e1}) : (!e_left, !e_left) -> {et}'
     )
     body.append(
-        f'%init_pair = "ac.table.create"({iz}, {io}) : (!e_left, !e_left) -> {et}'
+        f'%init_pair = "ac.array.create"({iz}, {io}) : (!e_left, !e_left) -> {et}'
     )
     body.append(
         "%lanes = "

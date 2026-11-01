@@ -412,13 +412,13 @@ if args.only in ("all", "capacity"):
             + literal("capacity_family", family)
             + literal("capacity_latency", latency)
         )
-        c = "!ac.table<[#capacity_family], !b1>"
-        d = "!ac.table<[#capacity_family, #n3], !b130>"
+        c = "!ac.array<[#capacity_family], !b1>"
+        d = "!ac.array<[#capacity_family, #n3], !b130>"
         outputs = f"{c}, {c}, {d}, {c}, {c}, {d}"
         root = f"""  "ac.module"() ({{
   ^bb0(%clk: !b1, %rst: !b1, %valid: {c}, %take: {c}, %data: {d}):
-    %clocks = "ac.table.splat"(%clk) {{shape = [#capacity_family]}} : (!b1) -> {c}
-    %resets = "ac.table.splat"(%rst) {{shape = [#capacity_family]}} : (!b1) -> {c}
+    %clocks = "ac.array.splat"(%clk) {{shape = [#capacity_family]}} : (!b1) -> {c}
+    %resets = "ac.array.splat"(%rst) {{shape = [#capacity_family]}} : (!b1) -> {c}
     %lr, %lv, %ld, %pr, %pv, %pd = "ac.collection"(%valid, %data, %take, %clocks, %resets) {{instance_name = "pair", callee = @QueueTablePair, parameters = [#capacity_depth, #capacity_latency], type_arguments = [!b130], shape = [#capacity_family], occurrence = {{site = {{definition = @QueueTokens, ast_path = []}}, expansion = []}}}} : ({c}, {d}, {c}, {c}, {c}) -> ({outputs})
     "ac.yield"(%lr, %lv, %ld, %pr, %pv, %pd) : ({outputs}) -> ()
   }}) {{sym_name = "QueueTokens", source_owner = {{package = "", path = "queue_emission.py"}}, parameters = [], type_parameters = [], function_type = (!b1, !b1, {c}, {c}, {d}) -> ({outputs}), input_names = ["clk", "rst", "valid", "take", "data"], output_names = ["local_ready", "local_valid", "local_data", "pop_ready", "pop_valid", "pop_data"]}} : () -> ()
@@ -1100,16 +1100,16 @@ def delayed_fixture(latencies, independent=False, huge=False):
     lines, out_names, out_types = [], [], []
     if not independent:
         lines.append(
-            '    %clocks = "ac.table.splat"(%clk) {shape = [#n2]} : (!b1) -> !controls'
+            '    %clocks = "ac.array.splat"(%clk) {shape = [#n2]} : (!b1) -> !controls'
         )
     lines.append(
-        '    %resets = "ac.table.splat"(%rst) {shape = [#n2]} : (!b1) -> !controls'
+        '    %resets = "ac.array.splat"(%rst) {shape = [#n2]} : (!b1) -> !controls'
     )
     for name, width, cardinality, depth in selected:
         depth = 1 if name == "bit1" else depth
         typ = types.get(name, f"!b{width}")
         dimensions = "#n2, #n3" if cardinality == 3 else "#n2"
-        data = f"!ac.table<[{dimensions}], {typ}>"
+        data = f"!ac.array<[{dimensions}], {typ}>"
         callee = "QueueTablePair" if cardinality == 3 else "QueueForward"
         parameters = f"[#lat{depth}, #lat{1 if huge else latencies[name]}]"
         if name == "bit13_default":

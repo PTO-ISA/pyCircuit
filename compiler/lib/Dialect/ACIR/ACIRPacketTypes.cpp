@@ -19,7 +19,7 @@ TypeParamType::verify(llvm::function_ref<InFlightDiagnostic()> error,
 namespace {
 LogicalResult resourcePayload(llvm::function_ref<InFlightDiagnostic()> error,
                               Type payload) {
-  if (!isa<BitsType, StructType, EnumType, TableType, TypeParamType>(payload))
+  if (!isa<BitsType, StructType, EnumType, ArrayType, TypeParamType>(payload))
     return error() << "resource payload must be hardware data, not a resource or module reference";
   return success();
 }

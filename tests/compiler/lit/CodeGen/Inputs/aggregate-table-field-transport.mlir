@@ -12,14 +12,14 @@
 !b4 = !ac.bits<#w4>
 !b5 = !ac.bits<#w5>
 !b8 = !ac.bits<#w8>
-!nested_rows = !ac.table<[#w2], !ac.table<[#w3], !b8>>
-!samples = !ac.table<[#w5], !b5>
+!nested_rows = !ac.array<[#w2], !ac.array<[#w3], !b8>>
+!samples = !ac.array<[#w5], !b5>
 !inner = !ac.struct<"SampleGroup">
-!groups = !ac.table<[#w3], !inner>
+!groups = !ac.array<[#w3], !inner>
 !packet = !ac.struct<"SamplePacket">
-!packets = !ac.table<[#w3], !packet>
-!projected = !ac.table<[#w3, #w3], !inner>
-!sample_rows = !ac.table<[#w3, #w5], !b5>
+!packets = !ac.array<[#w3], !packet>
+!projected = !ac.array<[#w3, #w3], !inner>
+!sample_rows = !ac.array<[#w3, #w5], !b5>
 module {
   // 5 + 3*(4 + 5*5) = 92 packed bits. First field/element is MSB.
   ac.struct "SampleGroup" fields [{name = "tag", type = !b4}, {name = "samples", type = !samples}]
@@ -31,9 +31,9 @@ module {
     %i0 = "ac.bits.constant"() {value = #w0} : () -> !b2
     %i1 = "ac.bits.constant"() {value = #w1} : () -> !b2
     %i2 = "ac.bits.constant"() {value = #w2} : () -> !b2
-    %g0, %v0 = "ac.table.get"(%groups, %i0) : (!groups, !b2) -> (!inner, !b1)
-    %g1, %v1 = "ac.table.get"(%groups, %i1) : (!groups, !b2) -> (!inner, !b1)
-    %g2, %v2 = "ac.table.get"(%groups, %i2) : (!groups, !b2) -> (!inner, !b1)
+    %g0, %v0 = "ac.array.get"(%groups, %i0) : (!groups, !b2) -> (!inner, !b1)
+    %g1, %v1 = "ac.array.get"(%groups, %i1) : (!groups, !b2) -> (!inner, !b1)
+    %g2, %v2 = "ac.array.get"(%groups, %i2) : (!groups, !b2) -> (!inner, !b1)
     %tag = ac.struct.get %g1["tag"] : (!inner) -> !b4
     %samples = ac.struct.get %g1["samples"] : (!inner) -> !samples
     %s0 = "ac.bits.constant"() {value = #w0} : () -> !b3
@@ -41,14 +41,14 @@ module {
     %s2 = "ac.bits.constant"() {value = #w2} : () -> !b3
     %s3 = "ac.bits.constant"() {value = #w3} : () -> !b3
     %s4 = "ac.bits.constant"() {value = #w4} : () -> !b3
-    %a, %va = "ac.table.get"(%samples, %s0) : (!samples, !b3) -> (!b5, !b1)
-    %b, %vb = "ac.table.get"(%samples, %s1) : (!samples, !b3) -> (!b5, !b1)
-    %c, %vc = "ac.table.get"(%samples, %s2) : (!samples, !b3) -> (!b5, !b1)
-    %d, %vd = "ac.table.get"(%samples, %s3) : (!samples, !b3) -> (!b5, !b1)
-    %e, %ve = "ac.table.get"(%samples, %s4) : (!samples, !b3) -> (!b5, !b1)
-    %rotated = "ac.table.create"(%e, %a, %b, %c, %d) {shape = [#w5]} : (!b5, !b5, !b5, !b5, !b5) -> !samples
+    %a, %va = "ac.array.get"(%samples, %s0) : (!samples, !b3) -> (!b5, !b1)
+    %b, %vb = "ac.array.get"(%samples, %s1) : (!samples, !b3) -> (!b5, !b1)
+    %c, %vc = "ac.array.get"(%samples, %s2) : (!samples, !b3) -> (!b5, !b1)
+    %d, %vd = "ac.array.get"(%samples, %s3) : (!samples, !b3) -> (!b5, !b1)
+    %e, %ve = "ac.array.get"(%samples, %s4) : (!samples, !b3) -> (!b5, !b1)
+    %rotated = "ac.array.create"(%e, %a, %b, %c, %d) {shape = [#w5]} : (!b5, !b5, !b5, !b5, !b5) -> !samples
     %middle = ac.struct.create(%tag, %rotated) : (!b4, !samples) -> !inner
-    %rebuilt_groups = "ac.table.create"(%g0, %middle, %g2) {shape = [#w3]} : (!inner, !inner, !inner) -> !groups
+    %rebuilt_groups = "ac.array.create"(%g0, %middle, %g2) {shape = [#w3]} : (!inner, !inner, !inner) -> !groups
     %rebuilt = ac.struct.create(%marker, %rebuilt_groups) : (!b5, !groups) -> !packet
     %true = "ac.bits.constant"() {value = #w1} : () -> !b1
     %changed, %changed_en = "ac.value.merge"(%source, %true, %replacement) {paths = [["groups"]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!packet, !b1, !groups) -> (!packet, !b1)

@@ -15,14 +15,14 @@
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
 !outer = !ac.struct<"Outer">
-!records = !ac.table<[#w3], !outer>
-!xs = !ac.table<[#w3], !b8>
+!records = !ac.array<[#w3], !outer>
+!xs = !ac.array<[#w3], !b8>
 module {
   ac.struct "Inner" fields [{name = "x", type = !b8}, {name = "y", type = !b8}]
   ac.struct "Outer" fields [{name = "tag", type = !b4}, {name = "inner", type = !ac.struct<"Inner">}, {name = "tail", type = !b8}]
@@ -52,23 +52,23 @@ module {
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
 !outer = !ac.struct<"Outer">
-!records = !ac.table<[#w3], !outer>
-!xs = !ac.table<[#w3], !b8>
+!records = !ac.array<[#w3], !outer>
+!xs = !ac.array<[#w3], !b8>
 !packet = !ac.struct<"Packet">
-!short = !ac.table<[#w2], !b8>
-!long = !ac.table<[#w3], !b8>
+!short = !ac.array<[#w2], !b8>
+!long = !ac.array<[#w3], !b8>
 module {
   ac.struct "Packet" fields [{name = "chunks", type = !short}]
   "ac.module"() ({
   ^bb0(%value: !b8, %guard: !b1):
-    %short = "ac.table.splat"(%value) {shape = [#w2]} : (!b8) -> !short
-    %long = "ac.table.splat"(%value) {shape = [#w3]} : (!b8) -> !long
+    %short = "ac.array.splat"(%value) {shape = [#w2]} : (!b8) -> !short
+    %long = "ac.array.splat"(%value) {shape = [#w3]} : (!b8) -> !long
     %base = ac.struct.create(%short) : (!short) -> !packet
     // expected-error @+1 {{table payload type mismatch}}
     %next, %en = "ac.value.merge"(%base, %guard, %long) {paths = [["chunks"]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!packet, !b1, !long) -> (!packet, !b1)
@@ -94,17 +94,17 @@ module {
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
 !outer = !ac.struct<"Outer">
-!records = !ac.table<[#w3], !outer>
-!xs = !ac.table<[#w3], !b8>
+!records = !ac.array<[#w3], !outer>
+!xs = !ac.array<[#w3], !b8>
 !packet = !ac.struct<"Packet">
-!firsts = !ac.table<[#w2], !ac.struct<"First">>
-!seconds = !ac.table<[#w2], !ac.struct<"Second">>
+!firsts = !ac.array<[#w2], !ac.struct<"First">>
+!seconds = !ac.array<[#w2], !ac.struct<"Second">>
 module {
   ac.struct "First" fields [{name = "value", type = !b8}]
   ac.struct "Second" fields [{name = "value", type = !b8}]
@@ -113,8 +113,8 @@ module {
   ^bb0(%value: !b8, %guard: !b1):
     %first = ac.struct.create(%value) : (!b8) -> !ac.struct<"First">
     %second = ac.struct.create(%value) : (!b8) -> !ac.struct<"Second">
-    %firsts = "ac.table.splat"(%first) {shape = [#w2]} : (!ac.struct<"First">) -> !firsts
-    %seconds = "ac.table.splat"(%second) {shape = [#w2]} : (!ac.struct<"Second">) -> !seconds
+    %firsts = "ac.array.splat"(%first) {shape = [#w2]} : (!ac.struct<"First">) -> !firsts
+    %seconds = "ac.array.splat"(%second) {shape = [#w2]} : (!ac.struct<"Second">) -> !seconds
     %base = ac.struct.create(%firsts) : (!firsts) -> !packet
     // expected-error @+1 {{table payload type mismatch}}
     %next, %en = "ac.value.merge"(%base, %guard, %seconds) {paths = [["chunks"]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!packet, !b1, !seconds) -> (!packet, !b1)

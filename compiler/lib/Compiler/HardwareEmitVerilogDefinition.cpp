@@ -53,9 +53,9 @@ public:
         if (member.name == create.getMemberAttr())
           expression = std::to_string(enumeration->width) + "'d" +
                        member.code.getCanonicalValue().str();
-    } else if (isa<ac::StructCreateOp, ac::TableCreateOp>(op)) {
+    } else if (isa<ac::StructCreateOp, ac::ArrayCreateOp>(op)) {
       expression = "{" + join(operands, ", ") + "}";
-    } else if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+    } else if (auto splat = dyn_cast<ac::ArraySplatOp>(op)) {
       auto count = context.shapeSize(splat.getShape(), op, true);
       if (failed(count))
         return failure();
@@ -390,9 +390,9 @@ public:
       names.try_emplace(value, *source);
       return *source;
     }
-    if (isa<ac::TableCreateOp, ac::TableSplatOp, ac::TableMapOp,
-            ac::TableViewOp, ac::TableIndexOp, ac::TableReadOp, ac::TableGetOp, ac::TableMatchOp,
-            ac::TableChooseOp, ac::TableFoldOp, ac::ValueMergeOp>(op)) {
+    if (isa<ac::ArrayCreateOp, ac::ArraySplatOp, ac::ArrayMapOp,
+            ac::ArrayViewOp, ac::ArrayIndexOp, ac::ArrayReadOp, ac::ArrayGetOp, ac::ArrayMatchOp,
+            ac::ArrayChooseOp, ac::ArrayFoldOp, ac::ValueMergeOp>(op)) {
       if (failed(tableOperation(op)))
         return failure();
       return names.lookup(value);
@@ -598,11 +598,11 @@ public:
     auto width = [&](Type type) {
       return context.payloadWidth(type, op, true);
     };
-    auto count = [&](ac::TableType type) {
+    auto count = [&](ac::ArrayType type) {
       return context.shapeSize(type.getShape(), op, true);
     };
     auto element = [&](StringRef value, StringRef ordinal,
-                       ac::TableType type) -> FailureOr<std::string> {
+                       ac::ArrayType type) -> FailureOr<std::string> {
       auto n = count(type), w = width(type.getElementType());
       if (failed(n) || failed(w))
         return failure();
@@ -615,8 +615,8 @@ public:
           << ") begin : " << label << "\n";
       return i;
     };
-    if (auto create = dyn_cast<ac::TableCreateOp>(op)) {
-      auto type = cast<ac::TableType>(create.getResult().getType());
+    if (auto create = dyn_cast<ac::ArrayCreateOp>(op)) {
+      auto type = cast<ac::ArrayType>(create.getResult().getType());
       for (auto [i, input] : llvm::enumerate(operands)) {
         auto target = element(resultName(), std::to_string(i), type);
         if (failed(target))
@@ -625,7 +625,7 @@ public:
       }
       return success();
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+    if (auto splat = dyn_cast<ac::ArraySplatOp>(op)) {
       auto n = context.shapeSize(splat.getShape(), op, true);
       auto w = width(splat.getInput().getType());
       if (failed(n) || failed(w))
@@ -636,9 +636,9 @@ public:
           << ";\n  end\n";
       return success();
     }
-    if (auto view = dyn_cast<ac::TableViewOp>(op)) {
-      auto srcType = cast<ac::TableType>(view.getInput().getType());
-      auto dstType = cast<ac::TableType>(view.getResult().getType());
+    if (auto view = dyn_cast<ac::ArrayViewOp>(op)) {
+      auto srcType = cast<ac::ArrayType>(view.getInput().getType());
+      auto dstType = cast<ac::ArrayType>(view.getResult().getType());
       auto n = count(dstType);
       if (failed(n))
         return failure();
@@ -653,7 +653,7 @@ public:
       out << "    assign " << *dst << " = " << *src << ";\n  end\n";
       return success();
     }
-    if (auto index = dyn_cast<ac::TableIndexOp>(op)) {
+    if (auto index = dyn_cast<ac::ArrayIndexOp>(op)) {
       auto n = context.shapeSize(index.getShape(), op, true);
       auto targetWidth = width(index.getResult().getType());
       if (failed(n) || failed(targetWidth))
@@ -691,8 +691,8 @@ public:
           << *n << ");\n";
       return success();
     }
-    if (isa<ac::TableReadOp, ac::TableGetOp>(op)) {
-      auto type = cast<ac::TableType>(op->getOperand(0).getType());
+    if (isa<ac::ArrayReadOp, ac::ArrayGetOp>(op)) {
+      auto type = cast<ac::ArrayType>(op->getOperand(0).getType());
       auto n = count(type), k = width(op->getOperand(1).getType());
       if (failed(n) || failed(k)) return failure();
       auto b = "$clog2(64'(" + *n + ") + 64'd1)";
@@ -700,7 +700,7 @@ public:
       auto selected = element(operands[0], "$unsigned(" + operands[1] + ")", type);
       if (failed(selected)) return failure();
       std::string range = "(" + w + ")'($unsigned(" + operands[1] + ")) < (" + w + ")'(" + *n + ")";
-      if (isa<ac::TableGetOp>(op)) {
+      if (isa<ac::ArrayGetOp>(op)) {
         out << "  assign " << resultName(1) << " = " << range << ";\n";
         range = resultName(1);
       }
@@ -708,16 +708,16 @@ public:
           << *selected << " : 'x;\n";
       return success();
     }
-    if (isa<ac::TableMapOp, ac::TableMatchOp>(op)) {
-      bool isMap = isa<ac::TableMapOp>(op);
+    if (isa<ac::ArrayMapOp, ac::ArrayMatchOp>(op)) {
+      bool isMap = isa<ac::ArrayMapOp>(op);
       SmallVector<Value> tables;
       if (isMap)
-        llvm::append_range(tables, cast<ac::TableMapOp>(op).getTables());
+        llvm::append_range(tables, cast<ac::ArrayMapOp>(op).getTables());
       else
         tables.push_back(op->getOperand(0));
       auto shape =
-          isMap ? cast<ac::TableMapOp>(op).getShape()
-                : cast<ac::TableType>(op->getOperand(0).getType()).getShape();
+          isMap ? cast<ac::ArrayMapOp>(op).getShape()
+                : cast<ac::ArrayType>(op->getOperand(0).getType()).getShape();
       auto n = context.shapeSize(shape, op, true);
       if (failed(n))
         return failure();
@@ -731,7 +731,7 @@ public:
         names[block.getArgument(arg++)] = "(" + *w + ")'(" + i + ")";
       }
       for (auto [j, value] : llvm::enumerate(tables)) {
-        auto type = cast<ac::TableType>(value.getType());
+        auto type = cast<ac::ArrayType>(value.getType());
         auto selected = element(operands[j], i, type);
         auto dataType = context.rtlType(type.getElementType(), op);
         if (failed(selected) || failed(dataType))
@@ -750,7 +750,7 @@ public:
           return failure();
         if (isMap) {
           auto dst = element(resultName(j), i,
-                             cast<ac::TableType>(op->getResult(j).getType()));
+                             cast<ac::ArrayType>(op->getResult(j).getType()));
           if (failed(dst))
             return failure();
           out << "    assign " << *dst << " = " << *source << ";\n";
@@ -761,8 +761,8 @@ public:
       out << "  end\n";
       return success();
     }
-    if (auto choose = dyn_cast<ac::TableChooseOp>(op)) {
-      auto type = cast<ac::TableType>(choose.getInput().getType());
+    if (auto choose = dyn_cast<ac::ArrayChooseOp>(op)) {
+      auto type = cast<ac::ArrayType>(choose.getInput().getType());
       auto n = count(type), w = width(choose.getResults().front().getType());
       if (failed(n) || failed(w))
         return failure();
@@ -797,8 +797,8 @@ public:
             << j << "];\n";
       return success();
     }
-    if (auto fold = dyn_cast<ac::TableFoldOp>(op)) {
-      auto type = cast<ac::TableType>(fold.getInput().getType());
+    if (auto fold = dyn_cast<ac::ArrayFoldOp>(op)) {
+      auto type = cast<ac::ArrayType>(fold.getInput().getType());
       auto n = count(type), w = width(type.getElementType());
       if (failed(n) || failed(w))
         return failure();
@@ -867,7 +867,7 @@ public:
           auto resolved = context.analysis.resolveType(type, bindings, op);
           if (failed(resolved))
             return failure();
-          if (isa<ac::TableType>(*resolved)) {
+          if (isa<ac::ArrayType>(*resolved)) {
             path.resize(i);
             break;
           }

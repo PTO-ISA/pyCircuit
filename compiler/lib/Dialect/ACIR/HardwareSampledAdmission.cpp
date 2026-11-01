@@ -279,10 +279,10 @@ FailureOr<Value> stateControl(Operation *storage, unsigned ordinal) {
   Value value = storage->getOperand(ordinal);
   auto collection = dyn_cast<CollectionOp>(storage);
   if (!collection) return value;
-  auto splat = value.getDefiningOp<TableSplatOp>();
+  auto splat = value.getDefiningOp<ArraySplatOp>();
   if (!splat || splat.getShape() != collection.getShape() ||
       !isa<BitsType>(splat.getInput().getType()) || !areEquivalentHardwareTypes(
-          value.getType(), TableType::get(storage->getContext(), collection.getShape(),
+          value.getType(), ArrayType::get(storage->getContext(), collection.getShape(),
                                           splat.getInput().getType())))
     return storage->emitOpError()
            << "transaction Collection requires replicated scalar controls";
@@ -4565,7 +4565,7 @@ private:
                << "private transaction/effect value escapes to unrelated "
                   "terminal operand";
       }
-      if (auto splat = dyn_cast<TableSplatOp>(consumer)) {
+      if (auto splat = dyn_cast<ArraySplatOp>(consumer)) {
         if (route.kind != PrivateRoute::Enable)
           return splat->emitOpError() << "private transaction data escapes through splat";
         auto next = makeIdentityEndpoint(splat.getResult(), endpoint.scope, analysis, budget);

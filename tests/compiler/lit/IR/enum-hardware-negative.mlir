@@ -21,9 +21,9 @@
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -64,9 +64,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -114,9 +114,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -129,7 +129,7 @@ module {
   "ac.module"() ({
   ^bb0(%value: !pair):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}
-    %bad = "ac.table.map"(%value) ({
+    %bad = "ac.array.map"(%value) ({
     ^bb0(%ordinal: !b1, %entry: !b):
       "ac.yield"(%entry) : (!b) -> ()
     }) {shape = [#w2], operandSegmentSizes = array<i32: 1, 0>} : (!pair) -> !pair
@@ -159,9 +159,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -174,7 +174,7 @@ module {
   "ac.module"() ({
   ^bb0(%value: !pair):
     // expected-error @+1 {{scalar region yield types do not match results}}
-    %bad = "ac.table.map"(%value) ({
+    %bad = "ac.array.map"(%value) ({
     ^bb0(%ordinal: !b1, %entry: !a):
       %other = "ac.enum.create"() {member = "ONE"} : () -> !b
       "ac.yield"(%other) : (!b) -> ()
@@ -205,9 +205,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -220,7 +220,7 @@ module {
   "ac.module"() ({
   ^bb0(%value: !pair):
     // expected-error @+1 {{table.fold requires unsigned bits elements}}
-    %bad = "ac.table.fold"(%value) {kind = "add"} : (!pair) -> !b65
+    %bad = "ac.array.fold"(%value) {kind = "add"} : (!pair) -> !b65
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!pair) -> (), input_names = ["value"], output_names = []} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
@@ -247,9 +247,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 #width = #ac.static_expr<{kind = "reference", ref = {kind = "parameter", owner = @convert, name = "W"}, origin = {site = {definition = @convert, ast_path = []}, expansion = []}, location = {path = "convert.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -297,9 +297,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -340,9 +340,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {
@@ -383,13 +383,13 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 #huge_extent = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<9223372036854775807>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
-!huge = !ac.table<[#huge_extent], !wide>
+!huge = !ac.array<[#huge_extent], !wide>
 module {
   "ac.enum"() {sym_name = "alpha.State", width = #ac.math_int<65>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}, {name = "ONE", code = #ac.math_int<1>}]} : () -> ()
   "ac.enum"() {sym_name = "beta.State", width = #ac.math_int<65>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}, {name = "ONE", code = #ac.math_int<1>}]} : () -> ()
@@ -426,9 +426,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 #address = #ac.static_expr<{kind = "reference", ref = {kind = "parameter", owner = @memory, name = "ADDR_WIDTH"}, origin = {site = {definition = @memory, ast_path = []}, expansion = []}, location = {path = "byte_mem.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -496,9 +496,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 #width = #ac.static_expr<{kind = "reference", ref = {kind = "parameter", owner = @pack, name = "W"}, origin = {site = {definition = @pack, ast_path = []}, expansion = []}, location = {path = "pack.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -545,9 +545,9 @@ module {
 !b = !ac.enum<"beta.State">
 !wide = !ac.enum<"types.Wide">
 !byte = !ac.enum<"types.Byte">
-!pair = !ac.table<[#w2], !a>
-!lanes = !ac.table<[#w2, #w3], !a>
-!controls = !ac.table<[#w2], !b1>
+!pair = !ac.array<[#w2], !a>
+!lanes = !ac.array<[#w2, #w3], !a>
+!controls = !ac.array<[#w2], !b1>
 !inner = !ac.struct<"types.Inner">
 !outer = !ac.struct<"types.Outer">
 module {

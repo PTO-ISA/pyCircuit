@@ -10,7 +10,7 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 bool hardware(Type t) {
-  return isa<BitsType, StructType, EnumType, TypeParamType, TableType>(t);
+  return isa<BitsType, StructType, EnumType, TypeParamType, ArrayType>(t);
 }
 bool equivalentTypes(TypeRange lhs, TypeRange rhs) {
   if (lhs.size() != rhs.size())
@@ -27,9 +27,9 @@ bool isCombinationalHardwareOperation(Operation *operation) {
              BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
              BitsResizeOp, StructCreateOp, StructGetOp, StructConstructOp,
              StructUpdateOp, BitsUpdateOp, EnumCreateOp,
-             EnumToBitsOp, EnumFromBitsOp, TableCreateOp, TableSplatOp,
-             TableMapOp, TableViewOp, TableIndexOp, TableReadOp, TableGetOp, TableMatchOp,
-             TableChooseOp, TableFoldOp, ValueMergeOp, ValueRequireOp>(
+             EnumToBitsOp, EnumFromBitsOp, ArrayCreateOp, ArraySplatOp,
+             ArrayMapOp, ArrayViewOp, ArrayIndexOp, ArrayReadOp, ArrayGetOp, ArrayMatchOp,
+             ArrayChooseOp, ArrayFoldOp, ValueMergeOp, ValueRequireOp>(
       operation);
 }
 
@@ -92,7 +92,7 @@ LogicalResult verifyHardwareAttributeScope(Attribute attr, Operation *owner) {
   return success();
 }
 LogicalResult verifyHardwareTypeScope(Type type, Operation *owner) {
-  if (auto table = dyn_cast<TableType>(type)) {
+  if (auto table = dyn_cast<ArrayType>(type)) {
     if (failed(verifyHardwareAttributeScope(table.getShape(), owner)))
       return failure();
     return verifyHardwareTypeScope(table.getElementType(), owner);
@@ -307,7 +307,7 @@ LogicalResult YieldOp::verify() {
   if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
   for (Type type : getOperandTypes())
     if (!hardware(type)) return emitOpError("legacy yield requires hardware payloads");
-  if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp,
+  if (!isa_and_nonnull<ModuleOp, RuleOp, ArrayMapOp, ArrayMatchOp,
                        SourceMethodOp, SourceTransactionOp, SourceBranchOp>(
           (*this)->getParentOp()))
     return emitOpError() << "must terminate a module, rule, table region, "

@@ -81,6 +81,14 @@ clock/reset domain even for pure zero-result roots.
 
 Module combination cannot call Methods in this slice.
 
+Fixed component containers use `ac.table[N, T]` in Module declarations, where
+`T` is a State payload type or a default-constructible Module. Indexing selects
+an existing member; dynamic selection requires separate knownness and range
+proofs and participates in the enclosing Rule transaction. See
+[component Tables](spec-collections.md#component-tables) for initialization,
+iteration, stage boundaries and migration limits. Packed native payload IR
+uses `!ac.array` and `ac.array.*`; there is no Python `array` API.
+
 An existing Module instance may be passed through an `ac.module` parameter.
 For example, a parent declares `receiver: Receiver` and `sender: Sender`, then
 connects `sender(receiver)`. A Rule inside Sender calls `peer.accept(amount)`.
@@ -102,7 +110,7 @@ Local assignments bind SSA values. Aliases retain their original values and
 types across later reassignment. Literal values remain exact until declared
 contexts or actual bindings determine their representation. Common IR analysis
 solves these constraints; return widening does not widen an already typed Bits
-operation. Published source units use `ac.source_contract = 4 : i64` and older
+operation. Published source units use `ac.source_contract = 5 : i64` and older
 source artifacts require regeneration.
 
 Module and Rule payload annotations constrain resource payloads; actual bindings

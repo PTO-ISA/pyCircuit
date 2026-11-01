@@ -52,16 +52,16 @@ if mode == "resource":
     source = (
         literal
         + types
-        + """!data = !ac.table<[#w65536], !b8>
-!control = !ac.table<[#w65536], !b1>
+        + """!data = !ac.array<[#w65536], !b8>
+!control = !ac.array<[#w65536], !b1>
 module {
 """
         + leaf
         + f"""  "ac.module"() ({{
     %clk = "ac.bits.constant"() {{value = #w0}} : () -> !b1
     %data = "ac.bits.constant"() {{value = #w0}} : () -> !b8
-    %clocks = "ac.table.splat"(%clk) {{shape = [#w65536]}} : (!b1) -> !control
-    %values = "ac.table.splat"(%data) {{shape = [#w65536]}} : (!b8) -> !data
+    %clocks = "ac.array.splat"(%clk) {{shape = [#w65536]}} : (!b1) -> !control
+    %values = "ac.array.splat"(%data) {{shape = [#w65536]}} : (!b8) -> !data
     %q = "ac.collection"(%clocks, %clocks, %values, %values) {{instance_name = "leaves", callee = @storage, parameters = [], type_arguments = [!b8], shape = [#w65536], occurrence = {occurrence}}} : (!control, !control, !data, !data) -> !data
     "ac.yield"() : () -> ()
   }}) {{sym_name = "inner", source_owner = {{package = "", path = "inner.py"}}, parameters = [], type_parameters = [], function_type = () -> (), input_names = [], output_names = []}} : () -> ()
@@ -143,8 +143,8 @@ module {
 elif mode == "binding":
     parameter = """#n = #ac.static_expr<{kind = "reference", location = {path = "root.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Root, name = "N"}}>
 !formal = !ac.type_param<@Root, "T">
-!data = !ac.table<[#n], !formal>
-!control = !ac.table<[#n], !b1>
+!data = !ac.array<[#n], !formal>
+!control = !ac.array<[#n], !b1>
 #width = #ac.static_expr<{kind = "type_width", location = {path = "root.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, type = !formal}>
 #proof = #ac.static_expr<{kind = "binary", location = {path = "root.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, operator = "add", lhs = #n, rhs = #width}>
 """
@@ -157,7 +157,7 @@ elif mode == "binding":
         + f"""  ac.struct "Entry" fields [{{name = "tag", type = !ac.bits<#w5>}}, {{name = "data", type = !ac.bits<#w9>}}]
   "ac.module"() ({{
     %clk = "ac.bits.constant"() {{value = #w0}} : () -> !b1
-    %clocks = "ac.table.splat"(%clk) {{shape = [#n]}} : (!b1) -> !control
+    %clocks = "ac.array.splat"(%clk) {{shape = [#n]}} : (!b1) -> !control
     %q = "ac.collection"(%clocks, %clocks, %q, %q) {{instance_name = "leaves", callee = @storage, parameters = [], type_arguments = [!formal], shape = [#n], occurrence = {occurrence}}} : (!control, !control, !data, !data) -> !data
     %proof = "ac.bits.constant"() {{value = #proof}} : () -> !ac.bits<#w32>
     "ac.yield"(%proof) : (!ac.bits<#w32>) -> ()

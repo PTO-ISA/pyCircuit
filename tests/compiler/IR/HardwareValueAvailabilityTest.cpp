@@ -191,11 +191,11 @@ protected:
     package->print(out);
     return text;
   }
-  ac::TableMapOp rowMap(ValueRange tables, ValueRange captures,
+  ac::ArrayMapOp rowMap(ValueRange tables, ValueRange captures,
                        TypeRange results,
                        const std::function<SmallVector<Value>(Block *)> &body) {
     OpBuilder::InsertionGuard insertion(b);
-    OperationState state(b.getUnknownLoc(), ac::TableMapOp::getOperationName());
+    OperationState state(b.getUnknownLoc(), ac::ArrayMapOp::getOperationName());
     state.addOperands(tables);
     state.addOperands(captures);
     state.addTypes(results);
@@ -203,12 +203,12 @@ protected:
     state.addAttribute("operandSegmentSizes", b.getDenseI32ArrayAttr(
         {int32_t(tables.size()), int32_t(captures.size())}));
     state.addRegion();
-    auto map = cast<ac::TableMapOp>(b.create(state));
+    auto map = cast<ac::ArrayMapOp>(b.create(state));
     auto *block = new Block;
     map.getBody().push_back(block);
     block->addArgument(bits(1), b.getUnknownLoc());
     for (Value table : tables)
-      block->addArgument(cast<ac::TableType>(table.getType()).getElementType(),
+      block->addArgument(cast<ac::ArrayType>(table.getType()).getElementType(),
                         b.getUnknownLoc());
     for (Value capture : captures)
       block->addArgument(capture.getType(), b.getUnknownLoc());
@@ -218,8 +218,8 @@ protected:
     return map;
   }
   struct RowFixture {
-    ac::TableMapOp data, companion;
-    ac::TableFoldOp folded;
+    ac::ArrayMapOp data, companion;
+    ac::ArrayFoldOp folded;
   };
   RowFixture rowFixture(bool overwritePartial = false, bool record = false) {
     build(false);
@@ -237,14 +237,14 @@ protected:
     }
     b.setInsertionPoint(yield);
     auto shape = b.getArrayAttr({literal(2)});
-    auto tableType = ac::TableType::get(&context, shape, element);
-    auto validityType = ac::TableType::get(&context, shape, bits(1));
+    auto tableType = ac::ArrayType::get(&context, shape, element);
+    auto validityType = ac::ArrayType::get(&context, shape, bits(1));
     auto wrap = [&](Value value) {
       return record ? op(ac::StructCreateOp::getOperationName(),
                          {value, constant(13, 8)}, {element})->getResult(0)
                     : value;
     };
-    auto base = op(ac::TableCreateOp::getOperationName(),
+    auto base = op(ac::ArrayCreateOp::getOperationName(),
                    {wrap(overwritePartial ? payload : constant(7, 8)),
                     wrap(constant(9, 8))}, {tableType})->getResult(0);
     auto replacement = overwritePartial ? constant(42, 8) : payload;
@@ -268,7 +268,7 @@ protected:
       return {merge->getResult(0), block->getArgument(1)};
     });
     b.setInsertionPoint(yield);
-    auto prior = op(ac::TableCreateOp::getOperationName(),
+    auto prior = op(ac::ArrayCreateOp::getOperationName(),
                     {overwritePartial ? available : one, one},
                     {validityType})->getResult(0);
     auto companion = rowMap({prior},
@@ -278,7 +278,7 @@ protected:
       return {choose(condition, block->getArgument(2), block->getArgument(1))};
     });
     b.setInsertionPoint(yield);
-    auto folded = cast<ac::TableFoldOp>(op(ac::TableFoldOp::getOperationName(),
+    auto folded = cast<ac::ArrayFoldOp>(op(ac::ArrayFoldOp::getOperationName(),
         {companion->getResult(0)}, {bits(1)}, {f("kind", b.getStringAttr("and"))}));
     yield->setOperands(ValueRange{data->getResult(0), data->getResult(1),
                                   folded.getResult(), overwritePartial ? available : one});
@@ -341,11 +341,11 @@ protected:
                    ->getResult(0);
     auto shape = b.getArrayAttr({literal(2)});
     if (table) {
-      auto type = ac::TableType::get(&context, shape, record);
+      auto type = ac::ArrayType::get(&context, shape, record);
       auto trueRows =
-          op(ac::TableCreateOp::getOperationName(), {yes, no}, {type})
+          op(ac::ArrayCreateOp::getOperationName(), {yes, no}, {type})
               ->getResult(0);
-      no = op(ac::TableCreateOp::getOperationName(), {no, yes}, {type})
+      no = op(ac::ArrayCreateOp::getOperationName(), {no, yes}, {type})
                ->getResult(0);
       yes = trueRows;
     }
@@ -373,11 +373,11 @@ protected:
     if (partialGuard)
       premature = conjunction(guardAvailable, premature);
     if (table && !identity) {
-      auto boolTable = ac::TableType::get(&context, shape, bits(1));
-      auto forward = op(ac::TableCreateOp::getOperationName(), {available, one},
+      auto boolTable = ac::ArrayType::get(&context, shape, bits(1));
+      auto forward = op(ac::ArrayCreateOp::getOperationName(), {available, one},
                         {boolTable})
                          ->getResult(0);
-      auto reverse = op(ac::TableCreateOp::getOperationName(), {one, available},
+      auto reverse = op(ac::ArrayCreateOp::getOperationName(), {one, available},
                         {boolTable})
                          ->getResult(0);
       auto rows = rowMap(
@@ -391,7 +391,7 @@ protected:
                 conjunction(block->getArgument(4), conjunction(first, second))};
           });
       b.setInsertionPoint(yield);
-      whole = op(ac::TableFoldOp::getOperationName(), {rows->getResult(0)},
+      whole = op(ac::ArrayFoldOp::getOperationName(), {rows->getResult(0)},
                  {bits(1)}, {f("kind", b.getStringAttr("and"))})
                   ->getResult(0);
     }
@@ -412,8 +412,8 @@ protected:
       changed = false;
       for (Operation &operation : llvm::make_early_inc_range(
                llvm::reverse(module.getBody().front()))) {
-        if (isa<ac::BitsSelectOp, ac::BitsBinaryOp, ac::TableCreateOp,
-                ac::TableSplatOp, ac::TableMapOp, ac::TableFoldOp>(&operation) &&
+        if (isa<ac::BitsSelectOp, ac::BitsBinaryOp, ac::ArrayCreateOp,
+                ac::ArraySplatOp, ac::ArrayMapOp, ac::ArrayFoldOp>(&operation) &&
             operation.use_empty()) {
           operation.erase();
           changed = true;
@@ -428,8 +428,8 @@ protected:
     Value value = merge.getNext();
     if (table)
       value =
-          op(ac::TableGetOp::getOperationName(), {value, index},
-             {cast<ac::TableType>(value.getType()).getElementType(), bits(1)})
+          op(ac::ArrayGetOp::getOperationName(), {value, index},
+             {cast<ac::ArrayType>(value.getType()).getElementType(), bits(1)})
               ->getResult(0);
     value = op(ac::StructGetOp::getOperationName(), {value}, {bits(8)},
                {f("field", b.getStringAttr(field))})
@@ -447,13 +447,13 @@ protected:
   build(false);
   b.setInsertionPoint(module);
   auto shape = b.getArrayAttr({literal(2)});
-  auto inner = ac::TableType::get(&context, shape, bits(8));
+  auto inner = ac::ArrayType::get(&context, shape, bits(8));
   auto record = ac::StructType::get(&context, b.getStringAttr("NestedTable"));
   op(ac::StructOp::getOperationName(), {}, {},
      {f("sym_name", b.getStringAttr("NestedTable")),
       f("fields", b.getArrayAttr({b.getDictionaryAttr(
           {f("name", b.getStringAttr("t")), f("type", TypeAttr::get(inner))})}))});
-  auto outer = ac::TableType::get(&context, shape, record);
+  auto outer = ac::ArrayType::get(&context, shape, record);
   auto &body = module.getBody().front();
   body.getArgument(0).setType(outer);
   body.getArgument(1).setType(outer);
@@ -573,10 +573,10 @@ TEST_F(HardwareValueAvailabilityTest,
     SCOPED_TRACE(collapse);
     build(false);
     b.setInsertionPoint(yield);
-    auto type = ac::TableType::get(&context, b.getArrayAttr({literal(2)}), bits(8));
-    auto table = op(ac::TableCreateOp::getOperationName(), {payload, payload},
+    auto type = ac::ArrayType::get(&context, b.getArrayAttr({literal(2)}), bits(8));
+    auto table = op(ac::ArrayCreateOp::getOperationName(), {payload, payload},
                     {type})->getResult(0);
-    auto read = op(ac::TableGetOp::getOperationName(), {table, selected},
+    auto read = op(ac::ArrayGetOp::getOperationName(), {table, selected},
                    {bits(8), bits(1)})->getResult(0);
     auto equal = [&](unsigned row) {
       return op(ac::BitsCompareOp::getOperationName(),
@@ -756,17 +756,17 @@ TEST_F(HardwareValueAvailabilityTest,
     SCOPED_TRACE(variant); // literal X/Z payload, identity, shared merge DAG
     auto fixture = nestedFixture();
     b.setInsertionPoint(fixture.merge);
-    auto type = cast<ac::TableType>(fixture.merge.getNext().getType());
-    auto inner = ac::TableType::get(&context, type.getShape(), bits(8));
+    auto type = cast<ac::ArrayType>(fixture.merge.getNext().getType());
+    auto inner = ac::ArrayType::get(&context, type.getShape(), bits(8));
     auto record = type.getElementType();
     auto wrap = [&](StringRef pattern) {
       auto data = op(ac::BitsConstant4Op::getOperationName(), {}, {bits(8)},
                      {f("pattern", b.getStringAttr(pattern))})->getResult(0);
-      auto rows = op(ac::TableSplatOp::getOperationName(), {data}, {inner},
+      auto rows = op(ac::ArraySplatOp::getOperationName(), {data}, {inner},
                      {f("shape", inner.getShape())})->getResult(0);
       auto value = op(ac::StructCreateOp::getOperationName(), {rows},
                       {record})->getResult(0);
-      return op(ac::TableSplatOp::getOperationName(), {value}, {type},
+      return op(ac::ArraySplatOp::getOperationName(), {value}, {type},
                  {f("shape", type.getShape())})->getResult(0);
     };
     auto left = wrap("xxzz10xz"), right = wrap("xxzz01zx");
@@ -807,8 +807,8 @@ TEST_F(HardwareValueAvailabilityTest,
   module->setAttr("parameters", b.getArrayAttr({b.getDictionaryAttr(
       {f("name", b.getStringAttr("N")),
        f("type", TypeAttr::get(parseType("!ac.math_int", &context)))})}));
-  auto type = ac::TableType::get(&context, b.getArrayAttr({extent}),
-      cast<ac::TableType>(fixture.merge.getNext().getType()).getElementType());
+  auto type = ac::ArrayType::get(&context, b.getArrayAttr({extent}),
+      cast<ac::ArrayType>(fixture.merge.getNext().getType()).getElementType());
   auto &body = module.getBody().front();
   body.getArgument(0).setType(type);
   body.getArgument(1).setType(type);
@@ -841,13 +841,13 @@ TEST_F(HardwareValueAvailabilityTest,
            {f("sym_name", b.getStringAttr("InnerPair")),
             f("fields", b.getArrayAttr({field("a"), field("b")}))});
       }
-      auto inner = ac::TableType::get(&context, shape, element);
+      auto inner = ac::ArrayType::get(&context, shape, element);
       auto record = ac::StructType::get(&context, b.getStringAttr("Nested"));
       op(ac::StructOp::getOperationName(), {}, {},
          {f("sym_name", b.getStringAttr("Nested")),
           f("fields", b.getArrayAttr({b.getDictionaryAttr(
               {f("name", b.getStringAttr("t")), f("type", TypeAttr::get(inner))})}))});
-      auto outer = ac::TableType::get(&context, shape, record);
+      auto outer = ac::ArrayType::get(&context, shape, record);
       b.setInsertionPoint(yield);
       auto known = constant(7, 8);
       auto wrap = [&](bool reverse) {
@@ -857,15 +857,15 @@ TEST_F(HardwareValueAvailabilityTest,
         if (fields) {
           auto pair = op(ac::StructCreateOp::getOperationName(), {a, bValue},
                          {element})->getResult(0);
-          rows = op(ac::TableSplatOp::getOperationName(), {pair}, {inner},
+          rows = op(ac::ArraySplatOp::getOperationName(), {pair}, {inner},
                     {f("shape", shape)})->getResult(0);
         } else {
-          rows = op(ac::TableCreateOp::getOperationName(), {a, bValue},
+          rows = op(ac::ArrayCreateOp::getOperationName(), {a, bValue},
                     {inner})->getResult(0);
         }
         auto entry = op(ac::StructCreateOp::getOperationName(), {rows},
                         {record})->getResult(0);
-        return op(ac::TableSplatOp::getOperationName(), {entry}, {outer},
+        return op(ac::ArraySplatOp::getOperationName(), {entry}, {outer},
                   {f("shape", shape)})->getResult(0);
       };
       auto no = wrap(false), yes = wrap(true);
@@ -905,11 +905,11 @@ TEST_F(HardwareValueAvailabilityTest,
            f("type", TypeAttr::get(parseType("!ac.math_int", &context)))})}));
   auto shape = b.getArrayAttr({extent});
   auto table =
-      ac::TableType::get(&context, shape, fixture.merge.getNext().getType());
+      ac::ArrayType::get(&context, shape, fixture.merge.getNext().getType());
   b.setInsertionPoint(fixture.merge);
   for (unsigned operand : {0u, 2u}) {
     auto splat =
-        op(ac::TableSplatOp::getOperationName(),
+        op(ac::ArraySplatOp::getOperationName(),
            {fixture.merge->getOperand(operand)}, {table}, {f("shape", shape)})
             ->getResult(0);
     fixture.merge->setOperand(operand, splat);

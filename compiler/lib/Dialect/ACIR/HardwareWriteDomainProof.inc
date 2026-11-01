@@ -25,7 +25,7 @@
       PrivateRoute::Kind kind) {
     auto actual = normal(value, scope);
     if (failed(actual)) return failure();
-    auto splat = actual->value.getDefiningOp<TableSplatOp>();
+    auto splat = actual->value.getDefiningOp<ArraySplatOp>();
     if (!splat || failed(allowUse(actual->scope, splat, 0, state, kind)))
       return valueSite(value)->emitOpError() << "write-domain Table input requires exact splat";
     return normal(splat.getInput(), actual->scope);
@@ -39,7 +39,7 @@
     FinalWriteDomain result{domain.selectors, *exported, *mask, {}};
     if (!domain.table) return result;
     auto output = dyn_cast<OpResult>(mask->value);
-    auto map = output ? dyn_cast<TableMapOp>(output.getOwner()) : TableMapOp();
+    auto map = output ? dyn_cast<ArrayMapOp>(output.getOwner()) : ArrayMapOp();
     if (!map || output.getResultNumber() != 1 || map->getNumResults() != 2 ||
         map.getTables().size() != 4 || !map.getCaptures().empty() ||
         !map.getBody().hasOneBlock())
@@ -317,13 +317,13 @@
         return create->emitOpError() << "write-domain Struct predecessor projection differs";
       return normal(get.getValue(), base->scope);
     }
-    if (isa<TableType>(type)) {
+    if (isa<ArrayType>(type)) {
       if (uses.size() == 1 && uses.front().path.empty() && isa<BitsType>(uses.front().mask.resolvedType)) {
         auto merge = actual.value.getDefiningOp<ValueMergeOp>();
         if (!merge) return valueSite(actual.value)->emitOpError() << "whole-Table domain requires value.merge";
         return normal(merge.getBase(), actual.scope);
       }
-      auto map = actual.value.getDefiningOp<TableMapOp>();
+      auto map = actual.value.getDefiningOp<ArrayMapOp>();
       if (!map || map.getTables().empty())
         return valueSite(actual.value)->emitOpError() << "write-domain Table composition differs";
       return normal(map->getOperand(0), actual.scope);
@@ -359,10 +359,10 @@
       }
       return success();
     }
-    bool wholeTable = isa<TableType>(type) && uses.size() == 1 &&
+    bool wholeTable = isa<ArrayType>(type) && uses.size() == 1 &&
         uses.front().path.empty() && isa<BitsType>(uses.front().mask.resolvedType);
-    if (auto table = dyn_cast<TableType>(type); table && !wholeTable) {
-      auto map = actual.value.getDefiningOp<TableMapOp>();
+    if (auto table = dyn_cast<ArrayType>(type); table && !wholeTable) {
+      auto map = actual.value.getDefiningOp<ArrayMapOp>();
       if (!map || map->getNumResults() != 1 || !map.getCaptures().empty() ||
           map.getTables().size() != uses.size() + 3 || !map.getBody().hasOneBlock() ||
           failed(analysis.verifyResolvedOperation(map, *bindings)))
@@ -477,7 +477,7 @@
           auto child = normal(create->getOperand(0), leaf.scope); if (failed(member) || failed(child)) return failure();
           type = *member; leaf = *child; continue;
         }
-        if (isa<TableType>(type)) {
+        if (isa<ArrayType>(type)) {
           if (auto merge = leaf.value.getDefiningOp<ValueMergeOp>()) {
             if (merge.getGuards().size() != 1 || merge.getValues().size() != 1 ||
                 merge.getPaths().size() != 1 || !cast<ArrayAttr>(merge.getPaths()[0]).empty())
@@ -491,7 +491,7 @@
               return merge.emitOpError() << "whole-Table composition requires a known-one mask";
             uses.push_back({{}, *mask}); break;
           }
-          auto map = leaf.value.getDefiningOp<TableMapOp>();
+          auto map = leaf.value.getDefiningOp<ArrayMapOp>();
           if (!map || map.getTables().size() != 4)
             return valueSite(leaf.value)->emitOpError()
                    << "whole-owner composition requires its exact Table map";

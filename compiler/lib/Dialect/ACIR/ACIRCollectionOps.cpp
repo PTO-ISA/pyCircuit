@@ -94,8 +94,8 @@ LogicalResult scalarRegion(Operation *op, TypeRange args, TypeRange results) {
              BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
              BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
              EnumToBitsOp, EnumFromBitsOp, ValueMergeOp>(nested) &&
-        !(isa<TableMapOp>(op) &&
-          isa<TableCreateOp, TableSplatOp, TableReadOp, TableGetOp, TableMapOp>(nested)))
+        !(isa<ArrayMapOp>(op) &&
+          isa<ArrayCreateOp, ArraySplatOp, ArrayReadOp, ArrayGetOp, ArrayMapOp>(nested)))
       return nested.emitOpError()
              << "table region accepts only closed pure scalar operations";
   return success();
@@ -305,11 +305,11 @@ viewShape(const HardwareAnalysis &a, StringRef kind, DictionaryAttr p,
   return out;
 }
 } // namespace
-LogicalResult TableType::verify(function_ref<InFlightDiagnostic()> error,
+LogicalResult ArrayType::verify(function_ref<InFlightDiagnostic()> error,
                                 ArrayAttr shape, Type elementType) {
   if (failed(shapeSchema(shape, error)))
     return failure();
-  if (!isa<BitsType, StructType, EnumType, TypeParamType, TableType>(elementType))
+  if (!isa<BitsType, StructType, EnumType, TypeParamType, ArrayType>(elementType))
     return error() << "table element must be bits, struct, enum or type parameter";
   return success();
 }
@@ -340,21 +340,21 @@ FailureOr<SmallVector<uint64_t>> HardwareAnalysis::resolveShape(
   return result;
 }
 FailureOr<SmallVector<uint64_t>> HardwareAnalysis::getTableShape(
-    TableType table, const HardwareBindings &bindings, Operation *site) const {
+    ArrayType table, const HardwareBindings &bindings, Operation *site) const {
   auto resolved = resolveType(table, bindings, site);
   if (failed(resolved))
     return failure();
-  return resolveShape(cast<TableType>(*resolved).getShape(), bindings, site);
+  return resolveShape(cast<ArrayType>(*resolved).getShape(), bindings, site);
 }
 FailureOr<uint64_t> HardwareAnalysis::getTableSize(
-    TableType table, const HardwareBindings &bindings, Operation *site) const {
+    ArrayType table, const HardwareBindings &bindings, Operation *site) const {
   auto shape = getTableShape(table, bindings, site);
   if (failed(shape))
     return failure();
   return product(*shape);
 }
 FailureOr<uint64_t>
-HardwareAnalysis::getViewSourceOrdinal(TableViewOp view, uint64_t ordinal,
+HardwareAnalysis::getViewSourceOrdinal(ArrayViewOp view, uint64_t ordinal,
                                        const HardwareBindings &bindings) const {
   auto in = getTableShape(view.getInput().getType(), bindings, view);
   auto out = getTableShape(view.getResult().getType(), bindings, view);
@@ -498,7 +498,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
                : LogicalResult(error() << "table bit width mismatch: expected "
                                        << expected);
   };
-  auto count = [&](TableType t) -> std::optional<uint64_t> {
+  auto count = [&](ArrayType t) -> std::optional<uint64_t> {
     if (!requireResolved && !isStaticEvaluable(t.getShape(), bindings))
       return std::nullopt;
     auto n = getTableSize(t, bindings, op);
@@ -507,11 +507,11 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
     return *n;
   };
   for (Type t : op->getOperandTypes())
-    if (auto table = dyn_cast<TableType>(t))
+    if (auto table = dyn_cast<ArrayType>(t))
       if (failed(shape(table.getShape())))
         return failure();
   for (Type t : op->getResultTypes())
-    if (auto table = dyn_cast<TableType>(t))
+    if (auto table = dyn_cast<ArrayType>(t))
       if (failed(shape(table.getShape())))
         return failure();
   if (auto c = dyn_cast<CollectionOp>(op)) {
@@ -568,28 +568,28 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
     }
     return verifyInstance(c, bindings);
   }
-  if (auto create = dyn_cast<TableCreateOp>(op)) {
+  if (auto create = dyn_cast<ArrayCreateOp>(op)) {
     auto t = create.getResult().getType();
     if (auto n = count(t); n && *n != create.getInputs().size())
       return error() << "table.create input count must equal shape product";
     for (Value v : create.getInputs())
       if (failed(equal(v.getType(), t.getElementType())))
         return failure();
-  } else if (auto splat = dyn_cast<TableSplatOp>(op)) {
+  } else if (auto splat = dyn_cast<ArraySplatOp>(op)) {
     if (failed(shape(splat.getShape())))
       return failure();
-    auto expected = TableType::get(op->getContext(), splat.getShape(),
+    auto expected = ArrayType::get(op->getContext(), splat.getShape(),
                                    splat.getInput().getType());
     return equal(expected, splat.getResult().getType());
-  } else if (auto map = dyn_cast<TableMapOp>(op)) {
+  } else if (auto map = dyn_cast<ArrayMapOp>(op)) {
     if (failed(shape(map.getShape())) || map.getResults().empty())
       return error() << "table.map requires shape and at least one result";
     for (Value v : map.getTables())
-      if (failed(sameShape(cast<TableType>(v.getType()).getShape(),
+      if (failed(sameShape(cast<ArrayType>(v.getType()).getShape(),
                            map.getShape())))
         return failure();
     for (Value v : map.getResults())
-      if (failed(sameShape(cast<TableType>(v.getType()).getShape(),
+      if (failed(sameShape(cast<ArrayType>(v.getType()).getShape(),
                            map.getShape())))
         return failure();
     if (!map.getBody().empty() &&
@@ -604,7 +604,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
           return failure();
       }
     }
-  } else if (auto view = dyn_cast<TableViewOp>(op)) {
+  } else if (auto view = dyn_cast<ArrayViewOp>(op)) {
     auto in = view.getInput().getType(), out = view.getResult().getType();
     if (failed(equal(in.getElementType(), out.getElementType())) ||
         failed(viewSchema(view.getKind(), view.getParameters(),
@@ -625,7 +625,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
       if (*expected != *r)
         return error() << "table.view result shape mismatch";
     }
-  } else if (auto index = dyn_cast<TableIndexOp>(op)) {
+  } else if (auto index = dyn_cast<ArrayIndexOp>(op)) {
     if (failed(shape(index.getShape())))
       return failure();
     if (index.getCoords().size() != index.getShape().size())
@@ -636,11 +636,11 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
           failed(width(index.getResult().getType(), countWidth(product(*s)))))
         return failure();
     }
-  } else if (auto read = dyn_cast<TableReadOp>(op)) {
+  } else if (auto read = dyn_cast<ArrayReadOp>(op)) {
     auto input = read.getInput().getType();
     if (input.getShape().size() != 1 ||
         !isa<BitsType, StructType, EnumType>(input.getElementType()))
-      return error() << "checked Table read requires a rank-one Table of finite elements";
+      return error() << "checked Array read requires a rank-one Array of finite elements";
     if (failed(equal(input.getElementType(), read.getValue().getType())) ||
         failed(detail::verifySourceTemplateType(*this, input, bindings, op)) ||
         failed(detail::verifySourceTemplateType(*this, read.getIndex().getType(), bindings, op)))
@@ -649,15 +649,15 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
         (isStaticEvaluable(input.getShape(), bindings) &&
          isStaticEvaluable(read.getIndex().getType().getWidth(), bindings)))
       return verifySourceIndex(read.getIndex(), input, bindings, op);
-  } else if (auto get = dyn_cast<TableGetOp>(op)) {
+  } else if (auto get = dyn_cast<ArrayGetOp>(op)) {
     if (failed(equal(get.getInput().getType().getElementType(),
                      get.getValue().getType())) ||
         failed(width(get.getInRange().getType(), 1)))
       return failure();
-  } else if (auto match = dyn_cast<TableMatchOp>(op)) {
+  } else if (auto match = dyn_cast<ArrayMatchOp>(op)) {
     if (auto n = count(match.getInput().getType()))
       return width(match.getMask().getType(), *n);
-  } else if (auto choose = dyn_cast<TableChooseOp>(op)) {
+  } else if (auto choose = dyn_cast<ArrayChooseOp>(op)) {
     if (choose.getPolicy() != "first" ||
         (choose.getOrder() != "low" && choose.getOrder() != "high"))
       return error() << "table.choose accepts first policy and low/high order";
@@ -669,7 +669,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
         choose.getResults().size() != uint64_t(c) * 2)
       return error()
              << "table.choose requires 2*count results and positive count";
-    auto match = choose.getMask().getDefiningOp<TableMatchOp>();
+    auto match = choose.getMask().getDefiningOp<ArrayMatchOp>();
     if (!match || match.getInput() != choose.getInput())
       return error() << "table.choose mask must come from match of the same "
                         "table SSA value";
@@ -683,7 +683,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
                          i < uint64_t(c) ? indexWidth(*n) : 1)))
           return failure();
     }
-  } else if (auto fold = dyn_cast<TableFoldOp>(op)) {
+  } else if (auto fold = dyn_cast<ArrayFoldOp>(op)) {
     if (!llvm::is_contained(
             ArrayRef<StringRef>{"add", "mul", "and", "or", "xor", "min", "max"},
             fold.getKind()))
@@ -702,11 +702,11 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
     if (failed(equal(merge.getBase().getType(), merge.getNext().getType())) ||
         failed(width(merge.getEn().getType(), 1)))
       return failure();
-    if (isa<TableType>(merge.getBase().getType()))
+    if (isa<ArrayType>(merge.getBase().getType()))
       for (Attribute raw : merge.getPaths()) {
         auto path = dyn_cast<ArrayAttr>(raw);
         if (!path || !path.empty())
-          return error() << "whole-Table merge requires empty value paths";
+          return error() << "whole-Array merge requires empty value paths";
       }
     SmallVector<ArrayAttr> paths;
     for (auto [i, raw] : llvm::enumerate(merge.getPaths())) {
@@ -762,29 +762,29 @@ LogicalResult CollectionOp::verify() {
 LogicalResult CollectionOp::verifySymbolUses(SymbolTableCollection &) {
   return verifyCommon(*this);
 }
-LogicalResult TableCreateOp::verify() { return verifyCommon(*this); }
-LogicalResult TableSplatOp::verify() { return verifyCommon(*this); }
-LogicalResult TableMapOp::verify() { return verifyCommon(*this); }
-LogicalResult TableViewOp::verify() { return verifyCommon(*this); }
-LogicalResult TableIndexOp::verify() { return verifyCommon(*this); }
-LogicalResult TableReadOp::verify() { return verifyCommon(*this); }
-LogicalResult TableGetOp::verify() { return verifyCommon(*this); }
-LogicalResult TableMatchOp::verify() { return verifyCommon(*this); }
-LogicalResult TableChooseOp::verify() { return verifyCommon(*this); }
-LogicalResult TableFoldOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayCreateOp::verify() { return verifyCommon(*this); }
+LogicalResult ArraySplatOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayMapOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayViewOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayIndexOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayReadOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayGetOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayMatchOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayChooseOp::verify() { return verifyCommon(*this); }
+LogicalResult ArrayFoldOp::verify() { return verifyCommon(*this); }
 LogicalResult ValueMergeOp::verify() { return verifyCommon(*this); }
-LogicalResult TableMapOp::verifyRegions() {
+LogicalResult ArrayMapOp::verifyRegions() {
   if (getBody().empty() || getBody().front().getArguments().empty())
     return emitOpError() << "table.map requires ordinal argument";
   SmallVector<Type> args{getBody().front().getArgument(0).getType()}, results;
   for (Value v : getTables())
-    args.push_back(cast<TableType>(v.getType()).getElementType());
+    args.push_back(cast<ArrayType>(v.getType()).getElementType());
   llvm::append_range(args, getCaptures().getTypes());
   for (Value v : getResults())
-    results.push_back(cast<TableType>(v.getType()).getElementType());
+    results.push_back(cast<ArrayType>(v.getType()).getElementType());
   return scalarRegion(*this, args, results);
 }
-LogicalResult TableMatchOp::verifyRegions() {
+LogicalResult ArrayMatchOp::verifyRegions() {
   SmallVector<Type> args{getInput().getType().getElementType()};
   llvm::append_range(args, getCaptures().getTypes());
   if (getBody().empty() || getBody().front().empty() ||

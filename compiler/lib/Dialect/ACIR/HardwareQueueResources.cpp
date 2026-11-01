@@ -659,7 +659,7 @@ private:
         current = normal(get.getValue(), current->scope);
       } else {
         auto *get = current->value.getDefiningOp();
-        if (!isa_and_nonnull<TableReadOp, TableGetOp>(get)) return module->emitOpError() << "queue payload Table projection differs";
+        if (!isa_and_nonnull<ArrayReadOp, ArrayGetOp>(get)) return module->emitOpError() << "queue payload Table projection differs";
         auto index = normal(get->getOperand(1), current->scope);
         if (failed(index)) return failure();
         auto constant = index->value.getDefiningOp<BitsConstantOp>();
@@ -691,7 +691,7 @@ private:
       if (merge->getNumOperands() != 3 || merge->getNumResults() != 2 ||
           segments != ArrayRef<int32_t>({1, 1, 1}) || !path || !path.empty() ||
           selected.value != merge->getResult(0) ||
-          !isa<EnumType, StructType, TableType>(selected.resolvedType) ||
+          !isa<EnumType, StructType, ArrayType>(selected.resolvedType) ||
           !merge->getResult(1).use_empty() ||
           merge->getResult(1).getType() != merge->getOperand(1).getType() ||
           !areEquivalentHardwareTypes(merge->getOperand(0).getType(),
@@ -738,8 +738,8 @@ private:
         }
         return success();
       }
-      if (auto table = dyn_cast<TableType>(type)) {
-        auto create = actual->value.getDefiningOp<TableCreateOp>();
+      if (auto table = dyn_cast<ArrayType>(type)) {
+        auto create = actual->value.getDefiningOp<ArrayCreateOp>();
         auto bound = scopeBindings(actual->scope);
         if (!create || failed(bound)) return failure();
         auto count = analysis.getTableSize(table, *bound, create);

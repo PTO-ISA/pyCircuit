@@ -24,7 +24,7 @@ FailureOr<Value> Importer::read(Value handle, const AstNode &node,
     // Branch-yield transport does not call read(), so it remains deferred.
     if (!scope.module &&
         !(scope.callable && scope.callable->kind == "helper") &&
-        !isa<ac::ModuleRefType>(handle.getType()) &&
+        !isa<ac::ModuleRefType, ac::TableType>(handle.getType()) &&
         !op(node, "ac.payload.use", handle, {}))
       return failure();
     return handle;
@@ -87,7 +87,7 @@ FailureOr<Value> Importer::scalar(const AstNode &node, Scope &scope,
       return failure();
     value = *loaded;
   }
-  if (isa<ac::ModuleRefType>(value.getType())) {
+  if (isa<ac::ModuleRefType, ac::TableType>(value.getType())) {
     (void)fail(node, "instance references are not data payloads");
     return failure();
   }
@@ -255,7 +255,18 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
             ->getResult(0)};
   }
   if (node.kind() == "Subscript") {
-    auto value = scalar(node.child("value"), scope);
+    auto base = expression(node.child("value"), scope);
+    if (failed(base) || base->size() != 1)
+      return failure();
+    if (auto table = dyn_cast<ac::TableType>(base->front().getType())) {
+      auto index = scalar(node.child("slice"), scope);
+      if (failed(index))
+        return failure();
+      return SmallVector<Value>{
+          op(node, "ac.table.select", ValueRange{base->front(), *index},
+             table.getElementType())->getResult(0)};
+    }
+    auto value = read(base->front(), node.child("value"), scope);
     if (failed(value))
       return failure();
     auto input = dyn_cast<ac::BitsType>(value->getType());
@@ -381,9 +392,9 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
     // control reachedness and dependency availability.
     for (size_t i = 1; i < items.size(); ++i) {
       bool conjunction = node.child("op").kind() == "And";
-      auto *branch = op(
-          node, "ac.branch", value, bits(1, node),
-          {b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))}, 2);
+      auto predicate = op(node, "ac.source.predicate", value, b.getI1Type())
+                           ->getResult(0);
+      auto *branch = op(node, "scf.if", predicate, bits(1, node), {}, 2);
       for (unsigned arm = 0; arm < 2; ++arm) {
         auto *block = new Block;
         branch->getRegion(arm).push_back(block);
@@ -393,9 +404,9 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
           auto next = scalar(node.item("values", i), scope, bits(1, node));
           if (failed(next))
             return failure();
-          yield(node, *next);
+          op(node, "scf.yield", *next, {});
         } else
-          yield(node, truth(node, !conjunction));
+          op(node, "scf.yield", truth(node, !conjunction), {});
       }
       value = branch->getResult(0);
     }
@@ -426,6 +437,17 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
                                                Scope &scope, Type expected,
                                                ArrayRef<Value> destinations) {
   AstNode func = node.child("func");
+  if (func.kind() == "Name" && func.string("id") == "len" &&
+      !scope.bindings.count("len") && !names.count("len")) {
+    auto capacity = staticExpr(node, scope.owner->symbol);
+    if (failed(capacity))
+      return failure();
+    auto type = expected ? expected : Type(ac::InferType::get(b.getContext()));
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", {}, type,
+           {b.getNamedAttr("kind", b.getStringAttr("literal")),
+            b.getNamedAttr("number", *capacity)})->getResult(0)};
+  }
   auto resolved = resolve(func);
   if (func.kind() == "Subscript" && marker(func.child("value"), "queue")) {
     auto data = annotation(func.child("slice"), scope.owner->symbol);

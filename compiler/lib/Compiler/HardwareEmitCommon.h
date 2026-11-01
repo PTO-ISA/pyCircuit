@@ -88,7 +88,7 @@ public:
                       bool rtl = false,
                       const ac::HardwareBindings &bindings = {}) const;
   mlir::FailureOr<std::string>
-  viewIndex(ac::TableViewOp view, llvm::StringRef ordinal, bool rtl = false,
+  viewIndex(ac::ArrayViewOp view, llvm::StringRef ordinal, bool rtl = false,
             const ac::HardwareBindings &bindings = {}) const;
   mlir::FailureOr<std::string>
   cppWireExpression(mlir::Value value, const ac::HardwareBindings &bindings,

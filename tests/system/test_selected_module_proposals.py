@@ -37,7 +37,7 @@ def test_selected_typed_state_owner_keeps_unreachable_checked_callers(tmp_path, 
     text = final.read_text()
     assert '"ac.expect"' in text
     assert "ac.internal_ports" in text
-    assert "!ac.table" in text
+    assert "!ac.array" in text
     generated, build = tmp_path / target, tmp_path / "build"
     _ok(_cli("emit", str(final), "--target", target, "-o", str(generated)))
     manifest = json.loads((generated / "generated.json").read_text())

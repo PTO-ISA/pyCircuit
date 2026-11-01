@@ -117,7 +117,7 @@ FailureOr<Attribute> routedPayloadAttribute(Attribute attribute,
     Operation *site) {
   if (!attribute || (bindings.integers.empty() && bindings.types.empty())) return attribute;
   if (auto type = dyn_cast<TypeAttr>(attribute)) {
-    if (!isa<ac::BitsType, ac::TableType, ac::StructType, ac::EnumType, ac::TypeParamType>(type.getValue()))
+    if (!isa<ac::BitsType, ac::ArrayType, ac::StructType, ac::EnumType, ac::TypeParamType>(type.getValue()))
       return attribute;
     auto resolved = hardware.resolveType(type.getValue(), bindings, site);
     if (failed(resolved)) return failure();
@@ -282,7 +282,7 @@ LogicalResult prepayBranchShapeProbe(Attribute attribute, Operation *site,
   } else if (auto type = dyn_cast<TypeAttr>(attribute)) {
     if (auto bits = dyn_cast<ac::BitsType>(type.getValue()))
       return prepayBranchShapeProbe(bits.getWidth(), site, budget, depth + 1);
-    if (auto table = dyn_cast<ac::TableType>(type.getValue())) {
+    if (auto table = dyn_cast<ac::ArrayType>(type.getValue())) {
       if (failed(prepayBranchShapeProbe(table.getShape(), site, budget,
                                        depth + 1)))
         return failure();
@@ -311,7 +311,7 @@ FailureOr<bool> compactBranchSelection(Type root,
     return failure();
   if (isa<ac::BitsType>(root))
     return false;
-  if (auto table = dyn_cast<ac::TableType>(root)) {
+  if (auto table = dyn_cast<ac::ArrayType>(root)) {
     if (failed(prepayBranchShapeProbe(table.getShape(), site, budget)))
       return failure();
     if (!hardware.isStaticEvaluable(table.getShape(), {}))
@@ -393,7 +393,7 @@ branchJoinLayout(Type root, const ac::HardwareAnalysis &hardware,
         return failure();
       result.nodes[id].enumWidth = llvm::APSInt(width).getZExtValue();
       result.operations = SourceCheckBudget::add(result.operations, 4);
-    } else if (auto table = dyn_cast<ac::TableType>(next.type)) {
+    } else if (auto table = dyn_cast<ac::ArrayType>(next.type)) {
       auto count = hardware.getTableSize(table, bindings, site);
       if (failed(count) || !product(budget, site, *count,
                                    sizeof(BranchJoinNode) + sizeof(uint64_t)))
@@ -436,7 +436,7 @@ branchJoinLayout(Type root, const ac::HardwareAnalysis &hardware,
         FailureOr<Type> resolved = failure();
         if (isa<ac::StructType, ac::EnumType>(declared))
           resolved = declared;
-        else if (isa<ac::BitsType, ac::TableType>(declared))
+        else if (isa<ac::BitsType, ac::ArrayType>(declared))
           resolved = admittedBranchField(declared, hardware, bindings, site, budget, cache);
         else
           return site->emitOpError() << "unsupported local branch field type";
@@ -2406,7 +2406,7 @@ FailureOr<MaterializedBranchResult> materializeSelection(
     auto &node = layout->nodes[index];
     if (!exiting && node.parent != UINT64_MAX) {
       auto &parent = layout->nodes[node.parent];
-      if (isa<ac::TableType>(parent.type)) {
+      if (isa<ac::ArrayType>(parent.type)) {
         auto integer = ac::MathIntAttr::get(branch->getContext(),
             llvm::APSInt(llvm::APInt(64, node.ordinal), true));
         auto expression = builder.getDictionaryAttr({
@@ -2421,9 +2421,9 @@ FailureOr<MaterializedBranchResult> materializeSelection(
                              {builder.getNamedAttr("value", ac::StaticExprAttr::get(
                                  branch->getContext(), expression))})->getResult(0);
         Type membership = branchCarrierType(1, branch);
-        node.whenTrue = create(ac::TableGetOp::getOperationName(),
+        node.whenTrue = create(ac::ArrayGetOp::getOperationName(),
                                {parent.whenTrue, index}, {node.type, membership})->getResult(0);
-        node.whenFalse = create(ac::TableGetOp::getOperationName(),
+        node.whenFalse = create(ac::ArrayGetOp::getOperationName(),
                                 {parent.whenFalse, index}, {node.type, membership})->getResult(0);
       } else {
         auto field = builder.getNamedAttr("field", node.field);
@@ -2433,7 +2433,7 @@ FailureOr<MaterializedBranchResult> materializeSelection(
                                 {parent.whenFalse}, {node.type}, {field})->getResult(0);
       }
     }
-    if (isa<ac::StructType, ac::TableType>(node.type) && !exiting) {
+    if (isa<ac::StructType, ac::ArrayType>(node.type) && !exiting) {
       pending.push_back({index, true});
       for (auto child : llvm::reverse(node.children))
         pending.push_back({child, false});
@@ -2460,8 +2460,8 @@ FailureOr<MaterializedBranchResult> materializeSelection(
                            {node.type, membership})
                         ->getResult(0);
     } else {
-      node.joined = create(isa<ac::TableType>(node.type)
-                               ? ac::TableCreateOp::getOperationName()
+      node.joined = create(isa<ac::ArrayType>(node.type)
+                               ? ac::ArrayCreateOp::getOperationName()
                                : ac::StructCreateOp::getOperationName(),
                            node.fields, {node.type})
                         ->getResult(0);
@@ -4500,7 +4500,7 @@ public:
           pending.push_back(require.getPath());
           continue;
         }
-        if (auto map = dyn_cast<ac::TableMapOp>(operation);
+        if (auto map = dyn_cast<ac::ArrayMapOp>(operation);
             map && generated.contains(operation)) {
           // Every private nested clone is part of the generated inventory,
           // including predicate-only dependencies and the region terminator.
@@ -4533,15 +4533,15 @@ public:
         // The independent availability verifier authenticates this exact
         // constant, in-range Boolean row transport and all of its users.
         // Merely being a pure TableGet does not authorize a private-data route.
-        bool companionRead = isa<ac::TableGetOp>(operation) &&
+        bool companionRead = isa<ac::ArrayGetOp>(operation) &&
             availabilityUses.contains(&operation->getOpOperand(0));
         if ((!companionRead &&
              !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
                  ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
                  ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
                  ac::StructGetOp, ac::StructCreateOp, ac::ValueMergeOp,
-                 ac::EnumCreateOp, ac::TableCreateOp, ac::TableSplatOp,
-                 ac::TableViewOp, ac::TableMapOp, ac::TableFoldOp,
+                 ac::EnumCreateOp, ac::ArrayCreateOp, ac::ArraySplatOp,
+                 ac::ArrayViewOp, ac::ArrayMapOp, ac::ArrayFoldOp,
                  ac::YieldOp>(operation)) ||
             failed(cover(operation)))
           return reject("original generated availability graph has extra operations");
@@ -4655,7 +4655,7 @@ private:
         !ac::areEquivalentHardwareTypes(whenFalse.getType(), resolvedRoot))
       return reject("original local branch input type differs");
 
-    if (isa<ac::EnumType, ac::StructType, ac::TableType>(resolvedRoot)) {
+    if (isa<ac::EnumType, ac::StructType, ac::ArrayType>(resolvedRoot)) {
       auto admitted = admissionCache.admit(resolvedRoot, hardware, bindings, branch, budget);
       if (failed(admitted) || *admitted != resolvedRoot)
         return reject("original aggregate branch root admission differs");
@@ -4713,7 +4713,7 @@ private:
         expectedCount = SourceCheckBudget::add(expectedCount, 1);
       } else if (isa<ac::EnumType>(next.type)) {
         expectedCount = SourceCheckBudget::add(expectedCount, 4);
-      } else if (auto table = dyn_cast<ac::TableType>(next.type)) {
+      } else if (auto table = dyn_cast<ac::ArrayType>(next.type)) {
         auto count = hardware.getTableSize(table, bindings, branch);
         if (failed(count) || !product(budget, branch, *count, sizeof(CountFrame)))
           return failure();
@@ -4737,7 +4737,7 @@ private:
           FailureOr<Type> resolved = failure();
           if (isa<ac::StructType, ac::EnumType>(declared))
             resolved = declared;
-          else if (isa<ac::BitsType, ac::TableType>(declared))
+          else if (isa<ac::BitsType, ac::ArrayType>(declared))
             resolved = admittedBranchField(declared, hardware, bindings, branch, budget, &admissionCache);
           else
             return reject("original local branch field type is unsupported");
@@ -4785,7 +4785,7 @@ private:
           return failure();
         frame.joinedFields.reserve(size);
       }
-      if (auto table = dyn_cast<ac::TableType>(type)) {
+      if (auto table = dyn_cast<ac::ArrayType>(type)) {
         auto count = hardware.getTableSize(table, bindings, branch);
         if (failed(count) || !product(budget, branch, *count, sizeof(Value)))
           return failure();
@@ -4841,7 +4841,7 @@ private:
     Value final;
     while (!stack.empty()) {
       Frame &frame = stack.back();
-      if (auto table = dyn_cast<ac::TableType>(frame.type);
+      if (auto table = dyn_cast<ac::ArrayType>(frame.type);
           table && frame.next < frame.tableSize) {
         auto number = ac::MathIntAttr::get(branch->getContext(),
             llvm::APSInt(llvm::APInt(64, frame.next++), true));
@@ -4857,9 +4857,9 @@ private:
                 branch->getContext(), expression))}));
         if (failed(index)) return failure();
         Type element = table.getElementType();
-        auto trueElement = take(ac::TableGetOp::getOperationName(),
+        auto trueElement = take(ac::ArrayGetOp::getOperationName(),
             {frame.whenTrue, *index}, {element, widthType(1)}, b.getDictionaryAttr({}));
-        auto falseElement = take(ac::TableGetOp::getOperationName(),
+        auto falseElement = take(ac::ArrayGetOp::getOperationName(),
             {frame.whenFalse, *index}, {element, widthType(1)}, b.getDictionaryAttr({}));
         if (failed(trueElement) || failed(falseElement) ||
             !record.generated[cursor - 1]->getResult(1).use_empty() ||
@@ -4876,7 +4876,7 @@ private:
         FailureOr<Type> fieldType = failure();
         if (isa<ac::StructType, ac::EnumType>(declared))
           fieldType = declared;
-        else if (isa<ac::BitsType, ac::TableType>(declared))
+        else if (isa<ac::BitsType, ac::ArrayType>(declared))
           fieldType = admittedBranchField(declared, hardware, bindings, branch, budget, &admissionCache);
         else
           return reject("original local branch field type is unsupported");
@@ -4929,7 +4929,7 @@ private:
           return reject("original local Enum join membership result is used");
       } else {
         joined =
-            take(isa<ac::TableType>(frame.type) ? ac::TableCreateOp::getOperationName()
+            take(isa<ac::ArrayType>(frame.type) ? ac::ArrayCreateOp::getOperationName()
                                                    : ac::StructCreateOp::getOperationName(), frame.joinedFields,
                  {frame.type}, b.getDictionaryAttr({}));
       }
@@ -6248,13 +6248,13 @@ private:
           selected = next;
         } else {
           auto ordinal = selector.getAs<IntegerAttr>("index");
-          auto table = dyn_cast<ac::TableType>(selected);
+          auto table = dyn_cast<ac::ArrayType>(selected);
           if (!ordinal || ordinal.getInt() != indexOrdinal || indexOrdinal >= indices.size() ||
               !table || table.getShape().empty())
             return reject("original state index selector differs");
           ++indexOrdinal;
           selected = table.getShape().size() == 1 ? table.getElementType()
-              : Type(ac::TableType::get(effect->getContext(),
+              : Type(ac::ArrayType::get(effect->getContext(),
                   ArrayAttr::get(effect->getContext(), table.getShape().getValue().drop_front()),
                   table.getElementType()));
         }
@@ -6262,7 +6262,7 @@ private:
       if (indexOrdinal != indices.size() || !ac::areEquivalentHardwareTypes(*type, selected))
         return reject("original selected state payload/index count differs");
       if (isa<ac::SourceStateWriteOp>(effect) && !indices.empty()) {
-        auto table = dyn_cast<ac::TableType>(declaration.getQ().getType());
+        auto table = dyn_cast<ac::ArrayType>(declaration.getQ().getType());
         if (table) {
           if (!charge(budget, effect, 32 + indices.size()) || indices.size() != 1 ||
               failed(hardware.verifySourceIndex(indices.front(), table,
@@ -8339,7 +8339,7 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
       if (!primitive)
         return state.emitOpError()
                << "unconditional hardware state requires the verified DFF primitive";
-      auto table = dyn_cast<ac::TableType>(state.getQ().getType());
+      auto table = dyn_cast<ac::ArrayType>(state.getQ().getType());
       OperationState leaf(state.getLoc(), table ? ac::CollectionOp::getOperationName()
                                                 : ac::InstanceOp::getOperationName());
       leaf.addTypes(state.getQ().getType());
@@ -8361,9 +8361,9 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
       inputs.push_back(state.getInitial());
       if (table)
         for (unsigned i = 0; i < 3; ++i) {
-          OperationState splat(state.getLoc(), ac::TableSplatOp::getOperationName());
+          OperationState splat(state.getLoc(), ac::ArraySplatOp::getOperationName());
           splat.addOperands(inputs[i]);
-          splat.addTypes(ac::TableType::get(state.getContext(), table.getShape(),
+          splat.addTypes(ac::ArrayType::get(state.getContext(), table.getShape(),
                                             inputs[i].getType()));
           splat.addAttribute("shape", table.getShape());
           OpBuilder before(storage);

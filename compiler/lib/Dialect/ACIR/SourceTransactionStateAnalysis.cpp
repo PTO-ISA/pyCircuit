@@ -1350,7 +1350,7 @@ private:
     // Actual-dependent indexed writes are source effects with intrinsic range
     // obligations. Discharge them before constructing a candidate or domain.
     if (!operation.getIndices().empty()) {
-      auto table = dyn_cast<TableType>(plan.owners[*state].declaration.getQ().getType());
+      auto table = dyn_cast<ArrayType>(plan.owners[*state].declaration.getQ().getType());
       if (table) {
         if (!budget.charge(operation, 32 + operation.getIndices().size()) ||
             operation.getIndices().size() != 1 ||

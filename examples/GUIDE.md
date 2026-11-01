@@ -13,6 +13,7 @@ using a retained design as an authoring template.
 | [hello_counter](hello_counter/README.md) | Persistent state and explicit Rule registration. |
 | [module_control_state_machine](module_control_state_machine/README.md) | Module branches, guards, autorules and old-Q observations. |
 | [local_method_accumulator](local_method_accumulator/README.md) | By-value Methods and rollback of a complete call chain. |
+| [table_dispatch](table_dispatch/README.md) | Fixed component Tables, dynamic Method calls and independent accumulator state. |
 | [sibling_calls](sibling_calls/README.md) | Existing Module references and independent committed-state observations. |
 | [sibling_method_calls](sibling_method_calls/README.md) | Calls on an existing independently compiled Module instance. |
 | [parent_state_interfaces](parent_state_interfaces/README.md) | Parent-owned State, external Rules and resource aliases. |

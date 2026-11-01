@@ -18,8 +18,8 @@
         if (failed(next)) return failure();
         leaf = *next; continue;
       }
-      if (isa<TableType>(leaf.resolvedType)) {
-        auto create = leaf.value.getDefiningOp<TableCreateOp>();
+      if (isa<ArrayType>(leaf.resolvedType)) {
+        auto create = leaf.value.getDefiningOp<ArrayCreateOp>();
         if (!create || create.getInputs().empty()) return std::optional<MemorySelection>();
         if (failed(pay(sizeof(Attribute)))) return failure();
         path.push_back(Builder(module.getContext()).getI64IntegerAttr(0));
@@ -55,7 +55,7 @@
               value = normal(get.getValue(), value->scope);
             } else {
               auto *get = value->value.getDefiningOp();
-              if (!isa_and_nonnull<TableReadOp, TableGetOp>(get)) return std::optional<HardwareIdentityEndpoint>();
+              if (!isa_and_nonnull<ArrayReadOp, ArrayGetOp>(get)) return std::optional<HardwareIdentityEndpoint>();
               value = normal(get->getOperand(0), value->scope);
             }
             if (failed(value)) return failure();
@@ -93,7 +93,7 @@
       return succeeded(analysis.verifyResolvedOperation(enumeration, *bound));
     }
     auto *operation = endpoint.value.getDefiningOp();
-    if (!isa_and_nonnull<StructCreateOp, TableCreateOp, TableSplatOp>(operation)) return false;
+    if (!isa_and_nonnull<StructCreateOp, ArrayCreateOp, ArraySplatOp>(operation)) return false;
     auto bound = scopeBindings(endpoint.scope);
     if (failed(bound) || failed(analysis.verifyResolvedOperation(operation, *bound))) return failure();
     for (Value operand : operation->getOperands()) {

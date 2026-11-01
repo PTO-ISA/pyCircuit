@@ -15,16 +15,16 @@
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 !capture = !ac.bits<#w5capture>
 !entry_arg = !ac.bits<#w5arg>
 !capture_arg = !ac.bits<#w5capturearg>
 !yield = !ac.bits<#w5yield>
-!out = !ac.table<[#w3], !ac.bits<#w5out>>
+!out = !ac.array<[#w3], !ac.bits<#w5out>>
 module {
   "ac.module"() ({
   ^bb0(%a: !a, %data: !capture):
-    %mapped = "ac.table.map"(%a, %data) ({
+    %mapped = "ac.array.map"(%a, %data) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !entry_arg, %capture: !capture_arg):
       %sum = "ac.bits.binary"(%entry, %capture) {opcode = "xor"} : (!entry_arg, !capture_arg) -> !entry_arg
       %slice = "ac.bits.extract"(%sum) {low = #w0} : (!entry_arg) -> !yield
@@ -47,12 +47,12 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 !yield = !ac.bits<#w5yield>
 module {
   "ac.module"() ({
   ^bb0(%a: !a):
-    %mapped = "ac.table.map"(%a) ({
+    %mapped = "ac.array.map"(%a) ({
     ^bb0(%ordinal: !ac.bits<#w2>, %entry: !b5):
       %slice = "ac.bits.extract"(%entry) {low = #w0} : (!b5) -> !yield
       "ac.yield"(%slice) : (!yield) -> ()
@@ -76,7 +76,7 @@ module {
 !b1 = !ac.bits<#w1>
 !b5 = !ac.bits<#w5>
 !b6 = !ac.bits<#w6>
-!a = !ac.table<[#w3], !b5>
+!a = !ac.array<[#w3], !b5>
 !capture = !ac.bits<#w5capture>
 !entry_arg = !ac.bits<#w5arg>
 !capture_arg = !ac.bits<#w5capturearg>
@@ -85,7 +85,7 @@ module {
 module {
   "ac.module"() ({
   ^bb0(%a: !a, %data: !capture):
-    %mask = "ac.table.match"(%a, %data) ({
+    %mask = "ac.array.match"(%a, %data) ({
     ^bb0(%entry: !entry_arg, %capture: !capture_arg):
       %hit = "ac.bits.compare"(%entry, %capture) {predicate = "eq"} : (!entry_arg, !capture_arg) -> !predicate
       "ac.yield"(%hit) : (!predicate) -> ()
@@ -95,9 +95,9 @@ module {
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
-// CHECK: "ac.table.map"
+// CHECK: "ac.array.map"
 // CHECK: "ac.bits.extract"
-// CHECK: "ac.table.map"
+// CHECK: "ac.array.map"
 // CHECK: "ac.bits.extract"
-// CHECK: "ac.table.match"
+// CHECK: "ac.array.match"
 // CHECK: "ac.bits.compare"

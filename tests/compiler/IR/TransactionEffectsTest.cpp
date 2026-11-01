@@ -28,7 +28,7 @@ const char *counterAndTwoInstances = R"ir(
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
-!lanes = !ac.table<[#w2], !b8>
+!lanes = !ac.array<[#w2], !b8>
 #count_state = {site = {definition = @Counter, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
 #packet_state = {site = {definition = @Counter, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
 #counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
@@ -42,7 +42,7 @@ module {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %seed: !b8, %packet: !ac.struct<"Packet">):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
-    %initial_lanes = "ac.table.splat"(%initial) {shape = [#w2]} : (!b8) -> !lanes
+    %initial_lanes = "ac.array.splat"(%initial) {shape = [#w2]} : (!b8) -> !lanes
     %initial_packet = "ac.struct.create"(%initial_lanes) : (!lanes) -> !ac.struct<"Packet">
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #count_state} : (!b1, !b1, !b8) -> !b8
     %packet_q = "ac.state"(%clk, %rst, %initial_packet) {instance_name = "packet", occurrence = #packet_state} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
@@ -55,8 +55,8 @@ module {
       %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       %lane = "ac.state.read"(%path, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b1) -> !b8
       %next = "ac.bits.binary"(%old, %delta) {opcode = "add"} : (!b8, !b8) -> !b8
-      %pair = "ac.table.splat"(%next) {shape = [#w2]} : (!b8) -> !lanes
-      %mapped = "ac.table.map"(%pair) ({
+      %pair = "ac.array.splat"(%next) {shape = [#w2]} : (!b8) -> !lanes
+      %mapped = "ac.array.map"(%pair) ({
       ^bb0(%ordinal: !b1, %entry: !b8):
         %twice = "ac.bits.binary"(%entry, %entry) {opcode = "add"} : (!b8, !b8) -> !b8
         "ac.yield"(%twice) : (!b8) -> ()
@@ -316,7 +316,7 @@ TEST_F(TransactionEffectsTest, ReceiverMustResolveToTheDeclaredMethodOwner) {
 }
 
 TEST_F(TransactionEffectsTest,
-       SelectorProjectionUsesExactNominalAndTableTypes) {
+       SelectorProjectionUsesExactNominalAndArrayTypes) {
   for (llvm::StringRef selectors :
        {"[{field = \"absent\"}, {index = 0 : i64}]",
         "[{field = \"lanes\"}, {index = 1 : i64}]",
@@ -704,7 +704,7 @@ TEST_F(TransactionEffectsTest, PureCollectionRegionsDoNotAdmitHiddenEffects) {
   for (bool stateRead : {false, true}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto &map = find(*file, "ac.table.map")->getRegion(0).front();
+    auto &map = find(*file, "ac.array.map")->getRegion(0).front();
     if (stateRead) {
       auto *read = find(*file, "ac.state.read")->clone();
       read->setOperand(0, map.getArgument(0));

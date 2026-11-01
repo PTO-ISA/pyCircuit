@@ -507,7 +507,7 @@ TEST_F(SourceFormalOwnerBindingTest, TableFormalCandidateAuthenticatesAssignment
     auto markers = selectedWrites(*file);
     ASSERT_EQ(markers.size(), 3u);
     auto marker = markers[0];
-    auto map = marker.getCandidate().getDefiningOp<ac::TableMapOp>();
+    auto map = marker.getCandidate().getDefiningOp<ac::ArrayMapOp>();
     ASSERT_TRUE(map);
     auto &body = map.getBody().front();
     auto merge = cast<ac::YieldOp>(body.getTerminator()).getOperand(0)
@@ -517,12 +517,12 @@ TEST_F(SourceFormalOwnerBindingTest, TableFormalCandidateAuthenticatesAssignment
     ASSERT_TRUE(compare);
     if (mutation == 0) {
       // Equal logical widths make this a schema-valid index/RHS substitution.
-      auto splat = map.getTables()[1].getDefiningOp<ac::TableSplatOp>();
+      auto splat = map.getTables()[1].getDefiningOp<ac::ArraySplatOp>();
       ASSERT_TRUE(splat);
       splat->setOperand(0, marker.getPayload());
     }
     if (mutation == 1) {
-      auto splat = map.getTables()[2].getDefiningOp<ac::TableSplatOp>();
+      auto splat = map.getTables()[2].getDefiningOp<ac::ArraySplatOp>();
       ASSERT_TRUE(splat);
       splat->setOperand(0, marker.getIndices()[0]);
     }
@@ -572,8 +572,8 @@ TEST_F(SourceFormalOwnerBindingTest, SelectedFormalCandidatesRejectStaleOrForeig
       ASSERT_EQ(markers.size(), 3u);
       if (mutation == 0) {
         if (table) {
-          auto first = markers[0].getCandidate().getDefiningOp<ac::TableMapOp>();
-          auto second = markers[1].getCandidate().getDefiningOp<ac::TableMapOp>();
+          auto first = markers[0].getCandidate().getDefiningOp<ac::ArrayMapOp>();
+          auto second = markers[1].getCandidate().getDefiningOp<ac::ArrayMapOp>();
           ASSERT_TRUE(first && second);
           second->setOperand(0, first.getTables()[0]);
         } else {
@@ -590,7 +590,7 @@ TEST_F(SourceFormalOwnerBindingTest, SelectedFormalCandidatesRejectStaleOrForeig
       }
       if (mutation == 2) {
         if (table) {
-          auto map = markers[0].getCandidate().getDefiningOp<ac::TableMapOp>();
+          auto map = markers[0].getCandidate().getDefiningOp<ac::ArrayMapOp>();
           ASSERT_TRUE(map);
           auto &body = map.getBody().front();
           auto merge = cast<ac::YieldOp>(body.getTerminator()).getOperand(0).getDefiningOp<ac::ValueMergeOp>();

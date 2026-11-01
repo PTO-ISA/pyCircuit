@@ -41,13 +41,13 @@
           (indexed ? after : before).push_back(field);
           current = next;
         } else {
-          auto table = dyn_cast<ac::TableType>(current);
+          auto table = dyn_cast<ac::ArrayType>(current);
           if (indexed || !table || table.getShape().size() != 1 || write.indices.size() != 1)
             return write.operation->emitOpError()
                 << "partial write composition requires at most one Table index with static field paths";
           domain.table = table;
           domain.index = write.indices.front();
-          domain.maskType = ac::TableType::get(b.getContext(), table.getShape(), *predicateType);
+          domain.maskType = ac::ArrayType::get(b.getContext(), table.getShape(), *predicateType);
           current = table.getElementType();
           indexed = true;
         }

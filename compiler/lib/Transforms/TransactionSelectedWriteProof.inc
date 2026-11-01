@@ -8,7 +8,7 @@
     auto site = write.operation;
     const auto &owner = plan.owners[write.owner];
     auto declaration = owner.declaration;
-    auto originalTable = dyn_cast<ac::TableType>(declaration.getQ().getType());
+    auto originalTable = dyn_cast<ac::ArrayType>(declaration.getQ().getType());
     if (originalTable && !write.indices.empty()) {
       auto original = dyn_cast<ac::SourceStateWriteOp>(site);
       if (original && (original.getIndices().size() != 1 ||
@@ -23,7 +23,7 @@
     const auto &record = materialized.selectedWrites[id];
     Builder b(site->getContext());
     Type current = plan.owners[write.owner].payloadType;
-    ac::TableType table;
+    ac::ArrayType table;
     SmallVector<Attribute> before, after;
     for (Attribute raw : write.selectors) {
       if (!charge(budget, site, 4)) return failure();
@@ -45,9 +45,9 @@
         if (!next) return reject("original selected owner field differs");
         (table ? after : before).push_back(field); current = next;
       } else {
-        if (table || !isa<ac::TableType>(current) || write.indices.size() != 1)
+        if (table || !isa<ac::ArrayType>(current) || write.indices.size() != 1)
           return reject("original selected Table layout differs");
-        table = cast<ac::TableType>(current);
+        table = cast<ac::ArrayType>(current);
         if (table.getShape().size() != 1) return reject("original selected Table rank differs");
         current = table.getElementType();
       }
@@ -55,7 +55,7 @@
     ArrayAttr prefix = b.getArrayAttr(before);
     ArrayAttr suffix = b.getArrayAttr(table ? after : before);
     Type bit = materialized.rule->getOperand(preparation.clockCapture).getType();
-    Type maskType = table ? Type(ac::TableType::get(b.getContext(), table.getShape(), bit)) : bit;
+    Type maskType = table ? Type(ac::ArrayType::get(b.getContext(), table.getShape(), bit)) : bit;
     if (declared->selectors != write.selectors || declared->prefix != prefix ||
         declared->suffix != suffix || declared->table != table ||
         declared->index != (table ? std::optional<ac::BoundValueId>(write.indices.front()) : std::nullopt) ||
@@ -148,13 +148,13 @@
         Value index = bound(write.indices.front());
         SmallVector<Value> inputs{base};
         for (Value value : {index, payload, rawPath}) {
-          Type type = ac::TableType::get(b.getContext(), table.getShape(), value.getType());
-          auto splat = take(ac::TableSplatOp::getOperationName(), {value}, {type},
+          Type type = ac::ArrayType::get(b.getContext(), table.getShape(), value.getType());
+          auto splat = take(ac::ArraySplatOp::getOperationName(), {value}, {type},
                              b.getDictionaryAttr({b.getNamedAttr("shape", table.getShape())}), parent);
           if (failed(splat)) return failure();
           inputs.push_back((*splat)->getResult(0));
         }
-        auto map = take(ac::TableMapOp::getOperationName(), inputs, {table, maskType},
+        auto map = take(ac::ArrayMapOp::getOperationName(), inputs, {table, maskType},
             b.getDictionaryAttr({b.getNamedAttr("shape", table.getShape()),
               b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({4, 0}))}), parent, 1);
         auto count = hardware.getTableSize(table, plan.instances[0].bindings, site);

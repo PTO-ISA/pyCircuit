@@ -29,7 +29,7 @@ LogicalResult emitRecord(HardwareEmitContext &context, ac::StructOp record,
     auto field = cast<DictionaryAttr>(raw);
     auto fieldType = field.getAs<TypeAttr>("type").getValue();
     // Follow nominal dependencies through packed Table elements as well.
-    while (auto table = dyn_cast<ac::TableType>(fieldType))
+    while (auto table = dyn_cast<ac::ArrayType>(fieldType))
       fieldType = table.getElementType();
     if (auto nested = dyn_cast<ac::StructType>(fieldType)) {
       auto declaration = context.analysis.lookupStruct(nested);

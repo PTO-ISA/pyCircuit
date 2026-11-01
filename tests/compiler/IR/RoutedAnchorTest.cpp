@@ -932,11 +932,11 @@ TEST_F(RoutedAnchorTest, ExternCollectionRetainsTotalInputAdmissionLimitation) {
   auto &body = owner.getBody().front();
   auto one = mlir::cast<BitsType>(body.getArgument(2).getType()).getWidth();
   auto shape = builder.getArrayAttr({one});
-  auto table = TableType::get(&context, shape, body.getArgument(0).getType());
+  auto table = ArrayType::get(&context, shape, body.getArgument(0).getType());
   mlir::OpBuilder ops(instance);
   auto splat = [&](mlir::Value value) {
     mlir::OperationState state(instance.getLoc(),
-                               TableSplatOp::getOperationName());
+                               ArraySplatOp::getOperationName());
     state.addOperands(value);
     state.addTypes(table);
     state.addAttribute("shape", shape);

@@ -55,7 +55,7 @@ FailureOr<ac::StateUpdateOp> logicalUpdate(ac::SourceStateOp state,
 bool unconditionalScalarState(ac::SourceStateOp state, ac::StateUpdateOp update,
                               const ac::HardwareAnalysis &analysis,
                               SourceCheckBudget &budget) {
-  if (isa<ac::TableType>(state.getQ().getType())) return false;
+  if (isa<ac::ArrayType>(state.getQ().getType())) return false;
   auto rule = update.getIntent().getDefiningOp<ac::RuleOp>();
   return rule && rule->getParentOp() == state->getParentOp() &&
          knownTrue(update.getIntent(), analysis, budget);
@@ -85,7 +85,7 @@ private:
   struct StatePair {
     ac::SourceStateOp source;
     Operation *target;
-    SmallVector<ac::TableSplatOp, 3> splats;
+    SmallVector<ac::ArraySplatOp, 3> splats;
   };
   LogicalResult reject(StringRef message) {
     return routed.emitError() << "hardware state refinement proof: " << message;
@@ -119,10 +119,10 @@ private:
           if (isa<ac::StateUpdateOp>(op)) continue;
           if (auto state = dyn_cast<ac::SourceStateOp>(op)) {
             StatePair pair{state, nullptr, {}};
-            if (isa<ac::TableType>(state.getQ().getType()))
+            if (isa<ac::ArrayType>(state.getQ().getType()))
               for (unsigned i = 0; i < 3; ++i) {
                 if (next == right.end()) return reject("missing Table control splat");
-                auto splat = dyn_cast<ac::TableSplatOp>(&*next++);
+                auto splat = dyn_cast<ac::ArraySplatOp>(&*next++);
                 if (!splat) return reject("Table state control is not a splat");
                 pair.splats.push_back(splat);
               }
@@ -175,7 +175,7 @@ private:
     auto state = pair.source;
     auto update = logicalUpdate(state, budget);
     if (failed(update)) return failure();
-    auto table = dyn_cast<ac::TableType>(state.getQ().getType());
+    auto table = dyn_cast<ac::ArrayType>(state.getQ().getType());
     // Re-derive the restricted optimization from actual routed SSA. Neither a
     // producer flag nor the candidate primitive's missing enable is authority.
     bool dff = unconditionalScalarState(state, *update, analysis, budget);
@@ -200,7 +200,7 @@ private:
       if (pair.splats.size() != 3) return reject("Table splat inventory differs");
       for (unsigned i = 0; i < 3; ++i) {
         auto splat = pair.splats[i];
-        auto type = ac::TableType::get(state.getContext(), table.getShape(),
+        auto type = ac::ArrayType::get(state.getContext(), table.getShape(),
                                        inputs[i].getType());
         if (!charge(budget, state, 16) || splat.getInput() != inputs[i] ||
             splat->getNumOperands() != 1 || splat->getNumResults() != 1 ||

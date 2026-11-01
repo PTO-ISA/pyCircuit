@@ -14,11 +14,11 @@
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
 module {
   "ac.module"() ({
   ^bb0(%p: !b8, %impl: !b8, %number: !b8):

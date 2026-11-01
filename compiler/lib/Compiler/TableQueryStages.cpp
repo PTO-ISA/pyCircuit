@@ -62,7 +62,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
   auto domain = shape(sizes);
   SmallVector<Type> results;
   for (Type type : elements)
-    results.push_back(ac::TableType::get(at.getContext(), domain, type));
+    results.push_back(ac::ArrayType::get(at.getContext(), domain, type));
   SmallVector<Value> operands(tables);
   llvm::append_range(operands, captures);
   if (envelope &&
@@ -89,7 +89,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
       hooks.bits(std::max(1u, llvm::Log2_64_Ceil(rows))), loc));
   for (Value table : tables)
     arguments.push_back(block->addArgument(
-        cast<ac::TableType>(table.getType()).getElementType(), loc));
+        cast<ac::ArrayType>(table.getType()).getElementType(), loc));
   for (Value capture : captures) {
     auto argument = block->addArgument(capture.getType(), loc);
     hooks.copyFacts(capture, argument);
@@ -149,7 +149,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
   // All work, scalar intermediates, table planes, slots and constants are
   // reserved before any row-domain operation or scalar-template clone.
   auto operation = createSourceOperation(
-      at, loc, ac::TableMapOp::getOperationName(), operands, results,
+      at, loc, ac::ArrayMapOp::getOperationName(), operands, results,
       {at.getNamedAttr("shape", domain),
        at.getNamedAttr("operandSegmentSizes",
                        at.getDenseI32ArrayAttr({int32_t(tables.size()),
@@ -185,7 +185,7 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
                           ValueRange outputs, bool mapAggregates,
                           TableQueryStageEnvelope *envelope) {
   auto size = analysis.getTableSize(
-      cast<ac::TableType>(receivers.front().getType()), {}, package);
+      cast<ac::ArrayType>(receivers.front().getType()), {}, package);
   if (failed(size))
     return failure();
   if (envelope &&
@@ -200,8 +200,8 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
          !observeStageValues(envelope, 1)))
       return emitError(loc) << "named callback scalar exceeds its envelope";
     if (!(mapAggregates &&
-          isa<ac::TableCreateOp, ac::TableSplatOp>(operation)) &&
-        !isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsConstant4Op,
+          isa<ac::ArrayCreateOp, ac::ArraySplatOp>(operation)) &&
+        !isa<ac::ArrayGetOp, ac::BitsConstantOp, ac::BitsConstant4Op,
              ac::BitsUnaryOp, ac::BitsBinaryOp, ac::BitsCompareOp,
              ac::BitsSelectOp, ac::BitsConcatOp, ac::BitsExtractOp,
              ac::BitsResizeOp, ac::StructCreateOp, ac::StructGetOp,
@@ -330,7 +330,7 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
     // Table capture, outside the scalar capture contract.
     bool laneTable = mapAggregates &&
                      llvm::any_of(operation.getResultTypes(), [](Type type) {
-                       return isa<ac::TableType>(type);
+                       return isa<ac::ArrayType>(type);
                      });
     bool depends =
         laneTable || llvm::any_of(operation.getOperands(), [&](Value value) {
@@ -349,7 +349,7 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
         return emitError(loc) << "named callback stage exceeds its envelope";
       ++observed;
     }
-    if (auto get = dyn_cast<ac::TableGetOp>(operation);
+    if (auto get = dyn_cast<ac::ArrayGetOp>(operation);
         get && depends &&
         !(mapAggregates && dependent.contains(get.getInput()))) {
       if (failed(flush()))
@@ -367,7 +367,7 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
       dependent.insert(get.getValue());
     } else if (depends) {
       if (!(mapAggregates &&
-            isa<ac::TableGetOp, ac::TableCreateOp, ac::TableSplatOp>(
+            isa<ac::ArrayGetOp, ac::ArrayCreateOp, ac::ArraySplatOp>(
                 operation)) &&
           !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
                ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,

@@ -7,9 +7,27 @@ Compilation publishes an **unlinked** body/interface pair; linking authenticates
 an explicit unit closure and produces linked transactional ACIR before common
 analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback. Source body/interface
-pairs carry `ac.source_contract = 4 : i64`, preserving SSA payload constraints,
+pairs carry `ac.source_contract = 5 : i64`, preserving SSA payload constraints,
 pending Method uses, deferred resource connections and explicit Rule formal-read
-identity across publication.
+identity across publication. Contract 5 renames the old packed `!ac.table` data
+representation to `!ac.array` and its pure operations to `ac.array.*`; older
+body/interface artifacts must be recompiled. Array layout, four-state behavior
+and backend algorithms are unchanged. The name Table is reserved for component
+reference containers, which are not packed hardware payloads.
+
+The representation rename does not restore historical Python authoring APIs:
+
+| Historical capability | Native representation | Frontend migration status |
+| --- | --- | --- |
+| Packed construction and broadcast | `ac.array.create`, `ac.array.splat` | Retained in native IR; no Python Array API is added |
+| Packed element selection | `ac.array.index`, `ac.array.read`, `ac.array.get` | Retained in native IR; component selection has a separate contract |
+| Pure element maps and queries | `ac.array.map`, `ac.array.match`, `ac.array.choose`, `ac.array.fold` | Native algorithms retained; historical query methods await frontend migration |
+| Reshape, slice, transpose and rotate views | `ac.array.view` | Native algorithms retained; historical views await frontend migration |
+| Repeated physical modules | `ac.collection` with Array wires | Retained native capability; not the component Table transaction path |
+
+Retained implementation and tests are migration inventory, not current source
+execution evidence. The production transactional importer did not admit the
+historical packed Table authoring surface at the contract-4 baseline.
 
 See the [language profile](../reference/language.md#transactional-frontend-replacement)
 for source semantics and [current capabilities and gaps](known-limitations.md)

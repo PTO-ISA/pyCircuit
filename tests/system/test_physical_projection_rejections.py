@@ -141,7 +141,7 @@ def _mixed_table_mutation(path: Path, *, derived_clock: bool) -> None:
         "#test_w0 = " + shape.replace("#ac.math_int<2>", "#ac.math_int<0>"),
         f"!test_b1 = {clock_type}",
         f"!test_b8 = {data_type}",
-        "!test_t2b1 = !ac.table<[#test_w2], !test_b1>",
+        "!test_t2b1 = !ac.array<[#test_w2], !test_b1>",
     ]
     module_line = next(i for i, line in enumerate(lines) if line.startswith("module "))
     lines[module_line:module_line] = aliases
@@ -150,8 +150,8 @@ def _mixed_table_mutation(path: Path, *, derived_clock: bool) -> None:
     selected_clock = "%test_selected" if derived_clock else clock
     operations = [
         '    %test_index = "ac.bits.constant"() {value = #test_w0} : () -> !test_b1',
-        f'    %test_controls = "ac.table.create"({clock}, {reset}) : (!test_b1, !test_b1) -> !test_t2b1',
-        '    %test_selected, %test_range = "ac.table.get"(%test_controls, %test_index) : (!test_t2b1, !test_b1) -> (!test_b1, !test_b1)',
+        f'    %test_controls = "ac.array.create"({clock}, {reset}) : (!test_b1, !test_b1) -> !test_t2b1',
+        '    %test_selected, %test_range = "ac.array.get"(%test_controls, %test_index) : (!test_t2b1, !test_b1) -> (!test_b1, !test_b1)',
         '    %test_wide = "ac.bits.resize"(%test_selected) {mode = "zext"} : (!test_b1) -> !test_b8',
     ]
     operands = _instance_operands(lines[first])

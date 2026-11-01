@@ -371,7 +371,7 @@ private:
       return failure();
     if (auto bits = dyn_cast<BitsType>(type))
       return metadata(bits.getWidth(), depth + 1);
-    if (auto table = dyn_cast<TableType>(type)) {
+    if (auto table = dyn_cast<ArrayType>(type)) {
       if (failed(metadata(table.getShape(), depth + 1)))
         return failure();
       return metadataType(table.getElementType(), depth + 1);
@@ -899,7 +899,7 @@ private:
           return operation.emitOpError()
                  << "publication requires an actual local state";
         bool write = isa<SourceStateWriteOp>(operation);
-        if (arm && !isa<BitsType, EnumType, StructType, TableType>(
+        if (arm && !isa<BitsType, EnumType, StructType, ArrayType>(
                        state.getQ().getType()))
           return operation.emitOpError()
                  << "source branch arms require selected finite state accesses";
@@ -1361,12 +1361,12 @@ private:
       return EnumType::verify(emit, enumeration.getName());
     if (auto formal = dyn_cast<TypeParamType>(type))
       return TypeParamType::verify(emit, formal.getOwner(), formal.getName());
-    if (auto table = dyn_cast<TableType>(type)) {
+    if (auto table = dyn_cast<ArrayType>(type)) {
       if (failed(preflight(table.getShape(), depth + 1)))
         return failure();
       if (failed(preflightType(table.getElementType(), depth + 1)))
         return failure();
-      return TableType::verify(emit, table.getShape(), table.getElementType());
+      return ArrayType::verify(emit, table.getShape(), table.getElementType());
     }
     if (auto function = dyn_cast<FunctionType>(type))
       for (TypeRange types : {function.getInputs(), function.getResults()})
@@ -1395,7 +1395,7 @@ private:
   }
   LogicalResult type(Attribute raw) {
     auto attr = dyn_cast_or_null<TypeAttr>(raw);
-    if (!attr || !isa<BitsType, StructType, EnumType, TypeParamType, TableType>(
+    if (!attr || !isa<BitsType, StructType, EnumType, TypeParamType, ArrayType>(
                      attr.getValue()))
       return error("type must be a hardware TypeAttr");
     if (failed(detail::verifyHardwareTypeScope(attr.getValue(), declaration)))
@@ -1768,7 +1768,7 @@ private:
             failed(type(selector.get("index_type"))))
           return failure();
         auto index = selector.getAs<TypeAttr>("index_type").getValue();
-        auto table = dyn_cast<TableType>(current);
+        auto table = dyn_cast<ArrayType>(current);
         if (!isa<BitsType>(index) || !table || table.getShape().empty()) {
           (void)error("wildcard selector requires a Bits index and Table axis");
           return failure();
@@ -1780,7 +1780,7 @@ private:
         current =
             table.getShape().size() == 1
                 ? table.getElementType()
-                : TableType::get(
+                : ArrayType::get(
                       declaration->getContext(),
                       ArrayAttr::get(declaration->getContext(),
                                      table.getShape().getValue().drop_front()),
@@ -2113,7 +2113,7 @@ private:
         auto selected = selectedType(state, selectors, scope);
         if (failed(selected))
           return failure();
-        if (arm && !isa<BitsType, EnumType, StructType, TableType>(*selected))
+        if (arm && !isa<BitsType, EnumType, StructType, ArrayType>(*selected))
           return error("branch arms require selected finite state accesses");
         if (write && failed(value(row.get("value"), scope, *selected)))
           return failure();

@@ -53,7 +53,7 @@ struct Scope {
   std::string object, count;
   // Pure map regions reuse the same plane emitter with additional lanes.
   Scope *regionParent = nullptr;
-  ac::TableMapOp regionMap;
+  ac::ArrayMapOp regionMap;
 };
 struct Node {
   Scope *scope;
@@ -221,7 +221,7 @@ private:
     FieldPlane result;
     // Runtime Tables flatten every contiguous Table axis into physical lanes.
     // A Table reached after a Struct field instead lives in that packed pin.
-    while (auto table = dyn_cast<ac::TableType>(t)) {
+    while (auto table = dyn_cast<ac::ArrayType>(t)) {
       auto n = ctx.shapeSize(table.getShape(), site, false, s.bindings);
       if (failed(n))
         return failure();
@@ -233,7 +233,7 @@ private:
       if (failed(r))
         return failure();
       t = *r;
-      while (auto table = dyn_cast<ac::TableType>(t)) {
+      while (auto table = dyn_cast<ac::ArrayType>(t)) {
         auto n = ctx.shapeSize(table.getShape(), site, false, s.bindings);
         auto w = width(table.getElementType(), s, site);
         if (failed(n) || failed(w))
@@ -289,7 +289,7 @@ private:
     auto r = type(t, s, site);
     if (failed(r))
       return failure();
-    if (auto table = dyn_cast<ac::TableType>(*r))
+    if (auto table = dyn_cast<ac::ArrayType>(*r))
       return ctx.shapeSize(table.getShape(), site, false, s.bindings);
     return std::string("1");
   }
@@ -493,7 +493,7 @@ private:
     std::string plane = leaf.prefix + (gather ? "in_data" : "data");
     out << "    for (std::size_t pyc_queue_lane = 0; pyc_queue_lane < "
         << leaf.count << "; ++pyc_queue_lane) {\n";
-    if (isa<ac::TableType>(*t)) {
+    if (isa<ac::ArrayType>(*t)) {
       out << "      for (std::size_t pyc_token_element = 0; pyc_token_element "
              "< ("
           << plan->count << "); ++pyc_token_element) ";
@@ -759,7 +759,7 @@ private:
       // scalarPlane broadcasts the scalar guard across the Table's lanes.
       if (!path.empty() ||
           isa<ac::BitsType, ac::EnumType, ac::TypeParamType,
-              ac::TableType>(*baseType)) {
+              ac::ArrayType>(*baseType)) {
         auto base = operand(merge.getBase(), path);
         if (failed(base))
           return failure();
@@ -917,7 +917,7 @@ private:
       if (failed(resolved))
         return failure();
       current = *resolved;
-      if (auto table = dyn_cast<ac::TableType>(current)) {
+      if (auto table = dyn_cast<ac::ArrayType>(current)) {
         for (Attribute raw : table.getShape())
           if (!ctx.isClosedStatic(cast<ac::StaticExprAttr>(raw), s.bindings))
             return false;
@@ -1025,12 +1025,12 @@ private:
       add(get.getValue(), std::move(requested));
       return true;
     }
-    if (auto create = dyn_cast<ac::TableCreateOp>(op)) {
+    if (auto create = dyn_cast<ac::ArrayCreateOp>(op)) {
       for (Value input : create.getInputs())
         add(input, path);
       return true;
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+    if (auto splat = dyn_cast<ac::ArraySplatOp>(op)) {
       add(splat.getInput(), path);
       return true;
     }
@@ -1306,9 +1306,9 @@ private:
       llvm::append_range(p, path);
       return emit(s, get.getValue(), p);
     }
-    if (isa<ac::TableCreateOp, ac::TableSplatOp, ac::TableViewOp,
-            ac::TableMapOp, ac::TableIndexOp, ac::TableReadOp, ac::TableGetOp, ac::TableMatchOp,
-            ac::TableChooseOp, ac::TableFoldOp>(op))
+    if (isa<ac::ArrayCreateOp, ac::ArraySplatOp, ac::ArrayViewOp,
+            ac::ArrayMapOp, ac::ArrayIndexOp, ac::ArrayReadOp, ac::ArrayGetOp, ac::ArrayMatchOp,
+            ac::ArrayChooseOp, ac::ArrayFoldOp>(op))
       return tableOperation(s, v, path);
     return scalarPlane(s, v, path);
   }
@@ -1355,7 +1355,7 @@ private:
   FailureOr<std::string> tableOperation(Scope &s, Value v, Path path) {
     auto *op = v.getDefiningOp();
     if (promoteConstantPlanes && !resetting && !s.regionParent &&
-        isa<ac::TableCreateOp>(op)) {
+        isa<ac::ArrayCreateOp>(op)) {
       auto selected = fieldType(v.getType(), path, s, op);
       if (failed(selected))
         return failure();
@@ -1380,7 +1380,7 @@ private:
     auto resultPlan = fieldPlane(v.getType(), path, s, op);
     if (failed(resultPlan))
       return failure();
-    if (auto create = dyn_cast<ac::TableCreateOp>(op)) {
+    if (auto create = dyn_cast<ac::ArrayCreateOp>(op)) {
       for (auto [i, input] : llvm::enumerate(create.getInputs())) {
         auto text = emit(s, input, path);
         auto inputPlan = fieldPlane(input.getType(), path, s, op);
@@ -1396,7 +1396,7 @@ private:
       }
       return *result;
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+    if (auto splat = dyn_cast<ac::ArraySplatOp>(op)) {
       auto input = emit(s, splat.getInput(), path);
       auto in = fieldPlane(splat.getInput().getType(), path, s, op);
       if (failed(input) || failed(in))
@@ -1407,7 +1407,7 @@ private:
           << in->count << ") + pyc_lane % (" << in->count << "));\n";
       return *result;
     }
-    if (auto view = dyn_cast<ac::TableViewOp>(op)) {
+    if (auto view = dyn_cast<ac::ArrayViewOp>(op)) {
       auto input = emit(s, view.getInput(), path);
       auto in = fieldPlane(view.getInput().getType(), path, s, op);
       auto n = cardinality(v.getType(), s, op);
@@ -1426,7 +1426,7 @@ private:
           << suffix << ") + pyc_lane % (" << suffix << "));\n";
       return *result;
     }
-    if (auto map = dyn_cast<ac::TableMapOp>(op)) {
+    if (auto map = dyn_cast<ac::ArrayMapOp>(op)) {
       auto n = ctx.shapeSize(map.getShape(), op, false, s.bindings);
       if (failed(n))
         return failure();
@@ -1446,7 +1446,7 @@ private:
           << ".element(pyc_lane);\n";
       return *result;
     }
-    if (auto match = dyn_cast<ac::TableMatchOp>(op)) {
+    if (auto match = dyn_cast<ac::ArrayMatchOp>(op)) {
       auto yielded =
           cast<ac::YieldOp>(match.getBody().front().back()).getValues()[0];
       auto inputs = regionInputs(s, match.getBody(), yielded, {},
@@ -1478,10 +1478,10 @@ private:
           << ");\n      }\n    }\n";
       return *result;
     }
-    if (isa<ac::TableReadOp, ac::TableGetOp>(op)) {
+    if (isa<ac::ArrayReadOp, ac::ArrayGetOp>(op)) {
       Value tableInput = op->getOperand(0), indexValue = op->getOperand(1);
       auto index = emit(s, indexValue);
-      auto n = cardinality(cast<ac::TableType>(tableInput.getType()), s, op);
+      auto n = cardinality(cast<ac::ArrayType>(tableInput.getType()), s, op);
       auto iw = width(indexValue.getType(), s, op);
       if (failed(index) || failed(n) || failed(iw))
         return failure();
@@ -1493,7 +1493,7 @@ private:
           compareWidth + ">(" + *index +
           ".element(pyc_lane).packed()), gfsim::FourState<" + compareWidth +
           ">::known(gfsim::Bits<" + compareWidth + ">{" + *n + "}))";
-      if (isa<ac::TableGetOp>(op) && cast<OpResult>(v).getResultNumber()) {
+      if (isa<ac::ArrayGetOp>(op) && cast<OpResult>(v).getResultNumber()) {
         out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
             << "; ++pyc_lane) " << *result
             << ".element(pyc_lane) = gfsim::wire<" << *p << ">::fromPacked("
@@ -1518,7 +1518,7 @@ private:
           << resultPlan->count << ") + pyc_field);\n      }\n    }\n";
       return *result;
     }
-    if (auto index = dyn_cast<ac::TableIndexOp>(op)) {
+    if (auto index = dyn_cast<ac::ArrayIndexOp>(op)) {
       auto n = ctx.shapeSize(index.getShape(), op, false, s.bindings);
       auto w = width(v.getType(), s, op);
       if (failed(n) || failed(w))
@@ -1575,7 +1575,7 @@ private:
           << *w << ">{" << *n << "})));\n    }\n";
       return *result;
     }
-    if (auto choose = dyn_cast<ac::TableChooseOp>(op)) {
+    if (auto choose = dyn_cast<ac::ArrayChooseOp>(op)) {
       auto mask = emit(s, choose.getMask());
       auto n = cardinality(choose.getInput().getType(), s, op);
       auto iw = width(choose.getResult(0).getType(), s, op);
@@ -1645,7 +1645,7 @@ private:
       out << "    }\n";
       return results[cast<OpResult>(v).getResultNumber()];
     }
-    if (auto fold = dyn_cast<ac::TableFoldOp>(op)) {
+    if (auto fold = dyn_cast<ac::ArrayFoldOp>(op)) {
       auto input = emit(s, fold.getInput());
       auto n = cardinality(fold.getInput().getType(), s, op);
       auto w = width(v.getType(), s, op);
@@ -2088,7 +2088,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
       auto n = id(cast<StringAttr>(raw).getValue());
       if (failed(n))
         return failure();
-      if (isa<ac::TableType>(t)) {
+      if (isa<ac::ArrayType>(t)) {
         out << "    for (std::size_t pyc_lane = 0; pyc_lane < decltype(" << *n
             << ")::size; ++pyc_lane) ";
         if (input)

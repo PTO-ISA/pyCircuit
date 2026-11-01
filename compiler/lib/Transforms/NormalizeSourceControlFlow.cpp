@@ -388,7 +388,7 @@ struct Normalizer {
       return success();
     }
     for (Type type : operation.getResultTypes())
-      if (!isa<ac::BitsType, ac::EnumType, ac::StructType, ac::TableType>(type))
+      if (!isa<ac::BitsType, ac::EnumType, ac::StructType, ac::ArrayType>(type))
         return operation.emitOpError()
                << "source if carries require finite hardware payload types";
     auto origin = loopOccurrence(operation);
@@ -822,7 +822,7 @@ LogicalResult Normalizer::normalizeHardwareWhile(scf::WhileOp operation) {
            << "runtime source while requires four-state continuation in a "
               "transaction";
   for (Type type : operation.getResultTypes())
-    if (!isa<ac::BitsType, ac::EnumType, ac::StructType, ac::TableType>(type))
+    if (!isa<ac::BitsType, ac::EnumType, ac::StructType, ac::ArrayType>(type))
       return operation.emitOpError()
              << "runtime source while carries require finite hardware payloads";
   for (auto [argument, forwarded] :

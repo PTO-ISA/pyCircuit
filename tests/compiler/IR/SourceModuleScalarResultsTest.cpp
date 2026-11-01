@@ -172,7 +172,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
       return false;
     return llvm::all_of(extract->getUsers(), [&](Operation *user) {
       return user->getBlock() == extract->getBlock() &&
-             isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+             isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
     });
   }
   SmallVector<ac::BitsExtractOp> literalConstructorWires(ac::ModuleOp module) {
@@ -204,7 +204,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         continue;
       if (llvm::all_of(constant->getUsers(), [&](Operation *user) {
             return user->getBlock() == &block &&
-                   isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+                   isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
           }))
         result.push_back(constant);
     }
@@ -221,7 +221,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
           continue;
         for (OpOperand &use : extract.getResult().getUses()) {
           hasStruct |= isa<ac::StructCreateOp>(use.getOwner());
-          hasTable |= isa<ac::TableCreateOp>(use.getOwner());
+          hasTable |= isa<ac::ArrayCreateOp>(use.getOwner());
           uses.push_back(&use);
         }
       }
@@ -239,7 +239,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
       for (auto table : existing) {
         if (!llvm::any_of(
                 table->getUsers(),
-                [](Operation *user) { return isa<ac::TableCreateOp>(user); }) ||
+                [](Operation *user) { return isa<ac::ArrayCreateOp>(user); }) ||
             !ac::areEquivalentHardwareTypes(
                 representative.getResult().getType(),
                 table.getResult().getType()))
@@ -277,7 +277,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
       };
       for (auto create : module.getBody().front().getOps<ac::StructCreateOp>())
         collect(create, false);
-      for (auto create : module.getBody().front().getOps<ac::TableCreateOp>())
+      for (auto create : module.getBody().front().getOps<ac::ArrayCreateOp>())
         collect(create, true);
       if (candidate.hasStruct && candidate.hasTable &&
           candidate.uses.size() > 1) {
@@ -325,7 +325,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         break;
     }
     if (!target)
-      for (auto create : module.getBody().front().getOps<ac::TableCreateOp>()) {
+      for (auto create : module.getBody().front().getOps<ac::ArrayCreateOp>()) {
         choose(create);
         if (target)
           break;
@@ -655,7 +655,7 @@ TEST_F(SourceModuleScalarResultsTest,
     unsigned uses = 0;
     for (Operation *user : extract->getUsers()) {
       structUser |= isa<ac::StructCreateOp>(user);
-      tableUser |= isa<ac::TableCreateOp>(user);
+      tableUser |= isa<ac::ArrayCreateOp>(user);
       ++uses;
     }
     fanout |= uses > 1;
@@ -708,7 +708,7 @@ TEST_F(SourceModuleScalarResultsTest,
     for (Value input : create.getValues())
       if (isa<ac::BitsType>(input.getType()))
         EXPECT_TRUE(input.getDefiningOp<ac::BitsConstantOp>());
-  for (auto create : linkedTop.getBody().front().getOps<ac::TableCreateOp>())
+  for (auto create : linkedTop.getBody().front().getOps<ac::ArrayCreateOp>())
     for (Value input : create.getInputs())
       EXPECT_TRUE(input.getDefiningOp<ac::BitsConstantOp>());
   EXPECT_EQ(text(unit->body->getOperation()), bodyBefore);
@@ -860,7 +860,7 @@ TEST_F(SourceModuleScalarResultsTest,
             [](ac::BitsExtractOp extract) {
               bool constructor = false, other = false;
               for (Operation *user : extract->getUsers()) {
-                constructor |= isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+                constructor |= isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
                 other |= isa<ac::BitsUnaryOp>(user);
               }
               return constructor && other;
@@ -929,7 +929,7 @@ TEST_F(SourceModuleScalarResultsTest,
   };
   for (auto create : finalTop.getBody().front().getOps<ac::StructCreateOp>())
     collect(create);
-  for (auto create : finalTop.getBody().front().getOps<ac::TableCreateOp>())
+  for (auto create : finalTop.getBody().front().getOps<ac::ArrayCreateOp>())
     collect(create);
   ASSERT_EQ(used.size(), 1u);
   EXPECT_EQ(used.front().getValue(), representativeValue);
@@ -967,7 +967,7 @@ TEST_F(SourceModuleScalarResultsTest,
         candidate.walk([&](ac::BitsConstantOp constant) {
           if (llvm::any_of(constant->getUsers(),
                            [](Operation *user) {
-                             return isa<ac::StructCreateOp, ac::TableCreateOp>(
+                             return isa<ac::StructCreateOp, ac::ArrayCreateOp>(
                                  user);
                            }) &&
               !llvm::is_contained(types, constant.getResult().getType()))
@@ -984,7 +984,7 @@ TEST_F(SourceModuleScalarResultsTest,
         bool marked = false, other = false;
         candidate.walk([&](ac::BitsConstantOp constant) {
           if (!llvm::any_of(constant->getUsers(), [](Operation *user) {
-                return isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+                return isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
               }))
             return;
           marked |= constant->hasAttr("literal_pool_test");
@@ -1009,7 +1009,7 @@ TEST_F(SourceModuleScalarResultsTest,
             [](ac::BitsConstantOp constant) {
               bool constructor = false, scalar = false;
               for (Operation *user : constant->getUsers()) {
-                constructor |= isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+                constructor |= isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
                 scalar |= isa<ac::BitsUnaryOp>(user);
               }
               return constructor && scalar;

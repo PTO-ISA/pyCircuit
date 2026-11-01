@@ -96,7 +96,7 @@ measureTableStorageWords(Type type, ac::HardwareAnalysis &analysis,
     return failure();
   if (depth >= TableQueryBudget::limit(TableQueryResource::Nesting))
     return emitError(location) << "Table query type nesting budget exhausted";
-  if (auto table = dyn_cast<ac::TableType>(type)) {
+  if (auto table = dyn_cast<ac::ArrayType>(type)) {
     auto size = analysis.getTableSize(table, {}, package);
     if (failed(size))
       return failure();
@@ -311,11 +311,11 @@ Value TableQueryLowering::widen(OpBuilder &builder, Value value, Type type) {
   return operation ? operation->getResult(0) : Value();
 }
 FailureOr<Value> TableQueryLowering::fold(Value table, StringRef kind) {
-  auto type = cast<ac::TableType>(table.getType());
+  auto type = cast<ac::ArrayType>(table.getType());
   auto size = analysis.getTableSize(type, {}, package);
   if (failed(size) || !*size)
     return failure();
-  OperationState state(loc, ac::TableFoldOp::getOperationName());
+  OperationState state(loc, ac::ArrayFoldOp::getOperationName());
   state.addOperands(table);
   state.addTypes(type.getElementType());
   state.addAttribute("kind", at.getStringAttr(kind));
@@ -342,7 +342,7 @@ FailureOr<Value> TableQueryLowering::fold(Value table, StringRef kind) {
   return operation->getResult(0);
 }
 FailureOr<Value> TableQueryLowering::count(Value table, Type result) {
-  auto type = cast<ac::TableType>(table.getType());
+  auto type = cast<ac::ArrayType>(table.getType());
   auto sizes = analysis.getTableShape(type, {}, package);
   if (failed(sizes))
     return failure();
@@ -363,8 +363,8 @@ FailureOr<Value> TableQueryLowering::splat(Value input,
                                            ArrayRef<uint64_t> sizes) {
   auto domain = shape(sizes);
   auto operation =
-      op(at, ac::TableSplatOp::getOperationName(), {input},
-         {ac::TableType::get(at.getContext(), domain, input.getType())},
+      op(at, ac::ArraySplatOp::getOperationName(), {input},
+         {ac::ArrayType::get(at.getContext(), domain, input.getType())},
          {at.getNamedAttr("shape", domain)});
   if (!operation)
     return failure();
@@ -374,10 +374,10 @@ FailureOr<Value> TableQueryLowering::view(Value input, StringRef kind,
                                           ArrayRef<uint64_t> sizes,
                                           ArrayRef<NamedAttribute> parameters) {
   auto operation =
-      op(at, ac::TableViewOp::getOperationName(), {input},
-         {ac::TableType::get(
+      op(at, ac::ArrayViewOp::getOperationName(), {input},
+         {ac::ArrayType::get(
              at.getContext(), shape(sizes),
-             cast<ac::TableType>(input.getType()).getElementType())},
+             cast<ac::ArrayType>(input.getType()).getElementType())},
          {at.getNamedAttr("kind", at.getStringAttr(kind)),
           at.getNamedAttr("parameters", at.getDictionaryAttr(parameters))});
   if (!operation)
@@ -386,7 +386,7 @@ FailureOr<Value> TableQueryLowering::view(Value input, StringRef kind,
 }
 FailureOr<SmallVector<Value>>
 TableQueryLowering::combine(ValueRange left, ValueRange right, bool argmin) {
-  auto type = cast<ac::TableType>(left.front().getType());
+  auto type = cast<ac::ArrayType>(left.front().getType());
   auto sizes = analysis.getTableShape(type, {}, package);
   if (failed(sizes))
     return failure();
@@ -394,7 +394,7 @@ TableQueryLowering::combine(ValueRange left, ValueRange right, bool argmin) {
   llvm::append_range(inputs, right);
   SmallVector<Type> elements;
   for (Value value : left)
-    elements.push_back(cast<ac::TableType>(value.getType()).getElementType());
+    elements.push_back(cast<ac::ArrayType>(value.getType()).getElementType());
   return map(
       inputs, {}, *sizes, elements,
       [&](OpBuilder &nested, ValueRange args) -> FailureOr<SmallVector<Value>> {
@@ -487,8 +487,8 @@ FailureOr<SmallVector<Value>> TableQueryLowering::reduce(ValueRange tables,
   return result;
 }
 FailureOr<Value> TableQueryLowering::gather(Value table, Value indices) {
-  auto sourceType = cast<ac::TableType>(table.getType());
-  auto indexType = cast<ac::TableType>(indices.getType());
+  auto sourceType = cast<ac::ArrayType>(table.getType());
+  auto indexType = cast<ac::ArrayType>(indices.getType());
   auto m = analysis.getTableSize(sourceType, {}, package);
   auto n = analysis.getTableSize(indexType, {}, package);
   auto width = analysis.getPackedWidth(indexType.getElementType(), {}, package);
@@ -549,7 +549,7 @@ FailureOr<Value> TableQueryLowering::gather(Value table, Value indices) {
   Value sentinel = constant(at, *m, guardType);
   if (!sentinel)
     return failure();
-  auto poison = op(at, ac::TableGetOp::getOperationName(), {table, sentinel},
+  auto poison = op(at, ac::ArrayGetOp::getOperationName(), {table, sentinel},
                    {sourceType.getElementType(), hooks.bits(1)});
   if (!poison)
     return failure();
@@ -573,7 +573,7 @@ FailureOr<Value> TableQueryLowering::gather(Value table, Value indices) {
 }
 FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
                                                          Value keys) {
-  auto type = cast<ac::TableType>(predicates.getType());
+  auto type = cast<ac::ArrayType>(predicates.getType());
   auto size = analysis.getTableSize(type, {}, package);
   if (failed(size))
     return failure();
@@ -588,7 +588,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
     if (!fits || !budget.reserve(logical, reason))
       return emitError(loc)
              << (fits ? reason : "Table query first work budget exhausted");
-    auto match = op(at, ac::TableMatchOp::getOperationName(), {predicates},
+    auto match = op(at, ac::ArrayMatchOp::getOperationName(), {predicates},
                     {hooks.bits(*size)}, {}, 1);
     if (!match)
       return failure();
@@ -599,7 +599,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
     if (!op(nested, ac::YieldOp::getOperationName(), {predicate}, {}))
       return failure();
     auto choice =
-        op(at, ac::TableChooseOp::getOperationName(),
+        op(at, ac::ArrayChooseOp::getOperationName(),
            {predicates, match->getResult(0)}, {indexType, hooks.bits(1)},
            {at.getNamedAttr("count", at.getI64IntegerAttr(1)),
             at.getNamedAttr("policy", at.getStringAttr("first")),
@@ -610,7 +610,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
   }
   if (!budget.reserve(logical, reason))
     return emitError(loc) << reason;
-  auto keyType = cast<ac::TableType>(keys.getType()).getElementType();
+  auto keyType = cast<ac::ArrayType>(keys.getType()).getElementType();
   auto leaves = map(
       {predicates, keys}, {}, {*size}, {hooks.bits(1), keyType, indexType},
       [&](OpBuilder &nested, ValueRange args) -> FailureOr<SmallVector<Value>> {
@@ -638,8 +638,8 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
     return failure();
   SmallVector<Value> scalars;
   for (Value result : *reduced) {
-    auto get = op(at, ac::TableGetOp::getOperationName(), {result, zero},
-                  {cast<ac::TableType>(result.getType()).getElementType(),
+    auto get = op(at, ac::ArrayGetOp::getOperationName(), {result, zero},
+                  {cast<ac::ArrayType>(result.getType()).getElementType(),
                    hooks.bits(1)});
     if (!get)
       return failure();

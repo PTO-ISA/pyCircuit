@@ -31,7 +31,7 @@
       auto target = resolveTransactionState(module, state, analysis, bindings, budget);
       if (failed(target)) return failure();
       Type selected = target->payloadType;
-      TableType table;
+      ArrayType table;
       SmallVector<Attribute> prefix, suffix;
       for (Attribute rawSelector : selectors) {
         if (failed(budget.debit(1, rule))) return failure();
@@ -61,7 +61,7 @@
           continue;
         }
         auto axis = selector.getAs<IntegerAttr>("index");
-        auto indexed = dyn_cast<TableType>(selected);
+        auto indexed = dyn_cast<ArrayType>(selected);
         if (!axis || !axis.getType().isSignlessInteger(64) || axis.getInt() != 0 ||
             table || !indexed || indexed.getShape().size() != 1)
           return rule->emitOpError() << "write domain requires one sequential index into a fixed one-dimensional Table";
@@ -77,7 +77,7 @@
         if (failed(bitOne(mask, analysis, bindings, rule, budget))) return failure();
       } else {
         auto resolved = analysis.resolveType(mask.getType(), bindings, rule);
-        auto maskTable = succeeded(resolved) ? dyn_cast<TableType>(*resolved) : TableType();
+        auto maskTable = succeeded(resolved) ? dyn_cast<ArrayType>(*resolved) : ArrayType();
         if (!maskTable || !isa<BitsType>(maskTable.getElementType()))
           return rule->emitOpError() << "indexed write domain mask requires a Table of Bits1";
         auto width = analysis.getPackedWidth(maskTable.getElementType(), bindings, rule);
@@ -92,7 +92,7 @@
         } else {
           // Catalog schemas retain the already substituted logical shapes;
           // every actual scope re-enters the concrete branch above.
-          auto shaped = TableType::get(rule.getContext(), table.getShape(), maskTable.getElementType());
+          auto shaped = ArrayType::get(rule.getContext(), table.getShape(), maskTable.getElementType());
           if (!areEquivalentHardwareTypes(shaped, maskTable))
             return rule->emitOpError() << "write domain mask shape differs from selected state Table";
         }

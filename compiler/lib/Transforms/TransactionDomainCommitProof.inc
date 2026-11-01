@@ -53,7 +53,7 @@
       if (domains.empty()) return base;
       // Rederive whole-value admission from the original domain paths, never
       // from the generated merge or its claimed Table layout.
-      if (isa<ac::TableType>(type) && domains.size() == 1 && domains.front().path.empty() &&
+      if (isa<ac::ArrayType>(type) && domains.size() == 1 && domains.front().path.empty() &&
           isa<ac::BitsType>(domains.front().mask.getType())) {
         auto guard = binary(enable, domains.front().mask, "and", block);
         if (failed(guard)) return failure();
@@ -98,11 +98,11 @@
         auto create = take(ac::StructCreateOp::getOperationName(), fields, {type}, b.getDictionaryAttr({}), block);
         if (failed(create)) return failure(); return (*create)->getResult(0);
       }
-      if (auto table = dyn_cast<ac::TableType>(type)) {
+      if (auto table = dyn_cast<ac::ArrayType>(type)) {
         SmallVector<Value> inputs{base, candidateValue};
         auto splat = [&](Value value) -> FailureOr<Value> {
-          Type shaped = ac::TableType::get(b.getContext(), table.getShape(), value.getType());
-          auto operation = take(ac::TableSplatOp::getOperationName(), {value}, {shaped},
+          Type shaped = ac::ArrayType::get(b.getContext(), table.getShape(), value.getType());
+          auto operation = take(ac::ArraySplatOp::getOperationName(), {value}, {shaped},
               b.getDictionaryAttr({b.getNamedAttr("shape", table.getShape())}), block);
           if (failed(operation)) return failure(); return (*operation)->getResult(0);
         };
@@ -111,10 +111,10 @@
           if (!charge(budget, source)) return failure();
           Value mask = domain.mask;
           if (isa<ac::BitsType>(mask.getType())) { auto row = splat(mask); if (failed(row)) return failure(); mask = *row; }
-          else if (!isa<ac::TableType>(mask.getType())) return failure();
+          else if (!isa<ac::ArrayType>(mask.getType())) return failure();
           if (!prepayAppend(budget, source, inputs)) return failure(); inputs.push_back(mask);
         }
-        auto mapped = take(ac::TableMapOp::getOperationName(), inputs, {table},
+        auto mapped = take(ac::ArrayMapOp::getOperationName(), inputs, {table},
             b.getDictionaryAttr({b.getNamedAttr("shape", table.getShape()),
               b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({int32_t(inputs.size()), 0}))}), block, 1);
         auto count = hardware.getTableSize(table, bindings, source);
@@ -124,7 +124,7 @@
                                                      cast<ac::BitsType>(enable.getType())),
                                     table.getElementType(), table.getElementType(), enable.getType()};
         for (Value input : ArrayRef<Value>(inputs).drop_front(3))
-          arguments.push_back(cast<ac::TableType>(input.getType()).getElementType());
+          arguments.push_back(cast<ac::ArrayType>(input.getType()).getElementType());
         if (!llvm::equal(body.getArgumentTypes(), arguments)) return reject("original unordered Table bindings differ");
         SmallVector<Use, 0> elements;
         for (auto [i, domain] : llvm::enumerate(domains)) {

@@ -15,18 +15,18 @@
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 module {
   // expected-error @+1 {{cannot prove absence of combinational cycle in compact table field dependencies}}
   "ac.module"() ({
   ^bb0(%unused: !lanes):
-    %cycle = "ac.table.map"(%cycle) ({
+    %cycle = "ac.array.map"(%cycle) ({
     ^bb0(%ordinal: !b2, %entry: !b8):
       "ac.yield"(%entry) : (!b8) -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 0>} : (!lanes) -> !lanes
@@ -51,13 +51,13 @@ module {
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w3], !b8>
-!controls = !ac.table<[#w3], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w3], !b8>
+!controls = !ac.array<[#w3], !b1>
 module {
   "ac.module"() ({
   ^bb0(%x: !b8):

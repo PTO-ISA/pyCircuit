@@ -695,7 +695,7 @@ protected:
   Block *scalar = nullptr;
   Value receiver, row, result;
   void makeTemplate(bool identity = false, bool splat = false) {
-    auto table = acir::ac::TableType::get(
+    auto table = acir::ac::ArrayType::get(
         &context, builder.getArrayAttr({literal(3)}), bits(8));
     receiver = module->getBody()->addArgument(table, builder.getUnknownLoc());
     facts.insert(receiver);
@@ -747,7 +747,7 @@ protected:
   unsigned publishedMaps() {
     unsigned maps = 0;
     for (Operation &operation : *module->getBody())
-      maps += isa<acir::ac::TableMapOp>(operation);
+      maps += isa<acir::ac::ArrayMapOp>(operation);
     return maps;
   }
   void expectCallerFacts() {
@@ -778,7 +778,7 @@ TEST_F(NamedFixedStage, PendingHoistCountsCopiesMappingsAndTemporaryCleanup) {
   EXPECT_EQ(envelope.mappingEntries, 12u);
   EXPECT_EQ(forgotten.size(), 4u); // ordinal, row, capture and scalar result
   expectCallerFacts();
-  auto map = cast<acir::ac::TableMapOp>(output->front().getDefiningOp());
+  auto map = cast<acir::ac::ArrayMapOp>(output->front().getDefiningOp());
   for (Value value : map->getRegion(0).front().getArguments())
     EXPECT_FALSE(llvm::is_contained(forgotten, value));
   for (Operation &operation : map->getRegion(0).front())
@@ -811,7 +811,7 @@ TEST_F(NamedFixedStage, ConstantSplatHasOnlyOneHoist) {
   auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
                             ValueRange{result}, false, &envelope);
   ASSERT_TRUE(succeeded(output));
-  EXPECT_TRUE(isa<acir::ac::TableSplatOp>(output->front().getDefiningOp()));
+  EXPECT_TRUE(isa<acir::ac::ArraySplatOp>(output->front().getDefiningOp()));
   EXPECT_EQ(publishedMaps(), 0u);
   EXPECT_EQ(envelope.hoists, 1u);
   EXPECT_EQ(envelope.pending, 0u);

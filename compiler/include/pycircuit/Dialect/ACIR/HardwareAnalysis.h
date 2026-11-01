@@ -256,13 +256,13 @@ public:
   resolveShape(mlir::ArrayAttr shape, const HardwareBindings &bindings,
                mlir::Operation *site) const;
   mlir::FailureOr<llvm::SmallVector<uint64_t>>
-  getTableShape(TableType table, const HardwareBindings &bindings,
+  getTableShape(ArrayType table, const HardwareBindings &bindings,
                 mlir::Operation *site) const;
-  mlir::FailureOr<uint64_t> getTableSize(TableType table,
+  mlir::FailureOr<uint64_t> getTableSize(ArrayType table,
                                          const HardwareBindings &bindings,
                                          mlir::Operation *site) const;
   mlir::FailureOr<uint64_t>
-  getViewSourceOrdinal(TableViewOp view, uint64_t ordinal,
+  getViewSourceOrdinal(ArrayViewOp view, uint64_t ordinal,
                        const HardwareBindings &bindings = {}) const;
   llvm::StringRef getPrimitiveKind(mlir::Operation *definition) const;
   mlir::FailureOr<mlir::Attribute>
@@ -316,7 +316,7 @@ public:
           &debit = {}) const;
   /// Discharge retained source Table index obligations using bound layout and
   /// original SSA. Raw TableGet membership semantics do not use this query.
-  mlir::LogicalResult verifySourceIndex(mlir::Value index, TableType table,
+  mlir::LogicalResult verifySourceIndex(mlir::Value index, ArrayType table,
       const HardwareBindings &bindings, mlir::Operation *site) const;
   mlir::LogicalResult
   verifyResolvedOperation(mlir::Operation *operation,

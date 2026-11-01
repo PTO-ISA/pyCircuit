@@ -275,7 +275,7 @@ private:
     return success(valid);
   }
   static bool hardwareType(Type type) {
-    return isa<BitsType, StructType, EnumType, TableType, TypeParamType>(type);
+    return isa<BitsType, StructType, EnumType, ArrayType, TypeParamType>(type);
   }
   LogicalResult boundType(Type type, const HardwareBindings &bindings,
                           const HardwareAnalysis &hardware, Operation *site) {
@@ -557,7 +557,7 @@ private:
             return failure();
           if (auto collection = dyn_cast<CollectionOp>(site)) {
             ft = hardware.resolveType(
-                TableType::get(site->getContext(), collection.getShape(), *ft),
+                ArrayType::get(site->getContext(), collection.getShape(), *ft),
                 parent, site);
             if (failed(ft))
               return failure();

@@ -19,6 +19,7 @@ add_acir_library(ACIRDialect SOURCES
   TransactionalRouting.cpp
   ACIRBitsOps.cpp
   ACIRCollectionOps.cpp
+  ComponentTable.cpp
   ACIRQueueOps.cpp
   ACIRPacketOps.cpp
   ACIRPacketTypes.cpp

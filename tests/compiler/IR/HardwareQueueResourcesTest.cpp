@@ -245,7 +245,7 @@ protected:
                 d({f("name", b.getStringAttr("b")),
                    f("type", TypeAttr::get(bits(8)))})}))});
         if (pushPayloadKind == 3)
-          payloadType = ac::TableType::get(
+          payloadType = ac::ArrayType::get(
               &context, b.getArrayAttr({literal(2)}), payloadType);
       }
     }
@@ -528,17 +528,17 @@ protected:
       return op(ac::StructCreateOp::getOperationName(), fields, {type})
           ->getResult(0);
     }
-    if (auto table = dyn_cast<ac::TableType>(type)) {
+    if (auto table = dyn_cast<ac::ArrayType>(type)) {
       SmallVector<Value> rows;
       for (unsigned row = 0; row != 2; ++row) {
         Value index = constant(row);
         auto get = [&](Value value) {
-          return op(ac::TableGetOp::getOperationName(), {value, index},
+          return op(ac::ArrayGetOp::getOperationName(), {value, index},
                     {table.getElementType(), bits()})->getResult(0);
         };
         rows.push_back(expandedSelection(guard, get(yes), get(no)));
       }
-      return op(ac::TableCreateOp::getOperationName(), rows, {type})
+      return op(ac::ArrayCreateOp::getOperationName(), rows, {type})
           ->getResult(0);
     }
     auto carrier = [&](Value value) {

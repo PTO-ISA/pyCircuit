@@ -109,12 +109,12 @@ inline mlir::LogicalResult verifySourceFormalCandidateSelection(
       }
       return success();
     }
-    if (isa<TableType>(type)) {
-      auto map = result.getDefiningOp<TableMapOp>();
+    if (isa<ArrayType>(type)) {
+      auto map = result.getDefiningOp<ArrayMapOp>();
       if (!map || map.getTables().size() != 3 || !map.getCaptures().empty() ||
           map.getNumResults() != 1 || !map.getBody().hasOneBlock())
         return failure();
-      auto guards = map.getTables()[0].getDefiningOp<TableSplatOp>();
+      auto guards = map.getTables()[0].getDefiningOp<ArraySplatOp>();
       auto &body = map.getBody().front();
       if (!guards || guards.getInput() != condition ||
           body.getNumArguments() != 4 || !projected(map.getTables()[1], yes) ||
@@ -201,10 +201,10 @@ inline mlir::LogicalResult verifySourceFormalCandidateSelection(
         return failure();
       return selectionCondition(create.getValues().front(), depth + 1);
     }
-    if (auto map = result.getDefiningOp<TableMapOp>()) {
+    if (auto map = result.getDefiningOp<ArrayMapOp>()) {
       if (map.getTables().size() != 3)
         return failure();
-      auto guards = map.getTables()[0].getDefiningOp<TableSplatOp>();
+      auto guards = map.getTables()[0].getDefiningOp<ArraySplatOp>();
       if (guards)
         return guards.getInput();
     }
@@ -245,8 +245,8 @@ inline mlir::LogicalResult verifySourceFormalCandidateSelection(
       return success(selected);
     }
     auto ordinal = selector.getAs<IntegerAttr>("index");
-    auto map = candidate.getDefiningOp<TableMapOp>();
-    auto table = dyn_cast<TableType>(candidate.getType());
+    auto map = candidate.getDefiningOp<ArrayMapOp>();
+    auto table = dyn_cast<ArrayType>(candidate.getType());
     if (!ordinal || !ordinal.getType().isSignlessInteger(64) ||
         ordinal.getInt() < 0 ||
         static_cast<uint64_t>(ordinal.getInt()) >= marker.getIndices().size() ||
@@ -256,8 +256,8 @@ inline mlir::LogicalResult verifySourceFormalCandidateSelection(
         !map.getCaptures().empty() || !map.getBody().hasOneBlock() ||
         failed(previousProjection(map.getTables()[0], previousPath)))
       return failure();
-    auto index = map.getTables()[1].getDefiningOp<TableSplatOp>();
-    auto payload = map.getTables()[2].getDefiningOp<TableSplatOp>();
+    auto index = map.getTables()[1].getDefiningOp<ArraySplatOp>();
+    auto payload = map.getTables()[2].getDefiningOp<ArraySplatOp>();
     if (!index || !payload || index.getShape() != map.getShape() ||
         payload.getShape() != map.getShape() ||
         failed(same(index.getInput(), marker.getIndices()[ordinal.getInt()])) ||

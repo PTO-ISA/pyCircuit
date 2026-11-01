@@ -14,13 +14,13 @@
 !b6 = !ac.bits<#w6>
 !b8 = !ac.bits<#w8>
 !b70 = !ac.bits<#w70>
-!a = !ac.table<[#w2, #w3], !b8>
-!at = !ac.table<[#w3, #w2], !b8>
-!as = !ac.table<[#w2, #w2], !b8>
-!af = !ac.table<[#w6], !b8>
-!apair = !ac.table<[#w2], !b8>
-!lanes = !ac.table<[#w1], !b8>
-!controls = !ac.table<[#w1], !b1>
+!a = !ac.array<[#w2, #w3], !b8>
+!at = !ac.array<[#w3, #w2], !b8>
+!as = !ac.array<[#w2, #w2], !b8>
+!af = !ac.array<[#w6], !b8>
+!apair = !ac.array<[#w2], !b8>
+!lanes = !ac.array<[#w1], !b8>
+!controls = !ac.array<[#w1], !b1>
 module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
@@ -31,8 +31,8 @@ module {
   }) {sym_name = "pipe", source_owner = {package = "", path = "pipe.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b8, !b8) -> (!b8, !b8), input_names = ["clk", "rst", "en", "d", "init"], output_names = ["first_q", "second_q"]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %en: !controls, %d: !lanes, %init: !lanes):
-    %clock = "ac.table.splat"(%clk) {shape = [#w1]} : (!b1) -> !controls
-    %reset = "ac.table.splat"(%rst) {shape = [#w1]} : (!b1) -> !controls
+    %clock = "ac.array.splat"(%clk) {shape = [#w1]} : (!b1) -> !controls
+    %reset = "ac.array.splat"(%rst) {shape = [#w1]} : (!b1) -> !controls
     %first_q, %second_q = "ac.collection"(%clock, %reset, %en, %d, %init) {instance_name = "pipes", callee = @pipe, parameters = [], type_arguments = [], shape = [#w1], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!controls, !controls, !controls, !lanes, !lanes) -> (!lanes, !lanes)
     "ac.yield"(%first_q, %second_q) : (!lanes, !lanes) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !controls, !lanes, !lanes) -> (!lanes, !lanes), input_names = ["clk", "rst", "en", "d", "init"], output_names = ["first_q", "second_q"]} : () -> ()

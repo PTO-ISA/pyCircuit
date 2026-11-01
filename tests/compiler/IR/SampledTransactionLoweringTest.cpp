@@ -439,7 +439,7 @@ protected:
         0, watch.getGuard().front().getArguments().back());
   }
 
-  TableMapOp addNestedPureRegion(mlir::ModuleOp file) {
+  ArrayMapOp addNestedPureRegion(mlir::ModuleOp file) {
     auto owner = module(file);
     auto bump = named<SourceMethodOp>(owner, "bump");
     auto &body = bump.getBody().front();
@@ -447,21 +447,21 @@ protected:
     auto one =
         (*owner.getBody().front().getOps<BitsConstantOp>().begin()).getValue();
     auto shape = builder.getArrayAttr({one});
-    auto table = TableType::get(&context, shape, next.getResult().getType());
+    auto table = ArrayType::get(&context, shape, next.getResult().getType());
     builder.setInsertionPoint(next->getNextNode());
-    mlir::OperationState splat(next.getLoc(), TableSplatOp::getOperationName());
+    mlir::OperationState splat(next.getLoc(), ArraySplatOp::getOperationName());
     splat.addOperands(next.getResult());
     splat.addTypes(table);
     splat.addAttribute("shape", shape);
     auto *input = builder.create(splat);
-    mlir::OperationState map(next.getLoc(), TableMapOp::getOperationName());
+    mlir::OperationState map(next.getLoc(), ArrayMapOp::getOperationName());
     map.addOperands(input->getResults());
     map.addTypes(table);
     map.addAttribute("shape", shape);
     map.addAttribute("operandSegmentSizes",
                      builder.getDenseI32ArrayAttr({1, 0}));
     map.addRegion();
-    auto mapped = mlir::cast<TableMapOp>(builder.create(map));
+    auto mapped = mlir::cast<ArrayMapOp>(builder.create(map));
     auto *local = new mlir::Block;
     mapped->getRegion(0).push_back(local);
     local->addArgument(BitsType::get(&context, one), mapped->getLoc());
@@ -589,7 +589,7 @@ protected:
     auto one =
         (*source.getBody().front().getOps<BitsConstantOp>().begin()).getValue();
     auto shape = builder.getArrayAttr({one});
-    auto table = TableType::get(&context, shape, byte);
+    auto table = ArrayType::get(&context, shape, byte);
     auto holder = addPlainDefinition(file, "TableHolder");
     auto &body = holder.getBody().front();
     auto clock = body.addArgument(bit, holder.getLoc());
@@ -611,7 +611,7 @@ protected:
     auto initialElement =
         builder.create<BitsConstantOp>(holder.getLoc(), byte, one);
     mlir::OperationState splat(holder.getLoc(),
-                               TableSplatOp::getOperationName());
+                               ArraySplatOp::getOperationName());
     splat.addOperands(initialElement.getResult());
     splat.addTypes(table);
     splat.addAttribute("shape", shape);
@@ -1321,7 +1321,7 @@ TEST_F(SampledTransactionLoweringTest,
        ActualCloneOpcodeAttributeOperandAndNestedYieldRemainSourceBound) {
   for (unsigned mutation = 0; mutation < 4; ++mutation) {
     SCOPED_TRACE(mutation);
-    TableMapOp nested;
+    ArrayMapOp nested;
     auto staged = stage([&](mlir::ModuleOp file) {
       if (mutation == 3)
         nested = addNestedPureRegion(file);
@@ -1336,7 +1336,7 @@ TEST_F(SampledTransactionLoweringTest,
         if ((clone = frame.lookupOrNull(nested.getOperation())))
           break;
       ASSERT_NE(clone, nullptr);
-      auto mapped = mlir::cast<TableMapOp>(clone);
+      auto mapped = mlir::cast<ArrayMapOp>(clone);
       auto *yield = mapped->getRegion(0).front().getTerminator();
       yield->setOperand(0, mapped->getRegion(0).front().getArgument(1));
       rejects(*staged, "actual clone");
@@ -1796,7 +1796,7 @@ TEST_F(SampledTransactionLoweringTest,
       storage->setAttr("shape", builder.getArrayAttr({extent}));
     } else {
       auto splat =
-          storage->getOperand(mutation - 1).getDefiningOp<TableSplatOp>();
+          storage->getOperand(mutation - 1).getDefiningOp<ArraySplatOp>();
       ASSERT_TRUE(splat);
       splat->setOperand(0, mutation == 1
                                ? holder.getBody().front().getArgument(1)

@@ -80,7 +80,7 @@ struct SampledWriteDomainView {
   mlir::Value mask;
   mlir::DictionaryAttr stateID;
   mlir::Type ownerType;
-  TableType table;
+  ArrayType table;
   mlir::ArrayAttr prefix, suffix;
 };
 struct SampledAdmissionView {

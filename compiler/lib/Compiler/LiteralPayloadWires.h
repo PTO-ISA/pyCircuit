@@ -37,7 +37,7 @@ inline mlir::Value literalPayloadReplacement(ac::BitsExtractOp extract,
   // wires, initializers, captures, checks, observations or output routes.
   if (!llvm::all_of(extract.getResult().getUsers(), [&](Operation *user) {
         return user->getBlock() == &block &&
-               isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+               isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
       }))
     return {};
   return input;
@@ -61,7 +61,7 @@ literalPayloadConstantKey(ac::BitsConstantOp constant, mlir::Block &block) {
       constant.getResult().use_empty() ||
       !llvm::all_of(constant.getResult().getUsers(), [&](Operation *user) {
         return user->getBlock() == &block &&
-               isa<ac::StructCreateOp, ac::TableCreateOp>(user);
+               isa<ac::StructCreateOp, ac::ArrayCreateOp>(user);
       }))
     return std::nullopt;
   auto tree = constant.getValue().getTree();

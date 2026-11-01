@@ -66,7 +66,7 @@ FailureOr<MaterializedBranchResult> materializeDomainCommit(
     if (domains.empty()) return base;
     // One undivided domain selects the aggregate directly. No Table ordinal
     // layout is needed in the shared declaration for an incoming whole value.
-    if (isa<ac::TableType>(type) && domains.size() == 1 && domains.front().path.empty() &&
+    if (isa<ac::ArrayType>(type) && domains.size() == 1 && domains.front().path.empty() &&
         isa<ac::BitsType>(domains.front().mask.getType())) {
       auto guard = binary(at, enable, domains.front().mask, "and");
       if (failed(guard)) return failure();
@@ -111,11 +111,11 @@ FailureOr<MaterializedBranchResult> materializeDomainCommit(
       auto rebuilt = make(at, ac::StructCreateOp::getOperationName(), fields, {type}, {});
       if (failed(rebuilt)) return failure(); return (*rebuilt)->getResult(0);
     }
-    if (auto table = dyn_cast<ac::TableType>(type)) {
+    if (auto table = dyn_cast<ac::ArrayType>(type)) {
       SmallVector<Value> inputs{base, candidateValue};
       auto splat = [&](Value value) -> FailureOr<Value> {
-        Type shaped = ac::TableType::get(at.getContext(), table.getShape(), value.getType());
-        auto operation = make(at, ac::TableSplatOp::getOperationName(), {value}, {shaped},
+        Type shaped = ac::ArrayType::get(at.getContext(), table.getShape(), value.getType());
+        auto operation = make(at, ac::ArraySplatOp::getOperationName(), {value}, {shaped},
                               {at.getNamedAttr("shape", table.getShape())});
         if (failed(operation)) return failure(); return (*operation)->getResult(0);
       };
@@ -126,10 +126,10 @@ FailureOr<MaterializedBranchResult> materializeDomainCommit(
         Value mask = domain.mask;
         if (isa<ac::BitsType>(mask.getType())) {
           auto shaped = splat(mask); if (failed(shaped)) return failure(); mask = *shaped;
-        } else if (!isa<ac::TableType>(mask.getType())) return failure();
+        } else if (!isa<ac::ArrayType>(mask.getType())) return failure();
         if (!prepayAppend(budget, source, inputs)) return failure(); inputs.push_back(mask);
       }
-      auto mapped = make(at, ac::TableMapOp::getOperationName(), inputs, {table},
+      auto mapped = make(at, ac::ArrayMapOp::getOperationName(), inputs, {table},
           {at.getNamedAttr("shape", table.getShape()),
            at.getNamedAttr("operandSegmentSizes", at.getDenseI32ArrayAttr({int32_t(inputs.size()), 0}))}, 1);
       auto count = hardware.getTableSize(table, bindings, source);
@@ -149,7 +149,7 @@ FailureOr<MaterializedBranchResult> materializeDomainCommit(
           if (!selector.getAs<IntegerAttr>("index")) return failure();
           path = path.drop_front();
         }
-        Type element = cast<ac::TableType>(inputs[3 + i].getType()).getElementType();
+        Type element = cast<ac::ArrayType>(inputs[3 + i].getType()).getElementType();
         Value mask = body->addArgument(element, source->getLoc());
         if (!prepayAppend(budget, source, elements)) return failure(); elements.push_back({path, mask});
       }

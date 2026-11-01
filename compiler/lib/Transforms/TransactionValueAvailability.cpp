@@ -48,7 +48,7 @@ class ValueAvailabilityMaterializer {
   DenseMap<Value, Value> inputAvailability;
   DenseMap<std::pair<Operation *, Value>, Value> ruleCaptures;
   struct RowFrame {
-    ac::TableMapOp source, companion;
+    ac::ArrayMapOp source, companion;
     IRMapping raw;
     AvailabilityMap cache, bindings, rows;
     ActiveKeys active, activeRows;
@@ -287,7 +287,7 @@ class ValueAvailabilityMaterializer {
         value, hardware,
         [&](uint64_t units, Operation *at) { return budget.debit(units, at); });
   }
-  FailureOr<Type> ordinalType(ac::TableType type, Operation *site) {
+  FailureOr<Type> ordinalType(ac::ArrayType type, Operation *site) {
     // Empty bindings intentionally require declaration-relative shape closure.
     if (!hardware.isStaticEvaluable(type.getShape(), {}))
       return (void)error(site,
@@ -462,9 +462,9 @@ class ValueAvailabilityMaterializer {
       llvm::append_range(nested, path);
       return uniformAvailability(get.getValue(), nested, site);
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(operation))
+    if (auto splat = dyn_cast<ac::ArraySplatOp>(operation))
       return uniformAvailability(splat.getInput(), path, site);
-    if (auto view = dyn_cast<ac::TableViewOp>(operation))
+    if (auto view = dyn_cast<ac::ArrayViewOp>(operation))
       return uniformAvailability(view.getInput(), path, site);
     if (auto merge = dyn_cast<ac::ValueMergeOp>(operation)) {
       if (merge.getGuards().empty()) return uniformAvailability(merge.getBase(), path, site);
@@ -502,7 +502,7 @@ class ValueAvailabilityMaterializer {
       }
       return (void)error(site, "unresolved uniform Struct projection"), failure();
     }
-    if (isa<ac::StructCreateOp, ac::TableCreateOp>(operation)) {
+    if (isa<ac::StructCreateOp, ac::ArrayCreateOp>(operation)) {
       UniformResult common;
       bool first = true, proven = true;
       for (Value input : operation->getOperands()) {
@@ -517,21 +517,21 @@ class ValueAvailabilityMaterializer {
     }
     return UniformResult();
   }
-  FailureOr<Value> splatAvailability(ac::TableType type, Value scalar,
+  FailureOr<Value> splatAvailability(ac::ArrayType type, Value scalar,
                                      Operation *site) {
     if (!scalar) { auto unit = one(site); if (failed(unit)) return failure(); scalar = *unit; }
     if (failed(budget.debit(8 + type.getShape().size(), site))) return failure();
     Builder b(site->getContext());
-    Type companionType = ac::TableType::get(site->getContext(), type.getShape(), bit);
-    auto *splat = create(site, ac::TableSplatOp::getOperationName(), {scalar},
+    Type companionType = ac::ArrayType::get(site->getContext(), type.getShape(), bit);
+    auto *splat = create(site, ac::ArraySplatOp::getOperationName(), {scalar},
         {companionType}, {b.getNamedAttr("shape", type.getShape())});
     if (!splat) return failure();
     return splat->getResult(0);
   }
   FailureOr<Value> guardedRows(Value companion, Value guard, Operation *site) {
     if (!guard) return companion;
-    auto type = cast<ac::TableType>(companion.getType());
-    if (auto splat = companion.getDefiningOp<ac::TableSplatOp>()) {
+    auto type = cast<ac::ArrayType>(companion.getType());
+    if (auto splat = companion.getDefiningOp<ac::ArraySplatOp>()) {
       auto joined = conjunction(site, guard, splat.getInput());
       if (failed(joined)) return failure();
       return splatAvailability(type, *joined, site);
@@ -541,7 +541,7 @@ class ValueAvailabilityMaterializer {
     if (failed(budget.debit(24 + ac::detail::SourceCheckBudget::bytes(
             sizeof(Block) + 3 * sizeof(BlockArgument)), site))) return failure();
     Builder b(site->getContext());
-    auto *map = create(site, ac::TableMapOp::getOperationName(), {companion, guard},
+    auto *map = create(site, ac::ArrayMapOp::getOperationName(), {companion, guard},
         {type}, {b.getNamedAttr("shape", type.getShape()),
           b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({1, 1}))}, 1);
     if (!map) return failure();
@@ -565,7 +565,7 @@ class ValueAvailabilityMaterializer {
         !cast<ArrayAttr>(merge.getPaths()[0]).empty())
       return (void)error(site, "Table merge requires one whole-value path"),
              failure();
-    auto type = cast<ac::TableType>(merge.getNext().getType());
+    auto type = cast<ac::ArrayType>(merge.getNext().getType());
     auto known = knownGuard(merge.getGuards()[0], {}, site);
     if (failed(known)) return failure();
     if (*known) {
@@ -591,7 +591,7 @@ class ValueAvailabilityMaterializer {
       return failure();
     Builder b(site->getContext());
     Type companionType =
-        ac::TableType::get(site->getContext(), type.getShape(), bit);
+        ac::ArrayType::get(site->getContext(), type.getShape(), bit);
     if (*baseUniform && *nextUniform) {
       Value result;
       for (const auto &leaf : *leaves) {
@@ -619,7 +619,7 @@ class ValueAvailabilityMaterializer {
         result = *unit;
       }
       auto *splat =
-          create(site, ac::TableSplatOp::getOperationName(), {result},
+          create(site, ac::ArraySplatOp::getOperationName(), {result},
                  {companionType}, {b.getNamedAttr("shape", type.getShape())});
       if (!splat)
         return failure();
@@ -655,7 +655,7 @@ class ValueAvailabilityMaterializer {
     inputs.push_back(*predicate);
     if (*guard)
       inputs.push_back(*guard);
-    auto *map = create(site, ac::TableMapOp::getOperationName(), inputs,
+    auto *map = create(site, ac::ArrayMapOp::getOperationName(), inputs,
                        {companionType},
                        {b.getNamedAttr("shape", type.getShape()),
                         b.getNamedAttr("operandSegmentSizes",
@@ -720,9 +720,9 @@ class ValueAvailabilityMaterializer {
     if (failed(entered)) return failure();
     if (!*entered) return (void)error(site, "cyclic row availability"), failure();
     llvm::scope_exit cleanup([&] { localActive.find(key)->second = false; });
-    auto type = cast<ac::TableType>(value.getType());
+    auto type = cast<ac::ArrayType>(value.getType());
     if (failed(budget.debit(16 + 4 * type.getShape().size(), site))) return failure();
-    Type companionType = ac::TableType::get(site->getContext(), type.getShape(), bit);
+    Type companionType = ac::ArrayType::get(site->getContext(), type.getShape(), bit);
     Builder b(site->getContext());
     Value result;
     if (auto argument = dyn_cast<BlockArgument>(value);
@@ -739,16 +739,16 @@ class ValueAvailabilityMaterializer {
       auto merged = mergeRows(merge, path, site);
       if (failed(merged)) return failure();
       result = *merged;
-    } else if (auto splat = value.getDefiningOp<ac::TableSplatOp>()) {
+    } else if (auto splat = value.getDefiningOp<ac::ArraySplatOp>()) {
       auto input = availability(splat.getInput(), path, site);
       if (failed(input)) return failure();
       if (!*input) input = one(site);
       if (failed(input)) return failure();
-      auto *op = create(site, ac::TableSplatOp::getOperationName(), {*input},
+      auto *op = create(site, ac::ArraySplatOp::getOperationName(), {*input},
           {companionType}, {b.getNamedAttr("shape", type.getShape())});
       if (!op) return failure();
       result = op->getResult(0);
-    } else if (auto values = value.getDefiningOp<ac::TableCreateOp>()) {
+    } else if (auto values = value.getDefiningOp<ac::ArrayCreateOp>()) {
       SmallVector<Value> inputs;
       for (Value input : values.getInputs()) {
         auto available = availability(input, path, site);
@@ -757,18 +757,18 @@ class ValueAvailabilityMaterializer {
         if (failed(available) || failed(budget.debit(2, site))) return failure();
         inputs.push_back(*available);
       }
-      auto *op = create(site, ac::TableCreateOp::getOperationName(), inputs, {companionType});
+      auto *op = create(site, ac::ArrayCreateOp::getOperationName(), inputs, {companionType});
       if (!op) return failure();
       result = op->getResult(0);
-    } else if (auto view = value.getDefiningOp<ac::TableViewOp>()) {
+    } else if (auto view = value.getDefiningOp<ac::ArrayViewOp>()) {
       auto input = rows(view.getInput(), path, site);
       if (failed(input)) return failure();
-      auto *op = create(site, ac::TableViewOp::getOperationName(), {*input},
+      auto *op = create(site, ac::ArrayViewOp::getOperationName(), {*input},
                         {companionType}, view->getAttrs());
       if (!op) return failure();
       result = op->getResult(0);
-    } else if (auto map = value.getDefiningOp<ac::TableMapOp>()) {
-      auto *op = create(site, ac::TableMapOp::getOperationName(), map->getOperands(),
+    } else if (auto map = value.getDefiningOp<ac::ArrayMapOp>()) {
+      auto *op = create(site, ac::ArrayMapOp::getOperationName(), map->getOperands(),
           {companionType}, {b.getNamedAttr("shape", map.getShape()),
             b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({
               int32_t(map.getTables().size()), int32_t(map.getCaptures().size())}))}, 1);
@@ -778,7 +778,7 @@ class ValueAvailabilityMaterializer {
       op->getRegion(0).push_back(body);
       RowFrame frame;
       frame.source = map;
-      frame.companion = cast<ac::TableMapOp>(op);
+      frame.companion = cast<ac::ArrayMapOp>(op);
       for (auto argument : map.getBody().front().getArguments())
         frame.raw.map(argument, body->addArgument(argument.getType(), argument.getLoc()));
       auto *yield = create(op, ac::YieldOp::getOperationName(), {}, {}, {}, 0, body);
@@ -811,7 +811,7 @@ class ValueAvailabilityMaterializer {
       if (failed(available)) return failure();
       if (!*available) available = one(site);
       if (failed(available)) return failure();
-      auto *op = create(site, ac::TableSplatOp::getOperationName(), {*available},
+      auto *op = create(site, ac::ArraySplatOp::getOperationName(), {*available},
           {companionType}, {b.getNamedAttr("shape", type.getShape())});
       if (!op) return failure();
       result = op->getResult(0);
@@ -966,7 +966,7 @@ class ValueAvailabilityMaterializer {
       if (failed(uniform)) return failure();
       if (*uniform) return **uniform;
       auto leaves = leafPaths(
-          cast<ac::TableType>(table.getType()).getElementType(), site);
+          cast<ac::ArrayType>(table.getType()).getElementType(), site);
       if (failed(leaves))
         return failure();
       auto guard = availability(merge.getGuards()[0], {}, site);
@@ -994,28 +994,28 @@ class ValueAvailabilityMaterializer {
       }
       return result;
     }
-    if (auto splat = table.getDefiningOp<ac::TableSplatOp>())
+    if (auto splat = table.getDefiningOp<ac::ArraySplatOp>())
       return availability(splat.getInput(), path, site);
-    if (auto view = table.getDefiningOp<ac::TableViewOp>()) {
+    if (auto view = table.getDefiningOp<ac::ArrayViewOp>()) {
       auto source = hardware.getViewSourceOrdinal(view, ordinal);
       if (failed(source))
         return failure();
       return tableAt(view.getInput(), *source, path, site);
     }
-    if (auto values = table.getDefiningOp<ac::TableCreateOp>()) {
+    if (auto values = table.getDefiningOp<ac::ArrayCreateOp>()) {
       if (ordinal >= values.getInputs().size())
         return Value();
       return availability(values.getInputs()[ordinal], path, site);
     }
-    if (table.getDefiningOp<ac::TableMapOp>()) {
+    if (table.getDefiningOp<ac::ArrayMapOp>()) {
       auto companion = rows(table, path, site);
-      auto indexType = ordinalType(cast<ac::TableType>(table.getType()), site);
+      auto indexType = ordinalType(cast<ac::ArrayType>(table.getType()), site);
       if (failed(companion) || failed(indexType))
         return failure();
       auto index = integer(site, *indexType, ordinal);
       if (failed(index))
         return failure();
-      auto *get = create(site, ac::TableGetOp::getOperationName(),
+      auto *get = create(site, ac::ArrayGetOp::getOperationName(),
                          {*companion, *index}, {bit, bit});
       if (!get)
         return failure();
@@ -1025,7 +1025,7 @@ class ValueAvailabilityMaterializer {
   }
   FailureOr<Value> tableElement(Value table, Value index,
                                 ArrayRef<StringAttr> path, Operation *site) {
-    auto size = hardware.getTableSize(cast<ac::TableType>(table.getType()), {}, site);
+    auto size = hardware.getTableSize(cast<ac::ArrayType>(table.getType()), {}, site);
     if (failed(size)) return failure();
     if (auto constant = index.getDefiningOp<ac::BitsConstantOp>()) {
       auto value = hardware.evaluateStatic(constant.getValue(), {}, constant);
@@ -1181,7 +1181,7 @@ class ValueAvailabilityMaterializer {
         if (failed(uniform)) return failure();
         if (*uniform) return **uniform;
       }
-      if (isa<ac::TableType>(merge.getNext().getType())) {
+      if (isa<ac::ArrayType>(merge.getNext().getType())) {
         if (merge.getGuards().size() != 1 ||
             !cast<ArrayAttr>(merge.getPaths()[0]).empty())
           return (void)error(site, "Table merge requires one whole-value path"), failure();
@@ -1190,7 +1190,7 @@ class ValueAvailabilityMaterializer {
           return failure();
         Builder b(site->getContext());
         auto *fold =
-            create(site, ac::TableFoldOp::getOperationName(), {*companion},
+            create(site, ac::ArrayFoldOp::getOperationName(), {*companion},
                    {bit}, {b.getNamedAttr("kind", b.getStringAttr("and"))});
         if (!fold)
           return failure();
@@ -1222,9 +1222,9 @@ class ValueAvailabilityMaterializer {
       }
       return result;
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(operation))
+    if (auto splat = dyn_cast<ac::ArraySplatOp>(operation))
       return availability(splat.getInput(), path, site);
-    if (auto values = dyn_cast<ac::TableCreateOp>(operation)) {
+    if (auto values = dyn_cast<ac::ArrayCreateOp>(operation)) {
       Value result;
       for (Value input : values.getInputs()) {
         auto available = availability(input, path, site);
@@ -1235,7 +1235,7 @@ class ValueAvailabilityMaterializer {
       }
       return result;
     }
-    if (isa<ac::TableMapOp, ac::TableViewOp>(operation)) {
+    if (isa<ac::ArrayMapOp, ac::ArrayViewOp>(operation)) {
       bool totalInputs = true;
       for (Value input : operation->getOperands()) {
         auto available = availability(input, {}, site);
@@ -1246,12 +1246,12 @@ class ValueAvailabilityMaterializer {
       auto companion = rows(value, path, site);
       if (failed(companion)) return failure();
       Builder b(site->getContext());
-      auto *fold = create(site, ac::TableFoldOp::getOperationName(), {*companion}, {bit},
+      auto *fold = create(site, ac::ArrayFoldOp::getOperationName(), {*companion}, {bit},
           {b.getNamedAttr("kind", b.getStringAttr("and"))});
       if (!fold) return failure();
       return fold->getResult(0);
     }
-    if (auto read = dyn_cast<ac::TableReadOp>(operation)) {
+    if (auto read = dyn_cast<ac::ArrayReadOp>(operation)) {
       auto index = availability(read.getIndex(), {}, site);
       if (failed(index)) return failure();
       auto rowUniform = uniform(read.getInput(), site);
@@ -1264,7 +1264,7 @@ class ValueAvailabilityMaterializer {
         return failure();
       return conjunction(site, *index, *selected);
     }
-    if (auto get = dyn_cast<ac::TableGetOp>(operation)) {
+    if (auto get = dyn_cast<ac::ArrayGetOp>(operation)) {
       auto index = availability(get.getIndex(), {}, site);
       if (failed(index)) return failure();
       if (cast<OpResult>(value).getResultNumber() == 1) return index;
@@ -1275,7 +1275,7 @@ class ValueAvailabilityMaterializer {
     if (operation->getNumRegions()) {
       auto inputs = all(site, operation->getOperands());
       if (failed(inputs)) return failure();
-      if (!*inputs && isa<ac::TableMapOp, ac::TableMatchOp>(operation)) return Value();
+      if (!*inputs && isa<ac::ArrayMapOp, ac::ArrayMatchOp>(operation)) return Value();
       return (void)error(site, "availability requires normalized region provenance"), failure();
     }
     return all(site, operation->getOperands());

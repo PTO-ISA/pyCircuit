@@ -140,7 +140,7 @@ LogicalResult verifyTreeContents(DictionaryAttr tree, detail::EmitError error,
   if (tag == "type_width") {
     auto type = tree.getAs<TypeAttr>("type");
     if (tree.size() != 4 || !type ||
-        !isa<BitsType, StructType, TypeParamType, TableType>(type.getValue()))
+        !isa<BitsType, StructType, TypeParamType, ArrayType>(type.getValue()))
       return error() << "type_width requires one hardware type";
     return success();
   }
