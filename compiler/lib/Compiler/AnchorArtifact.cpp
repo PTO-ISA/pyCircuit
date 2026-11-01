@@ -1,6 +1,6 @@
 #include "AnchorArtifact.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
-#include "Transforms/LowerTransactions.h"
+#include "Transforms/HardwareStateLowering.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/Passes.h"

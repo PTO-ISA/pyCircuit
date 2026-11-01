@@ -88,6 +88,15 @@ Schema 3 uses the existing graph and definition inventory. Its `sources` list
 is empty: `ac.source_units` and the embedded `ac.transactional_source` Linked
 snapshot retain the source ownership and transaction provenance. The loader
 verifies that provenance and routed correspondence before physical lowering.
+Transactional provenance version 2 stores the complete Linked snapshot as MLIR
+bytecode, including types, locations and owner identities. This avoids expanding
+repeated source attributes into a large text snapshot. Reload parses that
+snapshot and reruns the same common analysis and independent routing proof.
+The public linker uses a stable parser buffer identifier for artifact inputs;
+explicit source locations remain intact, while implicit parser locations do not
+embed temporary transport filenames in the snapshot.
+Routed/final artifacts containing version 1 text provenance require regeneration
+from their Linked artifact or original source units; there is no format fallback.
 It can be created directly from source units or with `link --from-linked
 linked.ac --target anchor -o anchor`; neither reload requires original source
 files or interfaces.

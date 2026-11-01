@@ -5,13 +5,13 @@ from example_sibling_atomic.sibling_atomic import Counter, Ledger, Reader, Write
 
 @ac.system
 def SiblingAtomic():  # noqa: N802
-    phase: ac.u3 = 0
     counter = Counter()
     ledger = Ledger()
-    Writer(counter, ledger, phase != 1)
+    Writer(counter, ledger)
     Reader(counter, ledger)
 
     @ac.rule
-    def advance() -> None:
-        ac.log("info", "atomic committed", counter.committed(), ledger.read())
-        phase = phase + 1
+    def observe_committed() -> None:
+        ac.log("info", "atomic committed", counter.read(), ledger.read())
+
+    observe_committed()

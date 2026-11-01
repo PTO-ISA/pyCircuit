@@ -8,8 +8,9 @@ add_acir_library(ACIRTransforms SOURCES
   ExtractSourceInterface.cpp
   SimplifyRecordWires.cpp
   AnalyzeSourceMethods.cpp
-  AnalyzeTransactionStateSSA.cpp
   LowerTransactions.cpp
+  RouteTransactional.cpp
+  HardwareStateLowering.cpp
   TransactionValueAvailability.cpp
   LINK_LIBRARIES
     ACIRDialect

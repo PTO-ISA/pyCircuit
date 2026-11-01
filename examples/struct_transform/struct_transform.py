@@ -1,4 +1,4 @@
-# ruff: noqa: F823 -- Module state captured by Rules is compiler-owned.
+# ruff: noqa: F821, F823, F842 -- Module state captured by Rules is compiler-owned.
 """One registered packet with an old-state arithmetic projection."""
 
 import pycircuit as ac
@@ -13,13 +13,11 @@ class Packet:
 
 
 @ac.module
-def StructTransformStorage(  # noqa: N802 - hardware module definition
-    packet: Packet,
-) -> Packet:
+def StructTransformStorage() -> None:  # noqa: N802
     state: Packet = Packet()
 
-    @ac.rule
-    def capture_and_transform() -> Packet:
+    @ac.method
+    def capture_and_transform(packet: Packet) -> Packet:
         op_wide: ac.u32 = state.op
         result = Packet(
             op=state.op,
@@ -30,8 +28,6 @@ def StructTransformStorage(  # noqa: N802 - hardware module definition
         state = packet
         return result
 
-    return capture_and_transform
-
 
 @ac.module
 def StructTransform(  # noqa: N802 - hardware module definition
@@ -40,6 +36,11 @@ def StructTransform(  # noqa: N802 - hardware module definition
     word: ac.u32,
     valid: ac.u1,  # noqa: N802
 ) -> Packet:
-    packet = Packet(op=op, dst=dst, word=word, valid=valid)
-    result = StructTransformStorage(packet)
-    return result
+    storage: StructTransformStorage
+
+    @ac.rule
+    def capture_and_transform() -> Packet:
+        packet = Packet(op=op, dst=dst, word=word, valid=valid)
+        return storage.capture_and_transform(packet)
+
+    return capture_and_transform()

@@ -1,5 +1,10 @@
 # Four independent memory banks
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 `MemoryBanks` calls the same `Bank` Module four times. Requests enter one shared
 Queue and route according to the oldest request's bank field. Responses return
 through a fixed-priority merge, with bank0 ahead of bank1, bank2, and bank3.

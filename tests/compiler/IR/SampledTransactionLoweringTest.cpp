@@ -1,5 +1,6 @@
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "Transforms/LowerTransactions.h"
+#include "Transforms/HardwareStateLowering.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"

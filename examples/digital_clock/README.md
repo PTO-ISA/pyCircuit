@@ -1,5 +1,10 @@
 # Digital clock
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 This clock uses a fixed 50,000,000-edge divider, 24-hour time and raw setting buttons. Its generated native and RTL models execute the original divider timing;
 a short performance pilot alone does not establish historical-root acceptance.
 

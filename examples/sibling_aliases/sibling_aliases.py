@@ -7,9 +7,11 @@ def Counter():  # noqa: N802
     count: ac.u8 = 2
 
     @ac.method
-    def increment() -> ac.u8:
-        count = count + 1
-        return count
+    def increment_twice() -> tuple[ac.u8, ac.u8]:
+        first = count + 1
+        second = first + 1
+        count = second
+        return first, second
 
     @ac.method
     def read() -> ac.u8:
@@ -17,17 +19,18 @@ def Counter():  # noqa: N802
 
 
 @ac.module
-def Stepper(counter: Counter):  # noqa: N802
+def Stepper(counter: ac.module):  # noqa: N802
     alias = counter
 
     @ac.rule
     def step_twice() -> None:
-        first = counter.increment()
-        second = alias.increment()
+        first, second = alias.increment_twice()
         ac.log("info", "alias snapshots", first, second, counter.read())
+
+    step_twice()
 
 
 @ac.module
-def Relay(counter: Counter):  # noqa: N802
+def Relay(counter: ac.module):  # noqa: N802
     alias = counter
     Stepper(alias)

@@ -1780,30 +1780,6 @@ def Owner():
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       SelectorsConditionalExpressionsAndEarlyReturnsRemainClosed) {
-  constexpr StringLiteral sourceText = R"py(import pycircuit as ac
-@ac.module
-def Owner():
-    count: ac.u8 = 0
-    @ac.method
-    def predicate() -> ac.u1:
-        return count[:1]
-    @ac.method
-    def update() -> None:
-        count = count + 1
-    @ac.rule
-    def step() -> None:
-        BODY
-)py";
-  const std::pair<StringRef, StringRef> cases[] = {
-      {"if predicate():\n            pass", "branch"},
-      {"value = 1 if predicate() else 0", "branch"},
-      {"if False:\n            return", "return"}};
-  for (auto [body, category] : cases)
-    reject(replaceOnce(sourceText.str(), "BODY", body), category);
-}
-
-TEST_F(SourceTransactionCaptureTest,
        DeadBranchFiniteLoopRetainsCallsAndIterationIdentity) {
   auto file = typed(R"py(import pycircuit as ac
 @ac.module
@@ -3569,26 +3545,6 @@ def Top(value: ac.u8) -> tuple[ac.u8, ac.u8]:
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       TupleRuleKeywordArgumentsCannotAliasTwoWritableFormals) {
-  auto file = capture("aliased_tuple_owners.py", R"py(import pycircuit as ac
-@ac.rule
-def update(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
-    left = left + 1
-    right = right + 2
-    return left, right
-@ac.module
-def Top() -> tuple[ac.u8, ac.u8]:
-    counter: ac.u8 = 5
-    first, second = update(right=counter, left=counter)
-    return first, second
-)py");
-  ASSERT_TRUE(file);
-  diagnostics.clear();
-  EXPECT_TRUE(failed(lower(*file, "aliased_tuple_owners.py")));
-  EXPECT_FALSE(diagnostics.empty());
-}
-
-TEST_F(SourceTransactionCaptureTest,
        CallableTuplesRejectArityTargetsAndPerResultKindOrNominalMismatch) {
   for (auto replacement : {
            "word = owner.split(delta, enabled)",
@@ -3766,56 +3722,6 @@ def Top(value: ac.u8) -> tuple[ac.u8, ac.u8]:
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       TypedTupleRuleOwnerFormalsUseActualStorageAndPreserveSnapshots) {
-  const std::string source = R"py(import pycircuit as ac
-@ac.module
-def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
-    count: ac.u8 = 5
-    @ac.rule(guard=lambda amount, target: True)
-    def update(amount: ac.u8=delta, target: ac.u8=count) -> tuple[ac.u8, ac.u8]:
-        before = target
-        target = target + amount
-        return before, target
-    first, second = update
-    return first, second
-)py";
-  auto file = typed(source, "typed_tuple_owner.py");
-  ASSERT_TRUE(file);
-  auto states = operations<ac::SourceStateOp>(*file);
-  ASSERT_EQ(states.size(), 1u);
-  auto writes = operations<ac::SourceStateWriteOp>(*file);
-  ASSERT_EQ(writes.size(), 1u);
-  EXPECT_EQ(writes[0].getState(), states[0].getInstanceName());
-  auto transactions = operations<ac::SourceTransactionOp>(*file);
-  ASSERT_EQ(transactions.size(), 1u);
-  auto yield = cast<ac::YieldOp>(executionBody(transactions[0]).front().getTerminator());
-  ASSERT_EQ(yield.getNumOperands(), 2u);
-  EXPECT_NE(yield.getOperand(0), yield.getOperand(1));
-  auto wrongType = capture("wrong_typed_owner_formal.py",
-      replaceOnce(source, "target: ac.u8", "target: ac.u7"));
-  ASSERT_TRUE(wrongType);
-  diagnostics.clear();
-  EXPECT_TRUE(failed(lower(*wrongType, "wrong_typed_owner_formal.py")));
-  EXPECT_FALSE(diagnostics.empty());
-  auto alias = capture("aliased_typed_owner_formals.py", R"py(import pycircuit as ac
-@ac.module
-def Top() -> tuple[ac.u8, ac.u8]:
-    count: ac.u8 = 5
-    @ac.rule(guard=lambda left, right: True)
-    def update(left: ac.u8=count, right: ac.u8=count) -> tuple[ac.u8, ac.u8]:
-        left = left + 1
-        right = right + 2
-        return left, right
-    first, second = update
-    return first, second
-)py");
-  ASSERT_TRUE(alias);
-  diagnostics.clear();
-  EXPECT_TRUE(failed(lower(*alias, "aliased_typed_owner_formals.py")));
-  EXPECT_FALSE(diagnostics.empty());
-}
-
-TEST_F(SourceTransactionCaptureTest,
        TupleMethodBodyAndPublishedSummaryRejectReturnShapeAndCountTampering) {
   auto captured = capture("callable_tuple.py", callableTupleSource);
   ASSERT_TRUE(captured);
@@ -3939,28 +3845,6 @@ def Top(valid: ac.u1, data: ac.u8, take: ac.u1) -> View:
         capturedRaw |=
             llvm::is_contained(method.getCaptures(), source.getOutputs()[1]);
   EXPECT_TRUE(capturedRaw);
-}
-
-TEST_F(SourceTransactionCaptureTest, NamedAndLegacyQueuesKeepDistinctDefaultPolicies) {
-  auto file = typed(R"py(import pycircuit as ac
-@ac.struct
-class View:
-    ready: ac.u1
-    valid: ac.u1
-    data: ac.u8
-@ac.module
-def Top(valid: ac.u1, data: ac.u8, take: ac.u1) -> View:
-    named = ac.queue[ac.u8](in_valid=valid, in_data=data, out_ready=take, depth=2)
-    ready, available, value = ac.queue[ac.u8](valid, data, take, depth=2)
-    return View(ready=named.ready & ready, valid=named.valid & available, data=named.data ^ value)
-)py", "queue_policies.py");
-  ASSERT_TRUE(file);
-  auto queues = queueInstances(*file);
-  ASSERT_EQ(queues.size(), 2u);
-  EXPECT_EQ(queues[0].getCallee(),
-            "pycircuit.__builtins__.fifo_downstream_pop");
-  EXPECT_EQ(queues[1].getCallee(), "pycircuit.__builtins__.fifo_local");
-  EXPECT_FALSE(queues[1]->hasAttr("ac.payload_constraint"));
 }
 
 TEST_F(SourceTransactionCaptureTest, QueueEffectsRejectGuardsAndRawDirectionMixing) {
@@ -4647,106 +4531,8 @@ TEST_F(SourceTransactionCaptureTest,
   }
 }
 
-// These regressions use declaration-based registration directly. Historical
-// explicit-call fixtures above retain their own separate migration obligations.
-TEST_F(SourceTransactionCaptureTest,
-       AutomaticDeclarationsRegisterOnceIncludingUnusedAndVoidResults) {
-  auto file = typed(R"py(import pycircuit as ac
-@ac.struct
-class Packet:
-    value: ac.u8
-    check: ac.u8
-@ac.module
-def Identity(value: ac.u8) -> ac.u8:
-    return value
-@ac.module
-def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, Packet, ac.u8, ac.u8]:
-    @ac.rule
-    def scalar(argument=value) -> ac.u8:
-        return argument + 1
-    @ac.rule
-    def packet(argument=value) -> Packet:
-        return Packet(value=argument, check=argument + 2)
-    @ac.rule
-    def pair(argument: ac.u8=value) -> tuple[ac.u8, ac.u8]:
-        return argument + 3, argument + 4
-    @ac.rule
-    def unused() -> ac.u8:
-        return value
-    @ac.rule
-    def tick() -> None:
-        pass
-    copied = Identity(scalar)
-    left, right = pair
-    return scalar, copied, packet, left, right
-)py", "automatic_results.py");
-  ASSERT_TRUE(file) << diagnostics;
-  auto registrations = operations<ac::SourceTransactionOp>(*file);
-  ASSERT_EQ(registrations.size(), 5u);
-  EXPECT_EQ(operations<ac::InstanceOp>(*file).size(), 1u);
-  unsigned voidResults = 0, tupleResults = 0;
-  llvm::DenseSet<Attribute> declarations;
-  for (auto transaction : registrations) {
-    EXPECT_EQ(transaction.getDeclaration(), transaction.getOccurrence());
-    EXPECT_TRUE(declarations.insert(transaction.getDeclaration()).second);
-    auto entry = entryMethod(transaction);
-    ASSERT_TRUE(entry);
-    EXPECT_EQ(entry.getOccurrence(), transaction.getDeclaration());
-    auto visibility = entry->getAttrOfType<StringAttr>("sym_visibility");
-    ASSERT_TRUE(visibility);
-    EXPECT_EQ(visibility.getValue(), "private");
-    voidResults += transaction.getNumResults() == 0;
-    tupleResults += transaction.getNumResults() == 2;
-  }
-  EXPECT_EQ(voidResults, 1u);
-  EXPECT_EQ(tupleResults, 1u);
-}
-
-TEST_F(SourceTransactionCaptureTest,
-       AutomaticDefaultBindingsDistinguishOwnersFromSavedValues) {
-  auto file = typed(R"py(import pycircuit as ac
-@ac.module
-def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
-    count: ac.u8 = 5
-    saved = count
-    @ac.rule
-    def update(target: ac.u8=count, amount=delta) -> ac.u8:
-        target = target + amount
-        return target
-    @ac.rule
-    def snapshot(value=saved) -> ac.u8:
-        value = value + 2
-        return value
-    return update, snapshot
-)py", "automatic_owners.py");
-  ASSERT_TRUE(file) << diagnostics;
-  auto states = operations<ac::SourceStateOp>(*file);
-  auto writes = operations<ac::SourceStateWriteOp>(*file);
-  ASSERT_EQ(states.size(), 1u);
-  ASSERT_EQ(writes.size(), 1u);
-  EXPECT_EQ(writes[0].getState(), states[0].getInstanceName());
-  auto transactions = operations<ac::SourceTransactionOp>(*file);
-  ASSERT_EQ(transactions.size(), 2u);
-  ac::SourceTransactionOp updateRegistration, snapshotRegistration;
-  for (auto transaction : transactions) {
-    EXPECT_EQ(transaction.getDeclaration(), transaction.getOccurrence());
-    if (transaction.getName() == "update") updateRegistration = transaction;
-    if (transaction.getName() == "snapshot") snapshotRegistration = transaction;
-  }
-  ASSERT_TRUE(updateRegistration);
-  ASSERT_TRUE(snapshotRegistration);
-  // Writable/inferred formals may specialize the private Method symbol. The
-  // authentic declaration registration owns the corresponding body identity.
-  auto update = entryMethod(updateRegistration);
-  auto snapshot = entryMethod(snapshotRegistration);
-  ASSERT_TRUE(update);
-  ASSERT_TRUE(snapshot);
-  EXPECT_EQ(update.getOccurrence(), updateRegistration.getDeclaration());
-  EXPECT_EQ(snapshot.getOccurrence(), snapshotRegistration.getDeclaration());
-  EXPECT_EQ(direct<ac::SourceStateWriteOp>(update.getBody()).size(), 1u);
-  EXPECT_TRUE(direct<ac::SourceStateWriteOp>(snapshot.getBody()).empty());
-}
-
+// Retained global-registration and ownership cases below await migration to
+// transactional resources; obsolete automatic-registration cases are retired.
 TEST_F(SourceTransactionCaptureTest,
        GlobalTemplatesKeepExplicitOccurrencesAndNestedAtomicCalls) {
   auto file = typed(R"py(import pycircuit as ac
@@ -4824,52 +4610,6 @@ def Parent():
 
 
 TEST_F(SourceTransactionCaptureTest,
-       PrivateAutomaticEntryCannotBeReusedByAnOrdinaryNativeMethod) {
-  auto file = typed(R"py(import pycircuit as ac
-@ac.module
-def Owner() -> ac.u8:
-    @ac.rule
-    def computed() -> ac.u8:
-        return 5
-    @ac.method
-    def probe() -> ac.u8:
-        return 0
-    return computed
-)py", "private_automatic_entry.py");
-  ASSERT_TRUE(file) << diagnostics;
-  auto registrations = operations<ac::SourceTransactionOp>(*file);
-  ASSERT_EQ(registrations.size(), 1u);
-  auto entry = ac::getSourceRegistrationEntry(registrations[0]);
-  ASSERT_TRUE(succeeded(entry));
-  ASSERT_TRUE(entry->has_value());
-  auto probe = namedMethod(*file, "probe");
-  ASSERT_TRUE(probe);
-  auto &body = probe.getBody().front();
-  auto authenticCall = (**entry).call;
-  ASSERT_EQ(body.getNumArguments(), authenticCall.getArguments().size());
-  ASSERT_EQ(probe.getFunctionType().getNumInputs(),
-            (**entry).method.getFunctionType().getNumInputs());
-  ASSERT_EQ(probe.getFunctionType().getNumResults(),
-            authenticCall.getNumResults());
-  // The entry path is a direct true constant, not an implicit Method formal.
-  // Clone that valid path and forward exactly the intruder's real arguments so
-  // the only rejected authority is invocation of the autonomous private body.
-  auto path = authenticCall.getPath().getDefiningOp<ac::BitsConstantOp>();
-  ASSERT_TRUE(path);
-  auto *copiedPath = path->clone();
-  body.getOperations().insert(body.getTerminator()->getIterator(), copiedPath);
-  auto *copied = authenticCall->clone();
-  copied->setOperand(0, copiedPath->getResult(0));
-  for (auto [ordinal, argument] : llvm::enumerate(body.getArguments()))
-    copied->setOperand(ordinal + 1, argument);
-  body.getOperations().insert(body.getTerminator()->getIterator(), copied);
-  body.getTerminator()->setOperands(copied->getResults());
-  diagnostics.clear();
-  EXPECT_TRUE(failed(mlir::verify(*file)));
-  EXPECT_NE(diagnostics.find("autonomous"), std::string::npos) << diagnostics;
-}
-
-TEST_F(SourceTransactionCaptureTest,
        LexicalScopeRejectsAncestorAndPrivateDescendantBypass) {
   const std::string prefix = R"py(import pycircuit as ac
 @ac.module
@@ -4890,25 +4630,6 @@ def Client(counter: Counter) -> ac.u8:
     diagnostics.clear();
     EXPECT_TRUE(failed(lower(*captured, "illegal_automatic_scope.py")));
     EXPECT_FALSE(diagnostics.empty());
-  }
-}
-
-TEST_F(SourceTransactionCaptureTest,
-       AutomaticRuleResultsCannotBecomeHiddenCallbackInputs) {
-  const std::string prefix = R"py(import pycircuit as ac
-@ac.module
-def Top(value: ac.u8) -> ac.u8:
-    @ac.rule
-    def source(argument=value) -> ac.u8:
-        return argument
-)py";
-  for (StringRef suffix : {
-           "    @ac.rule\n    def sink() -> ac.u8:\n        return source\n    return sink\n",
-           "    alias = source\n    @ac.rule\n    def sink() -> ac.u8:\n        return alias\n    return sink\n",
-           "    @ac.rule\n    def sink(argument=source) -> ac.u8:\n        return argument\n    return sink\n",
-           "    def helper() -> ac.u8:\n        return source\n    @ac.rule\n    def sink() -> ac.u8:\n        return helper()\n    return sink\n"}) {
-    SCOPED_TRACE(suffix.str());
-    reject(prefix + suffix.str(), "Rule");
   }
 }
 

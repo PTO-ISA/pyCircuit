@@ -1,6 +1,8 @@
-"""Regular-clock digital_filter scenario; original physical-control oracles remain."""
+"""Retain all 177 signed FIR scenarios and original registered timing."""
 
-from example_digital_filter.digital_filter import DigitalFilter
+# ruff: noqa: F821, F823, F842 -- Compiler-owned State and instance bindings.
+
+from example_digital_filter.digital_filter import FilterResult, FilterStorage
 from pycircuit import bits, log, rule, system, struct, table
 
 
@@ -12,9 +14,13 @@ class Scenario:
     expected_y_valid: bits[1]
 
 
-def scenario_rows() -> table[177, Scenario]:
+@system
+def ExerciseDigitalFilter():  # noqa: N802
+    phase: bits[64] = 0
+
+    storage: FilterStorage
     # fmt: off
-    rows: table[177, Scenario] = (
+    scenarios: table[177, Scenario] = (
         Scenario(x_in=999, x_valid=1),
         Scenario(x_in=1, x_valid=1, expected_y_out=999, expected_y_valid=1),
         Scenario(x_valid=1, expected_y_out=1999, expected_y_valid=1),
@@ -194,30 +200,14 @@ def scenario_rows() -> table[177, Scenario]:
         Scenario(x_in=44191, expected_y_out=72035),
     )
     # fmt: on
-    return rows
-
-
-@rule
-def advance(phase):
-    phase = phase + 1
-
-
-@system
-def ExerciseDigitalFilter():  # noqa: N802
-    phase: bits[64] = 0
-
-    scenarios = scenario_rows()
-    position = phase if phase < 177 else 176
-    scenario = scenarios[position]
-    x_in = scenario.x_in
-    x_valid = scenario.x_valid
-    dut = DigitalFilter(x_in, x_valid)
-
-    expected_y_out = scenario.expected_y_out
-    expected_y_valid = scenario.expected_y_valid
 
     @rule
-    def check_and_advance():
+    def check_and_advance() -> None:
+        position = phase if phase < 177 else 176
+        scenario = scenarios[position]
+        dut: FilterResult = storage.filter_sample(scenario.x_in, scenario.x_valid)
+        expected_y_out = scenario.expected_y_out
+        expected_y_valid = scenario.expected_y_valid
         if phase < 177:
             assert dut.y_out == expected_y_out, "digital_filter: y_out"
             assert dut.y_valid == expected_y_valid, "digital_filter: y_valid"
@@ -225,4 +215,6 @@ def ExerciseDigitalFilter():  # noqa: N802
         log("info", "digital_filter.y_out", dut.y_out)
         log("info", "digital_filter.y_valid", dut.y_valid)
 
-    advance(phase)
+        phase = phase + 1
+
+    check_and_advance()

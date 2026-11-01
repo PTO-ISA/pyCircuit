@@ -1,5 +1,17 @@
 # Independent scalar outputs and a shared structured interface
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
+Current source compilation fails at `Decode` with `Module payload outputs
+require a Rule result`. The original Module interfaces and all eight oracle
+cases remain intact. Returning a new State or Queue would change this
+combinational timing; a same-cycle Method adapter does not establish the
+required Module output capability. Generated C++/RTL execution of this retained
+example is **NOT RUN**.
+
 `Decode` returns `tuple[ac.u4, ac.u8, ac.u1]`: three independent values from one
 Module instance. Each consumer takes and returns its scalar directly:
 

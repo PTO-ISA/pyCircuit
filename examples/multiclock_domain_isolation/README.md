@@ -1,5 +1,10 @@
 # Two isolated clock-domain records
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 `CounterLane` owns one eight-bit DFF and returns its count as a typed bounded
 Integer scalar. `MulticlockDomainIsolation` creates two lanes with direct typed
 calls and returns their independent counts as a two-element tuple.

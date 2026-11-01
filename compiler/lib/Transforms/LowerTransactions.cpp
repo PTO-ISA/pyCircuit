@@ -2,6 +2,7 @@
 #include "Dialect/ACIR/HardwareGrantProof.h"
 #include "../Dialect/ACIR/SourceFormalCandidateSelection.h"
 #include "LowerTransactions.h"
+#include "HardwareStateLowering.h"
 #include "TransactionValueAvailability.h"
 #include "Dialect/ACIR/HardwareValueAvailability.h"
 #include "Dialect/ACIR/HardwareQueueResources.h"
@@ -9,7 +10,6 @@
 #include "Dialect/ACIR/SourceTransactionSummary.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
-#include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "pycircuit/Transforms/Passes.h"
 
 #include "Dialect/ACIR/ACIRSourceContracts.h"
@@ -30,6 +30,9 @@ namespace acir {
 namespace {
 
 using ac::detail::SourceCheckBudget;
+using detail::knownTrue;
+using detail::prepayClone;
+using detail::prepayOperationHeader;
 using detail::DefinitionRouting;
 using detail::MaterializedBranchResult;
 using detail::MaterializedTransaction;
@@ -1023,36 +1026,6 @@ LogicalResult mergedEnvelope(mlir::ModuleOp package) {
   if (systems != 1)
     return package.emitError()
            << "transaction lowering requires exactly one merged ac.system";
-  return success();
-}
-
-bool prepayOperationHeader(Operation *op, SourceCheckBudget &budget) {
-  return charge(budget, op, 3 + uint64_t(op->getNumOperands()) * 2 +
-                               uint64_t(op->getNumResults()) * 2 + op->getNumRegions() +
-                               op->getRawDictionaryAttrs().size() +
-                               op->getPropertiesStorageSize());
-}
-
-LogicalResult prepayClone(Operation *root, SourceCheckBudget &budget) {
-  SmallVector<Operation *> pending;
-  if (!charge(budget, root))
-    return failure();
-  pending.push_back(root);
-  while (!pending.empty()) {
-    Operation *op = pending.pop_back_val();
-    if (!prepayOperationHeader(op, budget))
-      return failure();
-    for (Region &region : op->getRegions())
-      for (Block &block : region) {
-        if (!charge(budget, op, 1 + uint64_t(block.getNumArguments()) * 2))
-          return failure();
-        for (Operation &nested : block) {
-          if (!charge(budget, op))
-            return failure();
-          pending.push_back(&nested);
-        }
-      }
-  }
   return success();
 }
 
@@ -2476,7 +2449,6 @@ FailureOr<MaterializedBranchResult> materializeSelection(
   return result;
 }
 
-
 ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
                                         MLIRContext *context, bool one);
 
@@ -3426,83 +3398,6 @@ LogicalResult eraseTargetMappings(IRMapping &mapping,
   for (auto key : valueKeys)
     mapping.erase(key);
   return success();
-}
-
-/// Prove an admitted Bits1 SSA value is exactly constant one. Only closed
-/// constants and bitwise/compare/select combinations are folded; any unknown
-/// operand or unsupported operation is false, never a guess. This decides the
-/// plain DFF leaf from the actually materialized commit enable.
-bool knownTrue(Value value, const ac::HardwareAnalysis &hardware,
-               SourceCheckBudget &budget, unsigned depth = 0) {
-  Operation *site = value.getDefiningOp();
-  if (!site || depth > 64 || !charge(budget, site)) return false;
-  Type type = value.getType();
-  if (!isa<ac::BitsType>(type)) return false;
-  auto width = hardware.getPackedWidth(type, {}, site);
-  if (failed(width) || *width != 1) return false;
-  if (auto rule = value.getDefiningOp<ac::RuleOp>()) {
-    auto *terminator = rule.getBody().front().getTerminator();
-    auto yielded = dyn_cast_or_null<ac::YieldOp>(terminator);
-    auto result = dyn_cast<OpResult>(value);
-    if (!yielded || !result ||
-        result.getResultNumber() >= yielded.getNumOperands())
-      return false;
-    return knownTrue(yielded.getOperand(result.getResultNumber()), hardware,
-                     budget, depth + 1);
-  }
-  if (auto constant = value.getDefiningOp<ac::BitsConstantOp>()) {
-    auto evaluated =
-        hardware.evaluateStatic(constant.getValue(), {}, constant);
-    if (failed(evaluated)) return false;
-    auto integer = dyn_cast<ac::MathIntAttr>(*evaluated);
-    if (!integer) return false;
-    llvm::APSInt number(integer.getCanonicalValue());
-    return number.getBitWidth() == 1 && number.getBoolValue();
-  }
-  if (auto binary = value.getDefiningOp<ac::BitsBinaryOp>()) {
-    StringRef opcode = binary.getOpcode();
-    if (opcode == "and")
-      return knownTrue(binary.getLhs(), hardware, budget, depth + 1) &&
-             knownTrue(binary.getRhs(), hardware, budget, depth + 1);
-    if (opcode == "or") {
-      bool lhs = knownTrue(binary.getLhs(), hardware, budget, depth + 1);
-      if (lhs) return true;
-      return knownTrue(binary.getRhs(), hardware, budget, depth + 1);
-    }
-    return false;
-  }
-  if (auto compare = value.getDefiningOp<ac::BitsCompareOp>()) {
-    auto constant = [&](Value operand) -> std::optional<llvm::APSInt> {
-      auto op = operand.getDefiningOp<ac::BitsConstantOp>();
-      if (!op) return std::nullopt;
-      auto evaluated = hardware.evaluateStatic(op.getValue(), {}, op);
-      if (failed(evaluated)) return std::nullopt;
-      auto integer = dyn_cast<ac::MathIntAttr>(*evaluated);
-      if (!integer) return std::nullopt;
-      return llvm::APSInt(integer.getCanonicalValue());
-    };
-    auto lhs = constant(compare.getLhs());
-    auto rhs = constant(compare.getRhs());
-    if (!lhs || !rhs) return false;
-    StringRef predicate = compare.getPredicate();
-    if (predicate == "eq" || predicate == "case_eq") return *lhs == *rhs;
-    if (predicate == "ne") return *lhs != *rhs;
-    if (predicate == "ult") return lhs->ult(*rhs);
-    if (predicate == "ule") return lhs->ule(*rhs);
-    if (predicate == "ugt") return lhs->ugt(*rhs);
-    if (predicate == "uge") return lhs->uge(*rhs);
-    if (predicate == "slt") return lhs->slt(*rhs);
-    if (predicate == "sle") return lhs->sle(*rhs);
-    if (predicate == "sgt") return lhs->sgt(*rhs);
-    if (predicate == "sge") return lhs->sge(*rhs);
-    return false;
-  }
-  if (auto select = value.getDefiningOp<ac::BitsSelectOp>()) {
-    if (!knownTrue(select.getCondition(), hardware, budget, depth + 1))
-      return false;
-    return knownTrue(select.getTrueValue(), hardware, budget, depth + 1);
-  }
-  return false;
 }
 
 LogicalResult materialize(PreparedTransactionLowering &prepared,
@@ -8259,8 +8154,6 @@ private:
   DenseSet<Value> values;
 };
 
-#include "TransactionHardwareState.inc"
-
 } // namespace
 
 namespace detail {
@@ -8313,212 +8206,7 @@ LogicalResult verifyTransactionMaterialization(
   // Standalone legality supplements, never replaces, original-source proof.
   return ac::verifyRoutedPackage(*candidate.module);
 }
-FailureOr<OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
-    mlir::ModuleOp routed, SourceCheckBudget &budget) {
-  budget.setPhase("routed hardware state preparation");
-  if (failed(ac::verifyRoutedPackage(routed)) ||
-      failed(prepayClone(routed, budget)))
-    return failure();
-  auto primitives = hardwareStatePrimitives(routed, budget);
-  if (failed(primitives)) return failure();
-  // Pay every inferred allocation and all three Table control splats before
-  // cloning or constructing physical state. Width/layout is already verified.
-  for (auto module : routed.getOps<ac::ModuleOp>())
-    for (auto state : module.getBody().front().getOps<ac::SourceStateOp>())
-      if (!charge(budget, state, 128)) return failure();
-  OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(routed->clone());
-  ac::HardwareAnalysis analysis(*staged);
-  Builder attributes(routed.getContext());
-  for (auto module : staged->getOps<ac::ModuleOp>())
-    for (auto state : llvm::make_early_inc_range(
-             module.getBody().front().getOps<ac::SourceStateOp>())) {
-      auto update = logicalUpdate(state, budget);
-      if (failed(update)) return failure();
-      bool dff = unconditionalScalarState(state, *update, analysis, budget);
-      auto primitive = dff ? primitives->dff : primitives->dffe;
-      if (!primitive)
-        return state.emitOpError()
-               << "unconditional hardware state requires the verified DFF primitive";
-      auto table = dyn_cast<ac::ArrayType>(state.getQ().getType());
-      OperationState leaf(state.getLoc(), table ? ac::CollectionOp::getOperationName()
-                                                : ac::InstanceOp::getOperationName());
-      leaf.addTypes(state.getQ().getType());
-      leaf.addAttribute("instance_name", state.getInstanceNameAttr());
-      leaf.addAttribute("occurrence", state.getOccurrence());
-      leaf.addAttribute("callee", FlatSymbolRefAttr::get(primitive.getSymNameAttr()));
-      leaf.addAttribute("parameters", attributes.getArrayAttr({}));
-      leaf.addAttribute("type_arguments", attributes.getArrayAttr({TypeAttr::get(
-          table ? table.getElementType() : state.getQ().getType())}));
-      if (table) leaf.addAttribute("shape", table.getShape());
-      OpBuilder builder(state);
-      // Establish Q first so a hold candidate or forward dependency is rebound
-      // through ordinary SSA use replacement, without dangling copied Values.
-      auto *storage = builder.create(leaf);
-      state.getQ().replaceAllUsesWith(storage->getResult(0));
-      SmallVector<Value> inputs{state.getClk(), state.getRst()};
-      if (!dff) inputs.push_back(update->getIntent());
-      inputs.push_back(update->getCandidate());
-      inputs.push_back(state.getInitial());
-      if (table)
-        for (unsigned i = 0; i < 3; ++i) {
-          OperationState splat(state.getLoc(), ac::ArraySplatOp::getOperationName());
-          splat.addOperands(inputs[i]);
-          splat.addTypes(ac::ArrayType::get(state.getContext(), table.getShape(),
-                                            inputs[i].getType()));
-          splat.addAttribute("shape", table.getShape());
-          OpBuilder before(storage);
-          inputs[i] = before.create(splat)->getResult(0);
-        }
-      storage->setOperands(inputs);
-      update->erase();
-      state.erase();
-    }
-  staged->getOperation()->setAttr("ac.stage", attributes.getStringAttr("final"));
-  return std::move(staged);
-}
 
-LogicalResult verifyHardwareStateMaterialization(
-    mlir::ModuleOp routed, mlir::ModuleOp candidate, SourceCheckBudget &budget) {
-  budget.setPhase("routed hardware state correspondence proof");
-  if (!candidate || failed(ac::verifyRoutedPackage(routed))) return failure();
-  auto primitives = hardwareStatePrimitives(routed, budget);
-  if (failed(primitives) ||
-      failed(HardwareStateProof(routed, candidate, budget, *primitives).run()))
-    return failure();
-  return ac::verifyHardwarePackage(candidate);
-}
 } // namespace detail
-
-namespace {
-
-void acceptTransactionCandidate(mlir::ModuleOp input, mlir::ModuleOp staged) {
-  // All verification finishes before the first original mutation.
-  input->setAttrs(staged->getAttrs());
-  input->getRegion(0).takeBody(staged->getRegion(0));
-}
-
-class RouteTransactionsPass
-    : public PassWrapper<RouteTransactionsPass, OperationPass<mlir::ModuleOp>> {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RouteTransactionsPass)
-  RouteTransactionsPass() = default;
-  RouteTransactionsPass(const RouteTransactionsPass &other) : PassWrapper(other) {}
-  Option<std::string> top{*this, "top", llvm::cl::desc("Closed transactional root Module"),
-                          llvm::cl::init("")};
-  StringRef getArgument() const final { return "ac-route-transactions"; }
-  StringRef getDescription() const final {
-    return "Route sampled transactions to independently verified logical-state ACIR";
-  }
-  void runOnOperation() final {
-    auto input = getOperation();
-    if (input->hasAttr("ac.transactional")) {
-      ac::HardwareSourceCheckLimits limits;
-      limits.maxWorkUnits = 1024 * 1024;
-      SourceCheckBudget budget(limits);
-      auto candidate = ac::routeTransactionalPackage(
-          input, top, [&](uint64_t units, Operation *site) {
-            return budget.debit(units, site);
-          });
-      if (failed(candidate) || failed(ac::verifyRoutedPackage(**candidate, limits))) {
-        signalPassFailure();
-        return;
-      }
-      acceptTransactionCandidate(input, **candidate);
-      return;
-    }
-    if (auto stage = input->getAttrOfType<StringAttr>("ac.stage");
-        stage && stage.getValue() == "routed") {
-      if (failed(ac::verifyRoutedPackage(input))) signalPassFailure();
-      return;
-    }
-    if (!ac::detail::findUnloweredTransaction(input)) {
-      // Already-normal hardware has no source transaction or logical state to
-      // authenticate or normalize. Preserve ordinary graph admission and its
-      // budget instead of imposing source transaction analysis. The exact clone
-      // changes only the versioned envelope; routed verification also admits a
-      // complete ordinary external declaration without executable hardware.
-      ac::HardwareSourceCheckLimits graphLimits;
-      SourceCheckBudget graphBudget(graphLimits);
-      if (failed(mergedEnvelope(input)) || failed(prepayClone(input, graphBudget))) {
-        signalPassFailure();
-        return;
-      }
-      OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(input->clone());
-      Builder attributes(input.getContext());
-      (*staged)->setAttr("ac.stage", attributes.getStringAttr("routed"));
-      (*staged)->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged->getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 3 : 2));
-      if (failed(ac::verifyRoutedPackage(*staged, graphLimits))) {
-        signalPassFailure();
-        return;
-      }
-      acceptTransactionCandidate(input, *staged);
-      return;
-    }
-    const auto &analysis = getAnalysis<ac::SourceTransactionStateAnalysis>();
-    if (!analysis.isValid()) {
-      signalPassFailure();
-      return;
-    }
-    ac::HardwareSourceCheckLimits limits;
-    limits.maxWorkUnits = 1024 * 1024;
-    SourceCheckBudget budget(limits);
-    auto prepared = detail::prepareTransactionLowering(input, analysis, budget);
-    if (failed(prepared)) { signalPassFailure(); return; }
-    auto candidate = detail::materializeTransactionLowering(*prepared, budget);
-    if (failed(candidate) || failed(detail::verifyTransactionMaterialization(
-                                 *prepared, *candidate, budget))) {
-      signalPassFailure();
-      return;
-    }
-    acceptTransactionCandidate(input, *candidate->module);
-  }
-};
-
-class LowerTransactionsPass
-    : public PassWrapper<LowerTransactionsPass, OperationPass<mlir::ModuleOp>> {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LowerTransactionsPass)
-  StringRef getArgument() const final { return "ac-lower-transactions"; }
-  StringRef getDescription() const final {
-    return "Refine verified routed logical state to final hardware storage";
-  }
-  void runOnOperation() final {
-    auto input = getOperation();
-    auto stage = input->getAttrOfType<StringAttr>("ac.stage");
-    if (stage && stage.getValue() == "final") {
-      if (failed(ac::verifyHardwarePackage(input))) signalPassFailure();
-      return;
-    }
-    if (!stage || stage.getValue() != "routed") {
-      input.emitError() << "hardware state lowering requires routed ACIR; run ac-route-transactions first";
-      signalPassFailure();
-      return;
-    }
-    ac::HardwareSourceCheckLimits limits;
-    // In valid routed IR the only unlowered operations are logical state and
-    // its update. State-free graphs retain ordinary hardware limits through
-    // clone, exact correspondence proof and final verification in this phase,
-    // just as they do through the routing envelope transition above.
-    if (ac::detail::findUnloweredTransaction(input))
-      limits.maxWorkUnits = 1024 * 1024;
-    SourceCheckBudget budget(limits);
-    auto candidate = detail::materializeHardwareState(input, budget);
-    if (failed(candidate) || failed(detail::verifyHardwareStateMaterialization(
-                                 input, **candidate, budget))) {
-      signalPassFailure();
-      return;
-    }
-    acceptTransactionCandidate(input, **candidate);
-  }
-};
-
-} // namespace
-
-std::unique_ptr<Pass> createRouteTransactionsPass() {
-  return std::make_unique<RouteTransactionsPass>();
-}
-std::unique_ptr<Pass> createLowerTransactionsPass() {
-  return std::make_unique<LowerTransactionsPass>();
-}
 
 } // namespace acir

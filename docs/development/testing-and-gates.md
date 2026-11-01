@@ -75,11 +75,15 @@ package tests and receipts. No new native executable is needed for this split.
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
-| Examples | The explicit `_gate_examples` list in `examples/CMakeLists.txt`, including `resource_composition`; each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+| Examples | Catalog entries with `execution_tier: gate`; each compile/link/dual emit and workers 1/2/RTL | All executable catalog entries (`gate` and `nightly`); pending designs retain their independent histories outside the execution set |
 
-The example registry is explicit. Gate configures only its selected smoke designs,
-so it does not compile the full nightly set first. Direct aggregate CMake builds
-default to the full `nightly` registry. Standalone example builds remain supported.
+The example catalog explicitly separates migration status from execution tier.
+CMake reads that selection directly for both gate and nightly, and rejects an
+empty execution set. Entries with `execution_tier: none` retain their source,
+standalone build entrypoints and independent oracles as migration inputs; they
+are not skips or passing coverage. Gate configures only its selected designs.
+Direct aggregate CMake builds default to the executable nightly set. Standalone
+builds of pending designs may still fail until their recorded gaps are resolved.
 Examples demonstrate complete designs; API fixtures test compiler/runtime
 contracts and rejection boundaries. An example pass does not substitute for API
 coverage of unsupported historical designs.

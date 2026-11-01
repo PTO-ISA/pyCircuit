@@ -114,22 +114,7 @@ add_acir_api_test(ACIRSourceStaticEvaluationTests SourceStaticEvaluationTest.cpp
 add_acir_api_test(ACIRSourceIdentifierTests SourceIdentifierTest.cpp SourceIdentifierOracleTest.cpp
   SourceIdentityContractsTest.cpp)
 target_link_libraries(ACIRSourceIdentifierTests PRIVATE Threads::Threads)
-set(_module_loop_ir "${CMAKE_BINARY_DIR}/tests/compiler/module_loop.ac")
-file(GLOB _source_driver_files CONFIGURE_DEPENDS "${PYCIRCUIT_REPO_ROOT}/python/pycircuit/*.py")
-add_custom_command(OUTPUT "${_module_loop_ir}"
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/prepare_module_loop.py"
-    --repo "${PYCIRCUIT_REPO_ROOT}"
-    --source-compiler "$<TARGET_FILE:pycircuit-source-unit>"
-    --linker "$<TARGET_FILE:pycircuit-link>" --output "${_module_loop_ir}"
-  DEPENDS pycircuit-source-unit pycircuit-link prepare_module_loop.py
-    "${PYCIRCUIT_REPO_ROOT}/tests/fixtures/historical_examples/module_loop/child.py"
-    "${PYCIRCUIT_REPO_ROOT}/tests/fixtures/historical_examples/module_loop/module_loop.py"
-    ${_source_driver_files} VERBATIM)
-add_custom_target(PycircuitModuleLoopIR DEPENDS "${_module_loop_ir}")
 add_acir_api_test(ACIRWorkPartitionTests WorkPartitionTest.cpp)
-add_dependencies(ACIRWorkPartitionTests PycircuitModuleLoopIR)
-set_tests_properties(ACIRWorkPartitionTests PROPERTIES
-  ENVIRONMENT "PYCIRCUIT_TEST_MODULE_LOOP_FINAL=${_module_loop_ir}")
 target_compile_definitions(ACIRSourceIdentifierTests PRIVATE
   ACIR_UNICODE_RECIPE_PYTHON="${Python3_EXECUTABLE}")
 

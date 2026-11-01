@@ -1,5 +1,10 @@
 # BF16 FMAC
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 `BF16Fmac(a_in:u16, b_in:u16, acc_in:u32, valid_in:u1)` returns
 `FmacResult(result:u32, result_valid:u1)` in that order, for 33 packed bits.
 Related stage fields share three named struct owners. Result data and valid

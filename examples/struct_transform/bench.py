@@ -1,6 +1,8 @@
-"""Regular-clock struct_transform scenario; original physical-control oracles remain."""
+"""Check all 72 original registered-packet scenarios without changing latency."""
 
-from example_struct_transform.struct_transform import StructTransform
+# ruff: noqa: F821, F823, F842 -- Compiler-owned State and instance bindings.
+
+from example_struct_transform.struct_transform import Packet, StructTransformStorage
 from pycircuit import bits, log, rule, system, struct, table
 
 
@@ -16,9 +18,13 @@ class Scenario:
     expected_valid: bits[1]
 
 
-def scenario_rows() -> table[72, Scenario]:
+@system
+def ExerciseStructTransform():  # noqa: N802
+    phase: bits[64] = 0
+
+    storage: StructTransformStorage
     # fmt: off
-    rows: table[72, Scenario] = (
+    scenarios: table[72, Scenario] = (
         Scenario(op=1, dst=2, word=3, valid=1, expected_word=1),
         Scenario(op=15, dst=63, word=4294967295, expected_op=1, expected_dst=2, expected_word=5, expected_valid=1),
         Scenario(op=1, dst=2, word=3, valid=1, expected_op=15, expected_dst=63, expected_word=15),
@@ -93,25 +99,15 @@ def scenario_rows() -> table[72, Scenario]:
         Scenario(op=1, dst=2, word=3, valid=1, expected_op=1, expected_dst=2, expected_word=5, expected_valid=1),
     )
     # fmt: on
-    return rows
-
-
-@rule
-def advance(phase):
-    phase = phase + 1
-
-
-@system
-def ExerciseStructTransform():  # noqa: N802
-    phase: bits[64] = 0
-
-    scenarios = scenario_rows()
-    position = phase if phase < 72 else 71
-    scenario = scenarios[position]
-    dut = StructTransform(scenario.op, scenario.dst, scenario.word, scenario.valid)
 
     @rule
-    def check_and_advance():
+    def check_and_advance() -> None:
+        position = phase if phase < 72 else 71
+        scenario = scenarios[position]
+        packet = Packet(
+            op=scenario.op, dst=scenario.dst, word=scenario.word, valid=scenario.valid
+        )
+        dut: Packet = storage.capture_and_transform(packet)
         if phase < 72:
             assert dut.op == scenario.expected_op, "struct_transform: op"
             assert dut.dst == scenario.expected_dst, "struct_transform: dst"
@@ -123,4 +119,6 @@ def ExerciseStructTransform():  # noqa: N802
         log("info", "struct_transform.word", dut.word)
         log("info", "struct_transform.valid", dut.valid)
 
-    advance(phase)
+        phase = phase + 1
+
+    check_and_advance()

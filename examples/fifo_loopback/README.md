@@ -1,5 +1,10 @@
 # External FIFO boundary
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 `FifoLoopback` exposes a depth-two, latency-one FIFO through typed input pins and
 one `FifoResult`. This example specifically demonstrates an external ready/valid
 protocol. Ordinary internal module connections should use typed Method calls

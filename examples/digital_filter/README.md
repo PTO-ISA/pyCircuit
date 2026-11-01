@@ -1,94 +1,86 @@
 # Four-tap signed FIR filter
 
-The filter Rule is nested in its Module and captures the delay state directly.
-The arithmetic order, saved old-tap values and original register boundaries
-remain unchanged.
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
 
-[Generated MLIR, C++ and RTL examples](GENERATED.md)
-
-This example implements a fixed four-tap filter:
+`FilterStorage` owns three 16-bit delay samples, the 34-bit output, and one
+registered valid bit, all initialized to zero. Its `filter_sample` Method
+computes the fixed signed FIR:
 
 ```text
 y[n] = x[n] + 2*x[n-1] + 3*x[n-2] + 4*x[n-3]
 ```
 
-Inputs are `x_in: bits[16]` (a signed two's-complement sample) and
-`x_valid: bits[1]`. The typed `FilterResult` contains the registered 34-bit
-two's-complement `y_out` and registered `y_valid`. Coefficients and widths are
-the original fixed source constants; the historical public parameter set is empty.
+The input is a 16-bit two's-complement bit pattern. Each tap is explicitly
+widened to 34 bits and combined with its sign mask before modular arithmetic.
+Coefficients, widths, sign handling, arithmetic order, and register boundaries
+remain unchanged. The mathematical output range is -327680 through 327670.
 
-Three 16-bit history variables, the 34-bit output and one valid bit all initialize
-and reset to zero. Valid samples advance the history and compute one output;
-invalid cycles hold history/output and clear output validity. No extra pipeline
-stage is inserted. The old C wrapper's invalid cycle after a pushed sample is
-testbench stimulus, rather than part of the filter's latency.
+The Method returns the committed output and valid bit before proposing its
+updates. All delay reads observe old Q. Valid samples advance history and
+compute a result; invalid samples hold history/output and clear output validity.
+Conditional expressions retain the original value-mux algorithm. There is no
+extra result State, Queue, or observation cycle.
 
-The rule snapshots output/valid before updating its ordinary variables. It
-computes from old taps, then assigns the delays in descending order. A runner
-Work sample observes the old registered output; a following nonrising Work sees
-the preceding edge's committed value. Python does not expose clock/reset or
-current/next state. The host drives generated physical pins through the shared
-typed DUT and SystemRunner.
+The `DigitalFilter` wrapper keeps the original scalar input interface and
+explicitly registers its calling Rule. The direct input-bearing root currently
+fails linking with `transactional link requires a closed concrete root`.
+Supporting that physical boundary remains required work.
 
-Each sample is explicitly widened to 34 bits and its sign bit selects the high
-two's-complement mask before modular multiplication/addition. This preserves
-signed FIR results with the existing bits operations; no signed frontend type or
-new primitive is introduced. The true result range is -327680 through 327670.
-The source mask expression is not a general four-state sign-extension API.
+## Full System history
 
-Conditional expressions preserve the original data-mux hold semantics. With
-unknown valid, equal proposed/held data bits remain known and differing bits
-become X; raw valid X/Z is captured in `y_valid`. An active unknown sample makes
-the arithmetic output unknown. Four subsequent known valid samples flush its
-effect from the three history registers; invalid cycles do not flush history.
+The System owns one storage instance and explicitly registers a Rule that calls
+its Method, checks the same-Work old output against the independent row, and
+advances the phase. All 177 original `Scenario` constructor rows remain
+unchanged, including negative samples, invalid gaps, held output, and recovery.
+The initialized scenario Table is never written.
 
-Build through the same public compile/link/emit and installed example helper:
+The u64 phase wraps normally. Selection clamps to row 176 after the active
+history: input `(44191, 0)`, expected output `(72035, 0)`. Both field checks stay
+under `phase < 177`, and both logs remain unconditional. The System still runs
+177 cycles with low/high sampling and no additional pipeline stage.
+
+The cold full-history run passes source compilation, linking, and C++ emission
+but hits the existing 180-second limit while building the native simulation.
+After separately completing that unchanged build, the unmodified verifier runs
+C++ workers 1/2 and RTL successfully: all 177 scenarios and 708 observations
+agree. Overall acceptance still **FAILS** because the final IR hashes differ in
+embedded provenance bytecode; decoded provenance and the remaining IR are
+identical. The full dataset and existing limits are retained. These successful
+executions do not constitute a passing artifact-verification receipt.
+
+Run the generated System with the current installed toolchain:
+
+```sh
+pycircuit run examples/digital_filter --target cpp --workers 1 --cycles 177
+pycircuit run examples/digital_filter --target cpp --workers 2 --cycles 177
+pycircuit run examples/digital_filter --target verilog --cycles 177
+```
+
+The existing CMake entry registers separate Module and System tests:
 
 ```sh
 cmake -S examples/digital_filter -B /absolute/build/digital-filter -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
-cmake --build /absolute/build/digital-filter --parallel 4
-ctest --test-dir /absolute/build/digital-filter --output-on-failure --no-tests=error
+ctest --test-dir /absolute/build/digital-filter -R digital_filter_system \
+  --output-on-failure --no-tests=error
 ```
 
-The independent host oracle uses signed integer arithmetic, then masks the final
-result to 34 bits. Tests preserve the original impulse/step/ramp/alternating/large
-value scenarios and add negative impulses, extrema, invalid gaps, clock hold,
-populated reset, discard/retry and genuine four-state recovery. Native workers
-1/2 and RTL agree on 378 Work samples. Eight genuine Icarus X/Z scenarios and
-native discard/failure/recovery assertions pass. The generated examples above
-come from this verified build; source presence alone is not acceptance.
+## Retained physical and four-state oracles
 
-## Scenario bench
+The unchanged host oracle uses independent signed integer arithmetic and masks
+its final result to 34 bits. Its 378 Work samples retain impulse, step, ramp,
+alternating and large values, negative impulses, extrema, invalid gaps, clock
+hold, populated reset, discard/retry, and recovery checks. Original RTL assets
+and all eight Icarus X/Z scenarios remain unchanged.
 
-`bench.py` exports `example_digital_filter.bench.ExerciseDigitalFilter`. Its immutable Table contains
-177 original rows of a 4-field, 52-bit `Scenario`.
-All 177 rows remain, with the complete 64-bit index clamped to row 176:
-`(x_in=44191, x_valid=0, expected_y_out=72035, expected_y_valid=0)`.
-Inputs remain raw u16 bit patterns and expected outputs raw u34 two's-complement
-patterns. Invalid samples, held output data, validity changes and recovery remain
-explicit. The signed independent oracle stays in the unchanged physical driver.
+These physical checks are **NOT RUN** for this migration while the direct root
+is unsupported. System adapter results cannot replace them. In particular,
+unknown-valid value merging, raw valid X/Z capture, unknown-sample arithmetic,
+and four-known-sample recovery remain required four-state behavior without a
+new execution claim.
 
-The phase remains a wrapping `bits[64]` counter initialized to zero. Only Table
-selection clamps. The original DUT call, input/expected bindings, unmasked
-assertions, messages, logs and check-before-advance registration remain intact.
-The generated system still runs 177 cycles with identical low/high sampling inputs.
-
-Independent source proof preserves all 708 active field values and the complete
-known-u64 domain by splitting original constant comparison cells across candidate
-row selections and checking the tail. Original partitions need not have one cell
-per Table row; repeated rows remain distinct. High-phase probes supplement this
-proof rather than replacing it. No arbitrary X/Z internal-phase equivalence is
-claimed; initialization and the unchanged increment keep this closed phase known.
-
-Baseline and compact versions each pass both existing standalone tests. Twenty
-complete native/RTL system traces preserve all 708 observations and the terminal
-result, including native workers 1/2, after excluding only changed source-position
-metadata. Regular-clock systems do not replace physical clock/reset histories.
-
-The unchanged physical driver retains 378 known Work samples and its native
-lifecycle, failure and recovery checks. Explicit baseline/candidate Icarus runs
-also preserve all eight existing X/Z cases and the complete output. The shared
-CTest verifier does not invoke that macro automatically.
-
-See [generated excerpts and verification inputs](GENERATED.md).
+[Generated excerpts and verification inputs](GENERATED.md) describe the
+superseded frontend and are retained as historical evidence only.

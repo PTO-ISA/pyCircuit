@@ -5,7 +5,15 @@
       "name": "hello_counter",
       "folder": "examples/hello_counter",
       "source": "hello_counter.py",
-      "system": "HelloCounter"
+      "system": "HelloCounter",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/hello_counter/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "module_control_state_machine",
@@ -13,7 +21,15 @@
       "source": "module_control_state_machine.py",
       "system": "ModuleControlStateMachine",
       "system_cycles": 5,
-      "system_scope": "Module if/elif/else and autorules read old state; a false Rule guard holds the selected branch. Independent C++ workers 1/2 and RTL traces."
+      "system_scope": "Module if/elif/else and autorules read old state; a false Rule guard holds the selected branch. Independent C++ workers 1/2 and RTL traces.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/module_control_state_machine/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "local_method_accumulator",
@@ -21,7 +37,15 @@
       "source": "local_method_accumulator.py",
       "system": "LocalMethodAccumulator",
       "system_cycles": 8,
-      "system_scope": "Nested Value, Action and ActionValue Methods with old-Q reads, by-value parameters and whole-Rule admission; independent C++ workers 1/2 and RTL traces."
+      "system_scope": "Nested Value, Action and ActionValue Methods with old-Q reads, by-value parameters and whole-Rule admission; independent C++ workers 1/2 and RTL traces.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/local_method_accumulator/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "table_dispatch",
@@ -29,7 +53,15 @@
       "source": "table_dispatch.py",
       "system": "TableDispatch",
       "system_cycles": 9,
-      "system_scope": "Four independent component Table accumulators, dynamic Method selection and computed results with old-Q observations; C++ workers 1/2 and RTL traces."
+      "system_scope": "Four independent component Table accumulators, dynamic Method selection and computed results with old-Q observations; C++ workers 1/2 and RTL traces.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/table_dispatch/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "sibling_method_calls",
@@ -37,7 +69,15 @@
       "source": "Top.py",
       "system": "Top",
       "system_cycles": 4,
-      "system_scope": "Separately compiled sibling Method calls, two distinct Receiver instances, transitive guard rollback and C++ workers 1/2 versus RTL."
+      "system_scope": "Separately compiled sibling Method calls, two distinct Receiver instances, transitive guard rollback and C++ workers 1/2 versus RTL.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/sibling_method_calls/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "parent_state_interfaces",
@@ -45,7 +85,15 @@
       "source": "top.py",
       "system": "Top",
       "system_cycles": 4,
-      "system_scope": "Parent-owned State binding, external and nested Rule interfaces, two independent template instances and identity-preserving export; C++ workers 1/2 and RTL."
+      "system_scope": "Parent-owned State binding, external and nested Rule interfaces, two independent template instances and identity-preserving export; C++ workers 1/2 and RTL.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/parent_state_interfaces/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "scalar_queue_pipeline",
@@ -53,7 +101,15 @@
       "source": "Top.py",
       "system": "Top",
       "system_cycles": 18,
-      "system_scope": "Bits Queue pipeline with old-occupancy admission, delayed consumption, cross-owner atomic accumulation and independent C++ workers 1/2 and RTL traces."
+      "system_scope": "Bits Queue pipeline with old-occupancy admission, delayed consumption, cross-owner atomic accumulation and independent C++ workers 1/2 and RTL traces.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/scalar_queue_pipeline/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "resource_composition",
@@ -61,7 +117,15 @@
       "source": "Top.py",
       "system": "Top",
       "system_cycles": 20,
-      "system_scope": "Multilevel existing-instance references and independent resource outputs, delayed consumption and joint Queue/Counter admission; independent C++ workers 1/2 and RTL traces."
+      "system_scope": "Multilevel existing-instance references and independent resource outputs, delayed consumption and joint Queue/Counter admission; independent C++ workers 1/2 and RTL traces.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/resource_composition/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "structured_packet",
@@ -69,7 +133,15 @@
       "source": "Top.py",
       "system": "Top",
       "system_cycles": 18,
-      "system_scope": "Nested Struct and Enum packets through Queue, Method and State with old-Q observations and atomic backpressure; independent C++ workers 1/2 and RTL traces."
+      "system_scope": "Nested Struct and Enum packets through Queue, Method and State with old-Q observations and atomic backpressure; independent C++ workers 1/2 and RTL traces.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/structured_packet/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "transactional_cumulative",
@@ -77,7 +149,15 @@
       "source": "Top.py",
       "system": "Top",
       "system_cycles": 22,
-      "system_scope": "Issue #361 cumulative pipeline: four atomic samples, fifth blocked and independent backpressure trace."
+      "system_scope": "Issue #361 cumulative pipeline: four atomic samples, fifth blocked and independent backpressure trace.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/transactional_cumulative/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "transactional_batch",
@@ -85,7 +165,15 @@
       "source": "Top.py",
       "system": "Top",
       "system_cycles": 34,
-      "system_scope": "Issue #361 four-sample batch: static branch output, Method guard and retained batch under backpressure."
+      "system_scope": "Issue #361 four-sample batch: static branch output, Method guard and retained batch under backpressure.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/transactional_batch/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "multi_outputs",
@@ -94,7 +182,15 @@
       "system": "MultiOutputsSystem",
       "system_source": "bench.py",
       "system_cycles": 8,
-      "system_scope": "Eight literal known-input cases; generated C++ workers 1/2 and RTL; separate typed instance results without aggregate packing."
+      "system_scope": "Eight literal known-input cases; generated C++ workers 1/2 and RTL; separate typed instance results without aggregate packing.",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Value-only Module results must become resource connections while preserving independent outputs and the shared Struct interface."
+      },
+      "verification_owners": [
+        "examples/multi_outputs/CMakeLists.txt"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "sibling_calls",
@@ -102,7 +198,15 @@
       "source": "sibling_calls.py",
       "system": "SiblingCalls",
       "system_cycles": 4,
-      "system_scope": "Three independent source units, a shared sibling Counter reference and independent current-state reads; expected 5, 6, 7, 7 observations with C++ workers 1/2 and RTL."
+      "system_scope": "Three independent source units, a shared sibling Counter reference and independent current-state reads; expected 5, 6, 7, 7 observations with C++ workers 1/2 and RTL.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/sibling_calls/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "sibling_atomic",
@@ -111,7 +215,15 @@
       "system": "SiblingAtomic",
       "system_source": "bench.py",
       "system_cycles": 4,
-      "system_scope": "A late sibling guard blocks the whole writer transaction; an independent reader continues using committed state. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+      "system_scope": "A late sibling guard blocks the whole writer transaction; an independent reader continues using committed state. Generated C++ workers 1/2 and RTL with an independent trace oracle.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Explicitly registered writer/reader Rules; unchanged late-guard atomic cancellation and committed-state history. C++ workers 1/2 and RTL verified; candidate results remain separate."
+      },
+      "verification_owners": [
+        "examples/sibling_atomic/CMakeLists.txt"
+      ],
+      "execution_tier": "nightly"
     },
     {
       "name": "sibling_aliases",
@@ -120,7 +232,15 @@
       "system": "SiblingAliases",
       "system_source": "bench.py",
       "system_cycles": 4,
-      "system_scope": "Static reference passthrough and aliases share sequential updates, while a second instance of the same Module stays independent. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+      "system_scope": "Static instance-reference aliases share one cohesive two-increment Method; the readback observes committed old Q, while a second instance stays independent. C++ workers 1/2 and RTL against contract-derived independent history.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "One cohesive Method computes both alias increments and writes once; contract-derived old-Q readback, reference identity and separate-instance history verified on C++ workers 1/2 and RTL."
+      },
+      "verification_owners": [
+        "examples/sibling_aliases/CMakeLists.txt"
+      ],
+      "execution_tier": "nightly"
     },
     {
       "name": "sibling_transitive",
@@ -129,13 +249,30 @@
       "system": "SiblingTransitive",
       "system_source": "bench.py",
       "system_cycles": 4,
-      "system_scope": "An uncalled Method stays inactive while a guarded sibling reader observes committed state and propagates result availability. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+      "system_scope": "Four-cycle committed-state and Method-guard/log history on C++ workers 1/2 and RTL. Original Module-output resource availability boundary remains pending; this local observation adapter does not close it.",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "The original four-cycle guard/log history passes C++ workers 1/2 and RTL. The adapted Reader observes Method results inside its own Rule; original Rule-result -> Module-output -> consumer availability remains unvalidated and must be migrated without adding a cycle."
+      },
+      "verification_owners": [
+        "examples/sibling_transitive/CMakeLists.txt"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "multiclock_domain_isolation",
       "folder": "examples/multiclock_domain_isolation",
       "source": "multiclock_domain_isolation.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "migration": {
+        "status": "awaiting-capability",
+        "remaining": "Transactional multi-clock authoring and scheduling are unfinished; preserve the physical-domain isolation design and oracle."
+      },
+      "verification_owners": [
+        "examples/multiclock_domain_isolation/driver.cpp",
+        "examples/multiclock_domain_isolation/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "rob",
@@ -145,7 +282,16 @@
       "system": "ExerciseRob",
       "system_source": "bench.py",
       "system_cycles": 284,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "deferred",
+        "remaining": "Deferred by the user on 2026-11-01. The sequential Method core and complete 284-row System are preserved with the original 569-Work physical oracle. Generic fixes clear transaction routing; the current candidate still exceeds the separate 1 MiB physical-storage correspondence proof budget. Full execution and the same-Work external root boundary remain unverified."
+      },
+      "verification_owners": [
+        "examples/rob/driver.cpp",
+        "examples/rob/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "struct_transform",
@@ -155,7 +301,16 @@
       "system": "ExerciseStructTransform",
       "system_source": "bench.py",
       "system_cycles": 72,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "The unchanged 72-row System history passes C++ workers 1/2 and RTL through an existing-instance Method, retaining old-Q transformation and capture timing. Original 149-Work physical and four-state drivers are retained but root admission/same-Work boundary adaptation remains incomplete. The System-adapter pass does not establish original physical coverage."
+      },
+      "verification_owners": [
+        "examples/struct_transform/driver.cpp",
+        "examples/struct_transform/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "digital_filter",
@@ -165,7 +320,16 @@
       "system": "ExerciseDigitalFilter",
       "system_source": "bench.py",
       "system_cycles": 177,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "The FIR algorithm and state now use an existing-instance Method with the complete 177-row System adapter. Original physical sampling and four-state export boundaries remain pending. Cold generated C++ preparation exceeds the existing verifier build timeout; input history and hardware timing are unchanged."
+      },
+      "verification_owners": [
+        "examples/digital_filter/driver.cpp",
+        "examples/digital_filter/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "digital_clock",
@@ -175,7 +339,16 @@
       "system": "ExerciseDigitalClock",
       "system_source": "bench.py",
       "system_cycles": 100000001,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Register the clock Rule and export State without changing the 50 MHz divider or full-duration rollover history."
+      },
+      "verification_owners": [
+        "examples/digital_clock/driver.cpp",
+        "examples/digital_clock/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "enum_payload_pipeline",
@@ -185,7 +358,16 @@
       "system": "EnumPayloadPipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 184,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Old downstream_pop Queue capacity borrowing and raw protocol bindings require a timing migration; preserve the original independent Queue oracle."
+      },
+      "verification_owners": [
+        "examples/enum_payload_pipeline/driver.cpp",
+        "examples/enum_payload_pipeline/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "queue_rule_pipeline",
@@ -194,7 +376,15 @@
       "system": "QueueRulePipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 12,
-      "system_scope": "Four Struct packets; cross-module Method calls, finite for loop, atomic Queue/state backpressure, current-state progress and an atomic consumer check. Generated C++ workers 1/2 and RTL with independent cycle expectations."
+      "system_scope": "Four Struct packets; cross-module Method calls, finite for loop, atomic Queue/state backpressure, current-state progress and an atomic consumer check. Generated C++ workers 1/2 and RTL with independent cycle expectations.",
+      "migration": {
+        "status": "migrated",
+        "remaining": "Source uses explicit transactions and resource interfaces; candidate execution is recorded separately."
+      },
+      "verification_owners": [
+        "examples/queue_rule_pipeline/CMakeLists.txt"
+      ],
+      "execution_tier": "gate"
     },
     {
       "name": "fifo_loopback",
@@ -204,7 +394,16 @@
       "system": "FifoLoopbackSystem",
       "system_source": "bench.py",
       "system_cycles": 344,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Old downstream_pop Queue capacity borrowing and raw external FIFO ports require an explicit timing adapter or semantic clarification."
+      },
+      "verification_owners": [
+        "examples/fifo_loopback/driver.cpp",
+        "examples/fifo_loopback/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "table_rule",
@@ -214,7 +413,16 @@
       "system_source": "bench.py",
       "system_cycles": 16,
       "system_scope": "Six table replacements, old-value responses, one stalled output, and an explicit completion assertion; full Module/four-state oracle remains separate.",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Migrate old downstream_pop Queue admission and raw protocol binding while preserving old-entry responses, Table updates and stalls."
+      },
+      "verification_owners": [
+        "examples/table_rule/driver.cpp",
+        "examples/table_rule/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "issue_queue_2picker",
@@ -224,7 +432,16 @@
       "system": "IssueQueue2PickerSystem",
       "system_source": "bench.py",
       "system_cycles": 344,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "The existing-instance Method preserves both dependent shifts, insertion and invalid payloads. Generic nominal four-state ternaries now compile. The complete System, original physical sampling and four-state export checks remain pending; no output State or Queue delay is substituted."
+      },
+      "verification_owners": [
+        "examples/issue_queue_2picker/driver.cpp",
+        "examples/issue_queue_2picker/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "dodgeball_game",
@@ -234,7 +451,16 @@
       "system": "ExerciseDodgeballGame",
       "system_source": "bench.py",
       "system_cycles": 4001,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Register the game Rule and export State while preserving original divider, VGA and game timing."
+      },
+      "verification_owners": [
+        "examples/dodgeball_game/driver.cpp",
+        "examples/dodgeball_game/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "bf16_fmac",
@@ -244,7 +470,16 @@
       "system": "ExerciseBF16Fmac",
       "system_source": "bench.py",
       "system_cycles": 86,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Migrate returned Rule and value-only helper Module boundaries while preserving four register stages and the independent finite-bit arithmetic oracle."
+      },
+      "verification_owners": [
+        "examples/bf16_fmac/driver.cpp",
+        "examples/bf16_fmac/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "calculator",
@@ -254,7 +489,16 @@
       "system": "ExerciseCalculator",
       "system_source": "bench.py",
       "system_cycles": 237,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "migration": {
+        "status": "pending-migration",
+        "remaining": "Replace candidate-state reads with ordinary locals and register/export the step transaction; preserve the complete keypad history."
+      },
+      "verification_owners": [
+        "examples/calculator/driver.cpp",
+        "examples/calculator/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "dma",
@@ -264,7 +508,16 @@
       "system": "ExerciseDma",
       "system_source": "bench.py",
       "system_cycles": 42,
-      "system_scope": "Two seed/copy/readback sequences with old-target acknowledgements, held responses, recovery and explicit completion; full Module oracle remains separate."
+      "system_scope": "Two seed/copy/readback sequences with old-target acknowledgements, held responses, recovery and explicit completion; full Module oracle remains separate.",
+      "migration": {
+        "status": "awaiting-capability",
+        "remaining": "Transactional Memory admission is unfinished; preserve read-first memory, latency, arbitration, DMA histories and independent models."
+      },
+      "verification_owners": [
+        "examples/dma/driver.cpp",
+        "examples/dma/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     },
     {
       "name": "memory_banks",
@@ -274,7 +527,16 @@
       "system": "ExerciseMemoryBanks",
       "system_source": "bench.py",
       "system_cycles": 26,
-      "system_scope": "Four-bank writes/readbacks, old-value responses, arbitration, output backpressure and explicit completion; full Module oracle remains separate."
+      "system_scope": "Four-bank writes/readbacks, old-value responses, arbitration, output backpressure and explicit completion; full Module oracle remains separate.",
+      "migration": {
+        "status": "awaiting-capability",
+        "remaining": "Transactional Memory admission is unfinished; preserve four banks, read latency, routing, priority merge and independent models."
+      },
+      "verification_owners": [
+        "examples/memory_banks/driver.cpp",
+        "examples/memory_banks/rtl_tb.sv"
+      ],
+      "execution_tier": "none"
     }
   ],
   "api_coverage": [
@@ -445,5 +707,10 @@
       "system_cycles": 81,
       "system_scope": "Both genuine roots passed native workers 1/2 and RTL: history_routed.routed_systems.routed_dependency_pipeline (81 cycles) and history_routed.routed_systems.routed_full_topology_backpressure (727 cycles). Full literal histories, 36 bench assertions plus 10 reachable child checks, ordered low/high logs. Other nine histories and host reset recovery are module coverage. Four seeded/overflow/clock-control references remain nonexecutable; no complete X/Z or physical clock-control matrix claim."
     }
-  ]
+  ],
+  "inventory_validation": {
+    "candidate_head": "c36a973a94222c7c4cc64fdebf95b31b2fbc2741",
+    "result": "NOT RUN",
+    "scope": "Migration inventory only. Source migration status and retained generated receipts do not establish execution at this candidate. See candidate-bound gate evidence for actual results."
+  }
 }

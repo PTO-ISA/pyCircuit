@@ -1,6 +1,6 @@
 """Four ordered slots with one input and two dependent output pickers."""
 
-# ruff: noqa: F823 -- nested Rule updates captured Module-owned state.
+# ruff: noqa: F821, F823, F842 -- nested Rule updates captured Module-owned state.
 
 import pycircuit as ac
 
@@ -21,49 +21,49 @@ class PickerResult:
 
 
 @ac.module
-def IssueQueue2Picker(  # noqa: N802 - hardware module definition
-    in_valid: ac.u1,
-    in_data: ac.u8,
-    out0_ready: ac.u1,
-    out1_ready: ac.u1,  # noqa: N802
-) -> PickerResult:
+def PickerStorage() -> None:  # noqa: N802
     s0: Slot = Slot()
     s1: Slot = Slot()
     s2: Slot = Slot()
     s3: Slot = Slot()
 
-    @ac.rule
-    def transact() -> PickerResult:
+    @ac.method
+    def transact(
+        in_valid: ac.u1,
+        in_data: ac.u8,
+        out0_ready: ac.u1,
+        out1_ready: ac.u1,
+    ) -> PickerResult:
         # All output and shift decisions use the old slot snapshot.
-        s0_q = s0
-        s1_q = s1
-        s2_q = s2
-        s3_q = s3
-        pop0 = s0_q.valid & out0_ready
-        pop1 = s1_q.valid & out1_ready & pop0
-        in_ready = ~s3_q.valid | pop0
+        old0 = s0
+        old1 = s1
+        old2 = s2
+        old3 = s3
+        pop0 = old0.valid & out0_ready
+        pop1 = old1.valid & out1_ready & pop0
+        in_ready = ~old3.valid | pop0
         push = in_valid & in_ready
 
         # Invalid-slot payload remains observable and is never normalized here.
         result = PickerResult(
             in_ready=in_ready,
-            out0_valid=s0_q.valid,
-            out0_data=s0_q.data,
-            out1_valid=s1_q.valid,
-            out1_data=s1_q.data,
+            out0_valid=old0.valid,
+            out0_data=old0.data,
+            out1_valid=old1.valid,
+            out1_data=old1.data,
         )
 
-        # The second shift consumes the first shift's candidates.
-        a1_0 = s1_q if pop0 else s0_q
-        a1_1 = s2_q if pop0 else s1_q
-        a1_2 = s3_q if pop0 else s2_q
-        a1_3 = Slot(valid=0, data=s3_q.data) if pop0 else s3_q
+        # The second shift uses the first shift's ordinary local values.
+        a1_0 = old1 if pop0 else old0
+        a1_1 = old2 if pop0 else old1
+        a1_2 = old3 if pop0 else old2
+        a1_3 = Slot(valid=0, data=old3.data) if pop0 else old3
         a2_0 = a1_1 if pop1 else a1_0
         a2_1 = a1_2 if pop1 else a1_1
         a2_2 = a1_3 if pop1 else a1_2
         a2_3 = Slot(valid=0, data=a1_3.data) if pop1 else a1_3
 
-        # Insert after both shifts, in the first invalid candidate slot.
+        # Insert after both shifts, in the first invalid locally computed slot.
         en0 = push & ~a2_0.valid
         pref1 = push & a2_0.valid
         en1 = pref1 & ~a2_1.valid
@@ -72,11 +72,25 @@ def IssueQueue2Picker(  # noqa: N802 - hardware module definition
         pref3 = pref2 & a2_2.valid
         en3 = pref3 & ~a2_3.valid
 
-        # Unconditional proposals preserve four-state merging under X controls.
+        # Unconditional assignments preserve four-state merging under X controls.
         s0 = Slot(valid=a2_0.valid | en0, data=in_data if en0 else a2_0.data)
         s1 = Slot(valid=a2_1.valid | en1, data=in_data if en1 else a2_1.data)
         s2 = Slot(valid=a2_2.valid | en2, data=in_data if en2 else a2_2.data)
         s3 = Slot(valid=a2_3.valid | en3, data=in_data if en3 else a2_3.data)
         return result
 
-    return transact
+
+@ac.module
+def IssueQueue2Picker(  # noqa: N802
+    in_valid: ac.u1,
+    in_data: ac.u8,
+    out0_ready: ac.u1,
+    out1_ready: ac.u1,
+) -> PickerResult:
+    storage: PickerStorage
+
+    @ac.rule
+    def transact() -> PickerResult:
+        return storage.transact(in_valid, in_data, out0_ready, out1_ready)
+
+    return transact()

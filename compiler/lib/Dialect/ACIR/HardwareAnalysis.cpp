@@ -3,6 +3,7 @@
 #include "SourceValueSemantics.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "ACIRSourceContracts.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -879,9 +880,23 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
     if (!next) return std::optional<Node>();
     return std::optional<Node>(Node{next, nextScope});
   };
+  llvm::DenseMap<std::pair<Value, unsigned>, Value> stateReads;
   auto canonical = [&](Node node) -> FailureOr<Node> {
     for (unsigned depth = 0; depth < 128; ++depth) {
       if (failed(budget.debit(1, site))) return failure();
+      // Repeated reads of one State observe the same committed Q, including
+      // reads used separately by a comparison and its selected payload.
+      if (auto read = node.value.getDefiningOp<TransactionMethodCallOp>();
+          read && isa<StateType>(read.getReceiver().getType()) &&
+          read.getCallee().getRootReference() == "read" &&
+          read.getCallee().getNestedReferences().empty() &&
+          read.getArguments().empty() && read.getNumResults() == 1) {
+        if (failed(read.verifyInvariantsImpl()) || failed(read.verify()))
+          return failure();
+        auto [entry, inserted] = stateReads.try_emplace(
+            std::make_pair(read.getReceiver(), node.context), node.value);
+        node.value = entry->second;
+      }
       auto next = alias(node); if (failed(next)) return failure();
       if (!*next) return node;
       node = **next;
@@ -1013,6 +1028,14 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
         if (number.isNegative() || number.getActiveBits() > width) return failure();
         return Range(number.zextOrTrunc(width));
       }
+      if (auto constant = dyn_cast_or_null<BitsConstant4Op>(operation)) {
+        if (failed(constant.verifyInvariantsImpl()) || failed(constant.verify()) ||
+            failed(validate(constant, node.context))) return failure();
+        StringRef pattern = constant.getPattern();
+        if (llvm::all_of(pattern, [](char bit) { return bit == '0' || bit == '1'; }))
+          return Range(llvm::APInt(width, pattern, 2));
+        return Range::getFull(width);
+      }
       if (auto extract = dyn_cast_or_null<BitsExtractOp>(operation)) {
         auto input = infer(Node{extract.getInput(), node.context}, depth + 1);
         auto low = evaluateStatic(extract.getLow(), actual, site);
@@ -1047,6 +1070,18 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
         if (!yes || !no || ordinal >= yes.getNumOperands() || ordinal >= no.getNumOperands()) return failure();
         return selectRange(branch.getCondition(), yes.getOperand(ordinal), no.getOperand(ordinal));
       }
+      if (auto branch = dyn_cast_or_null<scf::IfOp>(operation)) {
+        auto bridge = branch.getCondition().getDefiningOp<SourcePredicateOp>();
+        unsigned ordinal = cast<OpResult>(node.value).getResultNumber();
+        if (!bridge || branch.getThenRegion().empty() ||
+            branch.getElseRegion().empty()) return Range::getFull(width);
+        auto yes = dyn_cast<scf::YieldOp>(branch.thenBlock()->getTerminator());
+        auto no = dyn_cast<scf::YieldOp>(branch.elseBlock()->getTerminator());
+        if (!yes || !no || ordinal >= yes.getNumOperands() ||
+            ordinal >= no.getNumOperands()) return failure();
+        return selectRange(bridge.getInput(), yes.getOperand(ordinal),
+                           no.getOperand(ordinal));
+      }
       if (auto binary = dyn_cast_or_null<BitsBinaryOp>(operation)) {
         if (failed(binary.verifyInvariantsImpl()) || failed(binary.verify()) || failed(validate(binary, node.context))) return failure();
         auto residual = remainder(binary, node.context, depth + 1);
@@ -1065,8 +1100,6 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
             .Default(std::nullopt);
         if (opcode) return lhs->binaryOp(*opcode, *rhs);
       }
-      if (auto constant = dyn_cast_or_null<BitsConstant4Op>(operation))
-        if (failed(constant.verifyInvariantsImpl()) || failed(constant.verify()) || failed(validate(constant, node.context))) return failure();
       return Range::getFull(width);
     };
     auto result = compute();

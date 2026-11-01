@@ -1,4 +1,4 @@
-"""Publish example navigation and excerpts from verified generated artifacts."""
+"""Publish the design inventory and excerpts from verified generated artifacts."""
 
 from __future__ import annotations
 
@@ -10,6 +10,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = Path("examples/catalog.json")
+MIGRATION_STATES = {
+    "migrated",
+    "pending-migration",
+    "awaiting-capability",
+    "awaiting-semantics",
+    "deferred",
+    "retired",
+}
 
 
 def digest(path: Path) -> str:
@@ -28,6 +36,16 @@ def catalog(repo: Path) -> dict:
     if len(set(names)) != len(names):
         raise ValueError("example catalog contains duplicate names")
     for row in entries:
+        migration = row.get("migration", {})
+        if migration.get("status") not in MIGRATION_STATES or not migration.get(
+            "remaining"
+        ):
+            raise ValueError(f"example migration status is incomplete: {row['name']}")
+        tier = row.get("execution_tier")
+        if tier not in {"gate", "nightly", "none"} or (
+            tier != "none" and migration["status"] != "migrated"
+        ):
+            raise ValueError(f"example execution tier is inconsistent: {row['name']}")
         folder = Path(row.get("folder", ""))
         source = Path(row.get("source", ""))
         if folder != Path("examples") / row["name"]:
@@ -97,9 +115,12 @@ def navigation(repo: Path) -> str:
     lines = [
         "# Examples navigation",
         "",
-        "Examples use the single Python → MLIR → C++/Verilog → runner flow.",
+        "Current execution uses the single Python → MLIR → C++/Verilog → runner flow.",
         f"The current catalog inventories **{len(rows)}** registered designs and "
         f"**{len(api_rows)}** API-owned coverage cases.",
+        "The inventory includes retained designs awaiting migration. Source migration",
+        "status, oracle ownership and candidate execution results are separate facts.",
+        "Historical generated receipts do not establish current compiler support.",
         "",
         "- [Recommended examples and learning path](GUIDE.md)",
         "- [Writing and verification standard](STANDARD.md)",
@@ -109,8 +130,8 @@ def navigation(repo: Path) -> str:
         "",
         "## Full registered inventory",
         "",
-        "| Design | Source | System run | Native oracle | RTL oracle | Generated output |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Design | Migration status | Source | Retained System | Native oracle | RTL oracle | Generated output |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         folder = Path(row["folder"])
@@ -145,13 +166,28 @@ def navigation(repo: Path) -> str:
             if not (directory / "driver.cpp").is_file():
                 native = rtl = "compiler-generated"
         lines.append(
-            f"| {title} | {source} | {system} | {native} | {rtl} | {generated} |"
+            f"| {title} | {row['migration']['status']} | {source} | {system} | {native} | {rtl} | {generated} |"
         )
+    lines += [
+        "",
+        "## Remaining migration work",
+        "",
+        "These entries retain their design sources and independent verification assets.",
+        "Removing a design from execution selection does not count as a pass.",
+        "",
+        "| Design | Remaining work |",
+        "| --- | --- |",
+    ]
+    for row in rows:
+        if row["migration"]["status"] != "migrated":
+            lines.append(f"| {row['name']} | {row['migration']['remaining']} |")
     lines += [
         "",
         "## API-owned coverage",
         "",
-        "These cases are covered by their current compiler test owners.",
+        "These are retained coverage obligations with named compiler test owners.",
+        "An owner or retained root is not a current passing execution claim;",
+        "the catalog preserves each root's existing scope limits.",
         "",
         "| Case | Test owner | Source root |",
         "| --- | --- | --- |",
@@ -174,7 +210,9 @@ def navigation(repo: Path) -> str:
         "ctest --test-dir /absolute/build/examples --output-on-failure --no-tests=error",
         "```",
         "",
-        "The aggregate build and this catalog contain the same runnable example set.",
+        "The aggregate build selects the current execution set from this inventory.",
+        "See [migration inventory](../docs/development/main-capability-migration.md)",
+        "for test ownership, retained obligations and the candidate validation policy.",
         "",
     ]
     return "\n".join(lines)

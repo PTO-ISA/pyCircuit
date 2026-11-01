@@ -79,7 +79,6 @@ struct Scope {
   // original induction payload, rather than a later Python assignment.
   std::map<std::string, std::pair<Value, ac::StaticExprAttr>> inductions;
   std::map<std::string, std::pair<Value, ac::StaticExprAttr>> staticLocals;
-  std::set<std::string> mathematicalStaticLocals;
   std::set<std::string> loopRebindings;
   StringRef pendingResultRequirement = "scalar";
   unsigned pendingResultArity = 1;
@@ -597,9 +596,13 @@ bool Importer::isStaticExpression(const AstNode &node, const Scope &scope,
           induction->second.first == binding->second.value)
         return !mathematical || isa<ac::InferType>(binding->second.type());
       auto alias = scope.staticLocals.find(name);
+      // An ordinary local literal is still an SSA payload: a later use may
+      // constrain its finite width, including arithmetic through other uses.
+      // Keep its static value for widths and loop bounds, but do not replace
+      // payload reads with independent mathematical constants before solving.
       return alias != scope.staticLocals.end() &&
              alias->second.first == binding->second.value &&
-             (!mathematical || scope.mathematicalStaticLocals.count(name));
+             !mathematical;
     }
     return llvm::any_of(scope.owner->parameters, [&](Attribute raw) {
       return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==

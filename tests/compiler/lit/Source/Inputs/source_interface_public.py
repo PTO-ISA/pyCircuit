@@ -450,22 +450,6 @@ def MethodEffectsSystem():
     compile_unit(state_plan_source.name, state_plan_unit)
     state_plan_source.unlink()
     assert not provider_source.exists() and not relay_source.exists()
-    state_plan_before = archive / "state-plan-before.ac"
-    state_plan_after = archive / "state-plan-after.ac"
-    run([args.optimizer, payload(state_plan_unit, "body"), "-o", state_plan_before])
-    run(
-        [
-            args.optimizer,
-            payload(state_plan_unit, "body"),
-            "--ac-analyze-transaction-state-ssa",
-            "-o",
-            state_plan_after,
-        ]
-    )
-    assert state_plan_before.read_bytes() == state_plan_after.read_bytes()
-    state_plan_body = state_plan_after.read_text()
-    assert '"ac.expect"' in state_plan_body
-    assert state_plan_body.count('"ac.observe"') == 2
     for unit in (provider_unit, relay_unit, consumer_unit, execution_unit):
         extracted = archive / (unit.name + "-extracted.ac")
         extract(payload(unit, "body"), extracted)

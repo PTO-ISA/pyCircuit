@@ -688,7 +688,6 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
   }
   scope.bindings[name] = Binding{value, {}, {}, nullptr};
   scope.staticLocals.erase(name);
-  scope.mathematicalStaticLocals.erase(name);
   return success();
 }
 
@@ -1477,14 +1476,12 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     if (failed(values))
       return failure();
     ac::StaticExprAttr staticValue;
-    bool mathematicalValue = false;
     if (target.kind() == "Name" && values->size() == 1 &&
         isStaticExpression(node.child("value"), scope)) {
       auto captured = staticExpr(node.child("value"), scope.owner->symbol);
       if (failed(captured))
         return failure();
       staticValue = *captured;
-      mathematicalValue = isStaticExpression(node.child("value"), scope, true);
     }
     if (failed(bind(target, *values, scope)))
       return failure();
@@ -1493,8 +1490,6 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
       const auto &binding = scope.bindings.at(name);
       if (!isResource(binding.type()) && !isa<ac::ModuleRefType>(binding.type())) {
         scope.staticLocals[name] = {binding.value, staticValue};
-        if (mathematicalValue && isa<ac::InferType>(binding.type()))
-          scope.mathematicalStaticLocals.insert(name);
       }
     }
     return success();

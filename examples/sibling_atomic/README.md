@@ -1,11 +1,18 @@
 # 兄弟调用的原子更新
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This example uses the transactional frontend with explicit Rule registration.
+Its four-cycle independent history passes generated C++ with workers 1 and 2
+and Verilog simulation. Catalog integration is tracked separately.
+
 `Counter` 从 10 开始，每次加 3；`Ledger` 从 100 开始，每次加 10。
 `Writer` 的一个 Rule 依次调用两个已有实例，两个更新必须共同提交。
-第二个周期，`Ledger.record` 的业务条件不满足，整个 Writer 保持。
+第二个周期，`Ledger.record` 的业务条件不满足，两个业务更新都保持。
+Writer 内独立的 `advance` autorule 每周期推进场景阶段，不受业务阻塞影响。
 
 `increment`、`read` 和 `record` 都是可调用的 Method。
-Writer 与 Reader 的 Rule 声明自动激活，各自从已提交状态开始。
+Writer 与 Reader 显式注册各自的 Rule，各自从已提交状态开始。
 Reader 读取当前值；Writer 的候选更新在提交后才会被下一周期看见。
 Writer 被阻塞时 Reader 仍执行，无需手写转发或提交控制。
 

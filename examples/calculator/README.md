@@ -1,5 +1,10 @@
 # Unsigned 64-bit calculator
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 A u64 integer calculator driven by a 5-bit keypad, one key press per epoch.
 
 ## Interface

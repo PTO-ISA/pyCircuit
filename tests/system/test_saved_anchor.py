@@ -15,6 +15,7 @@ from test_source_system_execution import (
     _bundle,
     _cli,
     _compile,
+    _install,
     _ok,
     _records,
     _run,
@@ -155,10 +156,26 @@ def test_saved_anchor_roundtrip_with_escaped_source_owner_paths(tmp_path):
         r'ac.transactional_source = "((?:\\[0-9A-Fa-f]{2}|\\\\|[^"\\])*)"', graph
     )
     assert snapshot is not None
-    linked = re.sub(
-        r"\\([0-9A-Fa-f]{2}|\\)",
-        lambda match: "\\" if match[1] == "\\" else chr(int(match[1], 16)),
-        snapshot[1],
+    # MLIR strings hold arbitrary bytes. Decode assembly escapes without a
+    # Unicode roundtrip, then use the installed parser to inspect the complete
+    # authoritative Linked snapshot, including escaped source owners.
+    chunks = re.split(r"(\\(?:[0-9A-Fa-f]{2}|\\))", snapshot[1])
+    encoded = b"".join(
+        (
+            b"\\"
+            if chunk == "\\\\"
+            else (
+                bytes([int(chunk[1:], 16)])
+                if chunk.startswith("\\")
+                else chunk.encode("utf-8")
+            )
+        )
+        for chunk in chunks
+    )
+    bytecode = tmp_path / "linked.mlirbc"
+    bytecode.write_bytes(encoded)
+    linked = _ok(
+        _run([str(_install() / "bin/pycircuit-opt"), str(bytecode), "-o", "-"])
     )
     owners = re.search(r"ac.source_units = \[(.*?)\]", linked)
     assert owners is not None

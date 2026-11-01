@@ -268,10 +268,5 @@ mlir::LogicalResult verifyTransactionMaterialization(
     const PreparedTransactionLowering &prepared,
     const MaterializedTransactionLowering &candidate,
     ac::detail::SourceCheckBudget &budget);
-mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
-    mlir::ModuleOp routed, ac::detail::SourceCheckBudget &budget);
-mlir::LogicalResult verifyHardwareStateMaterialization(
-    mlir::ModuleOp routed, mlir::ModuleOp candidate,
-    ac::detail::SourceCheckBudget &budget);
 } // namespace acir::detail
 #endif

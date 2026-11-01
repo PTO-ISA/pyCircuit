@@ -313,7 +313,21 @@ bool parseOptions(int argc, char **argv, Options &options) {
 
 mlir::OwningOpRef<mlir::ModuleOp> readModule(llvm::StringRef path,
                                              mlir::MLIRContext &context) {
-  return mlir::parseSourceFile<mlir::ModuleOp>(path, &context);
+  auto buffer = llvm::MemoryBuffer::getFile(path);
+  if (!buffer) {
+    llvm::errs() << "error: cannot read IR artifact '" << path
+                 << "': " << buffer.getError().message() << '\n';
+    return {};
+  }
+  // Assembly parsers synthesize locations for omitted operations such as void
+  // scf.yield. Their default identifier must not capture temporary transport
+  // paths; explicit source locations remain authoritative and unchanged.
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(
+      (*buffer)->getBuffer(), mlir::ParserConfig(&context),
+      "<pycircuit-artifact>");
+  if (!module)
+    llvm::errs() << "error: cannot parse IR artifact '" << path << "'\n";
+  return module;
 }
 
 bool jsonSpace(char value) {

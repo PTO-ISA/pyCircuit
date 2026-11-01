@@ -1,5 +1,6 @@
 """Nested nominal packet transport, atomic state updates and reset oracle."""
 
+import json
 import shutil
 import sys
 from collections import Counter, deque
@@ -14,6 +15,41 @@ entry = "Reset" if reset else "Top"
 shutil.copytree(
     Path(__file__).with_name("structured_packet"), fixture.sources, dirs_exist_ok=True
 )
+if sys.argv[9:] == ["select"]:
+    fixture.compile_source("Select")
+    final = fixture.scratch / "select.ac"
+    fixture.link_saved(("Select",), "packet_case.Select.Top", final)
+    # Literal bit-merge expectations: equal bits survive X/Z selection;
+    # differing bits become X, including differing X and Z operand bits.
+    expected = Counter(
+        (epoch, "selected", values)
+        for epoch in (0, 1)
+        for values in (
+            (0, (12, 12, 3), 3, 9, 3),
+            (1, (8, 12, 1), 1, 10, 1),
+            (2, (8, 8, 1), (1, 1, 0), (8, 12, 0), (1, 1, 0)),
+            (3, (8, 8, 1), (1, 1, 0), (8, 12, 0), (1, 1, 0)),
+        )
+    )
+    # Both emitters consume the identical verified final artifact.
+    for backend in ("cpp", "verilog"):
+        executable, _ = fixture.build_system(final, backend)
+        if backend == "verilog":
+            metadata = json.loads(
+                executable.with_suffix(".exe.backend.json").read_text()
+            )
+            assert metadata["backend"] == "iverilog", metadata
+        for workers in (1, 2) if backend == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "1", "--workers", workers]
+                if backend == "cpp"
+                else ["+cycles=1"]
+            )
+            actual = log_history(fixture.run([executable, *arguments]))
+            assert actual == expected, (actual - expected, expected - actual)
+    print("transactional nominal pure selection: PASS (C++ workers 1/2, Icarus)")
+    sys.exit(0)
+
 fixture.compile_source("types")
 with fixture.interfaces_only("types"):
     fixture.compile_source("processor", "types")

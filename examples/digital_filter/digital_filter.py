@@ -1,4 +1,4 @@
-# ruff: noqa: F823 -- Module state captured by Rules is compiler-owned.
+# ruff: noqa: F821, F823, F842 -- Module state captured by Rules is compiler-owned.
 """Four-tap signed FIR, with history advancing only on valid samples."""
 
 import pycircuit as ac
@@ -11,15 +11,15 @@ class FilterResult:
 
 
 @ac.module
-def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
+def FilterStorage() -> None:  # noqa: N802
     delay1: ac.u16 = 0
     delay2: ac.u16 = 0
     delay3: ac.u16 = 0
     y_out: ac.u34 = 0
     y_valid: ac.u1 = 0
 
-    @ac.rule
-    def filter_sample() -> FilterResult:
+    @ac.method
+    def filter_sample(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:
         result = FilterResult(y_out=y_out, y_valid=y_valid)
 
         # Form 34-bit two's-complement samples before the modular FIR arithmetic.
@@ -38,7 +38,7 @@ def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
             + (tap3 | tap3_sign) * 4
         )
 
-        # Descending assignment order preserves the old history values.
+        # Every history read observes committed old Q.
         # Conditional data selection also preserves the original X/Z-valid merges.
         delay3 = delay2 if x_valid else delay3
         delay2 = delay1 if x_valid else delay2
@@ -47,4 +47,13 @@ def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
         y_valid = x_valid
         return result
 
-    return filter_sample
+
+@ac.module
+def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
+    storage: FilterStorage
+
+    @ac.rule
+    def filter_sample() -> FilterResult:
+        return storage.filter_sample(x_in, x_valid)
+
+    return filter_sample()

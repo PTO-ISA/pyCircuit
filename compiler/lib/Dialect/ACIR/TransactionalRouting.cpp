@@ -1,5 +1,8 @@
 #include "TransactionalRepresentation.h"
+#include "HardwareSourceCheckPreflight.h"
 #include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
+#include "mlir/Bytecode/BytecodeReader.h"
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
@@ -8,7 +11,10 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/ScopeExit.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
+#include <tuple>
 
 using namespace mlir;
 namespace acir::ac {
@@ -440,12 +446,15 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   auto package = OwningOpRef<mlir::ModuleOp>(mlir::ModuleOp::create(loc));
   std::string snapshot;
   llvm::raw_string_ostream stream(snapshot);
-  source.print(stream, OpPrintingFlags().enableDebugInfo());
+  // Preserve the complete Linked IR, including source locations and nominal
+  // declarations, without expanding shared types/attributes at every use.
+  if (failed(writeBytecodeToFile(source, stream)))
+    return source.emitError("transactional source snapshot cannot be encoded");
   if (failed(debit(snapshot.size(), p.getPackage())))
     return failure();
   (*package)->setAttr(sourceKey, b.getStringAttr(snapshot));
   (*package)->setAttr(topKey, b.getStringAttr(top));
-  (*package)->setAttr(versionKey, b.getI64IntegerAttr(1));
+  (*package)->setAttr(versionKey, b.getI64IntegerAttr(2));
   (*package)->setAttr("ac.stage", b.getStringAttr("routed"));
   (*package)->setAttr("ac.routed_contract", b.getI64IntegerAttr(4));
   auto owner = p.getTop()->getAttrOfType<DictionaryAttr>("source_owner");
@@ -883,6 +892,14 @@ private:
   llvm::DenseSet<std::pair<Value, Value>> initializers;
   llvm::DenseSet<Operation *> claimed;
   SmallVector<Operation *> claimOrder;
+  using BinaryKey = std::tuple<StringAttr, Value, Value, Type>;
+  using BinaryCandidates = SmallVector<Operation *, 1>;
+  using BinaryIndex = llvm::DenseMap<BinaryKey, BinaryCandidates>;
+  struct BinaryBlockIndex {
+    BinaryIndex candidates;
+    llvm::DenseSet<Value> indexedLhs;
+  };
+  llvm::DenseMap<Block *, BinaryBlockIndex> binaryIndices;
   Value zero, one;
   bool final = false;
   LogicalResult reject(StringRef reason) {
@@ -1141,12 +1158,118 @@ private:
   Value findBinary(Block *block, StringRef opcode, Value lhs, Value rhs) {
     if (!lhs || !rhs)
       return {};
-    for (Operation &op : *block) {
-      if (failed(debit(4, &op)))
+    using Budget = detail::SourceCheckBudget;
+    if (failed(debit(8, block->getParentOp())))
+      return {};
+    auto chargeGrowth = [&](size_t before, size_t after, Operation *site) {
+      return before == after || succeeded(debit(Budget::bytes(after), site));
+    };
+    auto found = binaryIndices.find(block);
+    BinaryBlockIndex pending;
+    auto *index = found == binaryIndices.end() ? &pending : &found->second;
+    if (!index->indexedLhs.contains(lhs)) {
+      SmallVector<Operation *, 4> matches;
+      SmallVector<BinaryKey, 4> inserted;
+      if (failed(debit(Budget::bytes(sizeof(matches) + sizeof(inserted)),
+                       block->getParentOp())))
         return {};
-      if (op.getNumResults() == 1 && !claimed.contains(&op) &&
-          binary(op.getResult(0), opcode, lhs, rhs))
-        return op.getResult(0);
+      // Inspect actual incoming uses once per lhs, avoiding unrelated payload
+      // operations. Operand-zero filtering also avoids duplicate lhs==rhs uses.
+      for (OpOperand &use : lhs.getUses()) {
+        Operation *op = use.getOwner();
+        if (failed(debit(4, op)))
+          return {};
+        if (use.getOperandNumber() != 0 || op->getBlock() != block ||
+            !isa<BitsBinaryOp>(op) || op->getNumOperands() != 2 ||
+            op->getNumResults() != 1 || op->getResult(0).getType() != bit ||
+            !op->getAttrOfType<StringAttr>("opcode"))
+          continue;
+        size_t storage = matches.capacity_in_bytes();
+        matches.push_back(op);
+        if (!chargeGrowth(storage, matches.capacity_in_bytes(), op))
+          return {};
+      }
+      bool complete = false;
+      auto rollback = llvm::scope_exit([&] {
+        if (!complete)
+          for (const auto &key : inserted)
+            index->candidates.erase(key);
+      });
+      for (Operation *op : matches) {
+        if (failed(debit(8, op)))
+          return {};
+        BinaryKey key{op->getAttrOfType<StringAttr>("opcode"),
+                      op->getOperand(0), op->getOperand(1),
+                      op->getResult(0).getType()};
+        auto candidate = index->candidates.find(key);
+        if (candidate == index->candidates.end()) {
+          size_t storage = inserted.capacity_in_bytes();
+          inserted.push_back(key);
+          if (!chargeGrowth(storage, inserted.capacity_in_bytes(), op))
+            return {};
+          storage = index->candidates.getMemorySize();
+          candidate = index->candidates.try_emplace(key).first;
+          if (!chargeGrowth(storage, index->candidates.getMemorySize(), op))
+            return {};
+        }
+        auto &candidates = candidate->second;
+        size_t position = 0;
+        if (!candidates.empty()) {
+          if (!block->isOpOrderValid()) {
+            for (Operation &ordered : *block)
+              if (failed(debit(4, &ordered)))
+                return {};
+            block->recomputeOpOrder();
+          }
+          size_t end = candidates.size();
+          while (position < end) {
+            if (failed(debit(4, op)))
+              return {};
+            size_t middle = position + (end - position) / 2;
+            if (op->isBeforeInBlock(candidates[middle]))
+              end = middle;
+            else
+              position = middle + 1;
+          }
+          if (failed(debit(Budget::bytes((candidates.size() - position) *
+                                        sizeof(Operation *)), op)))
+            return {};
+        }
+        size_t storage = candidates.capacity_in_bytes();
+        candidates.insert(candidates.begin() + position, op);
+        if (!chargeGrowth(storage, candidates.capacity_in_bytes(), op))
+          return {};
+      }
+      size_t storage = index->indexedLhs.getMemorySize();
+      index->indexedLhs.insert(lhs);
+      if (!chargeGrowth(storage, index->indexedLhs.getMemorySize(),
+                        block->getParentOp())) {
+        index->indexedLhs.erase(lhs);
+        return {};
+      }
+      complete = true;
+    }
+    if (found == binaryIndices.end()) {
+      size_t storage = binaryIndices.getMemorySize();
+      found = binaryIndices.try_emplace(block, std::move(pending)).first;
+      if (!chargeGrowth(storage, binaryIndices.getMemorySize(),
+                        block->getParentOp())) {
+        binaryIndices.erase(block);
+        return {};
+      }
+      index = &found->second;
+    }
+    auto candidates = index->candidates.find(
+        {b.getStringAttr(opcode), lhs, rhs, bit});
+    if (candidates == index->candidates.end())
+      return {};
+    // Consult current claims on every search. Speculative proof rollback makes
+    // the first matching operation in block order available again.
+    for (Operation *op : candidates->second) {
+      if (failed(debit(4, op)))
+        return {};
+      if (!claimed.contains(op) && binary(op->getResult(0), opcode, lhs, rhs))
+        return op->getResult(0);
     }
     return {};
   }
@@ -1850,11 +1973,14 @@ LogicalResult verifyTransactionalRouting(mlir::ModuleOp package,
   auto top = package->getAttrOfType<StringAttr>(topKey);
   auto version = package->getAttrOfType<IntegerAttr>(versionKey);
   if (!source || !top || !version || !version.getType().isSignlessInteger(64) ||
-      version.getInt() != 1)
-    return package.emitError("transactional Routed contract requires versioned "
-                             "source provenance and top");
+      version.getInt() != 2)
+    return package.emitError("transactional Routed contract requires source "
+                             "provenance version 2; regenerate this artifact");
   if (failed(debit(source.getValue().size() + 128, package)))
     return failure();
+  if (!isBytecode(llvm::MemoryBufferRef(source.getValue(), "Linked source")))
+    return package.emitError("transactional source provenance version 2 requires "
+                             "MLIR bytecode; regenerate this artifact");
   // Final hardware may contain no function or SCF operations itself. Its
   // authoritative Linked snapshot can still require both dialects on replay.
   package.getContext()->loadDialect<func::FuncDialect, scf::SCFDialect>();

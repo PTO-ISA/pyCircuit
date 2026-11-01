@@ -1,78 +1,84 @@
 # Two-picker issue queue
 
-`issue_queue_2picker.py` implements a four-slot issue queue with
-ordinary persistent `Slot` variables and one nested state Rule. Each slot contains
-one valid bit and eight data bits, for 36 state bits. `Slot()` initializes all
-fields to zero. The source contains no clock, reset or register primitive API;
-the compiler infers storage and the physical sampling/reset connections.
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
 
-The first picker observes slot 0 and the second observes slot 1. Output values
-come from old Q during Work, before any shift or insertion. Data is observable
-even when its valid bit is clear. The first picker pops when
-`s0.valid & out0_ready`; the second pops when
-`s1.valid & out1_ready & pop0`, so it cannot pop independently. Input readiness
-is `~s3.valid | pop0`. A full queue can therefore accept a replacement when the
-first picker pops. `in_valid & in_ready` accepts at most one new byte.
+`PickerStorage` owns four initialized `Slot` States, each containing one valid
+bit and eight payload bits. Its `transact` Method snapshots committed old Q,
+computes two dependent shifts and one insertion with ordinary local values,
+and assigns each slot once. The source contains no clock/reset or register-pin
+plumbing.
 
-The rule first shifts once for `pop0`, then once for `pop1`, and finally inserts
-the accepted byte into the first invalid slot. A shift clears the last slot's
-valid bit while retaining its data. The two shifts and insertion use pure
-conditional values; all four final slot assignments are unconditional. This
-preserves the historical value-merge behavior for unknown controls without
-turning those controls into conditional storage enables.
+Picker 0 observes slot 0; picker 1 observes slot 1. Outputs always report old Q,
+including payload bytes when their valid bits are zero. Picker 0 pops on
+`slot0.valid & out0_ready`; picker 1 pops on
+`slot1.valid & out1_ready & pop0`, so it cannot pop independently. Input readiness
+is `~slot3.valid | pop0`; a full queue can accept one replacement when picker 0
+pops.
 
-Work computes the result and prepares the next slots. Successful whole-system
-checking precedes Xfer, which commits the slots on the generated clock's rising
-edge; reset restores all 36 bits to zero. A failed or discarded Work does not
-commit the prepared state. A sampled result remains the Work result and is not
-recomputed after commit.
+The Method shifts once for `pop0`, once for `pop1`, then inserts an accepted byte
+in the first invalid locally computed slot. A shift clears the last valid bit
+while retaining its data. The original Struct-valued conditional expressions
+remain intact, preserving the intended value-merge algorithm for unknown
+controls. Replacing them with guarded state updates would change that contract.
 
-The public source flow is `pycircuit compile` for this source unit,
-`pycircuit link` with `IssueQueue2Picker` as the selected root, then
-`pycircuit emit --target cpp|verilog` from the same verified final artifact.
-Generated models use the typed DUT and shared SystemRunner; the host supplies
-explicit physical clock/reset levels and a finite runner limit.
+`IssueQueue2Picker` retains the original four input arguments and explicitly
+registers its calling Rule. The input-bearing physical root still needs the
+transactional export boundary; no delayed result State or Queue substitutes for
+its same-Work result.
 
-## Verified implementation
+Source compilation passes with the compiler's generic Struct-selection repair.
+The original expression `old1 if pop0 else old0` remains intact. Full-history
+System linking then exceeds the existing analysis-work budget during compact
+dependency analysis (used 4,194,303, requested 4, limit 4,194,304). The complete
+history and budget are retained. Native workers 1/2 and RTL System simulation
+are **NOT RUN**; source compilation is not execution evidence.
 
-The current public compile/link/emit flow passed the shared example runner with
-native workers 1 and 2 and Verilator: 177 matching Work frames. The independent
-deque oracle covers capacity four, first/second-pop gating, stalls, full
-replacement, held clocks, reset and drain. It observed 62 accepted, 54 retired
-and eight reset-dropped tokens. Invalid payloads are normalized in the trace;
-this bounded run does not claim exhaustive or four-state coverage.
+## Full System history
 
-See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
+The System owns one storage instance and explicitly registers `advance()` before
+`exercise()`. The counter holds at 343, and all reads still observe old Q.
+`exercise` selects the original row, calls the existing instance's Method, and
+checks all five result fields without masking invalid payloads. All six logs
+remain unconditional.
 
-## Scenario bench
+The initialized Table retains all 344 original `Stimulus` rows plus the all-zero
+fallback row 344. Selection clamps to that fallback for known phases 344 through
+65535, separately from the counter's hold behavior. There are 26 active rows
+with nonzero invalid output-0 payloads and 295 for output 1. The final active row
+expects both valid bits zero and both data bytes equal to 8.
 
-`bench.py` stores all 344 original scenarios in an immutable typed Table. Its
-9-field, 30-bit `Stimulus` retains the original field order, including payloads
-supplied or observed while valid is zero. Row 344 is all zero, preserving the
-helper fallback for every known u16 phase from 344 through 65,535. This fallback
-is distinct from the system counter, which holds at phase 343.
+Run the full generated System with an installed toolchain:
 
-The complete system retains its ordered DUT inputs, 5 unconditional assertions,
-6 unconditional observations and `advance(phase)` before `exercise()`.
-The regular-clock run still lasts 344 cycles.
+```sh
+pycircuit run examples/issue_queue_2picker --target cpp --workers 1 --cycles 344
+pycircuit run examples/issue_queue_2picker --target cpp --workers 2 --cycles 344
+pycircuit run examples/issue_queue_2picker --target verilog --cycles 344
+```
 
-Invalid output data remains part of this system's contract. There are 26 rows
-with nonzero expected output-0 data while valid is zero, and 295 such rows for
-output 1. At phase 343 both valid bits are zero and both expected data bytes are
-8. Neither payload assertion is masked. The physical driver's normalized invalid
-trace fields are a separate policy and are not used to weaken these checks.
+The existing CMake entry retains separate physical Module and System tests:
 
-Independent source checks compare all 589,824 field values across the complete
-known-u16 helper domain. Twenty complete native and RTL traces agree on all
-4,128 observations and the terminal result after excluding only changed
-source-position metadata; native workers 1 and 2 are included. Baseline and
-compact versions each pass all 2 standalone gates. See the module
-[excerpts and receipt](GENERATED.md).
+```sh
+cmake -S examples/issue_queue_2picker -B /absolute/build/issue-queue -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
+ctest --test-dir /absolute/build/issue-queue -R issue_queue_2picker_system \
+  --output-on-failure --no-tests=error
+```
 
-The unchanged 177-frame physical driver retains picker gating, capacity,
-replacement, held-clock, reset and conservation coverage. This example has no
-independent four-state gate; the compact system does not establish such coverage.
+## Retained physical verification
 
-The closed system covers a regular-clock known-state trajectory. Full physical
-reset/held-clock scenarios remain with their independent module drivers;
-known-u16 source equivalence does not prove arbitrary X/Z-phase equivalence.
+The unchanged 177-frame physical driver uses an independent deque oracle for
+capacity four, dependent picker gating, stalls, full replacement, held clocks,
+reset, drain, and token conservation. Its trace normalizes invalid payloads;
+that policy never weakens the System's unmasked payload checks.
+
+Physical native workers 1/2 and RTL are **NOT RUN** for this migration while the
+original export boundary is unfinished. This example has no independent
+four-state execution gate; the retained mux algorithm does not establish new
+X/Z evidence. System adapter verification cannot replace physical reset and
+held-clock histories.
+
+[Generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json)
+remain historical records of the superseded frontend.

@@ -36,7 +36,14 @@ if case == "index":
     sys.exit(0)
 
 copy_source(case, "design")
-if case == "data":
+if case == "bounded":
+    fixture.compile_source("design")
+    units = ("design",)
+    history = [
+        [("clamped", (phase, value))]
+        for phase, value in enumerate((11, 22, 33, 33, 33, 33, 33, 33))
+    ]
+elif case == "data":
     fixture.compile_source("design")
     units = ("design",)
     # The first five edges update lanes 0,1,2,3,0. Reset observes those

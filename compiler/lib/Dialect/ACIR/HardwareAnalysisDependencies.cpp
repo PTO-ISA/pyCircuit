@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
+#include <memory>
 using namespace mlir;
 namespace acir::ac {
 namespace {
@@ -80,51 +81,109 @@ struct Engine {
            sameMap(left.integers, right.integers) &&
            sameMap(left.types, right.types);
   }
-  FailureOr<SmallVector<FieldPath>> paths(Type type,
-                                          const HardwareBindings &bindings,
-                                          Operation *site,
-                                          FieldPath base = {}) {
-    if (failed(charge(detail::SourceCheckBudget::add(1, base.size()), site)))
+  using PathList = SmallVector<FieldPath>;
+  struct PathContext {
+    HardwareBindings bindings;
+    llvm::DenseMap<Type, std::unique_ptr<PathList>> completed;
+  };
+  SmallVector<std::unique_ptr<PathContext>, 0> pathContexts;
+  FieldPath scalarPath;
+  bool scalarPathPaid = false;
+
+  FailureOr<PathContext *> pathContext(const HardwareBindings &bindings,
+                                       Operation *site) {
+    using Budget = detail::SourceCheckBudget;
+    for (const auto &context : pathContexts) {
+      if (failed(charge(1, site)))
+        return failure();
+      if (context->bindings.owner != bindings.owner)
+        continue;
+      uint64_t work = 1;
+      for (const auto &entry : bindings.integers)
+        work = Budget::add(work, 1 + entry.getKey().size());
+      for (const auto &entry : bindings.types)
+        work = Budget::add(work, 1 + entry.getKey().size());
+      if (failed(charge(work, site)))
+        return failure();
+      if (sameBindings(context->bindings, bindings))
+        return context.get();
+    }
+    if (failed(charge(
+            Budget::add(Budget::bindings(bindings),
+                        Budget::bytes(sizeof(PathContext) +
+                                      sizeof(std::unique_ptr<PathContext>))),
+            site)))
       return failure();
+    auto context = std::make_unique<PathContext>();
+    context->bindings = bindings;
+    auto *result = context.get();
+    pathContexts.push_back(std::move(context));
+    return result;
+  }
+
+  FailureOr<ArrayRef<FieldPath>>
+  paths(Type type, const HardwareBindings &bindings, Operation *site) {
+    using Budget = detail::SourceCheckBudget;
+    if (failed(charge(1, site)))
+      return failure();
+    // Validate under the actual environment even when the leaf shape is cached.
     auto resolved = analysis.resolveType(type, bindings, site);
     if (failed(resolved))
       return failure();
-    SmallVector<FieldPath> out;
     if (auto table = dyn_cast<ArrayType>(*resolved))
-      return paths(table.getElementType(), bindings, site, base);
+      return paths(table.getElementType(), bindings, site);
+    if (isa<BitsType, EnumType>(*resolved)) {
+      if (!scalarPathPaid) {
+        if (failed(charge(Budget::bytes(sizeof(FieldPath)), site)))
+          return failure();
+        scalarPathPaid = true;
+      }
+      return ArrayRef<FieldPath>(&scalarPath, 1);
+    }
+    auto context = pathContext(bindings, site);
+    if (failed(context) || failed(charge(1, site)))
+      return failure();
+    auto &cache = (*context)->completed;
+    if (auto found = cache.find(*resolved); found != cache.end())
+      return ArrayRef<FieldPath>(*found->second);
+    if (failed(charge(Budget::bytes(
+            sizeof(PathList) + sizeof(std::pair<Type, std::unique_ptr<PathList>>)),
+            site)))
+      return failure();
+    auto out = std::make_unique<PathList>();
     if (auto record = dyn_cast<StructType>(*resolved)) {
       auto decl = analysis.lookupStruct(record);
       if (!decl)
         return failure();
       for (Attribute raw : decl.getFields()) {
-        auto field = cast<DictionaryAttr>(raw);
-        if (failed(
-                charge(detail::SourceCheckBudget::add(1, base.size()), site)))
+        if (failed(charge(1, site)))
           return failure();
-        auto path = base;
-        path.push_back(field.getAs<StringAttr>("name"));
-        auto children = paths(field.getAs<TypeAttr>("type").getValue(),
-                              bindings, site, path);
+        auto field = cast<DictionaryAttr>(raw);
+        auto children =
+            paths(field.getAs<TypeAttr>("type").getValue(), bindings, site);
         if (failed(children))
           return failure();
-        for (const auto &child : *children)
-          if (failed(charge(
-                  detail::SourceCheckBudget::add(
-                      detail::SourceCheckBudget::bytes(sizeof(FieldPath)),
-                      child.size()),
-                  site)))
+        for (const auto &child : *children) {
+          if (failed(charge(Budget::add(Budget::bytes(sizeof(FieldPath)),
+                                        1 + child.size()),
+                            site)))
             return failure();
-        llvm::append_range(out, *children);
+          FieldPath path{field.getAs<StringAttr>("name")};
+          llvm::append_range(path, child);
+          out->push_back(std::move(path));
+        }
       }
-    } else if (failed(charge(
-                   detail::SourceCheckBudget::add(
-                       detail::SourceCheckBudget::bytes(sizeof(FieldPath)),
-                       base.size()),
-                   site)))
-      return failure();
-    else
-      out.push_back(base);
-    return out;
+    } else {
+      if (failed(charge(Budget::bytes(sizeof(FieldPath)), site)))
+        return failure();
+      out->emplace_back();
+    }
+    // Heap-owned lists keep borrowed paths stable across cache growth and
+    // nested instance analysis. Only exact complete binding environments share
+    // a list.
+    auto &stored = cache[*resolved];
+    stored = std::move(out);
+    return ArrayRef<FieldPath>(*stored);
   }
   FailureOr<Type> subtree(Type type, ArrayRef<StringAttr> path,
                           const HardwareBindings &bindings, Operation *site) {
@@ -214,7 +273,7 @@ struct Engine {
       auto outputPaths = paths(*outputType, bindings, imported);
       if (failed(outputPaths))
         return failure();
-      for (auto suffix : *outputPaths) {
+      for (const auto &suffix : *outputPaths) {
         if (failed(charge(
                 detail::SourceCheckBudget::add(
                     detail::SourceCheckBudget::bytes(sizeof(OutputDependency)),
@@ -266,7 +325,7 @@ struct Engine {
       auto leaves = paths(type, bindings, imported);
       if (failed(leaves))
         return failure();
-      for (auto path : *leaves)
+      for (const auto &path : *leaves)
         if (llvm::count_if(out, [&](auto &e) {
               return e.output.port == port && e.output.path == path;
             }) != 1)
@@ -302,7 +361,7 @@ struct Engine {
       auto leaves = paths(input.getType(), bindings, op);
       if (failed(leaves))
         return failure();
-      for (auto path : *leaves)
+      for (const auto &path : *leaves)
         out.push_back({input, path});
       return success();
     };
@@ -683,7 +742,7 @@ struct Engine {
       auto leaves = paths(value.getType(), bindings, module);
       if (failed(leaves))
         return failure();
-      for (auto path : *leaves) {
+      for (const auto &path : *leaves) {
         auto inputs = visit({value, path});
         if (failed(inputs))
           return failure();
@@ -718,7 +777,7 @@ struct Engine {
           auto leaves = paths(operand.getType(), bindings, &op);
           if (failed(leaves))
             return failure();
-          for (auto path : *leaves)
+          for (const auto &path : *leaves)
             if (failed(visit({operand, path})))
               return failure();
         }
@@ -730,7 +789,7 @@ struct Engine {
         auto leaves = paths(value.getType(), bindings, &op);
         if (failed(leaves))
           return failure();
-        for (auto path : *leaves)
+        for (const auto &path : *leaves)
           if (failed(visit({value, path})))
             return failure();
       }
@@ -738,7 +797,7 @@ struct Engine {
         for (Value input : logical->getOperands()) {
           auto leaves = paths(input.getType(), bindings, logical);
           if (failed(leaves)) return failure();
-          for (auto path : *leaves)
+          for (const auto &path : *leaves)
             if (failed(visit({input, path}))) return failure();
         }
       }
@@ -751,7 +810,7 @@ struct Engine {
           for (Value value : inner->getResults()) {
             auto leaves = paths(value.getType(), bindings, inner);
             if (failed(leaves)) return WalkResult::interrupt();
-            for (auto path : *leaves)
+            for (const auto &path : *leaves)
               if (failed(visit({value, path}))) return WalkResult::interrupt();
           }
           return WalkResult::advance();
@@ -785,7 +844,7 @@ struct Engine {
           auto leaves = paths(input.getType(), bindings, instance);
           if (failed(leaves))
             return failure();
-          for (auto path : *leaves)
+          for (const auto &path : *leaves)
             if (failed(visit({input, path})))
               return failure();
         }
@@ -874,7 +933,16 @@ FailureOr<SmallVector<FieldPath>> HardwareAnalysis::getFieldPaths(
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) const {
   Engine engine{*this, {}};
   engine.debit = debit;
-  return engine.paths(type, bindings, site);
+  auto paths = engine.paths(type, bindings, site);
+  if (failed(paths)) return failure();
+  for (const auto &path : *paths)
+    if (failed(engine.charge(
+            detail::SourceCheckBudget::add(
+                detail::SourceCheckBudget::bytes(sizeof(FieldPath)),
+                path.size()),
+            site)))
+      return failure();
+  return SmallVector<FieldPath>(paths->begin(), paths->end());
 }
 FailureOr<SmallVector<OutputDependency>>
 HardwareAnalysis::getImportDependencies(

@@ -1,5 +1,10 @@
 # Nested Enum payload
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 A `Packet` contains a nested `Header`, a 17-bit payload and a one-bit `matched`
 field. `Mode` is a nominal two-bit Enum with IDLE, RUN and WAIT members.
 

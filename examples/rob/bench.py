@@ -1,6 +1,8 @@
-"""Regular-clock rob scenario; original physical-control oracles remain."""
+"""Check same-cycle transactions against the independent ROB scenario history."""
 
-from example_rob.rob import Rob
+# ruff: noqa: F821, F823, F841, F842 -- Compiler-owned state and instance bindings.
+
+from example_rob.rob import RobRequest, RobResult, RobStorage
 from pycircuit import bits, log, rule, struct, system, table, u1, u2, u3, u8, u16
 
 
@@ -23,9 +25,12 @@ class Scenario:
     expected_count: u3
 
 
-def scenario_rows() -> table[284, Scenario]:
+@system
+def ExerciseRob():  # noqa: N802
+    phase: bits[64] = 0
+    storage: RobStorage
     # fmt: off
-    rows: table[284, Scenario] = (
+    scenarios: table[284, Scenario] = (
         Scenario(complete=1, complete_value=7, retire=1),
         Scenario(allocate=1, allocate_tag=11, expected_allocate_accepted=1, expected_count=1),
         Scenario(allocate=1, allocate_tag=12, expected_allocate_accepted=1, expected_allocated_index=1, expected_count=2),
@@ -312,33 +317,22 @@ def scenario_rows() -> table[284, Scenario]:
         Scenario(flush=1),
     )
     # fmt: on
-    return rows
-
-
-@rule
-def advance(phase):
-    phase = phase + 1
-
-
-@system
-def ExerciseRob():  # noqa: N802
-    phase: bits[64] = 0
-    scenarios = scenario_rows()
-    position = phase if phase < 284 else 283
-    scenario = scenarios[position]
-    dut = Rob(
-        scenario.allocate,
-        scenario.allocate_tag,
-        scenario.complete,
-        scenario.complete_index,
-        scenario.complete_tag,
-        scenario.complete_value,
-        scenario.retire,
-        scenario.flush,
-    )
 
     @rule
-    def check_and_advance():
+    def check_and_advance() -> None:
+        position = phase if phase < 284 else 283
+        scenario = scenarios[position]
+        request = RobRequest(
+            allocate=scenario.allocate,
+            allocate_tag=scenario.allocate_tag,
+            complete=scenario.complete,
+            complete_index=scenario.complete_index,
+            complete_tag=scenario.complete_tag,
+            complete_value=scenario.complete_value,
+            retire=scenario.retire,
+            flush=scenario.flush,
+        )
+        dut: RobResult = storage.transact(request)
         if phase < 284:
             assert (
                 dut.allocate_accepted == scenario.expected_allocate_accepted
@@ -365,4 +359,6 @@ def ExerciseRob():  # noqa: N802
         log("info", "rob.retired_value", dut.retired_value)
         log("info", "rob.count", dut.count)
 
-    advance(phase)
+        phase = phase + 1
+
+    check_and_advance()

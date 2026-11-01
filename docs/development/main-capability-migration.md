@@ -1,5 +1,60 @@
 # Main capability migration inventory
 
+## Current execution inventory
+
+The example/test cleanup starts at HEAD
+`c36a973a94222c7c4cc64fdebf95b31b2fbc2741`. The shared worktree already had
+changes to `PythonImportExpressions.inc` and the transactional Table fixture;
+these are outside the inventory change's ownership. This inventory records
+**NOT RUN** for that candidate. It does not promote historical receipts or
+source inspection to a current PASS. Later candidate results belong to the
+existing gate evidence and their exact content identities.
+
+`examples/catalog.json` is the maintained per-design
+inventory. Each of its 31 designs has a `migration.status`, concrete `remaining`
+work, independent `verification_owners`, and a separate `execution_tier`.
+`migrated` describes the source mapping; it is not an execution result. `gate`
+selects both gate and nightly, `nightly` selects only nightly, and `none` retains
+the design and its oracles outside the current execution set. CMake, CLI and
+shell gates must use this same selection. A failed selected design remains a
+failure requiring investigation; it must not be reclassified merely to make
+the gate pass.
+
+The initial source-migrated set is `hello_counter`,
+`module_control_state_machine`, `local_method_accumulator`, `table_dispatch`,
+`sibling_method_calls`, `parent_state_interfaces`, `scalar_queue_pipeline`,
+`resource_composition`, `structured_packet`, `transactional_cumulative`,
+`transactional_batch`, `sibling_calls` and `queue_rule_pipeline`.
+The other 18 entries retain their original assets and specific blockers in the
+catalog. Memory and multiclock entries await implementation capabilities;
+raw Queue protocol designs additionally need their original timing reconciled
+with old-occupancy admission. ROB and the other algorithm/state designs require
+explicit intermediate values, Rule registration and resource output bindings.
+No design or oracle is deleted by this inventory.
+
+### Test ownership and cleanup disposition
+
+| Registered owner | Retained responsibility | Cleanup disposition |
+| --- | --- | --- |
+| Catalog `api_coverage` (25 named entries) | Exact named roots and their existing `root_scope`/`system_scope`, including original histories and scope limitations | Preserve every row and test owner. Root presence is an obligation, not a passing or migrated status. Reconcile each owner before replacing or retiring cases. |
+| `tests/compiler/IR/CMakeLists.txt`: value, Integer, div/rem, Queue, record and runtime targets | Type/layout/value semantics, physical storage, Array, four-state data and direct runtime transitions | Retain compatible foundations; run affected targets. A legacy source fixture inside one target does not invalidate its other tests. |
+| Same registry: source interface, anchor and final artifact targets | Independent compile/link, source/body authority, saved-stage continuation, output protection and ownership | Migrate individual fixtures; preserve public-flow oracles and installed-consumer coverage. |
+| Same registry: transaction effects, State SSA, Method summaries, registration, hardware source checks | Mix of current atomicity/ownership and old transaction analysis shapes | Review per test before deletion. Automatic Rule registration, writable formals and candidate forwarding assertions may retire; unchanged atomicity, reset and zero-commit oracles must migrate. |
+| Unregistered `SourceMemoryBindingsTest.cpp` | Retained Table/Memory/hierarchy source obligations | NOT RUN; preserve source and independent expectations until the replacement admits their contracts. |
+| `tests/compiler/lit/{Source,IR,Transforms,CodeGen}` | Stage boundaries, verification, saved artifacts and common backends | Keep current contracts and physical/native IR checks. Delete old frontend-only fixtures only after caller/dependency and coverage review. |
+| `tools/run_api_tests.sh` nightly pytest list | Capture, public CLI/publication, package installation and Runtime-only/CompilerDev consumers; some source semantics are mixed in | Keep the existing entrypoint. Split mixed-purpose tests rather than dropping whole files by name. A list registration alone does not establish current support. |
+| `examples/CMakeLists.txt`, `tools/run_examples.sh` | Full design histories through compile/link and C++ workers 1/2 plus RTL | Derive selection from catalog execution tiers; retained designs with `none` are excluded from pass-rate statistics. |
+| Existing nightly and release owners | Long histories, four-state matrices, installed tools and complete current supported set | NOT RUN by inventory work. No full nightly or release conclusion follows from focused gate results. |
+
+The table above is a disposition census, not approval to delete a complete
+native target, lit directory or pytest module. Per-test retirement must record
+which obsolete semantic assertion was removed or which observable oracle
+replaces it. No old path may run pending designs to manufacture replacement
+execution evidence. t-gfsim retains its existing implementation and applicable
+checks; this inventory adds no t-gfsim capability or acceptance obligation.
+
+## Capability obligations retained from the replacement batches
+
 This is a source inventory for the ten bounded #361 replacement batches, based
 on `main@3d37651a` and integration base `e22eca28`. It is not execution evidence
 or a claim of support. All checks listed here are **NOT RUN for this inventory**.
@@ -96,3 +151,56 @@ is implementation work. Cancelled Signal APIs and legacy candidate-state paths
 remain retired, not unassigned preservation work. Long oracle/mutation/performance
 and cross-platform release matrices retain their existing nightly/release scope;
 this inventory neither runs them nor silently waives them.
+
+## Execution cleanup follow-up (2026-11-01)
+
+The example catalog now owns the executable tier separately from migration
+status. Thirteen existing transactional designs passed the example gate on
+`c36a973a94222c7c4cc64fdebf95b31b2fbc2741` plus the migration worktree; three
+sibling histories additionally passed focused C++ workers 1/2 and RTL checks.
+These are bounded results, not full API/nightly or release acceptance.
+
+Physical storage materialization and its independent correspondence proof now
+live in `HardwareStateLowering.cpp`, separate from the old transaction
+materializer. Public routing rejects old source transactions; the old
+candidate-state analysis selector is removed. The private old materializer and
+shared Method-summary verifier dependencies still require cleanup. Their
+continued library presence is an open removal obligation.
+
+The obsolete lit `IR/transaction-state-ssa.mlir` and
+`IR/transaction-lowering.mlir` cases are retired: they inspected old candidate
+provenance/IR shape and sequential duplicate Method writes. The latter's
+conditional-path diagnostic check was also removed. This is removed coverage,
+not a passing result. Current transactional State/Method execution and native
+physical-storage mutation/refinement checks remain. The source-interface
+publication runner retains its instrumented source compilation, including the
+unmigrated report obligation, but no longer invokes the removed analysis pass
+or asserts its incidental printed operation counts.
+
+The work-partition API test now builds verified physical IR directly, preserving
+its three independent work-owner, temporal-feedback and sibling-dependency
+oracles. Its exclusive public-source generator and build prerequisite are
+removed. The original historical `module_loop` source assets remain pending;
+this change does not establish that they compile on the replacement frontend.
+
+ROB retains the original 284 System rows and 569-Work host/RTL history. Its
+sequential local algorithm compiles, and a generic clamped Table-index proof has
+been repaired and independently checked. Generic compiler fixes clear the
+transaction-routing budget, but full System linking still exceeds the separate
+1 MiB physical-storage correspondence proof budget. On 2026-11-01 the user
+explicitly deferred further ROB repairs. Its catalog status is `deferred`, with
+no executable tier; source assets and independent histories remain preserved.
+Direct external root admission and same-Work physical output adaptation remain
+unresolved migration boundaries. No budget increase, history reduction, fallback
+or delayed-output oracle was introduced.
+
+A separate per-test audit retires eight cases from the mixed native
+`SourceTransactionCaptureTest.cpp`: ordinary declaration auto-registration,
+implicit writable default/tuple formals and their alias rejection, compiler
+private automatic-entry reuse, bare Rule callback captures, superseded blanket
+branch/early-return rejection, and the exact old FIFO default callee policy.
+These cases have no current passing claim. The rest of the file remains pending
+individual migration, including provider/body authority, instance identity,
+atomic loops, immutable record snapshots, Table bounds and saved-entry authority.
+Tests mixing old op assertions with those capabilities are retained rather than
+retired wholesale.

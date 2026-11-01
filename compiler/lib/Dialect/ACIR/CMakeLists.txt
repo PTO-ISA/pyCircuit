@@ -68,6 +68,7 @@ add_dependencies(ACIRDialect
 target_link_libraries(ACIRDialect PUBLIC
   LLVMCore
   MLIRArithDialect
+  MLIRBytecodeWriter
   MLIRFuncDialect
   MLIRParser
   MLIRSCFDialect

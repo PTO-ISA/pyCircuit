@@ -24,16 +24,19 @@ def Counter():  # noqa: N802
 
 
 @ac.module
-def Writer(counter: Counter):  # noqa: N802
+def Writer(counter: ac.module):  # noqa: N802
     @ac.rule
     def write() -> None:
         counter.increment()
 
+    write()
+
 
 @ac.module
-def Reader(counter: Counter) -> ac.u8:  # noqa: N802
+def Reader(counter: ac.module) -> None:  # noqa: N802
     @ac.rule
-    def read() -> ac.u8:
-        return counter.read()
+    def read() -> None:
+        value: ac.u8 = counter.read()
+        ac.log("info", "transitive visible", value)
 
-    return read
+    read()

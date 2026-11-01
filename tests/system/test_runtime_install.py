@@ -90,7 +90,8 @@ def test_runtime_only_install_relocates_and_runs_without_llvm(
     package = relocated / "share/pycircuit/cmake/pycircuitConfig.cmake"
     assert package.is_file()
     assert (relocated / "include/gfsim/SimExecutor.h").is_file()
-    assert (relocated / "lib/libpyc6_runtime.a").is_file()
+    library_dir = _cache_path(cache, "CMAKE_INSTALL_LIBDIR")
+    assert (relocated / library_dir / "libpyc6_runtime.a").is_file()
     assert not list((relocated / "share/pycircuit/cmake").glob("*CompilerTargets*"))
 
     consumer_build = tmp_path / "runtime-consumer-build"

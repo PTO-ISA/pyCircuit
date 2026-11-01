@@ -344,6 +344,74 @@ class PayloadConstraints {
         builder.getStringAttr(resultWidth < inputWidth ? "trunc" : "zext"));
     return builder.create(state)->getResult(0);
   }
+  FailureOr<Value> selectPayload(PendingExprOp expr, OpBuilder &builder,
+                                 Value condition, Value yes, Value no,
+                                 Type type) {
+    if (!budget--)
+      return expr.emitOpError("payload analysis budget exhausted");
+    auto create = [&](StringRef name, ValueRange operands, TypeRange types,
+                      ArrayRef<NamedAttribute> attributes = {}) {
+      OperationState state(expr.getLoc(), name);
+      state.addOperands(operands);
+      state.addTypes(types);
+      state.addAttributes(attributes);
+      if (auto origin = expr->getAttr("ac.origin"))
+        state.addAttribute("ac.origin", origin);
+      return builder.create(state);
+    };
+    if (isa<BitsType>(type))
+      return create(BitsSelectOp::getOperationName(),
+                    {condition, resize(builder, yes, type),
+                     resize(builder, no, type)},
+                    TypeRange{type})
+          ->getResult(0);
+    if (isa<EnumType>(type)) {
+      auto size = hardware.getPackedWidth(type, {}, expr);
+      if (failed(size))
+        return failure();
+      auto carrier = BitsType::get(
+          builder.getContext(),
+          detail::transactionalInteger(
+              builder, *size, cast<BitsType>(condition.getType()).getWidth()));
+      auto toBits = [&](Value value) {
+        return create(EnumToBitsOp::getOperationName(), value,
+                      TypeRange{carrier})
+            ->getResult(0);
+      };
+      Value selected =
+          create(BitsSelectOp::getOperationName(),
+                 {condition, toBits(yes), toBits(no)}, TypeRange{carrier})
+              ->getResult(0);
+      return create(EnumFromBitsOp::getOperationName(), selected,
+                    TypeRange{type, condition.getType()})
+          ->getResult(0);
+    }
+    auto structure = dyn_cast<StructType>(type);
+    auto declaration =
+        structure ? hardware.lookupStruct(structure) : StructOp();
+    if (!declaration)
+      return expr.emitOpError(
+          "selection requires Bits, Enum or Struct payloads");
+    SmallVector<Value> values;
+    for (Attribute raw : declaration.getFields()) {
+      auto field = cast<DictionaryAttr>(raw);
+      auto name = field.getAs<StringAttr>("name");
+      Type fieldType = field.getAs<TypeAttr>("type").getValue();
+      auto get = [&](Value value) {
+        return create(StructGetOp::getOperationName(), value,
+                      TypeRange{fieldType},
+                      {builder.getNamedAttr("field", name)})
+            ->getResult(0);
+      };
+      auto selected =
+          selectPayload(expr, builder, condition, get(yes), get(no), fieldType);
+      if (failed(selected))
+        return failure();
+      values.push_back(*selected);
+    }
+    return create(StructCreateOp::getOperationName(), values, TypeRange{type})
+        ->getResult(0);
+  }
   LogicalResult rewrite(PendingExprOp expr) {
     Type result = fact(expr.getResult());
     if (!result)
@@ -353,6 +421,17 @@ class PayloadConstraints {
         return success();
     auto kind = expr.getKind();
     OpBuilder builder(expr);
+    if (kind == "select" && isa<EnumType, StructType>(result)) {
+      // Pure ternaries merge every payload leaf with four-state selection;
+      // they must not become guarded SCF, which would reject X/Z controls.
+      auto selected = selectPayload(expr, builder, expr.getOperand(0),
+                                    expr.getOperand(1), expr.getOperand(2), result);
+      if (failed(selected))
+        return failure();
+      expr.getResult().replaceAllUsesWith(*selected);
+      expr.erase();
+      return success();
+    }
     OperationState state(expr.getLoc(), "ac.bits.constant4");
     SmallVector<Value> inputs(expr.getInputs());
     NamedAttrList attrs;

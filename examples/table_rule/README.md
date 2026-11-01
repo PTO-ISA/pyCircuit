@@ -1,5 +1,10 @@
 # Atomic table replacement
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 `TableRule` owns two `Entry` records and two queues. Its `transfer` Rule pops a
 request, calls the local `install` Method, and pushes the old entry as the response.
 The table update and both Queue operations commit together. A blocked response

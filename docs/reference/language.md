@@ -175,6 +175,14 @@ constructor applies that type's defaults, while an omitted nested field without 
 default recursively zeros. Defaults are published in source interfaces separately
 from packed layout and use MLIR static evaluation.
 
+Pure conditional expressions such as `left if selector else right` also select
+Enum and Struct payloads, including nested Struct fields. Both arms must have
+the same nominal type. Selection merges Bits leaves using four-state mux
+semantics: an X/Z selector preserves equal bits and makes differing bits unknown.
+This is payload computation, not a guarded transaction; Rule/Method guards and
+effectful branches still require known controls. Independent native workers 1/2
+and Icarus coverage belongs to `CodeGen/transactional-structured-packet.test`.
+
 A Module declaration `entry: Entry(...)` initializes State through the same
 constructor as `entry: Entry = Entry(...)`; `entry: Entry` initializes to X,
 and `entry = Entry(...)` constructs an ordinary value.

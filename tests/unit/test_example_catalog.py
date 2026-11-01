@@ -42,6 +42,11 @@ def catalog_repo(tmp_path: Path):
             "name": name,
             "folder": f"examples/{name}",
             "source": f"{name}.py",
+            "migration": {
+                "status": "migrated" if name == "alpha" else "pending-migration",
+                "remaining": "Preserve the independent oracle during migration.",
+            },
+            "execution_tier": "gate" if name == "alpha" else "none",
             **({"generated": "GENERATED.json"} if generated else {}),
         }
         for name, generated in (("alpha", False), ("beta", True))
@@ -74,7 +79,11 @@ def test_navigation_lists_current_examples_and_api_owners(tool, catalog_repo):
     text = tool.navigation(repo)
     assert "**2** registered designs" in text
     assert "**1** API-owned coverage cases" in text
-    assert "| alpha | [Python](alpha/alpha.py) | — | — | — |" in text
+    assert "| alpha | migrated | [Python](alpha/alpha.py) | — | — | — |" in text
+    assert "| [beta](beta/README.md) | pending-migration |" in text
+    assert (
+        "Removing a design from execution selection does not count as a pass." in text
+    )
     assert "[beta](beta/README.md)" in text
     assert "[driver](beta/driver.cpp)" in text
     assert "[testbench](beta/rtl_tb.sv)" in text
@@ -104,18 +113,25 @@ def test_catalog_rejects_duplicate_names(tool, catalog_repo):
         tool.catalog(repo)
 
 
-def test_checked_out_catalog_matches_registered_examples(tool):
+def test_checked_out_catalog_documents_execution_and_migration(tool):
     data = tool.catalog(ROOT)
-    cmake = (ROOT / "examples/CMakeLists.txt").read_text()
-    registered = [
-        line.removeprefix("add_selected_example(").removesuffix(")")
-        for line in cmake.splitlines()
-        if line.startswith("add_selected_example(")
-    ]
-    assert [row["name"] for row in data["examples"]] == registered
+    # The catalog owns registration. A standalone directory may be work in
+    # progress and its existence must not imply aggregate execution/support.
+    assert any(row["execution_tier"] == "gate" for row in data["examples"])
     navigation = tool.navigation(ROOT)
     assert "docs/gates/logs" not in navigation
-    assert "migration" not in navigation.lower()
+    assert (
+        "Historical generated receipts do not establish current compiler support."
+        in navigation
+    )
+
+
+def test_pending_design_cannot_be_registered_for_execution(tool, catalog_repo):
+    repo, data = catalog_repo
+    data["examples"][1]["execution_tier"] = "gate"
+    _write_json(repo / tool.CATALOG, data)
+    with pytest.raises(ValueError, match="example execution tier is inconsistent"):
+        tool.catalog(repo)
 
 
 @pytest.fixture

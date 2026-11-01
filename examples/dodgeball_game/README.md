@@ -1,5 +1,10 @@
 # Dodgeball game
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 `DodgeballGame(RST_BTN, START, left, right)` uses four `bits[1]` inputs and returns
 one 50-bit `GameResult`. Field order and types match the original output order:
 

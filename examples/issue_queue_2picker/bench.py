@@ -1,6 +1,8 @@
-"""Regular-clock known-state checks; original physical-control oracles remain independent."""
+"""Retain all 344 issue scenarios, including observable invalid payloads."""
 
-from example_issue_queue_2picker.issue_queue_2picker import IssueQueue2Picker
+# ruff: noqa: F821, F823, F842 -- Compiler-owned State and instance bindings.
+
+from example_issue_queue_2picker.issue_queue_2picker import PickerResult, PickerStorage
 from pycircuit import bits, log, rule, struct, system, table
 
 
@@ -17,7 +19,10 @@ class Stimulus:
     expected_out1_data: bits[8]
 
 
-def stimulus(phase: bits[16]) -> Stimulus:
+@system
+def IssueQueue2PickerSystem():  # noqa: N802
+    phase: bits[16] = 0
+    storage: PickerStorage
     # fmt: off
     stimuli: table[345, Stimulus] = (
         Stimulus(in_valid=1, expected_in_ready=1),
@@ -367,26 +372,14 @@ def stimulus(phase: bits[16]) -> Stimulus:
         Stimulus(),
     )
     # fmt: on
-    position = phase if phase < 344 else 344
-    return stimuli[position]
-
-
-@rule
-def advance(phase):
-    if phase < 343:
-        phase = phase + 1
-
-
-@system
-def IssueQueue2PickerSystem():  # noqa: N802
-    phase: bits[16] = 0
-    frame = stimulus(phase)
-    dut = IssueQueue2Picker(
-        frame.in_valid, frame.in_data, frame.out0_ready, frame.out1_ready
-    )
 
     @rule
-    def exercise():
+    def exercise() -> None:
+        position = phase if phase < 344 else 344
+        frame = stimuli[position]
+        dut: PickerResult = storage.transact(
+            frame.in_valid, frame.in_data, frame.out0_ready, frame.out1_ready
+        )
         assert (
             dut.in_ready == frame.expected_in_ready
         ), "issue_queue_2picker in_ready old-state check"
@@ -409,4 +402,10 @@ def IssueQueue2PickerSystem():  # noqa: N802
         log("info", "out1_valid", dut.out1_valid)
         log("info", "out1_data", dut.out1_data)
 
-    advance(phase)
+    @rule
+    def advance() -> None:
+        if phase < 343:
+            phase = phase + 1
+
+    advance()
+    exercise()

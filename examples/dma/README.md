@@ -1,5 +1,10 @@
 # DMA between two memories
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+This design and its independent oracles are retained outside the current execution
+set. Historical verification below is not a PASS for the current candidate.
+
 This example copies a complete typed request from a DRAM controller into an SRAM
 controller. The DRAM read response carries both addresses and the tag into the
 SRAM write. The copy response reports the old destination value, and a separate

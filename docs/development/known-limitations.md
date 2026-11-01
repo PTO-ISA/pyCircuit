@@ -27,6 +27,22 @@ selection, commands and reporting.
 
 ## Implementation gaps
 
+The public `ac-route-transactions` pass accepts transactional v2 ACIR, verifies
+an already-Routed package, or routes a verified ordinary hardware graph without
+source transactions. It rejects legacy source transactions and requires
+regeneration from Python with source contract 5. The old
+`ac-analyze-transaction-state-ssa` and
+`ac-analyze-source-method-summaries` selectors are removed. The independent Routed
+and final storage verifiers remain active.
+
+The old private transaction preparation/materialization API and its analysis are
+still linked for mixed native tests awaiting migration. Their remaining removal
+is an implementation cleanup gap; they are not a public compilation fallback.
+The old Method-summary pass factory remains available to those native tests.
+The old Method summary implementation also contains shared verifier dependencies
+that require separate extraction before deletion. This bounded change does not
+claim that the complete legacy implementation has left the product libraries.
+
 | Area | Remaining work and retained obligation |
 | --- | --- |
 | Source expressions and effects | Source-global pure typed helpers support branches, early returns and tuple results through physical C++/RTL. Closures, general loop control and Table callbacks still require migration; retain their fixtures and oracles. |

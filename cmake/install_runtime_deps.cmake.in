@@ -44,7 +44,7 @@ else()
 endif()
 execute_process(COMMAND "@Python3_EXECUTABLE@"
   "@CMAKE_CURRENT_SOURCE_DIR@/packaging/sdk/relocate_install.py"
-  "${CMAKE_INSTALL_PREFIX}" "${_pyc_platform}"
+  "${CMAKE_INSTALL_PREFIX}" "${_pyc_platform}" "${_pyc_dependency_dir}"
   RESULT_VARIABLE _pyc_relocation_result)
 if(NOT _pyc_relocation_result EQUAL 0)
   message(FATAL_ERROR "pyCircuit native dependency relocation failed")

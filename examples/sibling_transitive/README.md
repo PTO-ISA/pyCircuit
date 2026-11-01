@@ -1,14 +1,26 @@
 # 兄弟回调的当前状态与结果可用性
 
+Current migration status and remaining work are tracked in the
+[catalog](../catalog.json) and [migration inventory](../README.md#remaining-migration-work).
+The Method-caller adapter uses the transactional frontend and explicit Rule
+registration. Its four-cycle history passes C++ workers 1 and 2 and Verilog.
+This is partial coverage; the original Module-output boundary remains pending.
+
 `Counter` 初值为 1，`increment` Method 每次加 2。
 `bridge` 是一个未调用的只读 Method；声明本身不会激活它。
 Writer 和 Reader 的独立 Rule 都从当前已提交状态开始，实例的构造顺序
 不提供候选状态转发。
 
-`read` Method 只在当前值不大于 5 时返回。Reader 的自动 Rule 以裸名称
-连接到 Module 的 `ac.u8` 输出，System 再记录该子模块结果；编译器传播
-结果可用性。第四个周期没有 `transitive visible` 日志，Writer 仍递增，
-无需额外 valid 字段或保持寄存器。
+`read` Method 只在当前值不大于 5 时返回。Reader 显式注册的 Rule
+调用 Method 并记录同周期结果；Method guard 控制整个调用者事务，
+包括日志发布。第四个周期没有 `transitive visible` 日志，Writer 仍递增。
+该观察端不增加 Queue、valid 字段或保持寄存器，原有日志时序保持不变。
+
+原有接口是 `Counter.read` → Reader Rule 的标量结果 → Reader Module 的
+`ac.u8` 输出 → System 消费者 Rule。该跨 Module 输出的可用性传播仍是
+必需能力。当前日志由 Reader 内部 Rule 发布，只验证 Method guard 对调用者
+事务的取消，不验证原有输出连接及 System 消费者的阻塞。把输出改成 State
+或 Queue 会改变采样时序，因此这一接口尚未迁移，不能用当前通过的轨迹抵销。
 
 四个周期的 Work 观测如下。每个有值的格子在低、高采样时刻各输出一次；
 `transitive committed` 来自独立读取已提交状态的 Rule。
