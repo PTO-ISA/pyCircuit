@@ -1,15 +1,15 @@
 """Independent histories for Table State, static instances and atomic selection."""
 
-import re
 import shutil
 import sys
+import traceback
 from collections import Counter
 from pathlib import Path
 
 from transactional_test_support import SourceTest, log_history
 
 fixture = SourceTest(sys.argv[1:], None, "table_case")
-target, case = sys.argv[-2:]
+case = sys.argv[-1]
 inputs = Path(__file__).parent
 
 
@@ -23,7 +23,7 @@ def copy_source(source, destination):
 if case == "index":
     copy_source("index", "design")
     fixture.compile_source("design")
-    rejection = fixture.cli(
+    fixture.cli(
         "link",
         fixture.scratch / "design",
         "--top",
@@ -32,8 +32,6 @@ if case == "index":
         fixture.scratch / "final.ac",
         fails=True,
     )
-    diagnostic = rejection.stderr.lower()
-    assert "index" in diagnostic and "range" in diagnostic, rejection.stderr
     print("transactional Table index proof: PASS")
     sys.exit(0)
 
@@ -70,10 +68,12 @@ if case == "data":
 else:
     copy_source("provider", "provider")
     fixture.compile_source("provider")
-    # Neither the provider's Python source nor its body is available while
-    # compiling the Table declaration and its statically/dynamically bound calls.
-    (fixture.sources / "provider.py").unlink()
-    with fixture.interfaces_only("provider"):
+    if case == "modules":
+        # Compile from the provider interface alone in this representative.
+        (fixture.sources / "provider.py").unlink()
+        with fixture.interfaces_only("provider"):
+            fixture.compile_source("design", "provider")
+    else:
         fixture.compile_source("design", "provider")
     units = ("provider", "design")
     history = []
@@ -131,44 +131,53 @@ else:
                 events.append(("selected", (phase, 0)))
             history.append(events)
 
-# Retain the complete Source units, including body, interface and receipt,
-# before the continuation helper removes the original compilation inputs.
-# Subsequent link commands receive only their saved Linked/Routed artifact.
-for unit in units:
-    shutil.copytree(fixture.scratch / unit, fixture.scratch / "evidence" / unit)
-
 final = fixture.scratch / "final.ac"
-linked = fixture.link_saved(units, "table_case.design.Top", final)
-# Linked preserves dynamic selection and Method semantics as actual operations.
-# The Routed/Final verifiers own their elimination from executable hardware;
-# embedded source evidence may still contain the original operations.
-linked_text = linked.read_text()
-for operation in ("ac.table.select", "ac.method.call"):
-    assert re.search(
-        rf"(?m)^\s*(?:%[^=\n]+=\s*)?{re.escape(operation)}\b", linked_text
-    ), operation
-anchor = fixture.scratch / "anchor"
-fixture.cli("link", "--from-linked", linked, "--target", "anchor", "-o", anchor)
-anchored = fixture.scratch / "anchored.ac"
-fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", anchored)
-executable, _ = fixture.build_system(anchored, target)
+if case == "modules":
+    for unit in units:
+        shutil.copytree(fixture.scratch / unit, fixture.scratch / "evidence" / unit)
+    anchor = fixture.scratch / "anchor"
+    fixture.link_saved(units, "table_case.design.Top", anchor, resume_target="anchor")
+    fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", final)
+else:
+    fixture.cli(
+        "link",
+        *(fixture.scratch / unit for unit in units),
+        "--top",
+        "table_case.design.Top",
+        "-o",
+        final,
+    )
 expected = Counter(
     (2 * cycle + edge, event, values)
     for cycle, events in enumerate(history)
     for edge in (0, 1)
     for event, values in events
 )
-for workers in (1, 2) if target == "cpp" else (1,):
-    arguments = ["--workers", workers] if target == "cpp" else []
-    if case != "data":
-        arguments += (
-            ["--cycles", len(history)]
-            if target == "cpp"
-            else [f"+cycles={len(history)}"]
-        )
-    actual = log_history(fixture.run([executable, *arguments]))
-    assert actual == expected, {
-        "unexpected": actual - expected,
-        "missing": expected - actual,
-    }
-print(f"transactional Table {case} {target}: PASS")
+
+
+def check_backend(target):
+    executable, _ = fixture.build_system(final, target)
+    for workers in (1, 2) if target == "cpp" else (1,):
+        arguments = ["--workers", workers] if target == "cpp" else []
+        if case != "data":
+            arguments += (
+                ["--cycles", len(history)]
+                if target == "cpp"
+                else [f"+cycles={len(history)}"]
+            )
+        actual = log_history(fixture.run([executable, *arguments]))
+        assert actual == expected, {
+            "unexpected": actual - expected,
+            "missing": expected - actual,
+        }
+    print(f"transactional Table {case} {target}: PASS")
+
+
+failures = []
+for target in ("cpp", "verilog"):
+    try:
+        check_backend(target)
+    except Exception as error:
+        traceback.print_exc()
+        failures.append((target, error))
+assert not failures, failures

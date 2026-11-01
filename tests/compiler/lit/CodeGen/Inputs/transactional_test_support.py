@@ -81,7 +81,7 @@ class SourceTest:
         receipt = json.loads((self.scratch / unit / "unit.json").read_text())
         return self.scratch / unit / receipt["files"][kind]
 
-    def link_saved(self, units, top, final):
+    def link_saved(self, units, top, final, *, resume_target="final"):
         """Resume a portable Linked artifact with no source-unit inputs left."""
         linked = final.with_suffix(".linked.ac")
         self.cli(
@@ -100,7 +100,9 @@ class SourceTest:
             shutil.rmtree(self.scratch / unit)
         portable = final.with_suffix(".portable.ac")
         shutil.copyfile(linked, portable)
-        self.cli("link", "--from-linked", portable, "-o", final)
+        self.cli(
+            "link", "--from-linked", portable, "--target", resume_target, "-o", final
+        )
         return portable
 
     @contextmanager

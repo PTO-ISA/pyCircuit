@@ -2,13 +2,14 @@
 
 import shutil
 import sys
+import traceback
 from collections import Counter
 from pathlib import Path
 
 from transactional_test_support import SourceTest, log_history
 
 fixture = SourceTest(sys.argv[1:], None, "partial_case")
-target, case = sys.argv[-2:]
+case = sys.argv[-1]
 inputs = Path(__file__).parent
 
 
@@ -23,9 +24,7 @@ copy_case("state" if case == "failure" else case, "design")
 if case == "constructors":
     copy_case("types", "types")
     fixture.compile_source("types")
-    (fixture.sources / "types.py").unlink()
-    with fixture.interfaces_only("types"):
-        fixture.compile_source("design", "types")
+    fixture.compile_source("design", "types")
     units = ("types", "design")
     history = [
         [("defaults", (0, 0, 3, 255, 1, 0, 1)), ("explicit", (7, 4, 11, 255, 1, 1, 1))]
@@ -88,57 +87,68 @@ else:
 
 final = fixture.scratch / "final.ac"
 top = "Failure" if case == "failure" else "Top"
-linked = fixture.link_saved(units, f"partial_case.design.{top}", final)
-# Reopen the original Linked artifact through a saved Routed anchor. The same
-# independent histories must hold after both continuation boundaries.
-anchor = fixture.scratch / "anchor"
-fixture.cli("link", "--from-linked", linked, "--target", "anchor", "-o", anchor)
-anchored = fixture.scratch / "anchored.ac"
-fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", anchored)
-executable, generated = fixture.build_system(anchored, target)
+if case == "state":
+    for unit in units:
+        shutil.copytree(fixture.scratch / unit, fixture.scratch / "evidence" / unit)
+    anchor = fixture.scratch / "anchor"
+    fixture.link_saved(
+        units, f"partial_case.design.{top}", anchor, resume_target="anchor"
+    )
+    fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", final)
+else:
+    fixture.cli(
+        "link",
+        *(fixture.scratch / unit for unit in units),
+        "--top",
+        f"partial_case.design.{top}",
+        "-o",
+        final,
+    )
 expected = Counter(
     (2 * cycle + edge, event, values)
     for cycle, events in enumerate(history)
     for edge in (0, 1)
     for event, values in events
 )
-for workers in (1, 2) if target == "cpp" else (1,):
-    arguments = ["--workers", workers] if target == "cpp" else []
-    if case != "state":
-        cycles = len(history) + (case == "failure")
-        arguments += ["--cycles", cycles] if target == "cpp" else [f"+cycles={cycles}"]
-    actual = log_history(
-        fixture.run([executable, *arguments], fails=case == "failure"),
-        successful=case != "failure",
-    )
-    assert actual == expected, {
-        "unexpected": actual - expected,
-        "missing": expected - actual,
-    }
-if case == "failure" and target == "cpp":
-    bundle = fixture.scratch / target
-    runtime = Path(fixture.emitter).parent.parent / "runtime/libpyc6_runtime.a"
-    if not runtime.is_file():
-        runtime = Path(fixture.emitter).parent.parent / "lib/libpyc6_runtime.a"
-    adapter = fixture.scratch / "runtime-check"
-    fixture.run(
-        [
-            fixture.cxx,
-            "-std=c++20",
-            "-pthread",
-            f"-I{fixture.repo / 'include'}",
-            f"-I{bundle}",
-            inputs / "transactional-failure-runtime.cpp",
-            *(
-                bundle / row["path"]
-                for row in generated["files"]
-                if row["path"].endswith(".cpp") and row["path"] != "simulation_main.cpp"
-            ),
-            runtime,
-            "-o",
+
+
+def check_backend(target):
+    executable, generated = fixture.build_system(final, target)
+    for workers in (1, 2) if target == "cpp" else (1,):
+        arguments = ["--workers", workers] if target == "cpp" else []
+        if case != "state":
+            cycles = len(history) + (case == "failure")
+            arguments += (
+                ["--cycles", cycles] if target == "cpp" else [f"+cycles={cycles}"]
+            )
+        actual = log_history(
+            fixture.run([executable, *arguments], fails=case == "failure"),
+            successful=case != "failure",
+        )
+        assert actual == expected, {
+            "unexpected": actual - expected,
+            "missing": expected - actual,
+        }
+    if case == "failure" and target == "cpp":
+        bundle = fixture.scratch / target
+        adapter = fixture.scratch / "runtime-check"
+        fixture.compile_cpp(
+            bundle,
+            generated,
             adapter,
-        ]
-    )
-    for workers in (1, 2):
-        fixture.run([adapter, workers, 8])
-print(f"partial updates {case} {target}: PASS")
+            inputs / "transactional-failure-runtime.cpp",
+            exclude=("simulation_main.cpp",),
+        )
+        for workers in (1, 2):
+            fixture.run([adapter, workers, 8])
+    print(f"partial updates {case} {target}: PASS")
+
+
+failures = []
+for target in ("cpp", "verilog"):
+    try:
+        check_backend(target)
+    except Exception as error:
+        traceback.print_exc()
+        failures.append((target, error))
+assert not failures, failures

@@ -1,8 +1,5 @@
 # REQUIRES: verilator
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.data.cpp cpp data
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.data.rtl verilog data
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.modules.cpp cpp modules
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.modules.rtl verilog modules
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.atomic.cpp cpp atomic
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.atomic.rtl verilog atomic
-# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.index cpp index
+# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.data data
+# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.modules modules
+# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.atomic atomic
+# RUN: %python %inputs/transactional-table.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.index index

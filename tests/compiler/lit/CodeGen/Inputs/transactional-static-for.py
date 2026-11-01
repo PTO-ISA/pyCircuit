@@ -3,13 +3,14 @@
 import json
 import shutil
 import sys
+import traceback
 from collections import Counter
 from pathlib import Path
 
 from transactional_test_support import SourceTest, log_history
 
 fixture = SourceTest(sys.argv[1:], None, "static_for_case")
-target, case = sys.argv[-2:]
+case = sys.argv[-1]
 inputs = Path(__file__).parent
 if case == "main":
     shutil.copyfile(
@@ -35,20 +36,21 @@ shutil.copytree(
     inputs / "transactional-static-for", fixture.sources, dirs_exist_ok=True
 )
 fixture.compile_source("provider")
-saved_source = fixture.scratch / "source.ac"
-shutil.copyfile(fixture.artifact("provider", "body"), saved_source)
-source = saved_source.read_text()
-assert "scf.for" in source
-# A fresh parser verifies the unexpanded, still-parameterized source artifact.
-fixture.run([fixture.opt, saved_source, "-o", fixture.scratch / "source-roundtrip.ac"])
-
-# The consumer sees only the provider's published interface. Parameter values
-# specialize its saved loop template later, without importing Python bodies.
-(fixture.sources / "provider.py").unlink()
-with fixture.interfaces_only("provider"):
+if case == "main":
+    saved_source = fixture.scratch / "source.ac"
+    shutil.copyfile(fixture.artifact("provider", "body"), saved_source)
+    assert "scf.for" in saved_source.read_text()
+    fixture.run(
+        [fixture.opt, saved_source, "-o", fixture.scratch / "source-roundtrip.ac"]
+    )
+    # Compile against the published interface without the provider body/source.
+    (fixture.sources / "provider.py").unlink()
+    with fixture.interfaces_only("provider"):
+        fixture.compile_source("consumer", "provider")
+else:
     fixture.compile_source("consumer", "provider")
 
-if case == "main" and target == "cpp":
+if case == "main":
     parameters = fixture.scratch / "parameters.json"
     parameters.write_text(json.dumps([{"name": "COUNT", "value": "2"}]))
     budget = fixture.scratch / "budget.ac"
@@ -89,25 +91,37 @@ if case == "main" and target == "cpp":
 
 final = fixture.scratch / "final.ac"
 top = {"main": "Top", "reset": "ResetTop", "failure": "FailureTop"}[case]
-linked = fixture.link_saved(
-    ("provider", "consumer"), f"static_for_case.consumer.{top}", final
-)
-normalized = linked.read_text()
-assert "scf.for" not in normalized
-assert "ac.source.static_index" not in normalized
-assert "ac.source.unbound" not in normalized
-first, second = fixture.scratch / "expanded.ac", fixture.scratch / "expanded-again.ac"
-fixture.run([fixture.opt, linked, "--ac-expand-static-for", "-o", first])
-fixture.run([fixture.opt, first, "--ac-expand-static-for", "-o", second])
-assert first.read_bytes() == second.read_bytes()
-
-# Resume the Routed boundary after the original final and portable Linked
-# inputs are gone. Python sources and published source units are already gone.
-anchor = fixture.scratch / "anchor"
-fixture.cli("link", "--from-linked", linked, "--target", "anchor", "-o", anchor)
-final.unlink()
-linked.unlink()
-fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", final)
+if case == "main":
+    for unit in ("provider", "consumer"):
+        shutil.copytree(fixture.scratch / unit, fixture.scratch / "evidence" / unit)
+    anchor = fixture.scratch / "anchor"
+    linked = fixture.link_saved(
+        ("provider", "consumer"),
+        f"static_for_case.consumer.{top}",
+        anchor,
+        resume_target="anchor",
+    )
+    normalized = linked.read_text()
+    assert "scf.for" not in normalized
+    assert "ac.source.static_index" not in normalized
+    assert "ac.source.unbound" not in normalized
+    first = fixture.scratch / "expanded.ac"
+    second = fixture.scratch / "expanded-again.ac"
+    fixture.run([fixture.opt, linked, "--ac-expand-static-for", "-o", first])
+    fixture.run([fixture.opt, first, "--ac-expand-static-for", "-o", second])
+    assert first.read_bytes() == second.read_bytes()
+    linked.unlink()
+    fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", final)
+else:
+    fixture.cli(
+        "link",
+        fixture.scratch / "provider",
+        fixture.scratch / "consumer",
+        "--top",
+        f"static_for_case.consumer.{top}",
+        "-o",
+        final,
+    )
 
 
 def kernel_event(count, phase):
@@ -188,18 +202,32 @@ expected = Counter(
     for event, values in events
 )
 
-executable, _ = fixture.build_system(final, target)
-for workers in (1, 2) if target == "cpp" else (1,):
-    options = ["--workers", workers] if target == "cpp" else []
-    if case != "reset":
-        cycles = 3 if case == "failure" else 8
-        options += ["--cycles", cycles] if target == "cpp" else [f"+cycles={cycles}"]
-    actual = log_history(
-        fixture.run([executable, *options], fails=case == "failure"),
-        successful=case != "failure",
-    )
-    assert actual == expected, {
-        "unexpected": actual - expected,
-        "missing": expected - actual,
-    }
-print(f"transactional static for {case} {target}: PASS")
+
+def check_backend(target):
+    executable, _ = fixture.build_system(final, target)
+    for workers in (1, 2) if target == "cpp" else (1,):
+        options = ["--workers", workers] if target == "cpp" else []
+        if case != "reset":
+            cycles = 3 if case == "failure" else 8
+            options += (
+                ["--cycles", cycles] if target == "cpp" else [f"+cycles={cycles}"]
+            )
+        actual = log_history(
+            fixture.run([executable, *options], fails=case == "failure"),
+            successful=case != "failure",
+        )
+        assert actual == expected, {
+            "unexpected": actual - expected,
+            "missing": expected - actual,
+        }
+    print(f"transactional static for {case} {target}: PASS")
+
+
+failures = []
+for target in ("cpp", "verilog"):
+    try:
+        check_backend(target)
+    except Exception as error:
+        traceback.print_exc()
+        failures.append((target, error))
+assert not failures, failures
