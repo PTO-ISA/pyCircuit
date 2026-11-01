@@ -137,6 +137,46 @@
         "*"
       ],
       "omit_empty": []
+    },
+    "ac.struct": {
+      "fields": [
+        "sym_name",
+        "fields",
+        "source_defaults",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.struct.construct": {
+      "fields": [
+        "field_names",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.struct.update": {
+      "fields": [
+        "fields",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.bits.update": {
+      "fields": [
+        "low",
+        "high",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.state.write_partial": {
+      "fields": [
+        "fields",
+        "low",
+        "high",
+        "*"
+      ],
+      "omit_empty": []
     }
   }
 }

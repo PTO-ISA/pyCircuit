@@ -69,3 +69,9 @@ the selected metadata filter.
 Installed commands locate the native `pycircuit-print` tool using the same
 bundled or installed-prefix lookup as compile/link/emit. For development, set
 `PYCIRCUIT_PRINTER` to the native executable built from this checkout.
+
+The default operation table retains record constructor defaults, update field
+paths and static interval bounds. Linked `ac.struct.update`, `ac.bits.update`
+and `ac.state.write_partial` remain visible; normalization expands value updates
+only in the lowering copy. `ac.struct.construct` is normalized before source-unit
+publication to complete `ac.struct.create` operations.

@@ -161,10 +161,31 @@ requests two pushes and is rejected when they overlap. See
 
 Finite nominal Structs containing Bits, Enum and nested Struct fields retain
 logical types through resource interfaces and by-value Method arguments/results.
-Construct every field explicitly; read fields or reuse whole local snapshots,
-and update State with a complete record. Reset restores its initial
-record (unknown when omitted) and empties Queues. Common analysis tracks knownness per packed leaf, so
-X/Z data does not taint a separate known control field; unknown controls remain
+Struct constructors accept positional and keyword fields. Explicit arguments override
+field declaration defaults; remaining fields recursively zero. An explicit nested
+constructor applies that type's defaults, while an omitted nested field without a
+default recursively zeros. Defaults are published in source interfaces separately
+from packed layout and use MLIR static evaluation.
+
+A Module declaration `entry: Entry(...)` initializes State through the same
+constructor as `entry: Entry = Entry(...)`; `entry: Entry` initializes to X,
+and `entry = Entry(...)` constructs an ordinary value.
+
+Local fields, nested fields and static Bits intervals support assignment and
+compound assignment, for example `value.header.tag += 1` or
+`value.data[0:4] = nibble`. Intervals use low-inclusive, high-exclusive bounds;
+static parameters, omitted bounds and single-bit indexing are supported. Local
+updates rebind immutable SSA values, so earlier snapshots retain their data.
+Enum fields remain nominal values and cannot be implicitly sliced.
+
+State field and slice assignments propose updates while every state read still
+observes committed old Q. Nonoverlapping writes within one outer Rule transaction,
+including nested Methods and instance aliases, compose atomically. Overlapping
+writes require proven exclusive paths; separate Rules retain resource-level
+conflicts. Queue payloads must first be read into ordinary values before updating
+fields. Reset restores its initial record (unknown when omitted) and empties
+Queues. Common analysis tracks knownness per packed bit, so X/Z data does not
+taint a separate known control field or selected interval; unknown controls remain
 rejected. Routing retains and authenticates the complete nominal declarations,
 including field order and types. Equal packed widths do not make different
 record declarations interchangeable. See `examples/structured_packet`.

@@ -82,7 +82,7 @@ do not migrate the retained Table parameter matrix or resolve external resources
 
 The full API/example registries retain additional migration failures beyond
 Table: legacy automatic registration/value interfaces,
-helper closures/loops/Table callbacks, Struct defaults and retained anchor/source fixtures. These
+helper closures/loops/Table callbacks and retained anchor/source fixtures. These
 remain required work in their existing owners. A smaller passing transactional
 selection does not close those gaps. Do not reduce the registries or restore
 old semantics to obtain a passing gate.
@@ -95,6 +95,16 @@ extracts its pure bias and accumulation calculations without changing its oracle
 or cycle count. `CodeGen/transactional-pure-helpers.test` owns independent data,
 transaction-admission and saved-stage histories. Closures, loops, Table callbacks
 and wider expression migration remain open; t-gfsim helper support is deferred.
+
+Struct constructors complete explicit arguments, declared defaults and recursive
+zero values through `ac-normalize-record-constructors`; interface declarations
+publish defaults separately from physical field layout. Local field and static
+Bits assignments use immutable updates. State partial proposals retain their
+identity through common transaction analysis, compose in Routed construction,
+and are checked by structural replay. Reads retain old-Q semantics and cross-Rule
+resource conflicts are unchanged. `transactional-partial-updates.test` owns the
+focused dual-backend histories. Dynamic slices, Table/Memory updates and direct
+t-gfsim partial writes remain outside this implementation.
 
 ## Validation and evidence
 

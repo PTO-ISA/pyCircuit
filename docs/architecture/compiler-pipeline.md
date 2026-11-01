@@ -76,6 +76,20 @@ resource connection constraints. Ordinary Rules require explicit registration;
 an autorule becomes an ordinary Rule with one registration. Supported
 Module-level branches retain their registration selection as `scf.if`.
 
+Source record constructors normalize to complete ordered `ac.struct.create`
+operations using explicit arguments, authenticated field defaults and recursive
+zero completion. Defaults remain separate source-interface metadata; no design
+functions execute during capture.
+
+Local field/slice updates and partial State proposals remain readable in Linked
+ACIR. Common preparation verifies and clones Linked, inlines pure helpers, then
+runs `ac-normalize-value-updates`. The shared update core reconstructs nominal
+Structs and uses Bits extract/concat at leaves. Common analysis resolves actual
+resources and checks write intervals. Routing combines selected disjoint proposals
+into one State update while all source reads remain old Q. Replay independently
+checks reconstruction, paths and commit controls from the original Linked
+snapshot. Saved Linked, Routed and Final stages need no Python source to resume.
+
 ### Independent compilation and interface publication
 
 `compilePythonSourceUnit` imports the source, solves locally decidable payload

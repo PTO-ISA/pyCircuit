@@ -1,21 +1,20 @@
-# ruff: noqa: F823 -- Module state is compiler-owned.
-"""Construct a packet and retain it in the caller's atomic transaction."""
+# ruff: noqa: F821, F823 -- Module state is compiler-owned.
+"""Update a packet snapshot in the caller's atomic transaction."""
 
 import pycircuit as ac
-from example_structured_packet.types import Header, Mode, Packet
+from example_structured_packet.types import Mode, Packet
 
 
 @ac.module
 def Processor():  # noqa: N802
     accepted: ac.u8 = 0
-    retained: Packet = Packet(header=Header(opcode=0, mode=Mode.IDLE), data=0)
+    retained: Packet()
 
     @ac.method(guard=lambda packet: packet.header.mode == Mode.RAW)
     def process(packet: Packet) -> Packet:
-        result = Packet(
-            header=Header(opcode=packet.header.opcode + 1, mode=Mode.DONE),
-            data=packet.data,
-        )
+        result = packet
+        result.header.opcode += 1
+        result.header.mode = Mode.DONE
         retained = result
         accepted = accepted + 1
         ac.log("info", "process", packet.header.opcode, retained.header.opcode)
