@@ -1,0 +1,3 @@
+# REQUIRES: verilator, iverilog, vvp
+# RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.constructors.cpp cpp constructors
+# RUN: %python %inputs/transactional-partial-updates.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.constructors.rtl verilog constructors

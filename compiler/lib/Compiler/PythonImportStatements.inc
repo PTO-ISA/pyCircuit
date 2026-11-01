@@ -741,8 +741,17 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
         scope.bindings[name] = Binding{*value, {}, {}, nullptr};
         return success();
       }
-      Type type = annotation(typeNode, scope.owner->symbol);
       AstNode initial = node.child("value");
+      // A constructor annotation declares initialized storage; an ordinary
+      // assignment of the same constructor remains a combinational value.
+      if (typeNode.kind() == "Call") {
+        if (initial)
+          return fail(node, "constructor state declaration already has an initializer");
+        initial = typeNode;
+        typeNode = typeNode.child("func");
+      }
+      Type type = annotation(typeNode, scope.owner->symbol);
+
       if (!type)
         return failure();
       if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type))

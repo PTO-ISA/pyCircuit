@@ -25,7 +25,7 @@ namespace detail {
 bool isCombinationalHardwareOperation(Operation *operation) {
   return isa<BitsConstantOp, BitsConstant4Op, BitsUnaryOp, BitsBinaryOp,
              BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
-             BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
+             BitsResizeOp, StructCreateOp, StructGetOp, StructConstructOp, EnumCreateOp,
              EnumToBitsOp, EnumFromBitsOp, TableCreateOp, TableSplatOp,
              TableMapOp, TableViewOp, TableIndexOp, TableReadOp, TableGetOp, TableMatchOp,
              TableChooseOp, TableFoldOp, ValueMergeOp, ValueRequireOp>(

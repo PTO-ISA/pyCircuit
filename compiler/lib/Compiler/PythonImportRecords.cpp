@@ -9,6 +9,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/RecordConstructors.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallString.h"
@@ -174,6 +175,7 @@ private:
   void yield(const AstNode &node, ValueRange values = {}) {
     op(node, "ac.yield", values, {});
   }
+  FailureOr<Attribute> recordDefault(const AstNode &node, StringRef definition);
   FailureOr<ac::StaticExprAttr> staticExpr(const AstNode &node,
                                            StringRef definition);
   ac::StaticExprAttr staticLiteral(const llvm::APSInt &number,
@@ -479,6 +481,46 @@ FailureOr<ac::StaticExprAttr> Importer::staticExpr(const AstNode &node,
   }
   (void)fail(node, "unsupported static expression");
   return failure();
+}
+
+FailureOr<Attribute> Importer::recordDefault(const AstNode &node,
+                                                   StringRef definition) {
+  if (node.kind() == "Call") {
+    auto binding = resolve(node.child("func"));
+    if (binding && isa_and_nonnull<ac::StructOp>(binding->declaration)) {
+      auto fields = binding->declaration->getAttrOfType<ArrayAttr>("fields");
+      SmallVector<StringRef> names;
+      for (Attribute raw : fields)
+        names.push_back(cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue());
+      auto args = detail::normalizeCallArguments(node, names, error,
+          "Struct default argument arity mismatch", nullptr, names.size());
+      if (failed(args)) return failure();
+      SmallVector<NamedAttribute> values;
+      for (size_t i = 0; i < args->size(); ++i) {
+        if (!(*args)[i]) continue;
+        auto value = recordDefault((*args)[i], definition);
+        if (failed(value)) return failure();
+        values.push_back(b.getNamedAttr(names[i], *value));
+      }
+      return Attribute(b.getDictionaryAttr({
+          b.getNamedAttr("kind", b.getStringAttr("record")),
+          b.getNamedAttr("nominal", binding->symbol),
+          b.getNamedAttr("fields", b.getDictionaryAttr(values))}));
+    }
+  }
+  if (node.kind() == "Attribute") {
+    auto binding = resolve(node.child("value"));
+    if (binding && isa_and_nonnull<ac::EnumOp>(binding->declaration))
+      return Attribute(b.getDictionaryAttr({
+          b.getNamedAttr("kind", b.getStringAttr("enum")),
+          b.getNamedAttr("nominal", binding->symbol),
+          b.getNamedAttr("member", b.getStringAttr(node.string("attr")))}));
+  }
+  if (auto flag = dyn_cast_or_null<BoolAttr>(node.get("value")))
+    return Attribute(staticLiteral(llvm::APSInt(llvm::APInt(1, flag.getValue()), true), node, definition));
+  auto scalar = staticExpr(node, definition);
+  if (failed(scalar)) return failure();
+  return Attribute(*scalar);
 }
 
 Type Importer::annotation(const AstNode &node, StringRef definition) {
@@ -950,9 +992,8 @@ LogicalResult Importer::nominals() {
         if (field.kind() == "Pass")
           continue;
         if (field.kind() != "AnnAssign" ||
-            field.child("target").kind() != "Name" || field.child("value"))
-          return fail(field, "Struct fields require named type annotations "
-                             "without runtime defaults");
+            field.child("target").kind() != "Name")
+          return fail(field, "Struct fields require named type annotations");
         auto type =
             annotation(field.child("annotation"), binding.symbol.getValue());
         if (!type)
@@ -963,6 +1004,20 @@ LogicalResult Importer::nominals() {
              b.getNamedAttr("type", TypeAttr::get(type))}));
       }
       binding.declaration->setAttr("fields", b.getArrayAttr(fields));
+    }
+  // Defaults are source constructor metadata, separate from packed layout.
+  for (auto &[name, binding] : names)
+    if (isa_and_nonnull<ac::StructOp>(binding.declaration) && !binding.provider) {
+      SmallVector<NamedAttribute> defaults;
+      for (size_t i = 0; i < binding.site.array("body").size(); ++i) {
+        auto field = binding.site.item("body", i);
+        if (!field.child("value")) continue;
+        auto value = recordDefault(field.child("value"), binding.symbol.getValue());
+        if (failed(value)) return failure();
+        defaults.push_back(b.getNamedAttr(field.child("target").string("id"), *value));
+      }
+      if (!defaults.empty())
+        binding.declaration->setAttr("source_defaults", b.getDictionaryAttr(defaults));
     }
   return success();
 }
@@ -1020,7 +1075,7 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   });
   result->getOperation()->setAttr("ac.import_bindings",
                                   b.getArrayAttr(imports));
-  if (invalid)
+  if (invalid || failed(ac::normalizeRecordConstructors(*result)))
     return failure();
   return std::move(result);
 }

@@ -504,22 +504,25 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
     for (auto attr : fields)
       formals.push_back(
           cast<DictionaryAttr>(attr).getAs<StringAttr>("name").getValue());
-    auto args = detail::normalizeCallArguments(node, formals, error);
+    SmallVector<size_t> evaluationOrder;
+    auto args = detail::normalizeCallArguments(node, formals, error,
+        "Struct constructor argument arity mismatch", &evaluationOrder, formals.size());
     if (failed(args))
       return failure();
     SmallVector<Value> values;
-    for (size_t i = 0; i < args->size(); ++i) {
-      auto value = scalar(
-          (*args)[i], scope,
+    SmallVector<Attribute> fieldNames;
+    for (size_t i : evaluationOrder) {
+      auto value = scalar((*args)[i], scope,
           cast<DictionaryAttr>(fields[i]).getAs<TypeAttr>("type").getValue());
-      if (failed(value))
-        return failure();
+      if (failed(value)) return failure();
       values.push_back(*value);
+      fieldNames.push_back(b.getStringAttr(formals[i]));
     }
     auto type = ac::StructType::get(
         b.getContext(), b.getStringAttr(resolved->symbol.getValue()));
     return SmallVector<Value>{
-        op(node, "ac.struct.create", values, type)->getResult(0)};
+        op(node, "ac.struct.construct", values, type,
+            {b.getNamedAttr("field_names", b.getArrayAttr(fieldNames))})->getResult(0)};
   }
   if (marker(func, "four_state")) {
     if (node.array("args").size() != 1 || !node.array("keywords").empty()) {

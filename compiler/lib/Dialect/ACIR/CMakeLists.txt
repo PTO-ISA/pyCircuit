@@ -13,6 +13,7 @@ add_acir_library(ACIRDialect SOURCES
   TransactionalContracts.cpp
   TransactionalMethodConstraints.cpp
   TransactionalAnalysis.cpp
+  RecordConstructors.cpp
   TransactionalPreparation.cpp
   TransactionalRouting.cpp
   ACIRBitsOps.cpp

@@ -885,7 +885,8 @@ def ACIR_StructOp : ACIR_Op<"struct", [Symbol]> {
     same rule recursively, and total width is the sum of field widths. Both
     backends use this layout independently of host struct alignment.
   }];
-  let arguments = (ins StrAttr:$sym_name, DictArrayAttr:$fields);
+  let arguments = (ins StrAttr:$sym_name, DictArrayAttr:$fields,
+      OptionalAttr<DictionaryAttr>:$source_defaults);
   let hasVerifier = 1;
   let assemblyFormat =
       "$sym_name `fields` $fields attr-dict";
@@ -932,3 +933,10 @@ def ACIR_ResourceConnectionOp : ACIR_Op<"resource.connection"> {
 }
 
 #endif // ACIR_DIALECT_ACIR_ACIROPS_TD
+
+def ACIR_StructConstructOp : ACIR_Op<"struct.construct", [Pure]> {
+  let summary = "Bind source constructor arguments before completing defaults";
+  let arguments = (ins Variadic<ACIR_HardwareType>:$values, ArrayAttr:$field_names);
+  let results = (outs ACIR_StructType:$result);
+  let hasVerifier = 1;
+}

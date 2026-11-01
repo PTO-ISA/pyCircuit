@@ -1,5 +1,6 @@
 #include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/RecordConstructors.h"
 #include "llvm/ADT/StringSet.h"
 using namespace mlir;
 namespace acir::ac {
@@ -24,6 +25,8 @@ LogicalResult StructOp::verify() {
     if (!names.insert(field.getAs<StringAttr>("name").getValue()).second)
       return emitOpError() << "Struct fields require unique names";
   }
+  if (failed(verifyRecordDefaults(*this)))
+    return failure();
   return success(succeeded(analysis.getPackedWidth(
       StructType::get(getContext(), getSymNameAttr()), {}, *this)));
 }
