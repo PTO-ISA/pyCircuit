@@ -74,6 +74,10 @@ python3 examples/rv32i_core/verification/spec_workflow.py \
   --clang "$RV32_CLANG" --spike "$SPIKE" --output "$SPEC_OUT"
 ```
 
+The [native NDF gate](NDF_GATE.md) documents build/check/diff/coverage and a
+real trace query with a distinct first-draft snapshot. The entry accepts
+`--before PREVIOUS_PROJECT` to include this version comparison.
+
 The entry first invokes installed `pycircuit spec-check`, then compiles fresh
 `families`, `throughput`, `smoke`, `c-array`, `ecall` and `illegal_fence_i` programs and obtains independent
 Spike or explicitly selected closed-RV32I expectations. FENCE.I rejection

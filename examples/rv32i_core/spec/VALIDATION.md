@@ -62,3 +62,11 @@ verified final IR per policy. All 12 physical RTL comparisons still match the
 historical mapping inputs. It is not another 28-view or 160-view campaign.
 The following publication changes only result text/records, not the tested
 hardware sources, workflow code or normative clause bodies.
+
+## Native NDF gate
+
+The [native gate results](NDF_GATE.md) distinguish the first unapproved draft
+from the evidence-bearing draft, refresh both indexes, inspect actual native
+diffs and run native coverage and trace. Empty active-L1 coverage is explicitly
+N/A for this draft. This graph-only follow-up does not rerun or relabel any
+previous processor, RTL or mapping result.
