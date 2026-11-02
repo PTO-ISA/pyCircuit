@@ -141,5 +141,38 @@
       "retired": 434,
       "cycles": 567
     }
-  ]
+  ],
+  "final_installed_consumer": {
+    "demo_tested_commit": "d2789a52914646bae276d541f6e7cc9277801956",
+    "tool_tested_commit": "d4a36a518d18fc233d5adbd14c8e971ec080fc7d",
+    "stages": [
+      {
+        "stage": "spec",
+        "rc": 0
+      },
+      {
+        "stage": "prepare",
+        "rc": 0
+      },
+      {
+        "stage": "execute",
+        "rc": 0
+      },
+      {
+        "stage": "independent-check",
+        "rc": 0
+      }
+    ],
+    "views": 4,
+    "complete_state_groups": 1,
+    "same_final_ir_per_strategy": true,
+    "bound_graph": {
+      "edge_count": 59,
+      "node_count": 38
+    },
+    "physical_rtl_matches_historical_mapping": true,
+    "normal_retirements_per_view": 434,
+    "virtual_cycles_per_view": 567,
+    "spec_approval": "NOT_RECORDED"
+  }
 }

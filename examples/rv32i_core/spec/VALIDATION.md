@@ -45,3 +45,20 @@ indexed with the authored Spec. Indexing it records the scope of that command;
 it does not promote draft requirements to active or establish formal refinement.
 Independent review, specification approval, official ISA certification,
 full formal equivalence, STA and placement/routing remain unrecorded or NOT_RUN.
+
+## Final installed-consumer replay
+
+The standard-evidence-capable SDK is built/installed at tool
+`d4a36a518d18fc233d5adbd14c8e971ec080fc7d`. Its installed CLI/adapter files
+match that source. With demo `d2789a52914646bae276d541f6e7cc9277801956`,
+the same public workflow with `--case c-array` passes all four stages (each rc 0):
+NDF source/evidence traceability, fresh C/Spike preparation, four real model
+executions and the independent raw/state/RAM/store checker. The graph including
+standard evidence has 38 nodes and 59 relationships, with 16 definition bindings.
+
+This is a separate 4/4 C-program replay: 434 normal retirements plus one expected
+trap and 567 virtual cycles per view; one complete-state group and the same
+verified final IR per policy. All 12 physical RTL comparisons still match the
+historical mapping inputs. It is not another 28-view or 160-view campaign.
+The following publication changes only result text/records, not the tested
+hardware sources, workflow code or normative clause bodies.
