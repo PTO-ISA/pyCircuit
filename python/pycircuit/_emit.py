@@ -241,6 +241,8 @@ def _target_files(payload: dict, target: str):
     if target == "verilog":
         receipt["root_rtl_name"] = payload["root_rtl_name"]
         receipt["rtl_mode"] = payload.get("rtl_mode", "managed")
+    if "execution_model" in payload:
+        receipt["execution_model"] = payload["execution_model"]
     return files, receipt
 
 

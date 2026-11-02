@@ -204,6 +204,15 @@
       "system_source": "bench.py",
       "system_cycles": 26,
       "system_scope": "Four-bank writes/readbacks, old-value responses, arbitration, output backpressure and explicit completion; full Module oracle remains separate."
+    },
+    {
+      "name": "timed_word_pipeline",
+      "folder": "examples/timed_word_pipeline",
+      "source": "timed_word_pipeline.py",
+      "system": "TimedWordPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 24,
+      "system_scope": "Two timing profiles with shared word/state ownership; the public model-entry regression separately checks automatic functional/timing projection, a state-dependent digest model, independent queue timing, native workers1/2 and Icarus."
     }
   ],
   "api_coverage": [

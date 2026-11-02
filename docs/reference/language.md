@@ -16,6 +16,41 @@ the raw nominal carrier and separate Boolean membership to two ordinary local
 names. Declaration-only, empty and facade files use the ordinary independent
 compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
 
+## Functional and timing execution selection
+
+A bounded `@ac.module(execution={...})` declaration names a single deterministic
+request/response worker, its two finite queues, callable/predicate roles and
+private II profile. Native link checks actual ownership, topology, known initial
+state and total worker effects before deriving an entry with
+`pycircuit link --execution functional|timing`. The original timing source and
+worker are retained; authors do not write a second functional root. Backend
+selection remains `pycircuit emit --target cpp|verilog` for either strategy.
+
+Functional execution serializes logical requests through the same generated
+worker and architectural state, removing only proved FIFO waits and private II
+state under an always-ready sink. Timing retains latency, II, capacity and
+backpressure. Architectural timers, visible waits, cancellation, multiworker or
+cross-domain resources and non-total/trapping operations are rejected for this
+slice. Unknown active data/control fails before new effects; inactive payload
+is not demanded. This is not an arbitrary timing-IR projection or a broad
+exception model. See the [shared execution contract](../development/shared-functional-timing-model.md)
+for declaration fields, the typed input protocol and independent evidence.
+
+A separate bounded declaration,
+`@ac.module(execution={"profile": "clocked_fixedpoint_v1", "state_output": 1})`,
+selects a complete finite-state model with one data record input, a level/event
+record and an identity witness of its sole state owner. Owned stateless pure
+components may compose; hidden state/resources/observations and clock-as-data
+are rejected. The installed `run --memory platform.json --model qualified.Root
+--execution functional|timing --target cpp|verilog` adapter supplies explicit
+blocking-word-memory/event roles. Timing executes every cycle; functional may
+fold only a known complete-state fixed point between declared external input
+change boundaries, with no handshake or event. Architectural timers therefore
+prevent folding rather than disappearing. This is a deterministic stutter
+reduction, not a second ISA model or a general latency-zero projection. See the
+[clocked contract](../development/clocked-model-execution.md),
+repository example `examples/clocked_accumulator/README.md`.
+
 ## Rule authoring requirements and current admission
 
 The [four-state/System supplement](../rfcs/four-state-system.md) defines explicit

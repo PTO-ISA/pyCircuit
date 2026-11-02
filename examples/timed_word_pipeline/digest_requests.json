@@ -1,0 +1,47 @@
+[
+  {
+    "active": 1,
+    "request": {
+      "ticket": 0,
+      "live": 1,
+      "value": 4,
+      "mask": 3
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "ticket": 1,
+      "live": 0,
+      "value": 99,
+      "mask": 7
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "ticket": 2,
+      "live": 1,
+      "value": 5,
+      "mask": 6
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "ticket": 3,
+      "live": 1,
+      "value": 7,
+      "mask": 0
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "ticket": 4,
+      "live": 1,
+      "value": 9,
+      "mask": 1
+    }
+  }
+]

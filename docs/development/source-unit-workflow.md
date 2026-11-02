@@ -11,6 +11,24 @@ provider closures. Its public build driver emits C++ and Verilog from each
 same linked design; the generated boundary carries values and numerical effects
 while an external consumer retains scheduling and architectural state ownership.
 
+## Selecting execution strategy
+
+The [shared execution extension](shared-functional-timing-model.md) lets one
+`@ac.module(execution={...})` source declare a deterministic worker plus finite
+FIFO/II timing. `pycircuit link --execution functional|timing` authenticates the
+same explicit unit closure, proves the bounded projection contract and derives
+the selected entry in common IR. Both `cpp` and `verilog` can emit that final.
+Original definitions remain available to normal System callers. This adds no
+second source compiler, arithmetic DUT or backend-only semantics.
+
+`pycircuit run EXAMPLE --execution STRATEGY --model QUALIFIED_MODEL --inputs
+requests.json --target BACKEND` drives the generated typed entry through normal
+Runtime/managed RTL checks and commit. Functional uses logical steps; timing
+also takes `--cycles` and `--consumer-start`. The run receipt records execution,
+not oracle approval. The example helper's explicit `PROVIDER_UNITS` and
+`MODEL_SOURCES` close public providers and model units independently from their
+consuming System bench. See the example README for portable commands.
+
 ## Ownership through the compiler
 
 The public commands separate source publication, linking and emission. Each

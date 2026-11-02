@@ -192,3 +192,17 @@ def test_retirement_scan_rejects_retired_configure_preset_options(
 
     assert failures
     assert any(option in failure for failure in failures)
+
+
+def test_public_surface_rejects_retired_commands_in_a_static_registration_loop(
+    isolated_public_surface_scan: tuple[ModuleType, Path],
+) -> None:
+    gate, package_init = isolated_public_surface_scan
+    cli = package_init.parent / "cli.py"
+    source = (ROOT / "python/pycircuit/cli.py").read_text()
+    cli.write_text(
+        source.replace(
+            'for name in ("verify", "benchmark"):', 'for name in ("verify", "pycc"):'
+        )
+    )
+    assert gate.scan_public_surface()

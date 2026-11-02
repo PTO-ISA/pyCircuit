@@ -14,7 +14,13 @@ module dff #(
     output wire T q,
     // Private generated lifecycle controls; not source hardware ports.
     input  wire [2:0] pyc_phase,
+`ifdef SYNTHESIS
+    // Generated physical instances bind this control explicitly. A pull net
+    // is a simulation default, not a synthesizable standard-cell input type.
+    input  wire pyc_root_commit_ok,
+`else
     input  tri1 pyc_root_commit_ok,
+`endif
     output wire pyc_local_error
 );
     // Internal declarations: only q_current owns register state.

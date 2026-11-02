@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog inventories **22** registered designs and **25** API-owned coverage cases.
+The current catalog inventories **23** registered designs and **25** API-owned coverage cases.
 
 - [Recommended examples and learning path](GUIDE.md)
 - [Writing and verification standard](STANDARD.md)
@@ -35,6 +35,7 @@ The current catalog inventories **22** registered designs and **25** API-owned c
 | [calculator](calculator/README.md) | [Python](calculator/calculator.py) | [ExerciseCalculator](calculator/bench.py) | [driver](calculator/driver.cpp) | [testbench](calculator/rtl_tb.sv) | [artifacts](calculator/GENERATED.md) |
 | [dma](dma/README.md) | [Python](dma/dma.py) | [ExerciseDma](dma/bench.py) | [driver](dma/driver.cpp) | [testbench](dma/rtl_tb.sv) | [artifacts](dma/GENERATED.md) |
 | [memory_banks](memory_banks/README.md) | [Python](memory_banks/memory_banks.py) | [ExerciseMemoryBanks](memory_banks/bench.py) | [driver](memory_banks/driver.cpp) | [testbench](memory_banks/rtl_tb.sv) | [artifacts](memory_banks/GENERATED.md) |
+| [timed_word_pipeline](timed_word_pipeline/README.md) | [Python](timed_word_pipeline/timed_word_pipeline.py) | [TimedWordPipelineSystem](timed_word_pipeline/bench.py) | compiler-generated | compiler-generated | — |
 
 ## API-owned coverage
 

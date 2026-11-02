@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 from pathlib import Path
 
 from ._driver import _DriverError
@@ -15,11 +16,16 @@ from ._publication import _PublicationError
 from .packaged_toolchain import _installed_prefix_root, bundled_toolchain_root
 
 
-def _invoke(command: list[str], *, timeout: int, env: dict[str, str]) -> None:
+def _invoke(
+    command: list[str], *, timeout: int, env: dict[str, str], stdout=None
+) -> None:
+    output = {} if stdout is None else {"stdout": stdout}
     if os.name == "posix":
         # CMake and build tools spawn compilers. Own a separate process group so
         # a timed-out build cannot leave those children consuming resources.
-        with subprocess.Popen(command, env=env, start_new_session=True) as result:
+        with subprocess.Popen(
+            command, env=env, start_new_session=True, **output
+        ) as result:
             try:
                 result.wait(timeout=timeout)
             except (subprocess.TimeoutExpired, KeyboardInterrupt):
@@ -30,7 +36,9 @@ def _invoke(command: list[str], *, timeout: int, env: dict[str, str]) -> None:
                 result.wait()
                 raise
     else:
-        result = subprocess.run(command, env=env, timeout=timeout, check=False)
+        result = subprocess.run(
+            command, env=env, timeout=timeout, check=False, **output
+        )
     if result.returncode:
         raise _DriverError(f"command failed ({result.returncode}): {' '.join(command)}")
 
@@ -44,7 +52,45 @@ def run_command(
     cycles: int | None,
     workers: int,
     timeout: int,
+    execution: str | None = None,
+    model: str | None = None,
+    inputs: str | None = None,
+    consumer_start: int = 0,
+    memory: str | None = None,
 ) -> None:
+    if execution not in (None, "functional", "timing"):
+        raise _DriverError("execution must be functional or timing")
+    if memory is not None and (
+        inputs is not None
+        or model is None
+        or execution is None
+        or cycles is not None
+        or workers != 1
+    ):
+        raise _DriverError(
+            "memory run requires execution/model, one worker and config-owned cycles; do not combine inputs/cycles"
+        )
+    if inputs is not None and (execution is None or model is None):
+        raise _DriverError("model inputs require --execution and --model")
+    if (
+        memory is None
+        and inputs is None
+        and (model is not None or consumer_start or execution == "functional")
+    ):
+        raise _DriverError("functional/model run requires --model and --inputs")
+    if consumer_start < 0 or (execution == "functional" and consumer_start):
+        raise _DriverError("consumer-start is a nonnegative timing-only condition")
+    if model is not None and not all(part.isidentifier() for part in model.split(".")):
+        raise _DriverError("model requires a qualified source declaration name")
+    request_rows = None
+    if inputs is not None:
+        from ._model_run import read_requests
+
+        request_rows = read_requests(Path(inputs))
+        if execution == "functional" and cycles is not None:
+            raise _DriverError(
+                "functional input streams define logical steps; do not supply --cycles"
+            )
     if cycles is not None and (cycles <= 0 or cycles > (2**63 - 1) // 2):
         raise _DriverError("cycles must be positive and fit the finite runtime limit")
     if workers <= 0 or timeout <= 0:
@@ -71,11 +117,10 @@ def run_command(
     package = installed / "share/pycircuit/cmake"
     if not (package / "pycircuitConfig.cmake").is_file():
         raise _DriverError(f"toolchain has no Runtime CMake package: {package}")
-    build = (
-        Path(build_dir).resolve()
-        if build_dir
-        else (Path.cwd() / ".pycircuit_out/run" / directory.name / target).resolve()
-    )
+    default_run = Path.cwd() / ".pycircuit_out/run" / directory.name
+    if execution:
+        default_run = default_run / execution / (model or "system")
+    build = Path(build_dir).resolve() if build_dir else (default_run / target).resolve()
     if build == directory or build in directory.parents or directory in build.parents:
         raise _DriverError("run requires a build directory outside the example sources")
     cache = build / "CMakeCache.txt"
@@ -97,8 +142,38 @@ def run_command(
                 "build directory is not an isolated run for this backend; "
                 "choose a separate build directory"
             )
-    execution = build / "run-execution.json"
-    execution.unlink(missing_ok=True)
+        for key, selected in (
+            ("PYC_EXAMPLE_EXECUTION", execution),
+            ("PYC_EXAMPLE_MODEL_TOP", model),
+        ):
+            found = [
+                line.partition("=")[2]
+                for line in cache.read_text().splitlines()
+                if line.startswith(key + ":")
+            ]
+            if found != [selected] if selected is not None else found not in ([], [""]):
+                raise _DriverError(
+                    "build directory belongs to another execution/model selection"
+                )
+    execution_receipt = build / "run-execution.json"
+    execution_receipt.unlink(missing_ok=True)
+    if memory is not None:
+        latest = build / "clocked-run/execution.json"
+        latest.parent.mkdir(parents=True, exist_ok=True)
+        latest.write_text(
+            json.dumps(
+                {
+                    "schema": "pycircuit-clocked-memory-run-v1",
+                    "status": "incomplete",
+                    "events": None,
+                    "stores": None,
+                    "executed_ticks": None,
+                    "model_cycles": None,
+                    "validation": "new attempt; no completed execution claim",
+                }
+            )
+            + "\n"
+        )
     env = dict(os.environ, PYC_TOOLCHAIN_ROOT=str(installed))
     # Resolve all subprocesses through the selected installed compiler, not an
     # unrelated developer override inherited from an interactive shell.
@@ -109,30 +184,83 @@ def run_command(
         "PYCIRCUIT_NATIVE_BUILD",
     ):
         env.pop(name, None)
+    configure = [
+        "cmake",
+        "-S",
+        str(directory),
+        "-B",
+        str(build),
+        "-G",
+        "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+        f"-Dpycircuit_DIR={package}",
+        "-DPYC_EXAMPLE_VERIFY=OFF",
+        f"-DPYC_EXAMPLE_RUN_TARGET={target}",
+    ]
+    if execution is not None:
+        configure.append(f"-DPYC_EXAMPLE_EXECUTION:STRING={execution}")
+    if model is not None:
+        configure.append(f"-DPYC_EXAMPLE_MODEL_TOP:STRING={model}")
+    if memory is not None and target == "verilog":
+        configure.append("-DPYC_EXAMPLE_RTL_MODE:STRING=physical")
+    configured_at = time.perf_counter()
     _invoke(
-        [
-            "cmake",
-            "-S",
-            str(directory),
-            "-B",
-            str(build),
-            "-G",
-            "Ninja",
-            "-DCMAKE_BUILD_TYPE=Release",
-            f"-Dpycircuit_DIR={package}",
-            "-DPYC_EXAMPLE_VERIFY=OFF",
-            f"-DPYC_EXAMPLE_RUN_TARGET={target}",
-        ],
+        configure,
         timeout=timeout,
         env=env,
     )
+    configure_seconds = time.perf_counter() - configured_at
+    compiled_at = time.perf_counter()
     _invoke(
         ["cmake", "--build", str(build), "--target", "pycircuit_simulation_artifacts"],
         timeout=timeout,
         env=env,
     )
+    source_build_seconds = time.perf_counter() - compiled_at
     generated = build / target
     receipt = json.loads((generated / "generated.json").read_text())
+    if memory is not None:
+        from ._generated_bundle import _load_generated_bundle
+        from ._memory_run import run_memory
+        from ._publication import _publication_owner_generated
+
+        try:
+            _load_generated_bundle(
+                generated,
+                owner=_publication_owner_generated(
+                    package=receipt["entry_source"]["package"],
+                    path=receipt["entry_source"]["path"],
+                    definition=receipt["entry"]["definition"],
+                    target=target,
+                ),
+            )
+        except _PublicationError as error:
+            raise _DriverError(str(error)) from error
+        run_memory(generated, memory, build / "clocked-run", installed, timeout)
+        return
+    if request_rows is not None:
+        from ._model_run import run_requests
+
+        run_requests(
+            generated=generated,
+            build=build,
+            installed=installed,
+            receipt=receipt,
+            rows=request_rows,
+            strategy=execution,
+            target=target,
+            cycles=cycles,
+            consumer_start=consumer_start,
+            workers=workers,
+            timeout=timeout,
+            env=env,
+            invoke=_invoke,
+            build_metrics={
+                "configure_seconds": configure_seconds,
+                "source_compile_link_emit_seconds": source_build_seconds,
+            },
+        )
+        return
     try:
         sample_rows, needs_four_state = _execution_metadata(receipt)
     except _PublicationError as error:
@@ -231,7 +359,7 @@ def run_command(
     try:
         _invoke(command, timeout=timeout, env=env)
     except Exception as error:
-        execution.write_text(
+        execution_receipt.write_text(
             json.dumps(
                 {
                     **execution_metadata,
@@ -247,7 +375,7 @@ def run_command(
         raise
     after = execution_inputs()
     if after != before:
-        execution.write_text(
+        execution_receipt.write_text(
             json.dumps(
                 {
                     **execution_metadata,
@@ -261,7 +389,7 @@ def run_command(
             + "\n"
         )
         raise _DriverError("simulation execution inputs changed during the run")
-    execution.write_text(
+    execution_receipt.write_text(
         json.dumps(
             {
                 **execution_metadata,

@@ -121,6 +121,18 @@ int main(int argc, char **argv) {
   result["reset_semantics"] =
       *resetPolicy == acir::ac::HardwareResetSemantics::IfOne ? "if_one"
                                                               : "strict";
+  if (auto strategy = (*package)->getAttrOfType<StringAttr>("ac.execution_selection")) {
+    auto protocol = (*package)->getAttrOfType<StringAttr>("ac.execution_protocol");
+    auto publication = (*package)->getAttrOfType<StringAttr>("ac.execution_publication_field");
+    result["execution_model"] = llvm::json::Object{
+        {"strategy", strategy.getValue()},
+        {"protocol", protocol ? protocol.getValue() : StringRef()},
+        {"publication_field", publication ? publication.getValue() : StringRef()}};
+    if (auto state =
+            (*package)->getAttrOfType<IntegerAttr>("ac.execution_state_output"))
+      result["execution_model"].getAsObject()->insert(
+          {"state_output", state.getInt()});
+  }
   auto samples = acir::ac::getSystemSamples(root);
   if (failed(samples))
     return 1;

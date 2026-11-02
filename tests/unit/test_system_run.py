@@ -146,6 +146,22 @@ def test_other_project_cache_is_preserved(project):
     assert cache.read_bytes() == before
 
 
+def test_model_selection_cannot_leak_into_a_system_run(project):
+    source, prefix, build, calls = project
+    build.mkdir()
+    cache = build / "CMakeCache.txt"
+    cache.write_text(
+        f"CMAKE_HOME_DIRECTORY:INTERNAL={source}\n"
+        "PYC_EXAMPLE_RUN_TARGET:STRING=cpp\n"
+        "PYC_EXAMPLE_EXECUTION:STRING=functional\n"
+        "PYC_EXAMPLE_MODEL_TOP:STRING=demo.Model\n"
+    )
+    before = cache.read_bytes()
+    with pytest.raises(_DriverError):
+        _run.run_command(**_arguments(source, prefix, build))
+    assert calls == [] and cache.read_bytes() == before
+
+
 @pytest.mark.parametrize("selection", [None, "", "verilog"])
 def test_same_source_incompatible_cache_is_preserved(project, selection):
     source, prefix, build, calls = project

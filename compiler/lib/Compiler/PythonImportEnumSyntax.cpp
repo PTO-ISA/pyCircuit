@@ -65,7 +65,7 @@ bool hasSourceDecorator(const AstNode &declaration, MarkerKind marker,
   for (size_t i = 0; i < declaration.array("decorator_list").size(); ++i) {
     auto decorator = declaration.item("decorator_list", i);
     if (decorator.kind() == "Call" &&
-        (marker == MarkerKind::Encoding || marker == MarkerKind::Rule ||
+        (marker == MarkerKind::Module || marker == MarkerKind::Encoding || marker == MarkerKind::Rule ||
          marker == MarkerKind::Method || marker == MarkerKind::System))
       decorator = decorator.child("func");
     if (resolvesMarker(decorator, marker, bindings))
