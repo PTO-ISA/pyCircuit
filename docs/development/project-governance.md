@@ -47,9 +47,10 @@ common verified IR. Preserve hardware timing, four-state behavior, ownership,
 whole-system atomicity and generated System responsibilities.
 
 Keep DUT sources focused on algorithm, state and connections. Independent oracles
-belong to tests; consumer designs, ISA logic and adapters belong to consumer
-repositories. Frozen technical approvals are not rewritten as implementation
-progress. Current behavior and limitations are maintained in active docs.
+belong to tests. Curated `designs/` gallery entries are standalone SDK consumer
+projects with their own specifications, dependency pins and verification. External
+consumer products, ISA logic and adapters remain in their owning repositories.
+Frozen technical approvals are not rewritten as implementation progress. Current behavior and limitations are maintained in active docs.
 
 ## Validation and delivery
 

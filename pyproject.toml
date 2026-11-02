@@ -114,6 +114,7 @@ ignore = ["E501"]
 # Exact source-replay reproducer: captured Rule state and original import order.
 "tests/system/fixtures/source_system/allocation_repro/*.py" = ["I001", "F823", "F841"]
 "tests/system/fixtures/source_system/atomic_bench.py" = ["B011"] # Hardware assertion.
+"designs/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
 "examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
 "tests/fixtures/historical_examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
 "benchmark/*.py" = ["T201"] # Standalone benchmark utilities.

@@ -79,3 +79,9 @@ ctest --test-dir /absolute/build/examples --output-on-failure --no-tests=error
 ```
 
 The aggregate build and this catalog contain the same runnable example set.
+
+## Pinned tool-extension consumer
+
+The [design gallery](../designs/README.md) contains self-contained engineering
+projects, starting with the [five-stage RV32I core](../designs/rv32i_core/README.md).
+Each owns its specification, SDK dependency, verification and evidence.

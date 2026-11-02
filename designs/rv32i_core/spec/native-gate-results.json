@@ -1,0 +1,566 @@
+{
+  "schema": "pycircuit-ndf-native-gate-results-v1",
+  "command_status": "COMPLETED_RC0",
+  "traceability": "PASS",
+  "spec_lifecycle": "draft",
+  "approval": "NOT_RECORDED",
+  "independent_review": "PENDING",
+  "ndf_commit": "5e3e6b5f09e06b09aaf52844c4b37e38362ac097",
+  "tool_tested_commit": "29a7378bbfb9865f516dfb24c7c340967903f1be",
+  "source_before": {
+    "ref": "f7e29346137cad86a36c93dab29e27a1f66afe8f",
+    "meaning": "First revision-1 draft; not an approved baseline"
+  },
+  "source_after": {
+    "ref": "1e8e620cb6330a022f645c8a0be8cb33514ce6ee",
+    "meaning": "Evidence-bearing draft; all indexed inputs verified against this ref"
+  },
+  "normative_documents_byte_equal": true,
+  "index_origins": {
+    "before/spec.sqlite": "f7e29346137cad86a36c93dab29e27a1f66afe8f",
+    "spec.sqlite": "1e8e620cb6330a022f645c8a0be8cb33514ce6ee",
+    "before/bound.sqlite": "UNKNOWN (native zero marker)",
+    "bound.sqlite": "UNKNOWN (native zero marker)"
+  },
+  "commands": [
+    {
+      "record": "before/binding-diff.command.json",
+      "argv": [
+        "$NDF",
+        "diff",
+        "$NDF_GATE_OUT/before/spec.sqlite",
+        "$NDF_GATE_OUT/before/bound.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/bound-build.command.json",
+      "argv": [
+        "$NDF",
+        "build",
+        "--root",
+        "$NDF_GATE_OUT/before/bound-project",
+        "--output",
+        "$NDF_GATE_OUT/before/bound.sqlite"
+      ],
+      "rc": 0,
+      "environment": {
+        "GIT_CEILING_DIRECTORIES": "$NDF_GATE_OUT/before"
+      }
+    },
+    {
+      "record": "before/bound-check.command.json",
+      "argv": [
+        "$NDF",
+        "check",
+        "--root",
+        "$NDF_GATE_OUT/before/bound-project"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/build.command.json",
+      "argv": [
+        "$NDF",
+        "build",
+        "--root",
+        "$FIRST_SPEC/examples/rv32i_core",
+        "--output",
+        "$NDF_GATE_OUT/before/spec.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/check.command.json",
+      "argv": [
+        "$NDF",
+        "check",
+        "--root",
+        "$FIRST_SPEC/examples/rv32i_core"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/coverage-bound-inventory.command.json",
+      "argv": [
+        "$NDF",
+        "query",
+        "--index",
+        "$NDF_GATE_OUT/before/bound.sqlite",
+        "--expression",
+        "kind=requirement and modality=must and refinement=L1"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/coverage-bound.command.json",
+      "argv": [
+        "$NDF",
+        "report",
+        "coverage",
+        "--index",
+        "$NDF_GATE_OUT/before/bound.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/coverage-input-inventory.command.json",
+      "argv": [
+        "$NDF",
+        "query",
+        "--index",
+        "$NDF_GATE_OUT/before/spec.sqlite",
+        "--expression",
+        "kind=requirement and modality=must and refinement=L1"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/coverage-input.command.json",
+      "argv": [
+        "$NDF",
+        "report",
+        "coverage",
+        "--index",
+        "$NDF_GATE_OUT/before/spec.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/export.command.json",
+      "argv": [
+        "$NDF",
+        "export",
+        "--index",
+        "$NDF_GATE_OUT/before/spec.sqlite",
+        "--output",
+        "$NDF_GATE_OUT/before/spec.ndf.json",
+        "--format",
+        "ndf-json"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "before/trace.command.json",
+      "argv": [
+        "$NDF",
+        "trace",
+        "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "--index",
+        "$NDF_GATE_OUT/before/bound.sqlite",
+        "--edge",
+        "references",
+        "--edge",
+        "implements",
+        "--edge",
+        "verifies",
+        "--edge",
+        "refines",
+        "--edge",
+        "evidenced-by"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "binding-diff.command.json",
+      "argv": [
+        "$NDF",
+        "diff",
+        "$NDF_GATE_OUT/spec.sqlite",
+        "$NDF_GATE_OUT/bound.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "bound-build.command.json",
+      "argv": [
+        "$NDF",
+        "build",
+        "--root",
+        "$NDF_GATE_OUT/bound-project",
+        "--output",
+        "$NDF_GATE_OUT/bound.sqlite"
+      ],
+      "rc": 0,
+      "environment": {
+        "GIT_CEILING_DIRECTORIES": "$NDF_GATE_OUT"
+      }
+    },
+    {
+      "record": "bound-check.command.json",
+      "argv": [
+        "$NDF",
+        "check",
+        "--root",
+        "$NDF_GATE_OUT/bound-project"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "bound-version-diff.command.json",
+      "argv": [
+        "$NDF",
+        "diff",
+        "$NDF_GATE_OUT/before/bound.sqlite",
+        "$NDF_GATE_OUT/bound.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "build.command.json",
+      "argv": [
+        "$NDF",
+        "build",
+        "--root",
+        "$DEMO",
+        "--output",
+        "$NDF_GATE_OUT/spec.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "check.command.json",
+      "argv": [
+        "$NDF",
+        "check",
+        "--root",
+        "$DEMO"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "coverage-bound-inventory.command.json",
+      "argv": [
+        "$NDF",
+        "query",
+        "--index",
+        "$NDF_GATE_OUT/bound.sqlite",
+        "--expression",
+        "kind=requirement and modality=must and refinement=L1"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "coverage-bound.command.json",
+      "argv": [
+        "$NDF",
+        "report",
+        "coverage",
+        "--index",
+        "$NDF_GATE_OUT/bound.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "coverage-input-inventory.command.json",
+      "argv": [
+        "$NDF",
+        "query",
+        "--index",
+        "$NDF_GATE_OUT/spec.sqlite",
+        "--expression",
+        "kind=requirement and modality=must and refinement=L1"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "coverage-input.command.json",
+      "argv": [
+        "$NDF",
+        "report",
+        "coverage",
+        "--index",
+        "$NDF_GATE_OUT/spec.sqlite"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "export.command.json",
+      "argv": [
+        "$NDF",
+        "export",
+        "--index",
+        "$NDF_GATE_OUT/spec.sqlite",
+        "--output",
+        "$NDF_GATE_OUT/spec.ndf.json",
+        "--format",
+        "ndf-json"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "trace.command.json",
+      "argv": [
+        "$NDF",
+        "trace",
+        "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "--index",
+        "$NDF_GATE_OUT/bound.sqlite",
+        "--edge",
+        "references",
+        "--edge",
+        "implements",
+        "--edge",
+        "verifies",
+        "--edge",
+        "refines",
+        "--edge",
+        "evidenced-by"
+      ],
+      "rc": 0
+    },
+    {
+      "record": "version-diff.command.json",
+      "argv": [
+        "$NDF",
+        "diff",
+        "$NDF_GATE_OUT/before/spec.sqlite",
+        "$NDF_GATE_OUT/spec.sqlite"
+      ],
+      "rc": 0
+    }
+  ],
+  "native_version_diff": {
+    "added": [
+      "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+    ],
+    "edge_only": [
+      "ndf://pycircuit-rv32i-demo/RV32-VER-EFFECT-001",
+      "ndf://pycircuit-rv32i-demo/RV32-VER-ISA-001",
+      "ndf://pycircuit-rv32i-demo/RV32-VER-PIPE-001",
+      "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001"
+    ],
+    "edges_added": [
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-EFFECT-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ],
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-ISA-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ],
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-PIPE-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ],
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ]
+    ],
+    "edges_removed": [],
+    "modified": [],
+    "moved": [],
+    "removed": [],
+    "superseded": []
+  },
+  "native_bound_version_diff": {
+    "added": [
+      "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+    ],
+    "edge_only": [
+      "ndf://pycircuit-rv32i-demo/RV32-VER-EFFECT-001",
+      "ndf://pycircuit-rv32i-demo/RV32-VER-ISA-001",
+      "ndf://pycircuit-rv32i-demo/RV32-VER-PIPE-001",
+      "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001"
+    ],
+    "edges_added": [
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-EFFECT-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ],
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-ISA-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ],
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-PIPE-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ],
+      [
+        "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001",
+        "evidenced-by",
+        "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001"
+      ]
+    ],
+    "edges_removed": [],
+    "modified": [],
+    "moved": [],
+    "removed": [],
+    "superseded": []
+  },
+  "binding_enrichment": {
+    "added": 18,
+    "edge_only": 12,
+    "edges_added": 45,
+    "edges_removed": 0,
+    "modified": 0,
+    "moved": 0,
+    "removed": 0,
+    "superseded": 0
+  },
+  "native_coverage_before": {
+    "native_report": {
+      "open_items": [],
+      "tbd": [],
+      "unverified": []
+    },
+    "eligible_active_l1_must": [],
+    "draft_l1_must": [
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-EEI-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-EFFECT-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-ISA-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-PIPE-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-VERIFY-001"
+    ],
+    "interpretation": "NOT_APPLICABLE_NO_ACTIVE_L1_MUST",
+    "scope": "Pinned native coverage checks active must L1 requirements and incoming verifies edges only"
+  },
+  "native_coverage_after": {
+    "native_report": {
+      "open_items": [],
+      "tbd": [],
+      "unverified": []
+    },
+    "eligible_active_l1_must": [],
+    "draft_l1_must": [
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-EEI-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-EFFECT-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-ISA-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-PIPE-001",
+      "ndf://pycircuit-rv32i-demo/RV32-REQ-VERIFY-001"
+    ],
+    "interpretation": "NOT_APPLICABLE_NO_ACTIVE_L1_MUST",
+    "scope": "Pinned native coverage checks active must L1 requirements and incoming verifies edges only"
+  },
+  "coverage_impact": "No change to eligibility: 0 active must L1 requirements, 5 draft must L1 requirements on both sides. N/A, not coverage PASS.",
+  "structural_scope": {
+    "l2_implementation_bindings": 7,
+    "verification_criteria_bound": 4,
+    "definition_bindings": 16,
+    "meaning": "Structural associations only; separate from native coverage and execution"
+  },
+  "native_trace": {
+    "root": "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+    "node_count": 35,
+    "edge_count": 76,
+    "cycles": [],
+    "definition_ids": {
+      "ndf://pycircuit-rv32i-demo/SRC-7150E822BA9E94DA": "core.py:Core",
+      "ndf://pycircuit-rv32i-demo/SRC-594C1140B513B955": "core.py:Core.step",
+      "ndf://pycircuit-rv32i-demo/SRC-017C25C398DBA393": "types.py:Machine",
+      "ndf://pycircuit-rv32i-demo/TEST-5D5B7EC863F19A69": "verification/check_results.py:main"
+    },
+    "excerpt": [
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-INTENT-001",
+        "type": "references"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "target": "ndf://pycircuit-rv32i-demo/SRC-017C25C398DBA393",
+        "type": "references"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-017C25C398DBA393",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-SPEC-STATE-001",
+        "type": "implements"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-SPEC-STATE-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-REQ-EFFECT-001",
+        "type": "refines"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-REQ-EFFECT-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-INTENT-001",
+        "type": "refines"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-SPEC-STATE-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-REQ-PIPE-001",
+        "type": "refines"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-REQ-PIPE-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-INTENT-001",
+        "type": "refines"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "target": "ndf://pycircuit-rv32i-demo/SRC-594C1140B513B955",
+        "type": "references"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-594C1140B513B955",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-SPEC-STATE-001",
+        "type": "implements"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "target": "ndf://pycircuit-rv32i-demo/SRC-7150E822BA9E94DA",
+        "type": "references"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-7150E822BA9E94DA",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-SPEC-STATE-001",
+        "type": "implements"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-7150E822BA9E94DA",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-SPEC-VIEWS-001",
+        "type": "implements"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-SPEC-VIEWS-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-REQ-VERIFY-001",
+        "type": "refines"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-REQ-VERIFY-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-INTENT-001",
+        "type": "refines"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/SRC-TRACE-ENTRY",
+        "target": "ndf://pycircuit-rv32i-demo/TEST-5D5B7EC863F19A69",
+        "type": "references"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/TEST-5D5B7EC863F19A69",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001",
+        "type": "verifies"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-EVID-WORKFLOW-001",
+        "type": "evidenced-by"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-REQ-VERIFY-001",
+        "type": "verifies"
+      },
+      {
+        "source": "ndf://pycircuit-rv32i-demo/RV32-VER-VIEWS-001",
+        "target": "ndf://pycircuit-rv32i-demo/RV32-SPEC-VIEWS-001",
+        "type": "verifies"
+      }
+    ]
+  },
+  "bound_graph": {
+    "edge_count": 76,
+    "node_count": 39,
+    "output": "$NDF_GATE_OUT/bound.sqlite"
+  },
+  "hardware_tests_rerun": false,
+  "synthesis_rerun": false
+}

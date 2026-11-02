@@ -1,0 +1,13 @@
+{
+  "schema": "pycircuit-clocked-memory-v1",
+  "image": "image.bin",
+  "memory_base": 2147483648,
+  "memory_bytes": 65536,
+  "max_cycles": 100000,
+  "reset_cycles": 2,
+  "instruction_latency": [0],
+  "data_latency": [0],
+  "instruction": {"valid":"imem_valid","address":"imem_address","ready":"imem_ready","response":"imem_data","fault":"imem_fault"},
+  "data": {"valid":"dmem_valid","write":"dmem_write","address":"dmem_address","write_data":"dmem_data","mask":"dmem_mask","ready":"dmem_ready","response":"dmem_data","fault":"dmem_fault"},
+  "event": {"valid":"retire_valid","stop":"retire_trap"}
+}

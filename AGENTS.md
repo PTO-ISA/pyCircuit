@@ -177,9 +177,11 @@ Repository-local skills route work without duplicating policy:
 - `@system` is a current language feature. Changes affecting it require generated
   C++/Verilog simulation evidence; do not move compiler-owned test scaffolding
   to the author to bypass missing support.
-- Keep complete consumer designs, ISA logic, schemas, adapters and comparison
-  tooling in their owning repositories. Independent oracles remain test-owned
-  and never supply DUT results inside product lowering.
+- Keep external consumer products, ISA logic, schemas, adapters and comparison
+  tooling in their owning repositories. Curated `designs/` gallery entries are
+  standalone SDK consumer projects with their own specifications and verification.
+  Independent oracles remain test-owned and never supply DUT results inside
+  product lowering.
 
 ## Verification
 

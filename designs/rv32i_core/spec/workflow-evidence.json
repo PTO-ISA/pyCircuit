@@ -1,0 +1,27 @@
+{
+  "format_version": "0.1",
+  "id": "RV32-EVID-WORKFLOW-001",
+  "command": "python3 examples/rv32i_core/verification/spec_workflow.py --prefix \"$PYC_TOOLCHAIN_ROOT\" --ndf \"$NDF\" --clang \"$RV32_CLANG\" --spike \"$SPIKE\" --output \"$SPEC_OUT\"",
+  "result": "pass",
+  "tool_version": "pyCircuit shared execution + NDF 0.2",
+  "source_revision": "f7e29346137cad86a36c93dab29e27a1f66afe8f",
+  "timestamp": "2026-11-02T04:45:59.160893+00:00",
+  "links": [
+    {
+      "clause": "RV32-VER-ISA-001",
+      "type": "evidenced-by"
+    },
+    {
+      "clause": "RV32-VER-PIPE-001",
+      "type": "evidenced-by"
+    },
+    {
+      "clause": "RV32-VER-EFFECT-001",
+      "type": "evidenced-by"
+    },
+    {
+      "clause": "RV32-VER-VIEWS-001",
+      "type": "evidenced-by"
+    }
+  ]
+}
