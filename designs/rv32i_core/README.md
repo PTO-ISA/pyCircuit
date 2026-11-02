@@ -65,7 +65,7 @@ From a clean checkout of this demo PR, select local dependency/output paths:
 ```sh
 export DEMO_OUT="$PWD/.pycircuit_out/rv32i-demo"
 # LLVM_ROOT contains the externally installed LLVM/MLIR22.1.8 tree.
-python3 examples/rv32i_core/verification/setup_sdk.py \
+python3 designs/rv32i_core/verification/setup_sdk.py \
   --llvm-root "$LLVM_ROOT" --output "$DEMO_OUT/toolchain"
 export PYC_TOOLCHAIN_ROOT="$DEMO_OUT/toolchain/install"
 "$PYC_TOOLCHAIN_ROOT/bin/pycircuit" doctor --toolchain "$PYC_TOOLCHAIN_ROOT" --rtl
@@ -85,16 +85,16 @@ download is required when the selected standard-cell views already exist.
 ## Compile, execute and independently verify
 
 ```sh
-python3 examples/rv32i_core/verification/prepare.py \
+python3 designs/rv32i_core/verification/prepare.py \
   --clang "$RV32_CLANG" --spike "$SPIKE" --output "$DEMO_OUT/programs"
-"$PYC_TOOLCHAIN_ROOT/bin/pycircuit" run examples/rv32i_core \
+"$PYC_TOOLCHAIN_ROOT/bin/pycircuit" run designs/rv32i_core \
   --model rv32i_core.core.Core --execution timing --target cpp \
   --memory "$DEMO_OUT/programs/c-array/simulation.json" \
   --build-dir "$DEMO_OUT/single-timing-cpp"
-python3 examples/rv32i_core/verification/suite.py \
+python3 designs/rv32i_core/verification/suite.py \
   --prefix "$PYC_TOOLCHAIN_ROOT" --programs "$DEMO_OUT/programs" \
   --output "$DEMO_OUT/validation"
-python3 examples/rv32i_core/verification/check_results.py \
+python3 designs/rv32i_core/verification/check_results.py \
   --programs "$DEMO_OUT/programs" --results "$DEMO_OUT/validation"
 ```
 
@@ -113,12 +113,12 @@ expectation and are never counted as Spike agreement.
 ## Real-cell mapping and mapped C application
 
 ```sh
-python3 examples/rv32i_core/verification/synthesize.py \
+python3 designs/rv32i_core/verification/synthesize.py \
   --generated "$DEMO_OUT/validation/build/timing-verilog/verilog" \
   --toolchain "$PYC_TOOLCHAIN_ROOT" --sv2v "$SV2V" --yosys "$YOSYS" \
   --liberty "$SKY130_HD_LIBERTY" --lef "$SKY130_HD_LEF" \
   --output "$DEMO_OUT/mapping"
-python3 examples/rv32i_core/verification/mapped_check.py \
+python3 designs/rv32i_core/verification/mapped_check.py \
   --generated "$DEMO_OUT/validation/build/timing-verilog/verilog" \
   --mapped "$DEMO_OUT/mapping/mapped.v" --netlist-json "$DEMO_OUT/mapping/mapped.json" \
   --trace "$DEMO_OUT/validation/runs/c-array/fast/timing-cpp" \
@@ -137,3 +137,23 @@ Area includes GPR/pipeline/control/observation logic, excluding external RAM and
 testbench. Mapped cell area is not placed/die area. OpenSTA/P&R, official ISA
 certification, full formal equivalence and independent review remain NOT_RUN.
 SOTA is NOT_ESTABLISHED.
+
+## Review regressions
+
+The focused held-operand suite uses independently encoded RV32I words and
+expected GPR, retirement and RAM/store results. It covers ALU, store-data and
+store-address consumers stalled behind a load, under both execution policies
+and both backends. It needs the selected installed SDK and Icarus, without
+requiring an assembler or Spike:
+
+```sh
+PYC_TOOLCHAIN_ROOT=/path/to/installed/sdk python3 -m pytest \
+  designs/rv32i_core/verification/test_held_operands.py -q
+python3 -m unittest discover -s designs/rv32i_core/verification \
+  -p test_check_results.py -v
+```
+
+The saved-results checker requires all four unique views for each selected
+case/schedule. Empty, partial, duplicate or failed inventories cannot publish a
+cross-view PASS. These focused regressions do not rerun the historical synthesis
+campaign in RESULTS.md.

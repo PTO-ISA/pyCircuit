@@ -47,7 +47,7 @@ and [the documented firmware/simulation tools](../verification/TOOLS.md).
 NDF additionally requires Rust 1.94.0. From the repository root:
 
 ```sh
-export DEMO="$PWD/examples/rv32i_core"
+export DEMO="$PWD/designs/rv32i_core"
 export NDF_SOURCE="$DEMO/.pycircuit_out/ndf"
 git clone https://github.com/PTO-ISA/normative_language.git "$NDF_SOURCE"
 git -C "$NDF_SOURCE" checkout 5e3e6b5f09e06b09aaf52844c4b37e38362ac097
@@ -69,7 +69,7 @@ Select a new output directory and an installed SDK containing `spec-check`:
 
 ```sh
 export SPEC_OUT="$PWD/.pycircuit_out/rv32i-spec-validation"
-python3 examples/rv32i_core/verification/spec_workflow.py \
+python3 designs/rv32i_core/verification/spec_workflow.py \
   --prefix "$PYC_TOOLCHAIN_ROOT" --ndf "$NDF" \
   --clang "$RV32_CLANG" --spike "$SPIKE" --output "$SPEC_OUT"
 ```

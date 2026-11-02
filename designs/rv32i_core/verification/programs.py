@@ -141,6 +141,11 @@ def assembly_cases():
     cases = {
         "smoke": SMOKE,
         "families": DIRECTED,
+        # The producer retires while EX is held behind the unrelated load.
+        # Operands must retain the WB value after that producer leaves the pipe.
+        "held_wb_alu": "lui x20,0x80008\naddi x1,x0,5\nlw x2,0(x20)\nadd x4,x1,x0",
+        "held_wb_store_data": "lui x20,0x80008\naddi x1,x0,5\nlw x2,0(x20)\nsw x1,4(x20)",
+        "held_wb_store_address": "lui x20,0x80008\naddi x1,x20,4\nlw x2,0(x20)\nsw x0,0(x1)",
         "throughput": "\n".join(f"addi x{1+n%30},x0,{n}" for n in range(64)),
         "untaken_misaligned_branch": "addi x1,x0,1\nbeq x0,x1,2\naddi x2,x0,7",
     }

@@ -38,9 +38,9 @@ def compute_ExecuteLogic(
     ex_move: ac.u1 = ex.valid and mem_space and (not mem_fault)
     redirected: ac.u1 = 0
     kill_front: ac.u1 = mem_fault
-    if ex_move:
-        first: ac.u32 = ex.first
-        second: ac.u32 = ex.second
+    first: ac.u32 = ex.first
+    second: ac.u32 = ex.second
+    if ex.valid:
         if wb.valid and wb.writes and (wb.rd != 0) and (not wb_fault):
             if ex.control.use1 and ex.control.rs1 == wb.rd:
                 first = wb.result
@@ -57,6 +57,11 @@ def compute_ExecuteLogic(
                 first = mem.result
             if ex.control.use2 and ex.control.rs2 == mem.rd:
                 second = mem.result
+        # A producer can retire while MEM blocks EX. Retain its forwarded
+        # operands until this instruction can advance; MEM keeps priority.
+        next_state.execute_stage.first = first
+        next_state.execute_stage.second = second
+    if ex_move:
         packet = compute_Arithmetic(ex.control, ex.pc, ex.instruction, first, second)
         next_state.memory_stage = packet
         next_state.execute_stage.valid = 0

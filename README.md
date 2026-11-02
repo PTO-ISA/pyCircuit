@@ -171,6 +171,7 @@ observation and failure semantics.
 | --- | --- |
 | [Repository map](docs/development/repository-layout.md) | Folder responsibilities, source boundaries and the right place for a change. |
 | [Recommended examples](examples/GUIDE.md) | The 21 current teaching and design examples, ordered by purpose. |
+| [Design gallery](designs/README.md) | Self-contained projects, including the RV32I core and an NDF project starter. |
 | [Example catalog](examples/README.md) | Generated navigation and exact verification owners for those examples. |
 | [Python language](docs/reference/language.md) | Types, source constructs, composition and rejection boundaries. |
 | [Compiler architecture](docs/architecture/compiler-pipeline.md) | Capture, MLIR analyses, source publication and code generation. |

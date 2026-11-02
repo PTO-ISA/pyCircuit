@@ -155,3 +155,11 @@ caches and `.omx/` are local generated/tool state, not tracked source folders.
 Their presence in a filesystem browser does not add a compiler or product API.
 Clean them only when no active build or investigation needs them; never use
 another checkout's binaries as verification evidence.
+
+## Design gallery
+
+`designs/` contains standalone SDK consumer projects. Each owns source, NDF
+specifications, verification, a dependency record and scoped results. See the
+[gallery](https://github.com/PTO-ISA/pyCircuit/blob/main/designs/README.md).
+`examples/` retains language demonstrations and its explicitly registered smoke
+and nightly gates; gallery membership does not add a compiler acceptance test.

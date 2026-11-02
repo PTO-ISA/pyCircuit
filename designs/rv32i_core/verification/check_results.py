@@ -13,7 +13,23 @@ def main():
     p.add_argument("--programs", type=Path, required=True)
     p.add_argument("--results", type=Path, required=True)
     a = p.parse_args()
+    receipt = a.results / "raw-validation.json"
+    receipt.write_text(json.dumps({"status": "INCOMPLETE"}) + "\n")
     rows = json.loads((a.results / "summary.json").read_text())
+    if not isinstance(rows, list) or not rows:
+        raise AssertionError("no execution views in summary")
+    required = {(s, t) for s in ("timing", "functional") for t in ("cpp", "verilog")}
+    groups = {}
+    for row in rows:
+        key = row["case"], row["schedule"]
+        view = row["strategy"], row["target"]
+        selected = groups.setdefault(key, set())
+        if view not in required or view in selected:
+            raise AssertionError(f"unknown or duplicate execution view: {key} {view}")
+        selected.add(view)
+    for key, selected in groups.items():
+        if selected != required:
+            raise AssertionError(f"incomplete execution views: {key}")
     states = {}
     count = 0
     for row in rows:

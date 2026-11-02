@@ -22,7 +22,7 @@ def main():
     p.add_argument(
         "--schedule",
         action="append",
-        choices=["fast", "waits", "long-waits", "reset-waiting-store"],
+        choices=["fast", "waits", "long-waits", "reset-waiting-store", "held-wb"],
         help="Select existing latency/reset scenarios without changing them",
     )
     a = p.parse_args()
@@ -53,6 +53,10 @@ def main():
                 ("waits", [0, 3, 1, 8], [4, 0, 7, 2], []),
                 ("long-waits", [12], [8, 15], []),
             ]
+        if name.startswith("held_wb_"):
+            # Keep fetch fast so EX captures before producer WB, then hold EX
+            # long enough for that producer to disappear from the forwarding bus.
+            schedules += [("held-wb", [0], [2], [])]
         if name == "smoke":
             schedules += [("reset-waiting-store", [0], [8], [12])]
         for schedule, imem, dmem, resets in schedules:
@@ -146,6 +150,8 @@ def main():
                                 report["max_occupied"] == 5
                                 and report["load_use_cycles"] == 0
                             )
+                        if schedule == "held-wb":
+                            assert report["memory_wait_cycles"] >= 2
                         if name == "smoke" and schedule == "fast":
                             assert report["load_use_cycles"] == 1
                         traces[name, schedule, strategy, target] = [
