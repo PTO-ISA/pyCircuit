@@ -19,6 +19,7 @@ class ResultExecuteLogic:
     control: ExecuteControl
 
 
+# ndf: implements=RV32-SPEC-HAZARD-001,RV32-SPEC-ISA-001,RV32-SPEC-EEI-001
 def compute_ExecuteLogic(
     old: Machine,
     prior: Machine,

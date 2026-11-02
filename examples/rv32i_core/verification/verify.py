@@ -136,6 +136,7 @@ def oracle(elf, spike, output):
     return report
 
 
+# ndf: verifies=RV32-VER-ISA-001,RV32-VER-EFFECT-001
 def compare(expected, actual, ports_path, *, basis="spike", epoch=None):
     expected, actual = Path(expected), Path(actual)
     ref = json.loads(

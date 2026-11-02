@@ -18,6 +18,7 @@ class ResultFrontend:
     io: Pins
 
 
+# ndf: implements=RV32-SPEC-HAZARD-001,RV32-SPEC-BUS-001
 def compute_Frontend(
     old: Machine,
     prior: Machine,
@@ -130,6 +131,7 @@ def Frontend(
     return (result.state, result.io)
 
 
+# ndf: implements=RV32-SPEC-COMMIT-001
 def compute_Finalize(
     old: Machine,
     stopped: Machine,

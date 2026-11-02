@@ -10,6 +10,7 @@ import subprocess
 from verify import compare
 
 
+# ndf: verifies=RV32-VER-PIPE-001,RV32-VER-EFFECT-001
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--prefix", type=Path, required=True)
@@ -18,6 +19,12 @@ def main():
     p.add_argument("--case", action="append")
     p.add_argument("--target", action="append", choices=["cpp", "verilog"])
     p.add_argument("--strategy", action="append", choices=["functional", "timing"])
+    p.add_argument(
+        "--schedule",
+        action="append",
+        choices=["fast", "waits", "long-waits", "reset-waiting-store"],
+        help="Select existing latency/reset scenarios without changing them",
+    )
     a = p.parse_args()
     a.prefix = a.prefix.resolve()
     a.programs = a.programs.resolve()
@@ -49,6 +56,8 @@ def main():
         if name == "smoke":
             schedules += [("reset-waiting-store", [0], [8], [12])]
         for schedule, imem, dmem, resets in schedules:
+            if a.schedule and schedule not in a.schedule:
+                continue
             cfgdir = a.output / "inputs" / name / schedule
             cfgdir.mkdir(parents=True, exist_ok=True)
             cfg = json.loads((a.programs / name / "simulation.json").read_text())
@@ -185,6 +194,8 @@ def main():
         len(cross),
         flush=True,
     )
+    if not reports:
+        raise SystemExit("no requested case/schedule was executed")
     if any(r["status"] != "PASS" for r in reports):
         raise SystemExit(1)
 

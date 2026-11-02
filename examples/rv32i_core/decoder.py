@@ -4,6 +4,7 @@ import pycircuit as ac
 from rv32i_core.types import Decoded
 
 
+# ndf: implements=RV32-SPEC-ISA-001,RV32-SPEC-EEI-001
 def compute_Decoder(instruction: ac.u32) -> Decoded:
     opcode: ac.u7 = instruction[0:7]
     funct3: ac.u3 = instruction[12:15]

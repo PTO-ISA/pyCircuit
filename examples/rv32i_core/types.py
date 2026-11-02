@@ -2,6 +2,7 @@
 import pycircuit as ac
 
 
+# ndf: implements=RV32-SPEC-BUS-001
 @ac.struct
 class BusInputs:
     imem_ready: ac.u1
@@ -76,6 +77,7 @@ class Packet:
     tval: ac.u32
 
 
+# ndf: implements=RV32-SPEC-STATE-001
 @ac.struct
 class Machine:
     registers: ac.table[32, ac.u32]
@@ -94,6 +96,7 @@ class Machine:
     order: ac.u64
 
 
+# ndf: implements=RV32-SPEC-BUS-001,RV32-SPEC-COMMIT-001
 @ac.struct
 class Pins:
     imem_valid: ac.u1
@@ -158,6 +161,7 @@ def byte_mask(size: ac.u2, address: ac.u32) -> ac.u4:
     return base << address[0:2]
 
 
+# ndf: implements=RV32-SPEC-ISA-001,RV32-SPEC-BUS-001
 def read_load(data: ac.u32, address: ac.u32, size: ac.u2, signed: ac.u1) -> ac.u32:
     low: ac.u3 = 0
     shift: ac.u5 = ac.concat(address[0:2], low)

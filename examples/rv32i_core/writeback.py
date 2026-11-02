@@ -18,6 +18,7 @@ class ResultWriteback:
     control: WritebackControl
 
 
+# ndf: implements=RV32-SPEC-COMMIT-001,RV32-SPEC-HAZARD-001
 def compute_Writeback(old: Machine, bus: BusInputs) -> ResultWriteback:
     next_state: Machine = old
     io = make_pins()

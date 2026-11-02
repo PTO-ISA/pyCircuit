@@ -25,7 +25,9 @@ def main():
     shutil.copytree(
         Path(__file__).resolve().parents[1],
         project,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "image.bin"),
+        ignore=shutil.ignore_patterns(
+            "__pycache__", "*.pyc", "image.bin", ".pycircuit_out"
+        ),
     )
     platform = clean / "platform"
     platform.mkdir()

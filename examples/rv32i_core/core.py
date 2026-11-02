@@ -8,6 +8,7 @@ from rv32i_core.execute import ExecuteLogic
 from rv32i_core.frontend import Frontend, Finalize
 
 
+# ndf: implements=RV32-SPEC-STATE-001,RV32-SPEC-VIEWS-001
 @ac.module(execution={"profile": "clocked_fixedpoint_v1", "state_output": 1})
 def Core(bus: BusInputs) -> tuple[Pins, Machine]:
     state: Machine = initial_machine()
@@ -18,6 +19,7 @@ def Core(bus: BusInputs) -> tuple[Pins, Machine]:
 
     following, pins = Finalize(state, s1, p1, s4, p4, wb.terminal)
 
+    # ndf: implements=RV32-SPEC-STATE-001,RV32-SPEC-COMMIT-001
     @ac.rule
     def step() -> Pins:
         state = following

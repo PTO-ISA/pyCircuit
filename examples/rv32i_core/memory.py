@@ -20,6 +20,7 @@ class ResultMemory:
     control: MemoryControl
 
 
+# ndf: implements=RV32-SPEC-BUS-001,RV32-SPEC-EEI-001
 def compute_Memory(
     old: Machine,
     prior: Machine,

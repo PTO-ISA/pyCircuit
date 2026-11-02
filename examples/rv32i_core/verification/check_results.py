@@ -7,6 +7,7 @@ from pathlib import Path
 from verify import compare
 
 
+# ndf: verifies=RV32-VER-VIEWS-001
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--programs", type=Path, required=True)

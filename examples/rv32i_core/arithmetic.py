@@ -4,6 +4,7 @@ import pycircuit as ac
 from rv32i_core.types import Decoded, Packet
 
 
+# ndf: implements=RV32-SPEC-ISA-001
 def compute_Arithmetic(
     control: Decoded, pc: ac.u32, instruction: ac.u32, first: ac.u32, second: ac.u32
 ) -> Packet:

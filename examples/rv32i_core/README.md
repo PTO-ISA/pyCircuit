@@ -5,15 +5,17 @@ functional/timing tool extension. One source owns computation, architectural
 state and precise effects; it generates executable native and physical RTL.
 No separate functional CPU, imported RTL CPU or ISS numeric bypass is used.
 
-This demo is a separate consumer change. Its exact public tool-PR dependency is
-recorded in `pycircuit-dependency.json`; main's existing SDK alone does not supply
-that extension. Merge/review the tool change first. The demo source stays under
-this independent directory and does not modify compiler/runtime implementation.
+The required public SDK revision is recorded in `pycircuit-dependency.json`.
+Start with the [NDF design input, Spec and validation workflow](spec/README.md)
+for the architectural requirements, source bindings and reproducible acceptance.
+The specification is a draft for review; implementation results are recorded
+separately.
 
 ## Directory map
 
 | Path | Responsibility |
 | --- | --- |
+| `spec/`, `ndf.yaml`, `ndf.lock` | Versioned design input, L1/L2 specification, L3 acceptance and exact NDF dependency |
 | `types.py`, `decoder.py`, `arithmetic.py` | Shared records/reset values and pure RV32I decode/compute units |
 | `writeback.py`, `memory.py`, `execute.py`, `frontend.py`, `core.py` | Actual phase hierarchy, one state owner and atomic commit |
 | `CMakeLists.txt`, `simulation.json`, `link.ld` | Public source-unit closure, blocking platform roles, fixed EEI link layout |
