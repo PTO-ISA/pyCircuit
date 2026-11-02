@@ -106,6 +106,7 @@ nav:
       - Shared Functional and Timing Execution: development/shared-functional-timing-model.md
       - Model Tool Product Plan: development/model-tool-product-plan.md
       - Clocked Complete-state Execution: development/clocked-model-execution.md
+      - Shared Model Validation: development/shared-model-validation.md
       - Installed Model Projects: development/model-project-workflow.md
       - Physical RTL Export: development/physical-rtl-export.md
       - Transactional Resource IR: development/transactional-resource-ir.md

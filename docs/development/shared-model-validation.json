@@ -1,0 +1,18 @@
+{
+  "schema": "pycircuit-shared-model-validation-v1",
+  "base": "24fa89804f26bb7618692f8c80bcd451233c47b3",
+  "implementation_commit": "2d05482f2c1bde4354de260cdea2181ac57e139a",
+  "tested_content_note": "Implementation commit plus system-test filename disambiguation and matching nightly selector; publication adds documentation/result summaries only.",
+  "cpu_source_directory_present": false,
+  "build": {"configuration": "Release CompilerDev+Runtime, LLVM/MLIR22.1.8, testingON", "configure_rc": 0, "build_rc": 0, "install_rc": 0},
+  "checks": {
+    "api_gate": {"status": "PASS", "ctest_count": 25, "rc": 0},
+    "examples_gate": {"status": "PASS", "ctest_count": 13, "verilator": "5.048", "rc": 0},
+    "python_and_installed_profiles": {"status": "PASS", "passed": 847, "skipped": 4, "rc": 0, "scope": "unit plus shared execution models, installed project and complete-state profile"}
+  },
+  "measured_profiles": ["WordII1", "WordII2", "Digest", "clocked accumulator", "initialized project"],
+  "coverage": ["independent nonzero raw/flags/state", "FIFO latency/II/capacity/backpressure", "acceptance snapshots", "native workers1/2 and RTL where selected", "complete-witness native/Icarus", "unknown zero improper effects", "unsafe witness/hidden state rejection", "visible timer prevents folding", "installed project and header-only incremental reuse"],
+  "not_run": ["full nightly", "new independent review", "fair external cross-tool ranking"],
+  "independent_review": "NOT_RUN: previously configured review service returned HTTP401 before an opinion; no approval claimed",
+  "sota": "NOT_ESTABLISHED"
+}
