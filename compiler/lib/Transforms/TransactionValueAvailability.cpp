@@ -323,6 +323,10 @@ class ValueAvailabilityMaterializer {
   // A proven null Value denotes scalar one; nullopt means not proven uniform.
   FailureOr<std::optional<bool>> knownGuard(Value value,
       ArrayRef<StringAttr> path, Operation *site) {
+    SmallVector<StringAttr> projected(path.begin(), path.end());
+    if (failed(canonicalProjection(value, projected, site)))
+      return failure();
+    path = projected;
     if (guardDepth >= 128)
       return (void)error(site, "guard proof depth exceeds 128"), failure();
     ++guardDepth;
@@ -383,6 +387,10 @@ class ValueAvailabilityMaterializer {
   }
   FailureOr<UniformResult> uniformAvailability(Value value,
       ArrayRef<StringAttr> path, Operation *site) {
+    SmallVector<StringAttr> projected(path.begin(), path.end());
+    if (failed(canonicalProjection(value, projected, site)))
+      return failure();
+    path = projected;
     if (uniformDepth >= 128)
       return (void)error(site, "uniform availability depth exceeds 128"), failure();
     ++uniformDepth;
@@ -1280,8 +1288,50 @@ class ValueAvailabilityMaterializer {
     }
     return all(site, operation->getOperands());
   }
+  // A projection of a reconstructed record has exactly the availability of
+  // its selected operand. Canonicalize aliases before allocating query-cache
+  // entries; the source clones and original-source proof remain untouched.
+  LogicalResult canonicalProjection(Value &value,
+                                    SmallVectorImpl<StringAttr> &path,
+                                    Operation *site) {
+    for (unsigned depth = 0; depth <= 128; ++depth) {
+      if (failed(budget.debit(4 + path.size(), site)))
+        return failure();
+      if (auto get = value.getDefiningOp<ac::StructGetOp>()) {
+        path.insert(path.begin(), get.getFieldAttr());
+        value = get.getValue();
+        continue;
+      }
+      auto create = value.getDefiningOp<ac::StructCreateOp>();
+      if (!create || path.empty())
+        return success();
+      auto declaration =
+          hardware.lookupStruct(cast<ac::StructType>(value.getType()));
+      if (!declaration)
+        return failure();
+      bool found = false;
+      for (auto [i, field] : llvm::enumerate(declaration.getFields())) {
+        if (failed(budget.debit(2, site)))
+          return failure();
+        if (cast<DictionaryAttr>(field).getAs<StringAttr>("name") ==
+            path.front()) {
+          value = create->getOperand(i);
+          path.erase(path.begin());
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        return error(site, "unresolved record projection");
+    }
+    return error(site, "record projection depth exceeds 128");
+  }
   FailureOr<Value> availability(Value value, ArrayRef<StringAttr> path,
                                 Operation *site) {
+    SmallVector<StringAttr> projected(path.begin(), path.end());
+    if (failed(canonicalProjection(value, projected, site)))
+      return failure();
+    path = projected;
     if (failed(budget.debit(4 + path.size(), site))) return failure();
     bool bound = inRow(value);
     if (bound && rowDepth >= 128)

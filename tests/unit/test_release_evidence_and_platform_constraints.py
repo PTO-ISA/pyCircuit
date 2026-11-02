@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -40,13 +41,31 @@ def test_release_uses_live_validation_and_uploads_untracked_logs() -> None:
         assert "docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/" in text
 
 
-def test_release_retirement_gate_checks_the_single_public_driver_contract() -> None:
+def test_release_retirement_gate_checks_the_single_public_driver_contract(
+    capsys,
+) -> None:
     source = (ROOT / "tools/check_frontend_retirement.py").read_text(encoding="utf-8")
     wheel_builder = (ROOT / "packaging/wheel/create_wheel.py").read_text(
         encoding="utf-8"
     )
 
-    assert 'expected_commands = {"compile", "link", "emit", "run"}' in source
+    from pycircuit.cli import main
+
+    with pytest.raises(SystemExit) as stopped:
+        main(["--help"])
+    assert stopped.value.code == 0
+    choices = re.search(r"\{([^{}]+)\}", capsys.readouterr().out)
+    assert choices is not None
+    assert set(choices[1].split(",")) == {
+        "compile",
+        "link",
+        "emit",
+        "run",
+        "init",
+        "doctor",
+        "verify",
+        "benchmark",
+    }
     assert '"pycircuit-emit"' in source
     for retired in ("acc.py", "pycc", "agentic-circuit"):
         assert retired in source

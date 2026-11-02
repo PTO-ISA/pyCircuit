@@ -37,7 +37,8 @@ linkSourceUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,
                   SourceLinkTarget target = SourceLinkTarget::Hardware,
                   SourceLinkStages *retainedStages = nullptr,
                   llvm::ArrayRef<SourceLinkParameterBinding> parameters = {},
-                  llvm::StringRef resetSemantics = "strict");
+                  llvm::StringRef resetSemantics = "strict",
+                  llvm::StringRef execution = "");
 
 } // namespace acir::compiler
 

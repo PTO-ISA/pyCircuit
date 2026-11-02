@@ -187,6 +187,7 @@ def link_command(
     output: str | Path | None = None,
     parameters: str | Path | None = None,
     reset_semantics: str | None = None,
+    execution: str | None = None,
     target: str | None = None,
     from_anchor: str | Path | None = None,
     verify_only: bool = False,
@@ -199,6 +200,12 @@ def link_command(
     exactly as the private per-source entry already allows.
     """
 
+    if execution not in (None, "timing", "functional"):
+        raise _DriverError("execution requires timing or functional")
+    if execution is not None and (
+        from_anchor is not None or verify_only or target == "anchor"
+    ):
+        raise _DriverError("execution selection requires source-unit final linking")
     if from_anchor is not None:
         if (
             units
@@ -309,6 +316,8 @@ def link_command(
             filesystem=fs,
         ) as locks:
             command = [str(harness), "--reset-semantics", reset_semantics]
+            if execution is not None:
+                command += ["--execution", execution]
             if parameter_bindings:
                 command += ["--parameters", str(parameter_snapshot)]
             for index, key in enumerate(sorted(directories)):

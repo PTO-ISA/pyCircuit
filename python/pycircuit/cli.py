@@ -81,6 +81,7 @@ def _cmd_link(args: argparse.Namespace) -> int:
             output=args.output,
             parameters=args.parameters,
             reset_semantics=args.reset_semantics,
+            execution=args.execution,
             replace=args.replace,
             target=args.target,
             from_anchor=args.from_anchor,
@@ -114,6 +115,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
             cycles=args.cycles,
             workers=args.workers,
             timeout=args.timeout,
+            execution=args.execution,
+            model=args.model,
+            inputs=args.inputs,
+            consumer_start=args.consumer_start,
+            memory=args.memory,
         )
     except (
         _DriverError,
@@ -126,6 +132,49 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"pycircuit run: {error}", file=sys.stderr)
         return 1
     return 0
+
+
+def _cmd_project(args: argparse.Namespace) -> int:
+    import json
+    import subprocess
+
+    from ._driver import _DriverError
+    from ._project import benchmark_project, doctor, init_project, verify_project
+
+    try:
+        if args.cmd == "doctor":
+            result = doctor(args.toolchain, args.rtl)
+            print(json.dumps(result, indent=2))
+            return 0 if result["status"] == "ready" else 1
+        if args.cmd == "init":
+            print(init_project(args.directory, args.template))
+            return 0
+        if args.cmd == "verify":
+            result = verify_project(
+                args.source, args.build_dir, args.toolchain, args.rtl, args.timeout
+            )
+        else:
+            result = benchmark_project(
+                args.source,
+                args.output,
+                args.toolchain,
+                args.samples,
+                args.warmup,
+                tuple(args.batches),
+                args.timeout,
+            )
+        print(json.dumps(result, indent=2))
+        return 0
+    except (
+        _DriverError,
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        print(f"pycircuit {args.cmd}: {error}", file=sys.stderr)
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         "link",
         help="Link an explicitly listed unit closure into one verified final design.",
     )
+    link_program.add_argument("--execution", choices=("timing", "functional"))
     link_program.add_argument(
         "units",
         nargs="*",
@@ -215,6 +265,21 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser(
         "run", help="Build and simulate a closed source system.", allow_abbrev=False
     )
+    run.add_argument("--execution", choices=("functional", "timing"))
+    run.add_argument("--model", help="Declared model entry for a typed request stream")
+    run.add_argument(
+        "--memory",
+        help="Explicit clocked word-memory adapter JSON (fixed-point profile)",
+    )
+    run.add_argument(
+        "--inputs", help="JSON active/request records, packed through ports.json"
+    )
+    run.add_argument(
+        "--consumer-start",
+        type=int,
+        default=0,
+        help="First timing cycle with an accepting result consumer",
+    )
     run.add_argument("source", help="Independent example directory")
     run.add_argument("--target", choices=("cpp", "verilog"), default="cpp")
     run.add_argument("--build-dir")
@@ -225,6 +290,45 @@ def main(argv: list[str] | None = None) -> int:
         "--timeout", type=int, default=180, help="Seconds per build/run stage"
     )
     run.set_defaults(fn=_cmd_run)
+    initialize = sub.add_parser(
+        "init", help="Create a portable single-source model project"
+    )
+    initialize.add_argument("directory")
+    initialize.add_argument(
+        "--template",
+        choices=("compute", "stateful", "backpressure"),
+        default="stateful",
+    )
+    initialize.set_defaults(fn=_cmd_project)
+    diagnostic = sub.add_parser(
+        "doctor", help="Inspect the selected installed model toolchain"
+    )
+    diagnostic.add_argument("--toolchain")
+    diagnostic.add_argument(
+        "--rtl", action="store_true", help="Require Icarus for model input execution"
+    )
+    diagnostic.set_defaults(fn=_cmd_project)
+    for name in ("verify", "benchmark"):
+        project = sub.add_parser(
+            name,
+            help=(
+                "Verify independent raw/state expectations"
+                if name == "verify"
+                else "Measure verified native models with raw repeated samples"
+            ),
+        )
+        project.add_argument("source")
+        project.add_argument("--toolchain")
+        project.add_argument("--timeout", type=int, default=180)
+        if name == "verify":
+            project.add_argument("--build-dir", required=True)
+            project.add_argument("--rtl", action="store_true")
+        else:
+            project.add_argument("--output", required=True)
+            project.add_argument("--samples", type=int, default=5)
+            project.add_argument("--warmup", type=int, default=1)
+            project.add_argument("--batches", type=int, nargs="+", default=[1, 32, 256])
+        project.set_defaults(fn=_cmd_project)
     args = p.parse_args(argv)
     if args.cmd == "link":
         if args.from_anchor is None:

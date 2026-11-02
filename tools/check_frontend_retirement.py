@@ -261,10 +261,42 @@ def scan_public_surface() -> list[str]:
             and isinstance(node.args[0], ast.Constant)
             and isinstance(node.args[0].value, str)
         }
-        expected_commands = {"compile", "link", "emit", "run"}
+        # Project commands share a finite literal loop in the real CLI. Read
+        # that static declaration too; do not execute/import the CLI to scan it.
+        for loop in ast.walk(tree):
+            if not isinstance(loop, ast.For) or not isinstance(loop.target, ast.Name):
+                continue
+            try:
+                values = ast.literal_eval(loop.iter)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(values, tuple | list) or not all(
+                isinstance(v, str) for v in values
+            ):
+                continue
+            if any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_parser"
+                and node.args
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id == loop.target.id
+                for node in ast.walk(loop)
+            ):
+                commands.update(values)
+        expected_commands = {
+            "compile",
+            "link",
+            "emit",
+            "run",
+            "init",
+            "doctor",
+            "verify",
+            "benchmark",
+        }
         if commands != expected_commands:
             failures.append(
-                f"CLI command set must be compile/link/emit/run, found {sorted(commands)}"
+                f"CLI commands differ from the source/project driver contract: {sorted(commands)}"
             )
     for runner in (ROOT / "tests").rglob("lit*.py"):
         text = runner.read_text(encoding="utf-8")

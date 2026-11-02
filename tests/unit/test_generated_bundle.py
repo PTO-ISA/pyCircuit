@@ -120,6 +120,21 @@ def _validate_or_fail(path: Path, owner: Mapping[str, object] = OWNER) -> None:
         _validate_generated_bundle(path, owner)
 
 
+@pytest.mark.parametrize("strategy", ["functional", "timing"])
+def test_generated_execution_selection_is_retained(tmp_path, strategy):
+    receipt = _receipt()
+    receipt["execution_model"] = {
+        "strategy": strategy,
+        "protocol": "request_response_v1",
+        "publication_field": "ok",
+    }
+    _write_bundle(tmp_path, receipt=receipt)
+    _validate_generated_bundle(tmp_path, OWNER)
+    receipt["execution_model"]["protocol"] = "unchecked"
+    _write_bundle(tmp_path, receipt=receipt)
+    _validate_or_fail(tmp_path)
+
+
 def _builder(receipt: object, files: Mapping[str, bytes] = FILE_BYTES):
     def build(stage: Path) -> None:
         _write_bundle(stage, receipt=receipt, files=files)

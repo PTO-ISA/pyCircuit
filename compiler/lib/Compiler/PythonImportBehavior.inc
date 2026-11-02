@@ -1038,7 +1038,8 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
 
 LogicalResult Importer::reserveSourceEnvironmentCopies(
     const AstNode &site, const BranchEnvironment &incoming,
-    const BranchEnvironment *yes, const BranchEnvironment *no) {
+    const BranchEnvironment *yes, const BranchEnvironment *no,
+    unsigned branchCopies) {
   TableQueryCharge charge;
   bool fits = true;
   StringRef phase =
@@ -1092,17 +1093,19 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
         if (failed(chargeLoopDescriptorWork(site,
                                             "environment entry measurement")))
           return failure();
-        key(entry.first(), 2);
+        key(entry.first(), branchCopies);
       }
     for (const auto &entry : incoming.boundaries) {
       if (failed(chargeLoopDescriptorWork(
               site, "environment boundary measurement")) ||
-          failed(binding(entry.first(), entry.second, 2)))
+          failed(binding(entry.first(), entry.second, branchCopies)))
         return failure();
     }
-    // Two ambient/continuation handle pairs; no new hardware payload planes.
-    fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 4) &&
-            TableQueryBudget::add(charge, TableQueryResource::Work, 4);
+    // One ambient/continuation pair per materialized branch environment.
+    fits &= TableQueryBudget::add(charge, TableQueryResource::Slots,
+                                  2 * branchCopies) &&
+            TableQueryBudget::add(charge, TableQueryResource::Work,
+                                  2 * branchCopies);
   } else {
     for (const auto &entry : incoming.boundaries) {
       if (failed(chargeLoopDescriptorWork(site, "join boundary measurement")) ||
@@ -2514,11 +2517,11 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
       binding = BindingBoundary{structFieldPort(selectedField, target), true};
     }
     if (target.kind() == "Subscript") {
-      if (target.child("value").kind() != "Name" ||
-          !values.contains(target.child("value").string("id")))
-        return error() << "indexed assignment requires a named table";
-      auto table = dyn_cast<ac::TableType>(
-          values[target.child("value").string("id")].getType());
+      auto container =
+          expressionType(target.child("value"), values, instances, symbol);
+      if (failed(container))
+        return failure();
+      auto table = dyn_cast<ac::TableType>(*container);
       if (!table)
         return error() << "indexed assignment requires a table";
       binding = BindingBoundary{{assignmentRoot(target).str(),

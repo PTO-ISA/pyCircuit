@@ -57,7 +57,9 @@ public:
     if (units > maxWork - work) {
       boundedError(site) << "transaction state analysis work budget exceeded"
                          << " (requested " << units << ", used " << work
-                         << ", limit " << maxWork << ", phase " << phase << ")";
+                         << ", limit " << maxWork << ", phase " << phase
+                         << ", operation " << site->getName().getStringRef()
+                         << ")";
       exhausted = true;
       return false;
     }
@@ -566,13 +568,24 @@ struct InvocationResult {
   GuardBoundaryId guard = 0;
 };
 
+// Exact immutable closed type proofs may be shared across occurrence plans of
+// this one unchanged package. Parameter/reference/value/effect facts never are.
+struct ClosedLayoutProofs {
+  llvm::DenseMap<Type, bool> layouts;
+  llvm::DenseMap<Type, Type> branches;
+};
+
 class TransactionPlanBuilder {
 public:
   TransactionPlanBuilder(mlir::ModuleOp package, StateAnalysisBudget &budget,
                          const PackageInventory &inventory,
-                         SourceReceiverProofContext &receiverProof)
-      : package(package), hardware(package), budget(budget),
-        inventory(inventory), receiverProof(receiverProof), subelements(budget, package.getContext()) {}
+                         SourceReceiverProofContext &receiverProof,
+                         ClosedLayoutProofs &closedTypes)
+      : closedLayoutMemo(closedTypes.layouts),
+        closedBranchTypes(closedTypes.branches), package(package),
+        hardware(package), budget(budget), inventory(inventory),
+        receiverProof(receiverProof),
+        subelements(budget, package.getContext()) {}
 
   // Verify declaration calls under an existing occurrence without creating an
   // invocation, effects or registration. Unselected noncontextual declarations
@@ -932,12 +945,79 @@ private:
                                 plan.instances[ref.anchor].logicalBindings, site);
   }
 
+  // A declaration with only literal Bits widths/Table extents and closed
+  // nominal fields has the same branch layout in every empty binding frame.
+  // Share that immutable proof; retain per-anchor proofs for all dependent
+  // types. No actual bound/value/effect checks are skipped.
+  llvm::DenseMap<Type, bool> &closedLayoutMemo;
+  llvm::DenseMap<Type, Type> &closedBranchTypes;
+  FailureOr<bool> closedLayout(Type type, Operation *site, unsigned depth = 0) {
+    if (!budget.charge(site) || depth > maxDepth)
+      return failure();
+    if (auto found = closedLayoutMemo.find(type);
+        found != closedLayoutMemo.end())
+      return found->second;
+    bool closed = false;
+    auto literal = [](StaticExprAttr expr) {
+      return expr && expr.getTree().getAs<StringAttr>("kind") &&
+             expr.getTree().getAs<StringAttr>("kind").getValue() == "literal";
+    };
+    if (auto bits = dyn_cast<BitsType>(type))
+      closed = literal(bits.getWidth());
+    else if (auto table = dyn_cast<TableType>(type)) {
+      closed = true;
+      for (Attribute dimension : table.getShape())
+        closed &= literal(dyn_cast<StaticExprAttr>(dimension));
+      auto element = closedLayout(table.getElementType(), site, depth + 1);
+      if (failed(element))
+        return failure();
+      closed &= *element;
+    } else if (auto record = dyn_cast<StructType>(type)) {
+      auto declaration = hardware.lookupStruct(record);
+      closed = bool(declaration);
+      if (declaration)
+        for (Attribute raw : declaration.getFields()) {
+          if (!budget.charge(site))
+            return failure();
+          auto field = cast<DictionaryAttr>(raw);
+          if (field.get("source_constraint")) {
+            closed = false;
+            break;
+          }
+          auto member = closedLayout(field.getAs<TypeAttr>("type").getValue(),
+                                     site, depth + 1);
+          if (failed(member))
+            return failure();
+          closed &= *member;
+        }
+    }
+    if (!budget.reserveMapInsert(site, closedLayoutMemo))
+      return failure();
+    closedLayoutMemo.try_emplace(type, closed);
+    return closed;
+  }
+
   FailureOr<Type> branchType(Type original, LexicalInstanceId anchor,
                              Operation *site) {
     if (!budget.charge(site, 2)) return failure();
     auto key = std::make_pair(anchor, original);
     auto found = admittedBranchTypes.find(key);
     if (found != admittedBranchTypes.end()) return found->second;
+    const auto &bindings = plan.instances[anchor].bindings;
+    const auto &logicalBindings = plan.instances[anchor].logicalBindings;
+    bool share = false;
+    if (bindings.integers.empty() && bindings.types.empty() &&
+        logicalBindings.integers.empty() && logicalBindings.types.empty()) {
+      auto closed = closedLayout(original, site);
+      if (failed(closed))
+        return failure();
+      share = *closed;
+    }
+    if (share) {
+      auto cached = closedBranchTypes.find(original);
+      if (cached != closedBranchTypes.end())
+        return cached->second;
+    }
     auto type = detail::resolveSourceBranchResultType(
         original, hardware, plan.instances[anchor].bindings, site,
         [&](uint64_t work, uint64_t bytes) {
@@ -949,6 +1029,11 @@ private:
     auto logical = hardware.resolveType(original, plan.instances[anchor].logicalBindings, site);
     if (failed(logical)) return failure();
     admittedBranchTypes.try_emplace(key, *logical);
+    if (share) {
+      if (!budget.reserveMapInsert(site, closedBranchTypes))
+        return failure();
+      closedBranchTypes.try_emplace(original, *logical);
+    }
     return *logical;
   }
 
@@ -3299,6 +3384,7 @@ void runTransactionStateAnalysis(
     return;
   SmallVector<TransactionStatePlan, 0> completed;
   SourceReceiverProofContext receiverProof;
+  ClosedLayoutProofs closedTypes;
   HardwareAnalysis hardware(package);
   llvm::DenseSet<Operation *> allocated, referenceDefinitions,
       relativeDefinitions, contextualDefinitions;
@@ -3419,7 +3505,8 @@ void runTransactionStateAnalysis(
       std::function<LogicalResult(ModuleOp, unsigned)> verifyOccurrence =
           [&](ModuleOp module, unsigned depth) -> LogicalResult {
         if (depth > maxDepth || !budget.charge(module)) return failure();
-        TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
+        TransactionPlanBuilder builder(package, budget, inventory,
+                                       receiverProof, closedTypes);
         if (failed(builder.verifyReceivers(module, root, path))) return failure();
         for (auto allocation : module.getBody().front().getOps<InstanceOp>()) {
           if (!budget.charge(allocation)) return failure();
@@ -3440,7 +3527,8 @@ void runTransactionStateAnalysis(
       for (auto module : package.getOps<ModuleOp>()) {
         if (!budget.charge(module)) return;
         if (selected.contains(module)) continue;
-        TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
+        TransactionPlanBuilder builder(package, budget, inventory,
+                                       receiverProof, closedTypes);
         if (failed(builder.verifyReceivers(module, module, {}))) return;
       }
   }
@@ -3493,7 +3581,8 @@ void runTransactionStateAnalysis(
     if (!budget.charge(transaction, 2) ||
         !budget.chargeStorage<TransactionStatePlan>(transaction, 1) ||
         !budget.reserve(transaction, completed, 1)) return failure();
-    TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
+    TransactionPlanBuilder builder(package, budget, inventory, receiverProof,
+                                   closedTypes);
     auto plan = builder.run(transaction, root, path);
     if (failed(plan)) return failure();
     plan->ordinal = completed.size();
@@ -3660,7 +3749,8 @@ void runTransactionStateAnalysis(
     }
     if (duplicate) continue;
     if (prefix) {
-      TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
+      TransactionPlanBuilder builder(package, budget, inventory, receiverProof,
+                                     closedTypes);
       auto fresh = builder.run(plan.transaction, root, ArrayRef<InstanceOp>(registration).drop_front(prefix));
       if (failed(fresh)) return;
       plan = std::move(*fresh);

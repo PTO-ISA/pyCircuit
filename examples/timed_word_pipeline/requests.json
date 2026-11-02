@@ -1,0 +1,82 @@
+[
+  {
+    "active": 1,
+    "request": {
+      "tag": 0,
+      "enable": 1,
+      "lhs": 1,
+      "rhs": 2,
+      "operation": 0
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 1,
+      "enable": 1,
+      "lhs": 3,
+      "rhs": 4,
+      "operation": 2
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 2,
+      "enable": 0,
+      "lhs": 99,
+      "rhs": 101,
+      "operation": 0
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 3,
+      "enable": 1,
+      "lhs": 7,
+      "rhs": 8,
+      "operation": 15
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 4,
+      "enable": 1,
+      "lhs": 5,
+      "rhs": 6,
+      "operation": 0
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 5,
+      "enable": 1,
+      "lhs": 7,
+      "rhs": 8,
+      "operation": 0
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 6,
+      "enable": 1,
+      "lhs": 2,
+      "rhs": 8,
+      "operation": 2
+    }
+  },
+  {
+    "active": 1,
+    "request": {
+      "tag": 7,
+      "enable": 1,
+      "lhs": 9,
+      "rhs": 1,
+      "operation": 1
+    }
+  }
+]

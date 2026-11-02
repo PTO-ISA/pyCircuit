@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
+#include <optional>
 using namespace mlir;
 namespace acir::ac {
 namespace {
@@ -80,10 +81,9 @@ struct Engine {
            sameMap(left.integers, right.integers) &&
            sameMap(left.types, right.types);
   }
-  FailureOr<SmallVector<FieldPath>> paths(Type type,
-                                          const HardwareBindings &bindings,
-                                          Operation *site,
-                                          FieldPath base = {}) {
+  FailureOr<SmallVector<FieldPath>>
+  computePaths(Type type, const HardwareBindings &bindings, Operation *site,
+               FieldPath base = {}) {
     if (failed(charge(detail::SourceCheckBudget::add(1, base.size()), site)))
       return failure();
     auto resolved = analysis.resolveType(type, bindings, site);
@@ -91,7 +91,7 @@ struct Engine {
       return failure();
     SmallVector<FieldPath> out;
     if (auto table = dyn_cast<TableType>(*resolved))
-      return paths(table.getElementType(), bindings, site, base);
+      return computePaths(table.getElementType(), bindings, site, base);
     if (auto record = dyn_cast<StructType>(*resolved)) {
       auto decl = analysis.lookupStruct(record);
       if (!decl)
@@ -103,8 +103,8 @@ struct Engine {
           return failure();
         auto path = base;
         path.push_back(field.getAs<StringAttr>("name"));
-        auto children = paths(field.getAs<TypeAttr>("type").getValue(),
-                              bindings, site, path);
+        auto children = computePaths(field.getAs<TypeAttr>("type").getValue(),
+                                     bindings, site, path);
         if (failed(children))
           return failure();
         for (const auto &child : *children)
@@ -125,6 +125,57 @@ struct Engine {
     else
       out.push_back(base);
     return out;
+  }
+  // Repeated operands often use the same nominal record layout. Cache only
+  // exact empty-binding layouts within this immutable analysis invocation;
+  // actual parameterized occurrences retain their original resolution path.
+  llvm::DenseMap<std::pair<Operation *, Type>, SmallVector<FieldPath>>
+      pathLayouts;
+  FailureOr<SmallVector<FieldPath>>
+  paths(Type type, const HardwareBindings &bindings, Operation *site) {
+    if (isa<BitsType, EnumType>(type) || !bindings.integers.empty() ||
+        !bindings.types.empty())
+      return computePaths(type, bindings, site);
+    if (failed(charge(4, site)))
+      return failure();
+    auto key = std::make_pair(bindings.owner, type);
+    if (auto found = pathLayouts.find(key); found != pathLayouts.end()) {
+      uint64_t cost =
+          detail::SourceCheckBudget::bytes(sizeof(SmallVector<FieldPath>));
+      for (const auto &path : found->second)
+        cost = detail::SourceCheckBudget::add(
+            cost, detail::SourceCheckBudget::add(
+                      path.size(), detail::SourceCheckBudget::bytes(
+                                       sizeof(FieldPath) +
+                                       path.size() * sizeof(StringAttr))));
+      if (failed(charge(cost, site)))
+        return failure();
+      return found->second;
+    }
+    auto result = computePaths(type, bindings, site);
+    if (failed(result))
+      return failure();
+    using Budget = detail::SourceCheckBudget;
+    using Bucket = decltype(pathLayouts)::value_type;
+    uint64_t old = pathLayouts.getMemorySize() / sizeof(Bucket),
+             capacity = std::max(uint64_t(64), old);
+    while ((pathLayouts.size() + 1) * 4 >= capacity * 3) {
+      if (failed(charge(1, site)))
+        return failure();
+      capacity = Budget::multiply(capacity, 2);
+    }
+    uint64_t copy = 16;
+    for (const auto &path : *result)
+      copy = Budget::add(copy, Budget::bytes(sizeof(FieldPath) +
+                                             path.size() * sizeof(StringAttr)));
+    if (capacity > old)
+      copy = Budget::add(
+          copy, Budget::add(old, Budget::bytes(Budget::multiply(
+                                     capacity - old, sizeof(Bucket)))));
+    if (failed(charge(copy, site)))
+      return failure();
+    pathLayouts.try_emplace(key, *result);
+    return result;
   }
   FailureOr<Type> subtree(Type type, ArrayRef<StringAttr> path,
                           const HardwareBindings &bindings, Operation *site) {
@@ -363,25 +414,58 @@ struct Engine {
               : analysis.bindInstance(cast<CollectionOp>(op), bindings);
       if (failed(binding))
         return failure();
-      SmallVector<OutputDependency> entries;
+      SmallVector<OutputDependency> importedEntries;
+      ArrayRef<OutputDependency> entries;
       if (auto imported = dyn_cast<ModuleImportOp>(binding->owner)) {
         auto deps = summary(imported, *binding);
         if (failed(deps))
           return failure();
-        entries = *deps;
+        importedEntries = std::move(*deps);
+        entries = importedEntries;
       } else {
-        auto nested = analyze(cast<ModuleOp>(binding->owner), *binding);
-        if (failed(nested))
-          return failure();
-        entries = nested->dependencies;
+        auto module = cast<ModuleOp>(binding->owner);
+        if (active.contains(module))
+          return module.emitOpError("recursive hardware instance hierarchy");
+        const ModuleAnalysis *proof = nullptr;
+        for (const auto &cached : completed) {
+          if (failed(charge(
+                  1 + detail::SourceCheckBudget::bindings(cached.bindings) +
+                      detail::SourceCheckBudget::bindings(*binding),
+                  module)))
+            return failure();
+          if (cached.module == module &&
+              sameBindings(cached.bindings, *binding)) {
+            proof = &cached.result;
+            break;
+          }
+        }
+        if (!proof) {
+          auto nested = analyze(module, *binding);
+          if (failed(nested))
+            return failure();
+          proof = &completed.back().result;
+        }
+        // Read the completed immutable summary in place. A field lookup must
+        // not copy the callee's entire schedule and every other field summary.
+        // No recursive analysis occurs while this ArrayRef is being consumed.
+        entries = proof->dependencies;
       }
       unsigned port = cast<OpResult>(value).getResultNumber();
-      for (auto &entry : entries)
+      for (const auto &entry : entries) {
+        if (failed(charge(1 + endpoint.path.size(), instance)))
+          return failure();
         if (entry.output.port == port && entry.output.path == endpoint.path) {
-          for (auto &input : entry.inputs)
+          for (const auto &input : entry.inputs) {
+            if (failed(charge(
+                    detail::SourceCheckBudget::bytes(sizeof(WireEndpoint)) +
+                        input.path.size(),
+                    instance)))
+              return failure();
             out.push_back({instance->getOperand(input.port), input.path});
+          }
           return out;
         }
+      }
       return instance->emitOpError() << "missing resolved field dependency";
     }
     if (auto map = dyn_cast<TableMapOp>(op)) {
@@ -536,8 +620,29 @@ struct Engine {
     SmallVector<StoredWire> visiting, done;
     // A wire endpoint is a Value plus its field path. Index candidate paths by
     // Value, retaining vector order for schedules and the original cycle span.
-    llvm::DenseMap<Value, SmallVector<size_t, 0>> doneForValue,
-        visitingForValue;
+    using EndpointKey = std::pair<Value, ArrayAttr>;
+    llvm::DenseMap<EndpointKey, size_t> doneEndpoints;
+    llvm::DenseMap<Value, SmallVector<size_t, 0>> visitingForValue;
+    auto reserveEndpoint = [&](auto &map) -> LogicalResult {
+      using Budget = detail::SourceCheckBudget;
+      using Bucket =
+          typename std::remove_reference_t<decltype(map)>::value_type;
+      uint64_t old = map.getMemorySize() / sizeof(Bucket),
+               capacity = std::max(uint64_t(64), old);
+      while ((map.size() + 1) * 4 >= capacity * 3) {
+        if (failed(charge(1, module)))
+          return failure();
+        capacity = Budget::multiply(capacity, 2);
+      }
+      if (failed(charge(2, module)) ||
+          (capacity > old &&
+           failed(charge(Budget::add(old, Budget::bytes(Budget::multiply(
+                                              capacity - old, sizeof(Bucket)))),
+                         module))))
+        return failure();
+      map.reserve(map.size() + 1);
+      return success();
+    };
     using InputIndices = SmallVector<size_t, 0>;
     SmallVector<PortEndpoint> inputEndpoints;
     // Each distinct module input field is interned once. Per-wire dependency
@@ -549,31 +654,24 @@ struct Engine {
     visit = [&](WireEndpoint e) -> FailureOr<InputIndices> {
       if (failed(charge(1, module)))
         return failure();
-      if (auto found = doneForValue.find(e.value);
-          found != doneForValue.end()) {
-        for (size_t index : found->second) {
-          if (failed(charge(detail::SourceCheckBudget::add(1, e.path.size()),
-                            module)))
-            return failure();
-          if (!done[index].matches(e))
-            continue;
-          const auto &ports = inputsForDone[index];
-          if (failed(charge(detail::SourceCheckBudget::bytes(
-                                detail::SourceCheckBudget::add(
-                                    sizeof(InputIndices),
-                                    detail::SourceCheckBudget::multiply(
-                                        ports.size(), sizeof(size_t)))),
-                            module)))
-            return failure();
-          return ports;
-        }
+      if (failed(charge(4 + 3 * e.path.size(), module)))
+        return failure();
+      SmallVector<Attribute> path(e.path.begin(), e.path.end());
+      EndpointKey key{e.value, ArrayAttr::get(module.getContext(), path)};
+      if (auto found = doneEndpoints.find(key); found != doneEndpoints.end()) {
+        const auto &ports = inputsForDone[found->second];
+        if (failed(charge(
+                detail::SourceCheckBudget::bytes(sizeof(InputIndices) +
+                                                 ports.size() * sizeof(size_t)),
+                module)))
+          return failure();
+        return ports;
       }
       auto cycle = visiting.end();
       if (auto found = visitingForValue.find(e.value);
           found != visitingForValue.end()) {
         for (size_t index : found->second) {
-          if (failed(charge(detail::SourceCheckBudget::add(1, e.path.size()),
-                            module)))
+          if (failed(charge(1 + e.path.size(), module)))
             return failure();
           if (visiting[index].matches(e)) {
             cycle = visiting.begin() + index;
@@ -615,6 +713,7 @@ struct Engine {
           visitingForValue.erase(found);
       });
       InputIndices ports;
+      std::optional<llvm::DenseSet<size_t>> portMembership;
       if (auto argument = dyn_cast<BlockArgument>(e.value);
           argument && argument.getOwner() == &module.getBody().front()) {
         if (failed(charge(detail::SourceCheckBudget::add(
@@ -636,14 +735,44 @@ struct Engine {
           if (failed(nested))
             return failure();
           for (size_t p : *nested) {
-            if (failed(charge(
-                    detail::SourceCheckBudget::add(
-                        ports.size(),
-                        detail::SourceCheckBudget::bytes(sizeof(size_t))),
-                    module)))
-              return failure();
-            if (!llvm::is_contained(ports, p))
+            bool present;
+            if (ports.size() < 32) {
+              if (failed(charge(ports.size() + 1, module)))
+                return failure();
+              present = llvm::is_contained(ports, p);
+            } else {
+              // Keep first-encounter order for canonical dependency summaries,
+              // but avoid a linear scan for every repeated transitive input.
+              if (!portMembership) {
+                if (failed(charge(16 + 128 + ports.size(), module)))
+                  return failure();
+                portMembership.emplace();
+                portMembership->reserve(ports.size() + 1);
+                portMembership->insert(ports.begin(), ports.end());
+              }
+              if (failed(charge(2, module)))
+                return failure();
+              present = portMembership->contains(p);
+              if (!present) {
+                uint64_t bytes = portMembership->getMemorySize();
+                uint64_t capacity = bytes / sizeof(size_t);
+                if ((portMembership->size() + 1) * 4 >= capacity * 3 &&
+                    failed(
+                        charge(detail::SourceCheckBudget::add(
+                                   capacity,
+                                   detail::SourceCheckBudget::bytes(bytes * 2)),
+                               module)))
+                  return failure();
+                portMembership->insert(p);
+              }
+            }
+            if (!present) {
+              if (failed(
+                      charge(detail::SourceCheckBudget::bytes(sizeof(size_t)),
+                             module)))
+                return failure();
               ports.push_back(p);
+            }
           }
         }
         if (Operation *op = e.value.getDefiningOp(); op && !validationOnly) {
@@ -667,12 +796,9 @@ struct Engine {
       if (failed(charge(detail::SourceCheckBudget::multiply(2, cacheCost),
                         module)))
         return failure();
-      if (failed(charge(detail::SourceCheckBudget::bytes(
-                            sizeof(std::pair<Value, SmallVector<size_t, 0>>) +
-                            sizeof(size_t)),
-                        module)))
+      if (failed(reserveEndpoint(doneEndpoints)))
         return failure();
-      doneForValue[e.value].push_back(done.size());
+      doneEndpoints[key] = done.size();
       done.push_back(
           {e.value, SmallVector<StringAttr, 0>(e.path.begin(), e.path.end())});
       inputsForDone.push_back(ports);

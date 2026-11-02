@@ -1,4 +1,5 @@
 #include "SourceLink.h"
+#include "ExecutionProjection.h"
 #include "SourceEntryBoundary.h"
 #include "LiteralPayloadWires.h"
 #include "SourceHeaderHelpers.h"
@@ -321,7 +322,8 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     ArrayRef<SourceLinkUnit> units, StringRef top,
     ac::detail::EmitError emitError, SourceLinkTarget target,
     SourceLinkStages *retainedStages,
-    ArrayRef<SourceLinkParameterBinding> parameters, StringRef resetSemantics) {
+    ArrayRef<SourceLinkParameterBinding> parameters, StringRef resetSemantics,
+    StringRef execution) {
   if (resetSemantics != "strict" && resetSemantics != "if_one")
     return emitError() << "reset semantics must be strict or if_one";
   auto admitted = admitSourceLinkUnits(units, emitError);
@@ -395,6 +397,11 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   if (!root)
     return emitError() << "link top is not a supplied module definition: @"
                        << top;
+  if (target == SourceLinkTarget::Routed && llvm::any_of(linked->getOps<ac::ModuleOp>(),
+        [](ac::ModuleOp module) { return module->hasAttr("ac.execution_model"); }))
+    return root.emitOpError("execution-model selection currently requires final linking");
+  if (failed(selectExecutionModel(*linked, root, execution)))
+    return failure();
   if (root->hasAttr("ac.reference_parameters"))
     return root.emitOpError()
            << "link top cannot have unbound Module references; instantiate it "
@@ -457,7 +464,7 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   state.addAttribute(
       "entry",
       builder.getDictionaryAttr(
-          {builder.getNamedAttr("callee", FlatSymbolRefAttr::get(context, top)),
+          {builder.getNamedAttr("callee", FlatSymbolRefAttr::get(context, root.getSymName())),
            builder.getNamedAttr("parameters", builder.getArrayAttr(arguments)),
            builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
   state.addAttribute("domain", builder.getStringAttr("default"));

@@ -262,9 +262,10 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
   }
   llvm::StringMap<Instance *> noInstances;
   if (auto element = indexedFieldTarget(target)) {
-    StringRef name = element.child("value").string("id");
-    if (!values.contains(name) || !isa<ac::TableType>(values[name].getType()))
-      return error() << "indexed assignment requires a named table";
+    auto container =
+        expression(element.child("value"), at, symbol, values, noInstances);
+    if (failed(container) || !isa<ac::TableType>((*container).getType()))
+      return error() << "indexed assignment requires a Table payload";
     DictionaryAttr selectedField;
     auto targetType = expressionType(target, values, noInstances, symbol,
                                      &selectedField);
@@ -288,15 +289,15 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
          field = field.child("value"))
       fieldPath.push_back(at.getStringAttr(field.string("attr")));
     std::reverse(fieldPath.begin(), fieldPath.end());
-    auto slot = addressDomainSlot(name, node, element.child("slice"));
+    auto slot = addressDomainSlot(root, node, element.child("slice"));
     if (failed(slot))
       return failure();
-    auto updated = tableUpdate(values[name], *index, *converted, fieldPath, node,
+    auto updated = tableUpdate(*container, *index, *converted, fieldPath, node,
                                at, symbol, *slot);
     if (failed(updated))
       return failure();
-    values[name] = *updated;
-    return success();
+    return updateAssignment(element.child("value"), *updated, node, at, symbol,
+                            values, boundIndices, preserveProjectionWitnesses);
   }
   if (target.kind() == "Attribute") {
     auto base =
@@ -310,26 +311,26 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
     return updateAssignment(target.child("value"), *updated, node, at, symbol,
                             values, boundIndices, preserveProjectionWitnesses);
   }
-  if (target.kind() == "Subscript" && target.child("value").kind() == "Name" &&
-      values.contains(target.child("value").string("id"))) {
-    StringRef name = target.child("value").string("id");
-    if (!isa<ac::TableType>(values[name].getType()))
-      return error() << "indexed assignment requires a table";
+  if (target.kind() == "Subscript" && values.contains(root)) {
+    auto container =
+        expression(target.child("value"), at, symbol, values, noInstances);
+    if (failed(container) || !isa<ac::TableType>((*container).getType()))
+      return error() << "indexed assignment requires a Table payload";
     auto index =
         expression(target.child("slice"), at, symbol, values, noInstances);
     if (failed(index))
       return failure();
     if (boundIndices)
       boundIndices->push_back(*index);
-    auto slot = addressDomainSlot(name, node, target.child("slice"));
+    auto slot = addressDomainSlot(root, node, target.child("slice"));
     if (failed(slot))
       return failure();
-    auto updated = tableUpdate(values[name], *index, replacement, {}, node, at,
+    auto updated = tableUpdate(*container, *index, replacement, {}, node, at,
                                symbol, *slot);
     if (failed(updated))
       return failure();
-    values[name] = *updated;
-    return success();
+    return updateAssignment(target.child("value"), *updated, node, at, symbol,
+                            values, boundIndices, preserveProjectionWitnesses);
   }
   return error() << "assignment requires a local name, nested field or named "
                     "table index";

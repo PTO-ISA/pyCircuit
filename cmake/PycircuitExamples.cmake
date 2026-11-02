@@ -37,7 +37,7 @@ endfunction()
 
 function(pycircuit_add_example name)
   cmake_language(DEFER CALL pycircuit_label_example_tests)
-  cmake_parse_arguments(EX "" "TOP;PACKAGE;ENTRY_SOURCE;DRIVER;RUNNER;TIMEOUT_SECONDS;CYCLES;SYSTEM_TOP;SYSTEM_ENTRY_SOURCE;SYSTEM_CYCLES;SYSTEM_TIMEOUT_SECONDS" "SOURCES;SYSTEM_SOURCES" ${ARGN})
+  cmake_parse_arguments(EX "" "TOP;PACKAGE;ENTRY_SOURCE;DRIVER;RUNNER;TIMEOUT_SECONDS;CYCLES;SYSTEM_TOP;SYSTEM_ENTRY_SOURCE;SYSTEM_CYCLES;SYSTEM_TIMEOUT_SECONDS" "SOURCES;MODEL_SOURCES;SYSTEM_SOURCES;PROVIDER_UNITS" ${ARGN})
   foreach(_required TOP PACKAGE ENTRY_SOURCE SOURCES)
     if(NOT EX_${_required})
       message(FATAL_ERROR "pycircuit_add_example requires ${_required}")
@@ -70,6 +70,11 @@ function(pycircuit_add_example name)
   endif()
   if("TIMEOUT_SECONDS" IN_LIST EX_KEYWORDS_MISSING_VALUES)
     message(FATAL_ERROR "TIMEOUT_SECONDS requires a positive integer number of seconds")
+  endif()
+  if(PYC_EXAMPLE_MODEL_TOP AND EX_MODEL_SOURCES)
+    # The declared component closure excludes its consuming System harness.
+    # Every definition in each supplied unit is still admitted by native link.
+    set(EX_SOURCES "${EX_MODEL_SOURCES}")
   endif()
   if(NOT DEFINED EX_TIMEOUT_SECONDS)
     set(EX_TIMEOUT_SECONDS 180)
@@ -125,6 +130,65 @@ function(pycircuit_add_example name)
   set(_interfaces)
   set(_link_inputs)
   set(_source_stems)
+  set(_provider_source_records)
+  set(_examples_root "${CMAKE_CURRENT_SOURCE_DIR}/..")
+  file(REAL_PATH "${_examples_root}" _examples_root)
+  set(_provider_index 0)
+  foreach(_provider IN LISTS EX_PROVIDER_UNITS)
+    string(REPLACE "|" ";" _provider_fields "${_provider}")
+    list(LENGTH _provider_fields _provider_field_count)
+    if(NOT _provider_field_count EQUAL 3)
+      message(FATAL_ERROR
+        "PROVIDER_UNITS entries must be root|package|source: ${_provider}")
+    endif()
+    list(GET _provider_fields 0 _provider_root)
+    list(GET _provider_fields 1 _provider_package)
+    list(GET _provider_fields 2 _provider_file)
+    if(IS_ABSOLUTE "${_provider_root}" OR
+       IS_ABSOLUTE "${_provider_file}" OR
+       _provider_file MATCHES "(^|/)\\.\\.(/|$)" OR
+       NOT _provider_file MATCHES "^[A-Za-z0-9_./-]+\\.py$" OR
+       NOT _provider_package MATCHES "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$")
+      message(FATAL_ERROR "PROVIDER_UNITS contains an unsafe root/package/source: ${_provider}")
+    endif()
+    get_filename_component(_provider_root "${_provider_root}" ABSOLUTE
+      BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    file(REAL_PATH "${_provider_root}" _provider_root)
+    cmake_path(IS_PREFIX _examples_root "${_provider_root}" NORMALIZE _provider_root_in_examples)
+    if(NOT _provider_root_in_examples OR
+       NOT EXISTS "${_provider_root}/${_provider_file}")
+      message(FATAL_ERROR "PROVIDER_UNITS source must exist under examples/: ${_provider}")
+    endif()
+    get_filename_component(_provider_stem "${_provider_file}" NAME_WE)
+    string(REPLACE "." "_" _provider_package_key "${_provider_package}")
+    set(_provider_unit "${_units}/provider_${_provider_index}_${_provider_package_key}_${_provider_stem}")
+    set(_provider_imports)
+    set(_provider_depends "${_provider_root}/${_provider_file}" ${_helpers} ${_interfaces})
+    foreach(_prior IN LISTS _unit_dirs)
+      list(APPEND _provider_imports -I "${_prior}")
+    endforeach()
+    add_custom_command(
+      OUTPUT "${_provider_unit}/${_provider_stem}.ac"
+        "${_provider_unit}/${_provider_stem}.interface.ac"
+        "${_provider_unit}/unit.json"
+      BYPRODUCTS "${_provider_unit}/${_provider_stem}.d"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${_units}"
+      COMMAND "${Python3_EXECUTABLE}" "${_prepare}" "${_provider_unit}"
+      COMMAND "${PYC_DRIVER}" compile -c "${_provider_root}/${_provider_file}"
+        --source-root "${_provider_root}" --package-prefix "${_provider_package}"
+        ${_provider_imports} -o "${_provider_unit}" --replace
+      DEPFILE "${_provider_unit}/${_provider_stem}.d"
+      DEPENDS ${_provider_depends} VERBATIM)
+    list(APPEND _unit_dirs "${_provider_unit}")
+    list(APPEND _interfaces "${_provider_unit}/${_provider_stem}.interface.ac"
+      "${_provider_unit}/unit.json")
+    list(APPEND _link_inputs "${_provider_unit}/${_provider_stem}.ac"
+      "${_provider_unit}/${_provider_stem}.interface.ac"
+      "${_provider_unit}/unit.json")
+    list(APPEND _provider_source_records
+      "${_provider_package}|${_provider_stem}")
+    math(EXPR _provider_index "${_provider_index} + 1")
+  endforeach()
   foreach(_file IN LISTS EX_SOURCES)
     if(IS_ABSOLUTE "${_file}" OR _file MATCHES "(^|/)\\.\\.(/|$)" OR NOT _file MATCHES "\\.py$")
       message(FATAL_ERROR "Example source must be a relative Python path: ${_file}")
@@ -152,10 +216,27 @@ function(pycircuit_add_example name)
     list(APPEND _link_inputs "${_units}/${_stem}/${_source}.ac" "${_units}/${_stem}/${_source}.interface.ac" "${_units}/${_stem}/unit.json")
   endforeach()
   set(_final "${CMAKE_CURRENT_BINARY_DIR}/${EX_ENTRY_SOURCE}.ac")
+  set(_execution_args)
+  if(PYC_EXAMPLE_EXECUTION)
+    if(NOT PYC_EXAMPLE_EXECUTION MATCHES "^(functional|timing)$")
+      message(FATAL_ERROR "Execution strategy must be functional or timing")
+    endif()
+    list(APPEND _execution_args --execution "${PYC_EXAMPLE_EXECUTION}")
+  endif()
+  if(PYC_EXAMPLE_MODEL_TOP)
+    set(EX_TOP "${PYC_EXAMPLE_MODEL_TOP}")
+  endif()
   add_custom_command(OUTPUT "${_final}"
-    COMMAND "${PYC_DRIVER}" link ${_unit_dirs} --top "${EX_TOP}" -o "${_final}" --replace
+    COMMAND "${PYC_DRIVER}" link ${_unit_dirs} --top "${EX_TOP}" ${_execution_args} -o "${_final}" --replace
     DEPENDS ${_link_inputs} ${_helpers} VERBATIM)
+  if(PYC_EXAMPLE_RTL_MODE AND NOT PYC_EXAMPLE_RTL_MODE MATCHES "^(managed|physical)$")
+    message(FATAL_ERROR "PYC_EXAMPLE_RTL_MODE must be managed or physical")
+  endif()
   foreach(_target cpp verilog)
+    set(_rtl_mode_args)
+    if(_target STREQUAL "verilog" AND PYC_EXAMPLE_RTL_MODE)
+      list(APPEND _rtl_mode_args --rtl-mode "${PYC_EXAMPLE_RTL_MODE}")
+    endif()
     set(_byproducts "${CMAKE_CURRENT_BINARY_DIR}/${_target}/CMakeLists.txt")
     foreach(_stem IN LISTS _source_stems)
       list(APPEND _byproducts
@@ -175,10 +256,40 @@ function(pycircuit_add_example name)
           "${CMAKE_CURRENT_BINARY_DIR}/verilog/sources/${_package_path}/${_stem}.v")
       endforeach()
     endif()
+    foreach(_provider_record IN LISTS _provider_source_records)
+      string(REPLACE "|" ";" _provider_parts "${_provider_record}")
+      list(GET _provider_parts 0 _provider_package)
+      list(GET _provider_parts 1 _provider_stem)
+      string(REPLACE "." "/" _provider_path "${_provider_package}")
+      list(APPEND _byproducts
+        "${CMAKE_CURRENT_BINARY_DIR}/${_target}/sources/${_provider_path}/${_provider_stem}.source-map.json")
+      if(_target STREQUAL "cpp")
+        list(APPEND _byproducts
+          "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_provider_path}/${_provider_stem}.hpp"
+          "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_provider_path}/${_provider_stem}.cpp")
+      else()
+        list(APPEND _byproducts
+          "${CMAKE_CURRENT_BINARY_DIR}/verilog/sources/${_provider_path}/${_provider_stem}.v")
+      endif()
+    endforeach()
+    if(PYC_EXAMPLE_MODEL_TOP)
+      # A source-only helper/record unit has no .cpp/.v translation unit.
+      # Selected model consumers build the actual receipt-owned source list in
+      # a separate generated CMake project. Declare only invariant outer glue;
+      # run validates the complete publication before that consumer is built.
+      set(_byproducts "${CMAKE_CURRENT_BINARY_DIR}/${_target}/CMakeLists.txt"
+        "${CMAKE_CURRENT_BINARY_DIR}/${_target}/ports.json")
+      if(_target STREQUAL "cpp")
+        list(APPEND _byproducts "${CMAKE_CURRENT_BINARY_DIR}/cpp/pycircuit_system.hpp"
+          "${CMAKE_CURRENT_BINARY_DIR}/cpp/pycircuit_support.hpp")
+      else()
+        list(APPEND _byproducts "${CMAKE_CURRENT_BINARY_DIR}/verilog/design_top.sv")
+      endif()
+    endif()
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_target}/generated.json"
       BYPRODUCTS ${_byproducts}
       COMMAND "${Python3_EXECUTABLE}" "${_prepare}" "${CMAKE_CURRENT_BINARY_DIR}/${_target}"
-      COMMAND "${PYC_DRIVER}" emit "${_final}" --target ${_target} -o "${CMAKE_CURRENT_BINARY_DIR}/${_target}" --replace
+      COMMAND "${PYC_DRIVER}" emit "${_final}" --target ${_target} ${_rtl_mode_args} -o "${CMAKE_CURRENT_BINARY_DIR}/${_target}" --replace
       DEPENDS "${_final}" ${_helpers} VERBATIM)
     add_custom_target(${name}_${_target}_artifacts ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_target}/generated.json")
   endforeach()
@@ -191,9 +302,22 @@ function(pycircuit_add_example name)
     endif()
     add_custom_target(pycircuit_simulation_artifacts DEPENDS ${name}_${PYC_EXAMPLE_RUN_TARGET}_artifacts)
   endif()
+  # A selected execution-model entry has a typed input protocol, not a second
+  # author-written System. The installed public run adapter consumes it.
+  if(PYC_EXAMPLE_MODEL_TOP)
+    return()
+  endif()
   set(_sources)
   foreach(_stem IN LISTS _source_stems)
     list(APPEND _sources "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_package_path}/${_stem}.cpp")
+  endforeach()
+  foreach(_provider_record IN LISTS _provider_source_records)
+    string(REPLACE "|" ";" _provider_parts "${_provider_record}")
+    list(GET _provider_parts 0 _provider_package)
+    list(GET _provider_parts 1 _provider_stem)
+    string(REPLACE "." "/" _provider_path "${_provider_package}")
+    list(APPEND _sources
+      "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_provider_path}/${_provider_stem}.cpp")
   endforeach()
   set_source_files_properties(${_sources} PROPERTIES GENERATED TRUE)
   set(_authored_driver TRUE)

@@ -789,6 +789,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       1);
   if (decl.references && !decl.references.empty())
     module->setAttr("ac.reference_parameters", decl.references);
+  if (decl.executionModel)
+    module->setAttr("ac.execution_model", decl.executionModel);
+  if (failed(validateExecutionModelDeclaration(module))) return failure();
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
   if (decl.systemSamples)
@@ -1052,8 +1055,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           selectors.push_back(at.getDictionaryAttr({at.getNamedAttr(
               "field", at.getStringAttr(current.string("attr")))}));
         else {
-          if (current.child("value").kind() != "Name")
-            return error() << "indexed assignment requires a named table";
+          if (llvm::any_of(selectors, [](Attribute raw) {
+                return cast<DictionaryAttr>(raw).get("index");
+              }))
+            return error()
+                   << "selected writes support one Table index per path";
           selectors.push_back(at.getDictionaryAttr(
               {at.getNamedAttr("index", at.getI64IntegerAttr(0))}));
         }
@@ -1297,9 +1303,19 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             environment.boundaries[binding.first()] =
                 inferredBoundary(binding.first(), binding.second, statement);
           }
-          if (failed(reserveSourceEnvironmentCopies(statement, environment)))
+          bool unchangedElse = statement.array("orelse").empty();
+          if (failed(reserveSourceEnvironmentCopies(statement, environment,
+                                                    nullptr, nullptr,
+                                                    unchangedElse ? 1 : 2)))
             return failure();
-          BranchEnvironment yes = environment, no = environment;
+          BranchEnvironment yes = environment;
+          std::optional<BranchEnvironment> materializedElse;
+          if (!unchangedElse)
+            materializedElse.emplace(environment);
+          // An empty else is the unchanged incoming environment, not another
+          // full map/descriptor copy. Both references remain immutable at join.
+          const BranchEnvironment &no =
+              unchangedElse ? environment : *materializedElse;
           TableQueryCharge charge;
           bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
                       TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
@@ -1324,9 +1340,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           // Reaching this statement already establishes the enclosing loop's
           // continuation. The authored selector controls its two arms; adding
           // the same continuation guard inside each arm duplicates proof IR.
-          if (failed(emitRange(statement, "body", thenAt, yes, true, 0, true)) ||
-              failed(emitRange(statement, "orelse", elseAt, no, true, 0, true)) ||
-              failed(reserveSourceEnvironmentCopies(statement, environment, &yes, &no)))
+          if (failed(
+                  emitRange(statement, "body", thenAt, yes, true, 0, true)) ||
+              (!unchangedElse &&
+               failed(emitRange(statement, "orelse", elseAt, *materializedElse,
+                                true, 0, true))) ||
+              failed(reserveSourceEnvironmentCopies(statement, environment,
+                                                    &yes, &no)))
             return failure();
           auto joined = joinBranches(*predicate, environment, yes, no, statement,
                                       inside, decl.symbol, branch);
@@ -2081,8 +2101,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (element) {
             auto index = expression(element.child("slice"), inside, decl.symbol,
                                     values, instances);
-            if (failed(index) ||
-                failed(proveIndex(owner.op->getResult(0), *index, statement)))
+            auto container = expression(element.child("value"), inside,
+                                        decl.symbol, values, instances);
+            if (failed(index) || failed(container) ||
+                failed(proveIndex(*container, *index, statement)))
               return failure();
             operands.push_back(*index);
           }
@@ -2099,7 +2121,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (statement.kind() == "Assign" && rhs &&
             (target.kind() == "Attribute" || target.kind() == "Subscript") &&
             values.contains(ownerRoot) &&
-            isa<ac::TableType>(values.lookup(ownerRoot).getType())) {
+            (isa<ac::TableType>(values.lookup(ownerRoot).getType()) ||
+             (target.kind() == "Subscript" &&
+              target.child("value").kind() == "Attribute" &&
+              isa<ac::StructType>(values.lookup(ownerRoot).getType())))) {
           if (failed(chargeLoopDescriptorWork(statement, "local Table reconstruction")))
             return failure();
           DictionaryAttr selectedField;

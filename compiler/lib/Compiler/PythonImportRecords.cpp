@@ -1,4 +1,5 @@
 #include "PythonImportRecords.h"
+#include "ExecutionProjection.h"
 #include "LiteralPayloadWires.h"
 #include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "Dialect/ACIR/HardwareGrantProof.h"
@@ -60,6 +61,7 @@ enum class ReturnShape { Mapping, Struct, Tuple, None };
 enum class SourceIndexAdmission { Proved, Deferred };
 struct ModuleDecl {
   AstNode node;
+  DictionaryAttr executionModel;
   FlatSymbolRefAttr symbol;
   SmallVector<Parameter> parameters;
   ArrayAttr references;
@@ -471,11 +473,10 @@ private:
   FailureOr<LoopStatementEnvelope>
   reserveLoopJoin(const AstNode &statement, const BranchEnvironment &incoming,
                   const BranchEnvironment &yes, const BranchEnvironment &no);
-  LogicalResult
-  reserveSourceEnvironmentCopies(const AstNode &site,
-                               const BranchEnvironment &incoming,
-                               const BranchEnvironment *yes = nullptr,
-                               const BranchEnvironment *no = nullptr);
+  LogicalResult reserveSourceEnvironmentCopies(
+      const AstNode &site, const BranchEnvironment &incoming,
+      const BranchEnvironment *yes = nullptr,
+      const BranchEnvironment *no = nullptr, unsigned branchCopies = 2);
   LogicalResult payLoopEnvelope(LoopStatementEnvelope &envelope,
                                 const AstNode &site, StringRef phase);
   LogicalResult auditLoopStatement(Block &block, Operation *previous,
@@ -2657,6 +2658,43 @@ LogicalResult Importer::readReturnContract(ModuleDecl &result,
 
 FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   ModuleDecl result;
+  for (size_t i = 0; i < node.array("decorator_list").size(); ++i) {
+    auto decorator = node.item("decorator_list", i);
+    if (decorator.kind() != "Call" ||
+        !intrinsic(decorator.child("func"), "module")) continue;
+    if (!decorator.array("args").empty() ||
+        decorator.array("keywords").size() != 1 ||
+        decorator.item("keywords", 0).string("arg") != "execution")
+      return error() << "@module accepts only an execution=literal model contract";
+    auto contract = decorator.item("keywords", 0).child("value");
+    if (contract.kind() != "Dict" ||
+        contract.array("keys").size() != contract.array("values").size())
+      return error() << "execution model contract must be a literal dictionary";
+    SmallVector<NamedAttribute> fields;
+    llvm::StringSet<> seen;
+    for (size_t j = 0; j < contract.array("keys").size(); ++j) {
+      auto key = dyn_cast_or_null<StringAttr>(contract.item("keys", j).get("value"));
+      auto value = contract.item("values", j).get("value");
+      if (auto encoded = dyn_cast_or_null<DictionaryAttr>(value)) {
+        auto text = encoded.getAs<StringAttr>("integer");
+        uint64_t scalar = 0;
+        if (!text || encoded.size() != 1 || text.getValue().getAsInteger(10, scalar) || scalar > 65535)
+          return error() << "execution integers require a finite nonnegative literal";
+        value = b.getI64IntegerAttr(scalar);
+      }
+      if (auto integer = dyn_cast_or_null<ac::MathIntAttr>(value)) {
+        uint64_t scalar = 0;
+        if (integer.getValue().getValue().getAsInteger(10, scalar) || scalar > 65535)
+          return error() << "execution integer exceeds the finite model contract";
+        value = b.getI64IntegerAttr(scalar);
+      }
+      if (!key || !seen.insert(key.getValue()).second ||
+          (!isa_and_nonnull<StringAttr>(value) && !isa_and_nonnull<IntegerAttr>(value)))
+        return error() << "execution fields require unique literal keys and string/integer values";
+      fields.push_back(b.getNamedAttr(key.getValue(), value));
+    }
+    result.executionModel = b.getDictionaryAttr(fields);
+  }
   result.system = hasDecorator(node, "system");
   result.methodOwner = methodOwnerNames.contains(node.string("name"));
   result.transactionEffects =
@@ -2915,6 +2953,8 @@ Importer::moduleSignatureAttrs(const ModuleDecl &target) {
       b.getNamedAttr("input_names", portNames(b, target.inputs)),
       b.getNamedAttr("output_names", portNames(b, target.outputs))};
   llvm::append_range(attrs, target.sourceCallAttrs);
+  if (target.executionModel)
+    attrs.push_back(b.getNamedAttr("ac.execution_model", target.executionModel));
   if (target.references && !target.references.empty())
     attrs.push_back(b.getNamedAttr("ac.reference_parameters", target.references));
   if (target.system)
@@ -4948,6 +4988,9 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       1);
   if (decl.references && !decl.references.empty())
     module->setAttr("ac.reference_parameters", decl.references);
+  if (decl.executionModel)
+    module->setAttr("ac.execution_model", decl.executionModel);
+  if (failed(validateExecutionModelDeclaration(module))) return failure();
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
   if (decl.systemSamples)
