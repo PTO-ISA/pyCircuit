@@ -96,6 +96,7 @@ nav:
       - Selected Module Entries: architecture/entry-boundary.md
       - Saved Anchors: architecture/saved-anchor.md
       - Simulation: architecture/simulation.md
+      - RV32I Example Contract: development/rv32i-core-contract.md
       - System Execution: architecture/system-execution.md
       - System Host Integration Design: architecture/system-host-integration.md
       - Combinational and Progress Analysis: architecture/progress-analysis.md
@@ -103,7 +104,6 @@ nav:
       - Overview: development/index.md
       - Source Authoring: development/agent-frontend-guide.md
       - Source-unit Workflow: development/source-unit-workflow.md
-      - RV32I Example Contract: development/rv32i-core-contract.md
       - Physical RTL Export: development/physical-rtl-export.md
       - Compiler Benchmark Delivery: development/compiler-benchmark-delivery.md
       - Implementation Guide: development/implementation-guide.md

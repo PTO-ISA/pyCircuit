@@ -37,9 +37,42 @@ source commits contain summaries and reproducible commands, not private logs,
 ELFs, SDKs, netlists or dependency bundles. Original raw logs remain local ignored
 artifacts. No public raw-artifact URL is claimed for the historical run.
 
-Publication-head results will be appended after new clean-consumer and mapping
-checks. Unchanged baseline data is reusable only after explicit source/final-IR/
-physical-RTL and synthesis-input identity checks.
+## Publication validation
+
+Tested demo implementation:2f5e8c31602b4fa7517d11bda19d28311e728298.
+Pinned tool SDK:2b8b8316ac533ef4773acc1e93a280301645c8ab, public upstream tool
+PR370. The following result/documentation commit does not change DUT calculation.
+`results-publication.json` records actual stage rc, artifact identities and scope.
+
+The public `verification/setup_sdk.py` fetched that exact upstream PR commit and
+performed a standard clean CompilerDev+Runtime SDK build/install. No private
+SDK bundle was copied. Fresh `prepare.py` compilation/oracle generation for the
+family and C inputs returned rc0. The C program then passed all four public
+functional/timing × native/Icarus entries from a clean copied project, each rc0,
+434 normal retirements plus one expected trap and567 cycles. Independent Spike,
+all32GPR/PC/RAM, exact stores and C-source math were checked. Native/RTL cycle
+and complete final-state comparisons passed.
+
+Eight DUT files, all four finalIRs, physical RTLs and the converted synthesis
+input are byte-identical to the historical baseline. The recorded25 identity
+comparisons justify reusing the unchanged160-view/40-family baseline; the full
+matrix was not mechanically rerun or called a fresh publication-head matrix.
+
+Real SKY130 mapping and the mapped C simulation were newly executed, both rc0.
+The result remains13596 cells/107784.624 µm²,2076 sequential/11520 combinational.
+Before/after normalization cell/type/parameter and logical pin/port connectivity
+is identical. Actual mapped Icarus completed567 cycles and434 normal retirements
+with full packed-output and final-state checks. The PASS text's retirement count
+comes from the independently checked source report; it is supported by the
+cycle equality assertions, not a separate hardware performance counter.
+
+Changed-file hooks and strict documentation checks are required on the final
+publication head. GitHub's core jobs validate repository/Python metadata and
+capture/publication; they do not claim to run the external ISS/cell-library flow.
+Raw local logs remain ignored and are not presented as public download links.
+The committed summaries, exact dependency/source/library identities, scenario
+list, all40 instruction names and public reproduction scripts are the reviewable
+record. Historical certification/STA/P&R/independent-review limitations remain.
 
 Official architecture tests/certification, full formal equivalence, independent
 review, OpenSTA and P&R remain NOT_RUN. Area is mapped standard-cell area, not

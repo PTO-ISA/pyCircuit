@@ -1,0 +1,220 @@
+{
+  "schema": "pycircuit-rv32i-publication-validation-v1",
+  "status": "PASS",
+  "demo_implementation_commit": "2f5e8c31602b4fa7517d11bda19d28311e728298",
+  "tool_dependency_commit": "2b8b8316ac533ef4773acc1e93a280301645c8ab",
+  "source_and_artifact_comparisons": [
+    {
+      "label": "source/core.py",
+      "equal": true,
+      "sha256": "1c38bed2733b57ce82f7134954fd24afc47db31e59964ddc896cdd04ce1ccf79"
+    },
+    {
+      "label": "source/types.py",
+      "equal": true,
+      "sha256": "f017050cebf4f0ad3dd66484af6ed7fccfecc52d1130610638c703b513efa203"
+    },
+    {
+      "label": "source/decoder.py",
+      "equal": true,
+      "sha256": "34f5e7def0e89471cf8354542db7c0ada9fa7bd5f34ecad0f70856d9ff0e5ef8"
+    },
+    {
+      "label": "source/arithmetic.py",
+      "equal": true,
+      "sha256": "4fb3b2bacd875138ed385909a658f53277410811049e563b58a6d7f1a6ee0762"
+    },
+    {
+      "label": "source/frontend.py",
+      "equal": true,
+      "sha256": "fbf035e94e2efa1c0e4485ec8eacd8d450647171d66f3956fdde41fc964d9b07"
+    },
+    {
+      "label": "source/execute.py",
+      "equal": true,
+      "sha256": "9f621245b5873e836576f244e8b1a8f42860faf945517639482bbbdfba501f08"
+    },
+    {
+      "label": "source/memory.py",
+      "equal": true,
+      "sha256": "a0af2d966c8a740a54a11ad5af9b3c675eb1878ab74438dc3da34ac130bd297c"
+    },
+    {
+      "label": "source/writeback.py",
+      "equal": true,
+      "sha256": "e1eccd7285f1b5a27df0b6aef5d7a14d7fed7eb7b27f8cb853e97be82fc8e474"
+    },
+    {
+      "label": "finalIR/timing/cpp",
+      "equal": true,
+      "sha256": "a21afdd29726f8ee833ce4df421877419ec4fd36d24ba04dad497e594adf94c8"
+    },
+    {
+      "label": "finalIR/timing/verilog",
+      "equal": true,
+      "sha256": "a21afdd29726f8ee833ce4df421877419ec4fd36d24ba04dad497e594adf94c8"
+    },
+    {
+      "label": "RTL/timing/design_top.sv",
+      "equal": true,
+      "sha256": "e9d65fcc66a38ca94d2d0cabbd73bc2dd5140f210adc240dfdddbd4e945586d3"
+    },
+    {
+      "label": "RTL/timing/sources/rv32i_core/core.v",
+      "equal": true,
+      "sha256": "9bbcc1dd07531abb50a696e3934c0a3ac4b27e05c5f8b050b17edf97bf2d3e54"
+    },
+    {
+      "label": "RTL/timing/sources/rv32i_core/execute.v",
+      "equal": true,
+      "sha256": "23ce808064a05d521b8976f9b7b713b47bb6f9fe43f8634c75e8586dffe40894"
+    },
+    {
+      "label": "RTL/timing/sources/rv32i_core/frontend.v",
+      "equal": true,
+      "sha256": "3da5c9511ebcae0c96e62d20df355f37a15aadc3046dbc4d8841c1833c022f25"
+    },
+    {
+      "label": "RTL/timing/sources/rv32i_core/memory.v",
+      "equal": true,
+      "sha256": "cc8b9a3f2e617c28bed547a7b896cbb65f8cb22ec8e7423b951e43798c52d0fb"
+    },
+    {
+      "label": "RTL/timing/sources/rv32i_core/writeback.v",
+      "equal": true,
+      "sha256": "c5d337a066c59125e14471edb89a25b629469773d37f5acedfb893a99d79e0d4"
+    },
+    {
+      "label": "finalIR/functional/cpp",
+      "equal": true,
+      "sha256": "e7908e85c2d0a6048ec7559ce319d0451d7448484f49db9648a81b59c9b25bbe"
+    },
+    {
+      "label": "finalIR/functional/verilog",
+      "equal": true,
+      "sha256": "e7908e85c2d0a6048ec7559ce319d0451d7448484f49db9648a81b59c9b25bbe"
+    },
+    {
+      "label": "RTL/functional/design_top.sv",
+      "equal": true,
+      "sha256": "e9d65fcc66a38ca94d2d0cabbd73bc2dd5140f210adc240dfdddbd4e945586d3"
+    },
+    {
+      "label": "RTL/functional/sources/rv32i_core/core.v",
+      "equal": true,
+      "sha256": "9bbcc1dd07531abb50a696e3934c0a3ac4b27e05c5f8b050b17edf97bf2d3e54"
+    },
+    {
+      "label": "RTL/functional/sources/rv32i_core/execute.v",
+      "equal": true,
+      "sha256": "23ce808064a05d521b8976f9b7b713b47bb6f9fe43f8634c75e8586dffe40894"
+    },
+    {
+      "label": "RTL/functional/sources/rv32i_core/frontend.v",
+      "equal": true,
+      "sha256": "3da5c9511ebcae0c96e62d20df355f37a15aadc3046dbc4d8841c1833c022f25"
+    },
+    {
+      "label": "RTL/functional/sources/rv32i_core/memory.v",
+      "equal": true,
+      "sha256": "cc8b9a3f2e617c28bed547a7b896cbb65f8cb22ec8e7423b951e43798c52d0fb"
+    },
+    {
+      "label": "RTL/functional/sources/rv32i_core/writeback.v",
+      "equal": true,
+      "sha256": "c5d337a066c59125e14471edb89a25b629469773d37f5acedfb893a99d79e0d4"
+    },
+    {
+      "label": "mapping-converted-input",
+      "equal": true,
+      "sha256": "b6dc42edd8e20fa55ed961344b16d582bdb926e16a1a02189eda01273d753046"
+    }
+  ],
+  "reuse_historical_160_views": true,
+  "fresh_prepared_programs": [
+    "families",
+    "c-array"
+  ],
+  "new_clean_views": [
+    {
+      "strategy": "timing",
+      "backend": "cpp",
+      "status": "PASS",
+      "rc": 0,
+      "normal_retirements": 434,
+      "cycles": 567
+    },
+    {
+      "strategy": "timing",
+      "backend": "verilog",
+      "status": "PASS",
+      "rc": 0,
+      "normal_retirements": 434,
+      "cycles": 567
+    },
+    {
+      "strategy": "functional",
+      "backend": "cpp",
+      "status": "PASS",
+      "rc": 0,
+      "normal_retirements": 434,
+      "cycles": 567
+    },
+    {
+      "strategy": "functional",
+      "backend": "verilog",
+      "status": "PASS",
+      "rc": 0,
+      "normal_retirements": 434,
+      "cycles": 567
+    }
+  ],
+  "new_mapping": {
+    "cells": 13596,
+    "sequential_cells": 2076,
+    "combinational_cells": 11520,
+    "liberty_cell_area": 107784.62400000001,
+    "sequential_area": 41559.859200000006,
+    "combinational_area": 66224.7648,
+    "area_unit": "um^2; all used Liberty cells match owning LEF width*height"
+  },
+  "new_mapped_program": {
+    "status": "PASS",
+    "rc": 0,
+    "cycles": 567,
+    "normal_retirements": 434
+  },
+  "normalization": {
+    "status": "GRAPH_IDENTICAL",
+    "cells": 13596,
+    "scope": "exact cell/type/parameter and logical-port/pin connectivity; scalar physical port serialization"
+  },
+  "stage_rc": {
+    "prepare": 0,
+    "clean": 0,
+    "synthesis": 0,
+    "mapped": 0
+  },
+  "not_run": [
+    "official architecture certification",
+    "full formal equivalence",
+    "independent review",
+    "STA",
+    "P&R"
+  ],
+  "sota": "NOT_ESTABLISHED",
+  "publication_note": "Tested implementation2f5e8c3; following publication commit changes result/docs/navigation only. Exact CPU source identities are recorded below.",
+  "environment": {
+    "python": "3.12.3 clean CLI/verification;3.14.6 hooks/docs",
+    "LLVM_MLIR_clang_lld": "22.1.8",
+    "pyCircuit_tool_commit": "2b8b8316ac533ef4773acc1e93a280301645c8ab",
+    "Icarus": "12.0",
+    "Spike": "4c6a9bc79dab80616932949707e7c0471d8e9e54",
+    "sv2v": "0.0.12",
+    "Yosys": "0.33(2584903a060)+ABC",
+    "library_distribution": "open_pdks/Volare sky130A c6d73a35f524070e85faff4a6a9eef49553ebc2b",
+    "corner": "sky130_fd_sc_hd__tt_025C_1v80",
+    "license": "Apache-2.0 HD component/model headers",
+    "upstream_HD_producing_commit": "UNKNOWN"
+  }
+}
