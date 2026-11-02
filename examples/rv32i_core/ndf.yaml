@@ -4,6 +4,7 @@ roots:
   - spec/design-input.md
   - spec/core-spec.md
   - spec/acceptance.md
+  - spec/workflow-evidence.json
 id_prefixes:
   - RV32
 domains:

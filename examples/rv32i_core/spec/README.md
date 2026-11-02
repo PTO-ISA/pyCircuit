@@ -92,6 +92,10 @@ standard NDF 0.1 `evidence.json` links the selected execution to verification
 clauses and the tested source revision. Review it with its command and selected
 scope; a graph edge alone does not establish behavioral correctness.
 
+For a focused application replay, append `--case c-array`; its result remains
+a four-view subset. [Recorded validation](VALIDATION.md) distinguishes that
+subset from the six-program workflow.
+
 To check only the document/source graph, use a different new output directory:
 
 ```sh

@@ -77,3 +77,11 @@ record. Historical certification/STA/P&R/independent-review limitations remain.
 Official architecture tests/certification, full formal equivalence, independent
 review, OpenSTA and P&R remain NOT_RUN. Area is mapped standard-cell area, not
 layout/die area. SOTA remains NOT_ESTABLISHED.
+
+## NDF design-contract workflow
+
+The [versioned design input, Spec and acceptance](spec/README.md) are draft
+requirements with actual Python implementation/test bindings. The new
+[workflow validation](spec/VALIDATION.md) records 28 selected views separately
+from the historical campaign above. It does not infer specification approval
+from simulation or mapping.

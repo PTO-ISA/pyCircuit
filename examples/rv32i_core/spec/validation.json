@@ -1,0 +1,145 @@
+{
+  "schema": "pycircuit-rv32i-spec-workflow-validation-v1",
+  "status": "PASS",
+  "demo_tested_commit": "f7e29346137cad86a36c93dab29e27a1f66afe8f",
+  "tool_tested_commit": "0ec04e920abcc1c41a446462ddfb49c861f4bae0",
+  "ndf_commit": "5e3e6b5f09e06b09aaf52844c4b37e38362ac097",
+  "ndf_format": "0.2",
+  "spec_revision": 1,
+  "spec_lifecycle": "draft",
+  "approval": "NOT_RECORDED",
+  "independent_review": "NOT_RUN",
+  "stages": [
+    {
+      "stage": "spec",
+      "rc": 0
+    },
+    {
+      "stage": "prepare",
+      "rc": 0
+    },
+    {
+      "stage": "execute",
+      "rc": 0
+    },
+    {
+      "stage": "independent-check",
+      "rc": 0
+    }
+  ],
+  "views": 28,
+  "spike_views": 24,
+  "closed_base_spec_views": 4,
+  "complete_state_groups": 7,
+  "native_rtl_cycle_comparisons": 14,
+  "same_final_ir_per_strategy": true,
+  "hardware_ast_unchanged_from": "c00f45c1b023c89279c7ed7a9e519c83f8f456ba",
+  "physical_rtl_comparisons": [
+    {
+      "strategy": "timing",
+      "file": "design_top.sv",
+      "equal": true
+    },
+    {
+      "strategy": "timing",
+      "file": "sources/rv32i_core/core.v",
+      "equal": true
+    },
+    {
+      "strategy": "timing",
+      "file": "sources/rv32i_core/frontend.v",
+      "equal": true
+    },
+    {
+      "strategy": "timing",
+      "file": "sources/rv32i_core/memory.v",
+      "equal": true
+    },
+    {
+      "strategy": "timing",
+      "file": "sources/rv32i_core/execute.v",
+      "equal": true
+    },
+    {
+      "strategy": "timing",
+      "file": "sources/rv32i_core/writeback.v",
+      "equal": true
+    },
+    {
+      "strategy": "functional",
+      "file": "design_top.sv",
+      "equal": true
+    },
+    {
+      "strategy": "functional",
+      "file": "sources/rv32i_core/core.v",
+      "equal": true
+    },
+    {
+      "strategy": "functional",
+      "file": "sources/rv32i_core/frontend.v",
+      "equal": true
+    },
+    {
+      "strategy": "functional",
+      "file": "sources/rv32i_core/memory.v",
+      "equal": true
+    },
+    {
+      "strategy": "functional",
+      "file": "sources/rv32i_core/execute.v",
+      "equal": true
+    },
+    {
+      "strategy": "functional",
+      "file": "sources/rv32i_core/writeback.v",
+      "equal": true
+    }
+  ],
+  "historical_area_evidence": "reused only because both policies reproduce all six physical RTL sources byte-for-byte",
+  "full_historical_matrix_rerun": false,
+  "selected_scenarios": [
+    {
+      "case": "smoke",
+      "schedule": "fast",
+      "retired": 7,
+      "cycles": 13
+    },
+    {
+      "case": "smoke",
+      "schedule": "reset-waiting-store",
+      "retired": 7,
+      "cycles": 42
+    },
+    {
+      "case": "families",
+      "schedule": "fast",
+      "retired": 55,
+      "cycles": 79
+    },
+    {
+      "case": "throughput",
+      "schedule": "fast",
+      "retired": 64,
+      "cycles": 69
+    },
+    {
+      "case": "ecall",
+      "schedule": "fast",
+      "retired": 0,
+      "cycles": 5
+    },
+    {
+      "case": "illegal_fence_i",
+      "schedule": "fast",
+      "retired": 0,
+      "cycles": 5
+    },
+    {
+      "case": "c-array",
+      "schedule": "fast",
+      "retired": 434,
+      "cycles": 567
+    }
+  ]
+}

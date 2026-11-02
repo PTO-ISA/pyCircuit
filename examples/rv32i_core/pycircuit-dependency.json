@@ -3,6 +3,6 @@
   "repository": "https://github.com/PTO-ISA/pyCircuit.git",
   "pull_request": "https://github.com/PTO-ISA/pyCircuit/pull/370",
   "ref": "refs/pull/370/head",
-  "commit": "0ec04e920abcc1c41a446462ddfb49c861f4bae0",
+  "commit": "d4a36a518d18fc233d5adbd14c8e971ec080fc7d",
   "reason": "shared execution profiles, installed clocked-memory execution, physical RTL and NDF specification traceability"
 }

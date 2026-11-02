@@ -19,6 +19,19 @@ def main():
     parser.add_argument("--clang", type=Path, required=True)
     parser.add_argument("--spike", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--case",
+        action="append",
+        choices=[
+            "families",
+            "throughput",
+            "smoke",
+            "c-array",
+            "ecall",
+            "illegal_fence_i",
+        ],
+        help="Select a bounded replay; omitted runs the six documented programs",
+    )
     args = parser.parse_args()
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
@@ -58,7 +71,7 @@ def main():
         ],
     )
     programs = args.output / "programs"
-    selected = [
+    selected = args.case or [
         "families",
         "throughput",
         "smoke",
