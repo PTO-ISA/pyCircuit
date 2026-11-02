@@ -133,7 +133,7 @@ def CommitSystem():  # noqa: N802
         row.lhs, row.rhs, 0, row.width, row.first, row.last, row.operation, row.request
     )
 
-    @ac.rule
+    @ac.autorule
     def verify():
         assert state.value == row.saved, "word commit value"
         assert state.commits == row.commits, "word commit count"

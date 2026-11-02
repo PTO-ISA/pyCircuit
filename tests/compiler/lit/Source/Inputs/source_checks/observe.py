@@ -1,8 +1,8 @@
-from pycircuit import log, module, rule
+from pycircuit import log, module, autorule
 
 @module
 def Top(ok: bool) -> {"value": bool}:
-    @rule
+    @autorule
     def inspect():
         log("info", "observation", ok)
     return {"value": ok}

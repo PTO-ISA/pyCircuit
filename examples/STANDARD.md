@@ -129,8 +129,9 @@ Methods (or meaningful domain names) and Queue `push`/`pop`, following the
 [Queue-facing interface pattern](../docs/development/agent-frontend-guide.md#queue-facing-interfaces).
 Do not expose FIFO readiness or wrap payloads in a new valid/ready protocol
 merely to connect two source Modules. Keep required external protocol signals
-at boundary adapters. Directly nested Rules automatically register independent
-work; Methods execute only when called within an outer transaction.
+at boundary adapters. Each explicit local Rule call at Module scope registers independent work.
+Zero-argument, zero-result autorules register once at declaration; Methods execute
+only when called within an outer transaction.
 
 Ordinary Rule output availability is compiler generated. Do not add an authored
 commit-valid field, a replacement zero or a holding register for a rejected Rule.

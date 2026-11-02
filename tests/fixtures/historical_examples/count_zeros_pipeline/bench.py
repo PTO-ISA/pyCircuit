@@ -5,7 +5,7 @@ from example_count_zeros_pipeline.count_zeros_pipeline import (
     Item,
     CountZerosResult,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -240,7 +240,7 @@ def CountZerosPipelineSystem():  # noqa: N802
     )
     dut = CountZerosPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "count_zeros_pipeline input capacity"
         assert dut.valid == frame.expected_valid, (

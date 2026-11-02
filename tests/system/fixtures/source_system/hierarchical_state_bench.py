@@ -11,24 +11,24 @@ def ExerciseHierarchicalState():
     relayed = PayloadRelay(selector)
     standalone = PayloadRelay(not selector)
 
-    @ac.rule
+    @ac.autorule
     def update_left() -> None:
         if selector:
             before, after = left.update(9)
             assert after == before + 9
 
-    @ac.rule
+    @ac.autorule
     def update_right() -> None:
         if not selector:
             before, after = right.update(17)
             assert after == before + 17
 
-    @ac.rule
+    @ac.autorule
     def update_relayed() -> None:
         if selector:
             relayed.update(11)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "hierarchical state", left.value(), right.value(), selector)
         packet = relayed.value()
@@ -42,7 +42,7 @@ def ExerciseHierarchicalState():
             ac.enum_to_bits(spare.tag),
         )
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         selector = ~selector
 
@@ -53,18 +53,18 @@ def HierarchicalStateProbe():
     left = StateCell(selector)
     right = StateCell(not selector)
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         if selector:
             left.update(9)
         else:
             right.update(17)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "hierarchical probe", left.value(), right.value())
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         selector = ~selector
 
@@ -73,7 +73,7 @@ def HierarchicalStateProbe():
 def ExerciseSequentialHierarchicalState():
     child = OrderedStateCell()
 
-    @ac.rule
+    @ac.autorule
     def sequential() -> None:
         before, after = child.update(3)
         ac.log("info", "hierarchical ordered first", before, after)
@@ -81,6 +81,6 @@ def ExerciseSequentialHierarchicalState():
         before, after = child.update(5)
         ac.log("info", "hierarchical ordered second", before, after)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "hierarchical ordered old q", child.value())

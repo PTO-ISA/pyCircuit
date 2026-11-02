@@ -21,7 +21,7 @@ def Store():
 @ac.module
 def Worker(store: Store):
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         store.write(Packet(wide=0, tag=0))
 

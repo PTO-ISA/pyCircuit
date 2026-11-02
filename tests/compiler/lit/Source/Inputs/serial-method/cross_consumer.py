@@ -1,4 +1,4 @@
-from pycircuit import module, rule
+from pycircuit import module, autorule
 from serial_methods.cross_provider import Counter
 from serial_methods.cross_relay import Relay
 
@@ -9,10 +9,10 @@ def Top():
     right = Relay()
     idle = Counter()  # noqa: F841 -- real instance without an external writer.
 
-    @rule
+    @autorule
     def advance_left() -> None:
         left.advance()
 
-    @rule
+    @autorule
     def advance_right() -> None:
         right.advance()

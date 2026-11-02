@@ -9,27 +9,27 @@ def ExerciseQueueHierarchy():
     left = HierarchyRelay()
     right = HierarchyRelay()
 
-    @ac.rule
+    @ac.autorule
     def send() -> None:
         if cycle < 6:
             left.send(cycle + 10)
             right.send(cycle + 30)
 
-    @ac.rule
+    @ac.autorule
     def receive_left() -> None:
         selected = left.selected()
         if selected:
             value = left.take()
             ac.log("info", "queue hierarchy parent", cycle, value)
 
-    @ac.rule
+    @ac.autorule
     def receive_right() -> None:
         selected = right.selected()
         if selected:
             value = right.take()
             ac.log("info", "queue hierarchy parent", cycle, value)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         cycle = cycle + 1  # noqa: F841 - captured hardware state or child instance.
 
@@ -38,6 +38,6 @@ def ExerciseQueueHierarchy():
 def UnselectedQueueHierarchy():
     spare = HierarchyRelay()
 
-    @ac.rule
+    @ac.autorule
     def send() -> None:
         spare.send(99)

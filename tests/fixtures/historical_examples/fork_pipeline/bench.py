@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_fork_pipeline.fork_pipeline import ForkPipeline
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -206,7 +206,7 @@ def ForkPipelineSystem():  # noqa: N802
         frame.valid, frame.data, frame.left_take, frame.right_take
     )
 
-    @rule
+    @autorule
     def exercise():
         assert ready == frame.expected_ready, "fork_pipeline ready old-state check"
         assert left.valid == frame.expected_left_valid, (

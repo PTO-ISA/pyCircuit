@@ -1,7 +1,7 @@
 # Implementing a design with the current source profile
 
 Use ordinary @module definitions, explicit child instances and nested stateless
-@rule functions. Python capture reads syntax without executing the design.
+@rule functions and zero-argument, zero-result @autorule declarations. Python capture reads syntax without executing the design.
 The [language reference](../reference/language.md) specifies supported expressions
 and the [frontend guide](agent-frontend-guide.md) provides a complete example.
 

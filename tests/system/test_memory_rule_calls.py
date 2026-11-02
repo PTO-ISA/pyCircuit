@@ -42,7 +42,7 @@ import pycircuit as ac
 def Exercise():
     phase: ac.u4 = 0
     memory = ac.sync_mem[ac.u16](depth=4)
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             memory.request(1)
@@ -95,7 +95,7 @@ def test_initial_request_and_result_same_rule_cannot_bootstrap(tmp_path: Path) -
 @ac.system(samples=((0,0),(1,0)))
 def Exercise():
     memory = ac.sync_mem[ac.u8](depth=4)
-    @ac.rule
+    @ac.autorule
     def access():
         memory.request(0)
         value = memory.result()
@@ -120,7 +120,7 @@ def Exercise():
     phase: ac.u4 = 0
     discarded: ac.u8 = 0
     memory = ac.sync_mem[ac.u8](depth=4)
-    @ac.rule
+    @ac.autorule
     def inhibited():
         if phase == 0:
             discarded = discarded + 1
@@ -128,14 +128,14 @@ def Exercise():
             memory.write(1, 99)
             unavailable = memory.result()
             ac.log('info', 'must_not_publish', unavailable)
-    @ac.rule
+    @ac.autorule
     def producer():
         if phase == 1:
             memory.request(0)
             memory.write(0, 7)
         elif phase == 3:
             memory.request(1)
-    @ac.rule
+    @ac.autorule
     def consumer():
         if phase == 2:
             first = memory.result()
@@ -146,7 +146,7 @@ def Exercise():
             assert untouched == 0
             assert discarded == 0
             ac.log('info', 'atomic', untouched, discarded)
-    @ac.rule
+    @ac.autorule
     def advance():
         if phase == 15:
             unused = memory.result()
@@ -181,11 +181,11 @@ def _selector_before_unavailable_result(selector: str) -> str:
 def Exercise():
     memory = ac.sync_mem[ac.u8](depth=4)
     marker: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def heartbeat():
         marker = marker + 1
         ac.log('info', 'heartbeat', 1)
-    @ac.rule
+    @ac.autorule
     def access():
         if {selector}:
             memory.write(0, 11)
@@ -237,7 +237,7 @@ import pycircuit as ac
 def Exercise():
     phase: ac.u3 = 0
     memory = ac.sync_mem_dp[ac.u8](depth=4)
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             memory.write(0, 11)
@@ -272,7 +272,7 @@ class Packet:
 def Exercise():
     phase: ac.u3 = 0
     memory = ac.sync_mem[Packet](depth=4)
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             memory.request(1)
@@ -333,7 +333,7 @@ class Mode(Enum):
 def Exercise():
     phase: ac.u3 = 0
     memory = ac.sync_mem[Mode](depth=4)
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             memory.write(0, Mode.RUN)
@@ -375,7 +375,7 @@ def Exercise():
     phase: ac.u4 = 0
     memory = ac.byte_mem[ac.u16](depth=8)
     alias = memory
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase <= 2:
             before = memory.read(2)
@@ -421,7 +421,7 @@ def Exercise():
     phase: ac.u2 = 0
     direct = ac.byte_mem[ac.u16](depth=8)
     bank = Bank()
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             current = direct.read(0)
@@ -455,11 +455,11 @@ def test_unused_byte_read_with_unknown_address_faults_and_discards_root(
 def Exercise():
     memory = ac.byte_mem[ac.u16](depth=8)
     marker: ac.u1 = 0
-    @ac.rule
+    @ac.autorule
     def heartbeat():
         marker = 1
         ac.log('info', 'must_not_publish', marker)
-    @ac.rule
+    @ac.autorule
     def fault():
         unused = memory.read(ac.four_state('xxx'))
 """,
@@ -478,7 +478,7 @@ import pycircuit as ac
 def Exercise():
     phase: ac.u2 = 0
     memory = ac.sync_mem[ac.u8](depth=3)
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             memory.request(3)
@@ -502,7 +502,7 @@ import pycircuit as ac
 def Exercise():
     phase: ac.u2 = 0
     memory = ac.sync_mem[ac.u8](depth=4)
-    @ac.rule
+    @ac.autorule
     def drive():
         if phase == 1:
             memory.request(1)
@@ -532,7 +532,8 @@ def Cell(address: ac.u2) -> ac.u8:
     def access() -> ac.u8:
         memory.request(address)
         return memory.result()
-    return access
+    access_result = access()
+    return access_result
 """,
     )
     receipt = json.loads((provider / "unit.json").read_text())
@@ -549,7 +550,7 @@ from checks.provider import Cell
 @ac.system(samples=((0,0),(1,0)))
 def Exercise():
     value = Cell(0)
-    @ac.rule
+    @ac.autorule
     def observe():
         if ac.is_known(value): ac.log('info', 'value', value)
 """,
@@ -602,7 +603,7 @@ def test_memory_port_alias_conflicts_reject(tmp_path: Path, case: str) -> None:
 def Exercise():
     memory = ac.{allocation}[ac.u8](depth=4)
     alias = memory
-    @ac.rule
+    @ac.autorule
     def conflict():
         {calls}
 """
@@ -616,7 +617,7 @@ def Exercise():
 @ac.system(samples=((1,0),))
 def Exercise():
     memory = ac.sync_mem[ac.u8](depth=4)
-    @ac.rule
+    @ac.autorule
     def valid(): memory.request(0)
 """,
         encoding="utf-8",
@@ -657,7 +658,8 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=True)
         return 0
-    return access
+    access_result = access()
+    return access_result
 """,
     "dual-out-of-range": """import pycircuit as ac
 @ac.module
@@ -667,7 +669,8 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=2)
         return 0
-    return access
+    access_result = access()
+    return access_result
 """,
     "runtime": """from typing import Annotated
 import pycircuit as ac
@@ -678,7 +681,8 @@ def Top(port: Annotated[int, range(2)]) -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=port)
         return 0
-    return access
+    access_result = access()
+    return access_result
 """,
     "single-out-of-range": """import pycircuit as ac
 @ac.module
@@ -688,7 +692,8 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=1)
         return 0
-    return access
+    access_result = access()
+    return access_result
 """,
 }
 
@@ -709,7 +714,8 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=0)
         return 0
-    return access
+    access_result = access()
+    return access_result
 """,
         encoding="utf-8",
     )
@@ -748,11 +754,11 @@ def test_memory_write_sibling_fault_publishes_no_observations(tmp_path: Path) ->
 def Exercise():
     memory = ac.sync_mem[ac.u8](depth=4)
     marker: ac.u1 = 0
-    @ac.rule
+    @ac.autorule
     def write():
         memory.write(1, 85)
         ac.log('info', 'pending_write', 85)
-    @ac.rule(guard=lambda: ac.four_state('x'))
+    @ac.autorule(guard=lambda: ac.four_state('x'))
     def fail(): marker = 1
 """,
     )

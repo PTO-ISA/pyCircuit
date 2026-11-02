@@ -36,7 +36,7 @@ COUNTER = """import pycircuit as ac
 @ac.module
 def Counter(enable: ac.u1, *, W: int = 8) -> ac.bits[W]:
     count: ac.bits[W] = 0
-    @ac.rule
+    @ac.autorule
     def increment():
         if enable:
             count = count + 1
@@ -47,7 +47,7 @@ BANK = """import pycircuit as ac
 @ac.module
 def Bank(enable: ac.u1, *, N: int = 4) -> ac.u8:
     entries: ac.table[N, ac.u8] = 0
-    @ac.rule
+    @ac.autorule
     def increment():
         if enable:
             entries[0] = entries[0] + 1
@@ -60,7 +60,7 @@ PROVIDER = (
 @ac.module
 def Required(enable: ac.u1, *, W: int) -> ac.bits[W]:
     count: ac.bits[W] = 0
-    @ac.rule
+    @ac.autorule
     def increment():
         if enable:
             count = count + 1
@@ -69,7 +69,7 @@ def Required(enable: ac.u1, *, W: int) -> ac.bits[W]:
 @ac.module
 def Bank(enable: ac.u1, *, W: int = 8, N: int = 4) -> ac.table[N, ac.bits[W]]:
     entries: ac.table[N, ac.bits[W]] = 3
-    @ac.rule
+    @ac.autorule
     def increment():
         last: ac.u64 = N - 1
         if enable:
@@ -153,7 +153,7 @@ from checks.provider import Counter, Required, Bank, BankParent, Parent
 @ac.system
 def Exercise():
     phase: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def advance():
         phase = phase + 1
     a = Parent(1, WIDTH=3)
@@ -165,7 +165,7 @@ def Exercise():
     y = BankParent(phase[0], WIDTH=5, DEPTH=5)
     z = Bank(~phase[0], W=3, N=3)
     one = Bank(1, W=5, N=1)
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'parameterized state', a, b, c, d, e,
                x[0], x[1], x[2], y[0], y[1], y[2], y[3], y[4],
@@ -426,7 +426,7 @@ def Probe(enable: ac.u1, other: ac.u1, fail: ac.u1) -> ac.bits[11]:
     a = Counter(1, W=3)
     b = Counter(enable, W=5)
     c = Counter(other, W=3)
-    @ac.rule
+    @ac.autorule
     def check():
         assert fail == 0, 'deliberate whole-system failure'
     return ac.concat(a, b, c)
@@ -676,13 +676,13 @@ from checks.provider import Counter, Parent
 @ac.system
 def ExerciseCounterParents():
     phase: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def advance():
         phase = phase + 1
     a = Parent(1, WIDTH=3)
     b = Parent(phase[0], WIDTH=5)
     c = Parent(~phase[0], WIDTH=3)
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'counter parents', a, b, c)
 """,
@@ -846,7 +846,7 @@ RAW_BANK = """import pycircuit as ac
 @ac.module
 def RawBank(enable: ac.u1, index: ac.u2, *, N: int = 4, W: int = 3) -> ac.bits[W]:
     entries: ac.table[N, ac.bits[W]] = 3
-    @ac.rule
+    @ac.autorule
     def update():
         if enable:
             entries[index] = entries[index] + 1
@@ -889,7 +889,7 @@ def test_write_only_invalid_selector_cannot_hide_behind_checked_read(tmp_path):
 @ac.module
 def WriteOnly(enable: ac.u1, index: ac.u2, *, N: int = 4) -> ac.table[N, ac.u8]:
     entries: ac.table[N, ac.u8] = 0
-    @ac.rule
+    @ac.autorule
     def write():
         if enable:
             entries[index] = 7
@@ -929,7 +929,7 @@ def test_fixed_table_conditional_index_keeps_existing_source_range_proof(tmp_pat
 @ac.module
 def Fixed(choose: ac.u1) -> ac.table[3, ac.u8]:
     entries: ac.table[3, ac.u8] = 0
-    @ac.rule
+    @ac.autorule
     def write():
         index: ac.u64 = 1 if choose else 2
         entries[index] = 7
@@ -938,7 +938,7 @@ def Fixed(choose: ac.u1) -> ac.table[3, ac.u8]:
 def Exercise():
     choose: ac.u1 = 0
     rows = Fixed(choose)
-    @ac.rule
+    @ac.autorule
     def step():
         ac.log('info', 'conditional index', rows[0], rows[1], rows[2])
         choose = ~choose
@@ -979,7 +979,7 @@ def test_fixed_table_input_range_proofs_execute_every_slot(tmp_path, proof):
 @ac.module
 def Fixed(index: ac.u8) -> ac.table[5, ac.u8]:
     entries: ac.table[5, ac.u8] = 0
-    @ac.rule
+    @ac.autorule
     def write():
         bounded = {bounded}
         entries[bounded] = 7
@@ -988,7 +988,7 @@ def Fixed(index: ac.u8) -> ac.table[5, ac.u8]:
 def Exercise():
     phase: ac.u8 = 0
     rows = Fixed(phase + 3)
-    @ac.rule
+    @ac.autorule
     def step():
         ac.log('info', 'bounded table input', rows[0], rows[1], rows[2], rows[3], rows[4])
         phase = phase + 1
@@ -1100,7 +1100,7 @@ def ExerciseUnknown():
     known = RawBank(0, 3, N=4, W=3)
     high_x = RawBank(0, ac.four_state('x0'), N=4, W=3)
     high_z = RawBank(0, ac.four_state('z0'), N=4, W=3)
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'unknown state index', known, high_x, high_z)
 """
@@ -1291,7 +1291,7 @@ ENTRY_BANK = """import pycircuit as ac
 @ac.module
 def Bank(enable: ac.u1, *, N: int = 4, W: int = 8) -> ac.table[N, ac.bits[W]]:
     entries: ac.table[N, ac.bits[W]] = 3
-    @ac.rule
+    @ac.autorule
     def increment():
         last: ac.u64 = N - 1
         if enable:
@@ -1618,7 +1618,8 @@ def Guarded(enable: ac.u1, fail: ac.u1, *, W: int = 8) -> ac.bits[W]:
         count = count + 1
         assert fail == 0, 'entry rollback'
         return previous
-    return update
+    update_result = update()
+    return update_result
 @ac.module
 def Closed(enable: ac.u1, fail: ac.u1) -> ac.u3:
     return Guarded(enable, fail, W=3)
@@ -1700,7 +1701,7 @@ def test_wide_parameterized_state_carry_wrap_and_independent_instances(tmp_path)
 @ac.module
 def Wide(enable: ac.u1, *, W: int = 130) -> ac.bits[W]:
     count: ac.bits[W] = {near129}
-    @ac.rule
+    @ac.autorule
     def increment():
         if enable:
             count = count + 1
@@ -1708,7 +1709,7 @@ def Wide(enable: ac.u1, *, W: int = 130) -> ac.bits[W]:
 @ac.module
 def Wrap(enable: ac.u1, *, W: int = 131) -> ac.bits[W]:
     count: ac.bits[W] = {near130}
-    @ac.rule
+    @ac.autorule
     def increment():
         if enable:
             count = count + 1
@@ -1727,7 +1728,7 @@ def ExerciseWide():
     c = Wide(phase[0], W=129)
     d = Wide(~phase[0])
     e = Wrap(1, W=130)
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'wide state words',
                a[:64], a[64:128], a[128:129],
@@ -1983,7 +1984,7 @@ def ExerciseJoin():
     wide: ac.u9 = 401
     a = Join(tag=phase[:3], value=phase{tail})
     b = Join(tag=phase[:3], value=wide{tail}, W=9)
-    @ac.rule
+    @ac.autorule
     def step():
         ac.log('info', 'ordered concat', a, b)
         phase = phase + 7

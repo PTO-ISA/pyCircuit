@@ -14,7 +14,7 @@ def TableCell(selector: ac.u1):
     def value() -> ac.table[2, ac.u8]:
         return state
 
-    @ac.rule
+    @ac.autorule
     def local_update() -> None:
         if not selector:
             state = (state[0] + 2, state[1] + 4)

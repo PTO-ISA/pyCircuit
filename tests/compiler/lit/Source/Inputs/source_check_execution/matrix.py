@@ -1,5 +1,5 @@
 # ruff: noqa: N802, F821 -- HDL names and named-output annotations.
-from pycircuit import module, rule
+from pycircuit import module, autorule
 
 
 def implication(path: bool, condition: bool) -> bool:
@@ -10,7 +10,7 @@ def implication(path: bool, condition: bool) -> bool:
 
 @module
 def Top(path: bool, condition: bool) -> {"value": bool}:
-    @rule
+    @autorule
     def inspect():
         assert implication(path, condition), "matrix"
     return {"value": condition}

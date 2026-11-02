@@ -1,5 +1,5 @@
 import pycircuit as ac
-from pycircuit import module, rule
+from pycircuit import module, autorule
 
 @ac.struct
 class Result:
@@ -7,11 +7,11 @@ class Result:
 
 @module
 def Checked(ok: bool) -> Result:
-    @rule
+    @autorule
     def inspect_first():
         assert ok, "provider"
         assert True
-    @rule
+    @autorule
     def inspect_second():
         assert ok, "provider"
         assert True

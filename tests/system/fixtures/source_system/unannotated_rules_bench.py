@@ -14,7 +14,7 @@ def ExerciseUnannotatedRules():
     widths = Widths(3, 250)
     iteration = Iterations(1)
 
-    @ac.rule
+    @ac.autorule
     def check():
         assert widths.small == 4
         assert widths.large == 251

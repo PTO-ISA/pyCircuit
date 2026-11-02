@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pycircuit import log, module, report, rule
+from pycircuit import log, module, report, autorule
 
 
 @module
@@ -10,7 +10,7 @@ def Instrument(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annota
     condition = flag
     integer = one
 
-    @rule
+    @autorule
     def observe():
         log("info", "exact", raw >> 0, negative & 255,
             raw if condition else 256)

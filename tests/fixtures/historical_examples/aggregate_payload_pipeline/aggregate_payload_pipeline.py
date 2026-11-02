@@ -1,6 +1,6 @@
 """Rotate a fixed lane Table and advance a pair through two queue stages."""
 
-from pycircuit import bits, module, queue, rule, struct, table
+from pycircuit import bits, module, queue, rule, struct, table, autorule
 
 
 @struct

@@ -598,7 +598,8 @@ def NominalTop(flag: ac.u1, a: ac.u8, b: ac.u8, ta: ac.u8, tb: ac.u8) -> Views:
                      direct=ac.enum_to_bits(first.direct),
                      repeated=ac.concat(second.packet.left.data, ac.enum_to_bits(second.packet.left.tag), second.packet.right.data, ac.enum_to_bits(second.packet.right.tag)),
                      original=ac.concat(original.left.data, ac.enum_to_bits(original.left.tag), original.right.data, ac.enum_to_bits(original.right.tag)))
-    return run
+    run_result = run()
+    return run_result
 """)
 consumer = case / "consumer"
 compile_unit(source, consumer_path, consumer, [provider])

@@ -4,7 +4,7 @@ from example_loop_control_pipeline.loop_control_pipeline import (
     LoopControlPipeline,
     LoopToken,
 )
-from pycircuit import bits, log, rule, struct, system, table, u1, u4
+from pycircuit import bits, log, rule, struct, system, table, u1, u4, autorule
 
 
 @struct
@@ -686,7 +686,7 @@ def ExerciseLoopControlPipeline():  # noqa: N802
     )
     dut = LoopControlPipeline(scenario.valid, payload, scenario.take)
 
-    @rule
+    @autorule
     def check():
         if phase < 635:
             assert dut.ready == scenario.expected_ready, "loop_control_pipeline: ready"

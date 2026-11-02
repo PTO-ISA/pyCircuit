@@ -1,7 +1,7 @@
 """Regular-clock struct_transform scenario; original physical-control oracles remain."""
 
 from example_struct_transform.struct_transform import StructTransform
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import autorule, bits, log, rule, system, struct, table
 
 
 @struct
@@ -110,7 +110,7 @@ def ExerciseStructTransform():  # noqa: N802
     scenario = scenarios[position]
     dut = StructTransform(scenario.op, scenario.dst, scenario.word, scenario.valid)
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 72:
             assert dut.op == scenario.expected_op, "struct_transform: op"

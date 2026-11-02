@@ -36,7 +36,7 @@ from pathlib import Path
 PRELUDE = """\
 # ruff: noqa: N802
 import pycircuit as ac
-from pycircuit import log, report, rule
+from pycircuit import autorule, log, report, rule
 
 
 @ac.struct
@@ -89,16 +89,14 @@ def LeafUnit(value: ac.u5) -> {"out": ac.u5}:
 """
 )
 
-PURE_BODY = """\
-    @rule
+PURE_BODY = """    @autorule
     def observe():
         {statement}"""
 
 # A direct structural instance followed by one autonomous observation rule.
 # Observing the child result preserves the instance and its input value.
-PURE_BINDING_BODY = """\
-    child = Leaf(value)
-    @rule
+PURE_BINDING_BODY = """    child = Leaf(value)
+    @autorule
     def observe():
         {statement}"""
 

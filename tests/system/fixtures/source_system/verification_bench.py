@@ -1,5 +1,5 @@
 from checks.verification_dut import CheckedChild
-from pycircuit import log, rule, system, u8
+from pycircuit import autorule, log, rule, system, u8
 
 
 @rule
@@ -19,11 +19,11 @@ def TwoCheckedChildren():
     left = CheckedChild()
     right = CheckedChild()
 
-    @rule
+    @autorule
     def drive_left():
         log("info", "left", left)
 
-    @rule
+    @autorule
     def drive_right():
         log("info", "right", right)
 

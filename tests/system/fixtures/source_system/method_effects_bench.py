@@ -7,7 +7,7 @@ def ExerciseMethodEffects():
     owner = MethodCounter()
     suppressed_owner = MethodCounter()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         first = owner.bump(1)
         second = owner.bump(2)
@@ -16,6 +16,6 @@ def ExerciseMethodEffects():
         ac.log("info", "saved candidates", first, second)
         ac.log("debug", "literal only", "fixed")
 
-    @ac.rule
+    @ac.autorule
     def suppress() -> None:
         suppressed_owner.suppressed()

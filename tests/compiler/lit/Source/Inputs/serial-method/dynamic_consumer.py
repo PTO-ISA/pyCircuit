@@ -1,5 +1,5 @@
 # ruff: noqa: F841 -- autonomous instances are real hardware.
-from pycircuit import module, rule
+from pycircuit import module, autorule
 from serial_methods.dynamic_provider import (
     AutonomousOwner,
     CandidateEntryOwner,
@@ -20,7 +20,7 @@ def AtomicTop():
     right = ManualOwner()
     spectator = AutonomousOwner()
 
-    @rule
+    @autorule
     def step() -> None:
         left.advance()
         right.advance()

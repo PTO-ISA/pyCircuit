@@ -1,7 +1,7 @@
 """Complete known-input table from the retained independent hier_modules oracle."""
 
 from example_hier_modules.hier_modules import HierModules
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -50,7 +50,7 @@ def ExerciseHierModules():  # noqa: N802
 
     expected_y = scenario.expected_y
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 12:
             assert dut.y == expected_y, "hier_modules: y"

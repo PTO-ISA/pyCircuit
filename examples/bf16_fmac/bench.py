@@ -1,7 +1,7 @@
 """Regular-clock bf16_fmac scenario; original physical-control oracles remain."""
 
 from example_bf16_fmac.bf16_fmac import BF16Fmac
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import autorule, bits, log, rule, system, struct, table
 
 
 @struct
@@ -129,7 +129,7 @@ def ExerciseBF16Fmac():  # noqa: N802
     expected_result = scenario.expected_result
     expected_result_valid = scenario.expected_result_valid
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 86:
             assert dut.result == expected_result, "bf16_fmac: result"

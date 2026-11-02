@@ -324,7 +324,7 @@ def Counter():
     @ac.method(guard=lambda allow: allow)
     def guarded(allow: bool) -> None:
         count = count
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         saved = count
 """
@@ -383,7 +383,8 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
         bit = owner.fixed(fixed)
         packet = owner.packet(payload)
         return Result(before=before, after=after, fixed=bit, packet=packet)
-    return work
+    work_result = work()
+    return work_result
 """
     state_plan_text = """import pycircuit as ac
 @ac.module
@@ -397,7 +398,7 @@ def StatePlan():
         count = count + delta
         ac.log("info", "after", count, before, count)
         return count
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         unused = instrument(1)
 """
@@ -406,7 +407,7 @@ from interfaces.method_provider import Counter
 @ac.system
 def MethodEffectsSystem():
     owner = Counter()
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         unused = owner.add(1)
 """
@@ -594,7 +595,8 @@ def GuardedValue(delta: ac.u8, permitted: bool) -> ac.u8:
     def work() -> ac.u8:
         owner.guarded(permitted)
         return owner.read() + delta
-    return work
+    work_result = work()
+    return work_result
 """
         )
         guarded_execution = archive / "guarded-value-execution"

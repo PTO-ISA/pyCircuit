@@ -41,20 +41,10 @@ def _units(
             "    @ac.method\n    def old() -> ac.u8:\n        return count\n"
         )
         (source / "clients.py").write_text(
-            "import pycircuit as ac\nfrom checks.counter import Counter\n"
-            "@ac.module\ndef Reader(counter: Counter) -> ac.u8:\n"
-            "    @ac.rule\n    def read() -> ac.u8:\n"
-            "        return counter.old()\n"
-            "    return read\n"
+            "import pycircuit as ac\nfrom checks.counter import Counter\n@ac.module\ndef Reader(counter: Counter) -> ac.u8:\n    @ac.rule\n    def read() -> ac.u8:\n        return counter.old()\n    read_result = read()\n    return read_result\n"
         )
         (source / "bench.py").write_text(
-            "import pycircuit as ac\nfrom checks.counter import Counter\n"
-            "from checks.clients import Reader\n"
-            "@ac.system\ndef ExerciseSiblings():\n"
-            "    counter = Counter()\n    value = Reader(counter)\n"
-            "    @ac.rule\n    def observe() -> None:\n"
-            '        ac.log("info", "total returned", value)\n'
-            ""
+            'import pycircuit as ac\nfrom checks.counter import Counter\nfrom checks.clients import Reader\n@ac.system\ndef ExerciseSiblings():\n    counter = Counter()\n    value = Reader(counter)\n    @ac.autorule\n    def observe() -> None:\n        ac.log("info", "total returned", value)\n'
         )
     elif scenario == "mixed-nominal":
         (source / "counter.py").write_text(
@@ -105,10 +95,11 @@ def Mixed(counter: Counter, allow: ac.u1) -> ac.u8:
         assert forwarded == saved + 1, "mixed receiver candidate"
         ac.log("info", "mixed candidate", saved, forwarded, progress)
         return forwarded
+    act_result = act()
 
-    result = act
+    result = act_result
 
-    @ac.rule
+    @ac.autorule
     def observe_progress() -> None:
         ac.log("info", "mixed progress", progress)
 
@@ -125,11 +116,11 @@ def Parent(allow: ac.u1):
     counter = Counter()
     value = Mixed(counter, allow)
 
-    @ac.rule
+    @ac.autorule
     def observe_returned() -> None:
         ac.log("info", "mixed returned", value)
 
-    @ac.rule
+    @ac.autorule
     def observe_state() -> None:
         entry = counter.old()
         ordered = counter.read()
@@ -142,7 +133,7 @@ def ExerciseSiblings():
     left = Parent(phase != 1)
     right = Parent(phase == 1)
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         assert phase < 4, "mixed system limit"
         phase = phase + 1
@@ -172,10 +163,8 @@ def ExerciseSiblings():
         if scenario == "pass-through":
             path = source / "clients.py"
             path.write_text(
-                path.read_text() + "\n@ac.module\ndef Middle(counter: Counter):\n"
-                "    @ac.rule\n    def observe() -> None:\n"
-                "        value = counter.bridge()\n"
-                '        ac.log("info", "middle visible", value)\n'
+                path.read_text()
+                + '\n@ac.module\ndef Middle(counter: Counter):\n    @ac.autorule\n    def observe() -> None:\n        value = counter.bridge()\n        ac.log("info", "middle visible", value)\n'
             )
             path = source / "bench.py"
             path.write_text(
@@ -192,26 +181,33 @@ def ExerciseSiblings():
         signature = "    counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1\n):"
         assert text.count(signature) == 1
         text = text.replace(signature, signature.removesuffix(":") + " -> ac.u8:")
-        text = text.replace("    def write() -> None:", "    def write() -> ac.u8:")
+        text = text.replace(
+            "@ac.autorule\n    def write() -> None:",
+            "@ac.rule\n    def write() -> ac.u8:",
+        )
         text = text.replace(
             '        ac.log("info", "sibling written", alias.old())',
             '        ac.log("info", "sibling written", alias.old())\n        return alias.old()',
         )
         text = text.replace(
-            "\n\n@ac.module\ndef Reader", "\n    return write\n\n@ac.module\ndef Reader"
+            "\n\n@ac.module\ndef Reader",
+            "\n    written = write()\n    return written\n\n@ac.module\ndef Reader",
         )
         text = text.replace(
             "def Reader(counter: Counter, ledger: Ledger):",
             "def Reader(counter: Counter, ledger: Ledger) -> ac.u8:",
         )
-        text = text.replace("    def observe() -> None:", "    def observe() -> ac.u8:")
+        text = text.replace(
+            "@ac.autorule\n    def observe() -> None:",
+            "@ac.rule\n    def observe() -> ac.u8:",
+        )
         text = text.replace(
             '        ac.log("info", "sibling visible", value, balance, marker)',
             '        ac.log("info", "sibling visible", value, balance, marker)\n        return value',
         )
         text = text.replace(
             "\n\n@ac.module\ndef Relay",
-            "\n    return observe\n\n@ac.module\ndef Relay",
+            "\n    observed = observe()\n    return observed\n\n@ac.module\ndef Relay",
         )
         text = text.replace(
             "def Relay(counter: Counter, ledger: Ledger):",
@@ -228,9 +224,9 @@ def ExerciseSiblings():
         text = text.replace(
             "    Relay(counter, ledger)", "    visible = Relay(counter, ledger)"
         )
-        text += "\n    @ac.rule\n    def publish_written() -> None:\n"
+        text += "\n    @ac.autorule\n    def publish_written() -> None:\n"
         text += '        ac.log("info", "sibling returned writer", written)\n'
-        text += "\n    @ac.rule\n    def publish_visible() -> None:\n"
+        text += "\n    @ac.autorule\n    def publish_visible() -> None:\n"
         text += '        ac.log("info", "sibling returned reader", visible)\n'
 
         path.write_text(text)
@@ -615,11 +611,13 @@ def test_retired_callable_order_and_conflicting_writers_preserve_program(
             "@ac.method\n    def read", "@ac.method(after=(increment,))\n    def read"
         )
     top = (
-        "\n@ac.system\ndef Bad():\n    counter = Counter()\n    @ac.rule\n    def first() -> None:\n"
+        "\n@ac.system\ndef Bad():\n    counter = Counter()\n    @ac.autorule\n    def first() -> None:\n"
         + body
     )
     if case == "same-method":
-        top += "    @ac.rule\n    def second() -> None:\n        counter.increment()\n"
+        top += (
+            "    @ac.autorule\n    def second() -> None:\n        counter.increment()\n"
+        )
     path = source / "bad.py"
     # Publish a valid program first to bind the protection oracle.
     path.write_text(
@@ -979,7 +977,7 @@ def Other():
         count = count + 1
 @ac.module
 def Writer(counter: Counter):
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         counter.increment()
 @ac.module
@@ -994,8 +992,7 @@ def Bad(flag: ac.u1):
         "missing": "    Writer()\n",
         "rebound": "    selected = left\n    selected = right\n    Writer(selected)\n",
         "ancestor-reference": (
-            '    selected = ac.instance_ref(Counter, "..", "counter")\n'
-            "    @ac.rule\n    def invoke() -> None:\n        selected.increment()\n"
+            '    selected = ac.instance_ref(Counter, "..", "counter")\n    @ac.autorule\n    def invoke() -> None:\n        selected.increment()\n'
         ),
     }[case]
     path.write_text(declarations + bad)
@@ -1263,7 +1260,7 @@ def Counter():
         return count
 @ac.module
 def Writer(counter: Counter, allow: ac.u1):
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         counter.increment(allow)
 @ac.module
@@ -1271,7 +1268,8 @@ def Reader(counter: Counter) -> ac.u8:
     @ac.rule
     def read() -> ac.u8:
         return counter.read()
-    return read
+    read_result = read()
+    return read_result
 @ac.system
 def Bad():
     counter = Counter()
@@ -1289,7 +1287,7 @@ def Bad():
             + """
 @ac.module
 def First(left: Counter, right: Counter, choose: ac.u1):
-    @ac.rule
+    @ac.autorule
     def act() -> None:
         if choose:
             left.increment()
@@ -1298,7 +1296,7 @@ def First(left: Counter, right: Counter, choose: ac.u1):
             ac.log("info", "right", value)
 @ac.module
 def Second(left: Counter, right: Counter, choose: ac.u1):
-    @ac.rule
+    @ac.autorule
     def act() -> None:
         if choose:
             right.increment()
@@ -1346,7 +1344,7 @@ from checks.counter import Counter
 @ac.system
 def Closed():
     counter = Counter()
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "closed old", counter.old())
 """

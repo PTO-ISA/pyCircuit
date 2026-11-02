@@ -6,6 +6,6 @@ from checks.anchor_variant_provider import Counter
 def ReadCounter():
     owner = Counter()
 
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "anchor read", owner.read())

@@ -6,7 +6,7 @@ from example_nested_payload_pipeline.nested_payload_pipeline import (
     Packet,
     AdvanceResult,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -240,7 +240,7 @@ def NestedPayloadPipelineSystem():  # noqa: N802
     )
     dut = NestedPayloadPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "nested_payload_pipeline input capacity"

@@ -40,13 +40,12 @@ Phase = Annotated[int, range(8)]
 # A child module that writes a parent-owned register through the ordinary
 # assignment contract: no extra storage, the parent's reg is the only physical
 # state.
-COPY_CHILD = """\
-from pycircuit import module, rule
+COPY_CHILD = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Holder(other: Word, state: Word):
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = other
@@ -54,13 +53,12 @@ def Holder(other: Word, state: Word):
     tick()
 """
 
-CONSTANT_CHILD = """\
-from pycircuit import module, rule
+CONSTANT_CHILD = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Holder(state: Word):
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = 7
@@ -70,8 +68,7 @@ def Holder(state: Word):
 
 # The testbench owns the registers, instantiates the DUT and checks the value it
 # reads at each phase. It supplies the oracle, not the design.
-BENCH = """\
-from pycircuit import system, rule, log, report
+BENCH = """from pycircuit import system, rule, log, report, autorule
 from .types import Word, Phase
 from .holder import Holder
 
@@ -82,7 +79,7 @@ def TestHolder():
     phase: Phase = 0
     dut = Holder({arguments})
 
-    @rule
+    @autorule
     def fixture():
         nonlocal phase
         if phase == 0:
@@ -437,9 +434,8 @@ def test_generic_use_carriers_are_verified(
     assert not output.exists()
 
 
-SYSTEM_GENERIC = """\
-from typing import Annotated
-from pycircuit import rule, system
+SYSTEM_GENERIC = """from typing import Annotated
+from pycircuit import rule, system, autorule
 
 Word = Annotated[int, range(256)]
 
@@ -449,13 +445,13 @@ def GenericUses():
     direct_out: Word = 0
     literal_out: Word = 0
 
-    @rule
+    @autorule
     def direct():
         nonlocal direct_out
         direct_out = source
         return
 
-    @rule
+    @autorule
     def literal():
         nonlocal literal_out
         literal_out = 7

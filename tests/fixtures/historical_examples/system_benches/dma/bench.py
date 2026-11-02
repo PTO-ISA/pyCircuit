@@ -1,7 +1,7 @@
 """Regular-clock full known-input stream from the retained dma oracle."""
 
 from example_dma.dma import Dma, DmaRequest
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -395,7 +395,7 @@ def ExerciseDma():  # noqa: N802
         scenario.take_check,
     )
 
-    @rule
+    @autorule
     def check():
         if phase < 582:
             assert dut.seed_ready == scenario.expected_seed_ready, "dma: seed_ready"

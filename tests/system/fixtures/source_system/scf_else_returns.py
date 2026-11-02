@@ -91,7 +91,7 @@ def ExerciseElseReturns():
     seed: ac.u8 = 250
     phase: ac.u2 = 0
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         incoming = seed
         zero = zero_return(incoming)

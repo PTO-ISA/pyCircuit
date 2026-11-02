@@ -8,7 +8,7 @@ def Exercise():
     owner = AllocationPool()
     other = AllocationPool()
 
-    @ac.rule
+    @ac.autorule
     def send() -> None:
         if phase == 0:
             owner.submit(Request(
@@ -19,12 +19,12 @@ def Exercise():
                 stale=False,
             ))
 
-    @ac.rule
+    @ac.autorule
     def recv() -> None:
         r = owner.allocate_response()
         ac.log('info', 'result', r.accepted, r.current_position)
 
-    @ac.rule
+    @ac.autorule
     def send_other() -> None:
         if phase == 0:
             other.submit(Request(
@@ -35,11 +35,11 @@ def Exercise():
                 stale=False,
             ))
 
-    @ac.rule
+    @ac.autorule
     def recv_other() -> None:
         r = other.allocate_response()
         ac.log('info', 'other', r.accepted, r.current_position)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

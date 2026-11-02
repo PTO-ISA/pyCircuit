@@ -17,10 +17,10 @@ def Top():
     x: ac.u1 = 0
     owner = SharedRawBound(x)
 
-    @ac.rule
+    @ac.autorule
     def send() -> None:
         owner.send()
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         x = ~x  # noqa: F841 - captured hardware state or child instance.

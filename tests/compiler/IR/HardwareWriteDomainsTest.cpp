@@ -155,11 +155,11 @@ if sys.argv[3] == "ordered":
 @ac.module
 def Top(selector: ac.u1):
     ordered = OrderedStateCell()
-    @ac.rule
+    @ac.autorule
     def first() -> None:
         before, after = ordered.update(3)
         assert after == before + 3
-    @ac.rule(after=(first,))
+    @ac.autorule(after=(first,))
     def second() -> None:
         before, after = ordered.update(5)
         assert after == before + 5
@@ -171,7 +171,7 @@ def Top(selector: ac.u1):
     direct = StateCell(selector)
     relayed = PayloadRelay(selector)
     standalone = PayloadRelay(not selector)
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         if selector:
             before, after = direct.update(9)
@@ -206,13 +206,14 @@ def Producer(valid: ac.u1, data: ac.u8) -> ac.u8:
     @ac.rule(guard=lambda: valid)
     def guarded() -> ac.u8:
         return data
-    return guarded
+    guarded_result = guarded()
+    return guarded_result
 @ac.module
 def Top(outer: ac.u1, inner: ac.u1, index: ac.u2, other: ac.u2, data: ac.u8):
     first = ac.table[4, ac.u8](init=0)
     second = ac.table[4, ac.u8](init=0)
     value = Producer(outer, data)
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         if outer:
             first[index] = value

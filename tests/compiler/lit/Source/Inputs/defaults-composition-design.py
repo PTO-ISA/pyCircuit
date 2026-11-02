@@ -1,5 +1,6 @@
 """Generic defaults, snapshots and persistent direct-call hierarchy fixture."""
 import pycircuit as ac
+from defaults_probe.rules import Guarded
 
 
 @ac.struct
@@ -96,8 +97,7 @@ def TableProbe(value: ac.u5, enable: ac.u1, index: ac.u1) -> TableSnapshot:  # n
 
 
 @ac.rule
-def revise(owner, zero, configured, enable, index, value):
-    old_owner = owner
+def revise(owner, zero, configured, enable, index, value, shadow):
     old = configured[index]
     local = Parcel()
     saved = local
@@ -116,7 +116,7 @@ def revise(owner, zero, configured, enable, index, value):
     result.snapshot_payload = saved.raw.payload
     result.local_payload = local.raw.payload
     result.kept_mark = owner.mark
-    result.owner_snapshot = old_owner.raw.payload
+    result.owner_snapshot = shadow
     return result
 
 
@@ -125,7 +125,8 @@ def Cell(enable: ac.u1, index: ac.u1, value: ac.u5) -> ChildResult:  # noqa: N80
     owner: Parcel = Parcel()
     zero = ac.table[2, Parcel](init=0)
     configured = ac.table[2, Parcel](init=Parcel())
-    return revise(owner, zero, configured, enable, index, value)
+    shadow = Guarded(enable, value)
+    return revise(owner, zero, configured, enable, index, value, shadow)
 
 
 @ac.module
@@ -141,7 +142,31 @@ class Number:
 
 @ac.module
 def Add(value: ac.u5) -> Number:  # noqa: N802
-    return Number(value=value + 3)
+    base = value
+
+    @ac.rule
+    def increment(delta: ac.u5) -> ac.u5:
+        return base + delta
+
+    # The body captures base at declaration; explicit arguments bind per call.
+    base = value + 7
+    amount = 1
+    first = increment(amount)
+    amount = 2
+    second = increment(amount)
+
+    @ac.rule
+    def pair(item: ac.u5) -> tuple[ac.u5, ac.u5]:
+        return item, item + 1
+
+    left, following = pair(first)
+    other, right = pair(second)
+
+    @ac.rule
+    def unused():
+        assert False, "an uncalled rule must have no effects"  # noqa: B011
+
+    return Number(value=following + other - value - 1)
 
 
 @ac.module

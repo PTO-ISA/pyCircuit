@@ -1,7 +1,7 @@
 """Regular-clock calculator scenario; original physical-control oracles remain."""
 
 from example_calculator.calculator import Calculator
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import autorule, bits, log, rule, system, struct, table
 
 
 @struct
@@ -276,7 +276,7 @@ def ExerciseCalculator():  # noqa: N802
     expected_display = scenario.expected_display
     expected_op_pending = scenario.expected_op_pending
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 237:
             assert dut.display == expected_display, "calculator: display"

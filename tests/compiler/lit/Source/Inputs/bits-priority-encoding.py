@@ -592,7 +592,7 @@ for helper in HELPERS:
             + "from pycircuit import report\n"
             + "@ac.module\ndef Top(value: ac.u5) -> {'out': ac.u3}:\n"
             + bind
-            + f"    alias = {flag}\n    @ac.rule\n    def inspect():\n        report('flag', ac.popcount(alias))\n    return {{'out': index}}\n"
+            + f"    alias = {flag}\n    @ac.autorule\n    def inspect():\n        report('flag', ac.popcount(alias))\n    return {{'out': index}}\n"
         )
     controls[helper + "-captured"] = (
         PREFIX

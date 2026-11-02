@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pycircuit import dff, log, module, rule
+from pycircuit import dff, log, module, rule, autorule
 
 
 @module
@@ -8,7 +8,7 @@ def Bad(a: Annotated[int, range(1 << 8)], flag: bool, *, COUNT: int = 1) -> {"re
     negative = a - 1
     condition = flag
     state = dff(T=Annotated[int, range(1 << 8)])
-    @rule
+    @autorule
     def observe():
         state(clk=flag, rst=False, d=a, init=0)
         log("info", "invalid", negative == 0)

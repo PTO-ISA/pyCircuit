@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pycircuit import bits, encoding, module, queue, rule, struct, table
+from pycircuit import bits, encoding, module, queue, rule, struct, table, autorule
 
 
 @encoding(width=1)

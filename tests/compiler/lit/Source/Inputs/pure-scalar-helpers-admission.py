@@ -1,6 +1,6 @@
 """Public ordinary-def helper, signature, and registration boundaries."""
 
-PRELUDE = "from pycircuit import module, rule, struct, u1, u2, u8, bits, table\nfrom typing import Annotated\n"
+PRELUDE = "from pycircuit import autorule, module, rule, struct, u1, u2, u8, bits, table\nfrom typing import Annotated\n"
 
 
 def design(helper, expression="helper(value)", extra="", value_type="u8"):
@@ -591,9 +591,9 @@ def ordinary_contract_cases():
         ("legacy_rule_callback", design(legacy, "value.map(helper)[0]", value_type="table[3, u8]"), ("rule", "helper", "callback")),
         ("helper_missing_return_annotation", design(identity.replace(" -> u8", "")), ("return", "annotat", "helper")),
         ("helper_module_allocation", design(identity.replace("return value", "allocated = Child(value)\n    return allocated"), extra="@module\ndef Child(value: u8) -> u8:\n    return value\n"), ("module", "alloc", "helper", "pure")),
-        ("helper_from_caller_local_definition", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def run() -> Result:\n        def helper(arg: u8) -> u8:\n            return arg\n        return Result(value=helper(value))\n    return run\n", ("helper", "nested", "declaration", "scope")),
-        ("implicit_owner_capture", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    state: u8 = 0\n    @rule\n    def update():\n        state = value\n    def helper(arg: u8) -> u8:\n        return state\n    return Result(value=helper(value))\n", ("owner", "state", "captur", "helper")),
-        ("helper_calls_rule", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def tick() -> u8:\n        return value\n    def helper(arg: u8) -> u8:\n        return tick()\n    return Result(value=helper(value))\n", ("rule", "helper", "pure")),
+        ("helper_from_caller_local_definition", PRELUDE + '@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def run() -> Result:\n        def helper(arg: u8) -> u8:\n            return arg\n        return Result(value=helper(value))\n    run_result = run()\n    return run_result\n', ("helper", "nested", "declaration", "scope")),
+        ("implicit_owner_capture", PRELUDE + '@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    state: u8 = 0\n    @autorule\n    def update():\n        state = value\n    def helper(arg: u8) -> u8:\n        return state\n    return Result(value=helper(value))\n', ("owner", "state", "captur", "helper")),
+        ("helper_calls_rule", PRELUDE + '@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def tick() -> u8:\n        return value\n    tick_result = tick()\n    def helper(arg: u8) -> u8:\n        return tick()\n    return Result(value=helper(value))\n', ("rule", "helper", "pure")),
     ]
     shadow_base = PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    def add(arg: u8) -> u8:\n        return arg + 1\n    HELPER\n    return Result(value=helper(value))\n"
     for name, helper in (("private_helper_formal_shadow", "def helper(add: u8) -> u8:\n        return add(1)"), ("private_helper_local_shadow", "def helper(arg: u8) -> u8:\n        add = 0\n        return add(1)")):

@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_rule_pair_pipeline.rule_pair_pipeline import RulePairPipeline
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -214,7 +214,7 @@ def RulePairPipelineSystem():  # noqa: N802
         frame.right_take,
     )
 
-    @rule
+    @autorule
     def exercise():
         assert left.ready == frame.expected_left_ready, (
             "rule_pair_pipeline left_ready old-state check"

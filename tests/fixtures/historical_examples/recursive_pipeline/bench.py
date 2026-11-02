@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_recursive_pipeline.recursive_pipeline import RecursivePipeline
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -201,7 +201,7 @@ def RecursivePipelineSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = RecursivePipeline(frame.valid, frame.data, frame.take)
 
-    @rule
+    @autorule
     def exercise():
         assert dut.ready == frame.expected_ready, (
             "recursive_pipeline ready old-state check"

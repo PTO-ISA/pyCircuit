@@ -54,7 +54,7 @@ def EnumPayloadPipeline(  # noqa: N802
         depth=1, latency=1, ready_policy="downstream_pop", out_ready=take
     )
 
-    @ac.rule
+    @ac.autorule
     def transfer() -> None:
         packet = ingress.pop()
         classified = classify(packet)

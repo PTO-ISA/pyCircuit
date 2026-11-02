@@ -5,7 +5,7 @@ from example_aggregate_payload_pipeline.aggregate_payload_pipeline import (
     AggregatePayloadPipeline,
     Pair,
 )
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -117,7 +117,7 @@ def AggregatePayloadPipelineSystem():  # noqa: N802
     )
     dut = AggregatePayloadPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "aggregate_payload_pipeline ready old-state check"

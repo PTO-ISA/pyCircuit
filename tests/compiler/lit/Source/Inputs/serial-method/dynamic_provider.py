@@ -1,5 +1,5 @@
 # ruff: noqa: F823, F841 -- hardware state writes and retained probe owners.
-from pycircuit import method, module, rule, u1, u7
+from pycircuit import method, module, u1, u7, autorule
 
 
 @module
@@ -22,11 +22,11 @@ def AutonomousOwner():
         before = save
         after = count
 
-    @rule
+    @autorule
     def observe() -> None:
         old_seen = count
 
-    @rule
+    @autorule
     def step() -> None:
         advance()
 
@@ -52,7 +52,7 @@ def ManualOwner():
         before = save
         after = count
 
-    @rule
+    @autorule
     def observe() -> None:
         old_seen = count
 
@@ -74,11 +74,11 @@ def CandidateEntryOwner():
         before = save
         after = count
 
-    @rule
+    @autorule
     def observe() -> None:
         old_seen = count
 
-    @rule
+    @autorule
     def step() -> None:
         first_gate = second_gate
         advance()

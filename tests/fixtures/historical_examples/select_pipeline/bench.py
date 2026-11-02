@@ -1,7 +1,7 @@
 """Regular-clock full known-input stream from the retained select_pipeline oracle."""
 
 from example_select_pipeline.select_pipeline import SelectPipeline, SelectControl
-from pycircuit import bits, log, rule, struct, system, table, u1, u64
+from pycircuit import bits, log, rule, struct, system, table, u1, u64, autorule
 
 
 @struct
@@ -1881,7 +1881,7 @@ def ExerciseSelectPipeline():  # noqa: N802
         scenario.take,
     )
 
-    @rule
+    @autorule
     def check():
         if phase < 1829:
             assert control_ready == scenario.expected_control_ready, (

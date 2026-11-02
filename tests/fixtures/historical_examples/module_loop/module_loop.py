@@ -1,5 +1,5 @@
 # ruff: noqa: F823 -- captured module-owned state proposal.
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 from example_loop.child import Child
 
 
@@ -25,7 +25,7 @@ def LoopReg(enable: bool, feedback: bool) -> bool:  # noqa: N802
     # enable, used by the generated System below.
     value: bool = False
 
-    @rule
+    @autorule
     def advance() -> None:
         if enable:
             value = value ^ feedback
@@ -33,5 +33,6 @@ def LoopReg(enable: bool, feedback: bool) -> bool:  # noqa: N802
     @rule
     def read() -> bool:
         return value
+    read_result = read()
 
-    return read
+    return read_result

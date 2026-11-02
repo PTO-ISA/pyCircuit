@@ -1,5 +1,5 @@
 from checks.dut import Accumulator
-from pycircuit import bits, log, report, rule, system
+from pycircuit import autorule, bits, log, report, rule, system
 
 
 @rule
@@ -13,7 +13,7 @@ def ExerciseAccumulator():
     left = Accumulator(enable=(phase & 1) == 0)
     right = Accumulator(enable=1)
 
-    @rule
+    @autorule
     def drive_left():
         assert right < 4, "deliberate limit"
         log("info", "left", left)

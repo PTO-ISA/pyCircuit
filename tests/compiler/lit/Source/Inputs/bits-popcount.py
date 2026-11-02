@@ -452,7 +452,8 @@ def Top(value: ac.u5) -> Result:
     @ac.rule
     def bind() -> Result:
         return Child(ac.popcount(alias))
-    return bind
+    bind_result = bind()
+    return bind_result
 """,
     }
     control_paths = []

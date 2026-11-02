@@ -6,7 +6,7 @@ from example_record_projection_update.record_projection_update import (
     Packet,
     Result,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -244,7 +244,7 @@ def RecordProjectionUpdateSystem():  # noqa: N802
     )
     dut = RecordProjectionUpdate(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "record_projection_update input capacity"

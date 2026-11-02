@@ -19,7 +19,7 @@ def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
     y_valid: ac.u1 = 0
 
     @ac.rule
-    def filter_sample() -> FilterResult:
+    def filter_sample_rule() -> FilterResult:
         result = FilterResult(y_out=y_out, y_valid=y_valid)
 
         # Form 34-bit two's-complement samples before the modular FIR arithmetic.
@@ -46,5 +46,7 @@ def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
         y_out = total if x_valid else y_out
         y_valid = x_valid
         return result
+
+    filter_sample = filter_sample_rule()
 
     return filter_sample

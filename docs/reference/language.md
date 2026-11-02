@@ -30,12 +30,15 @@ effects that require atomic commit stay together. These requirements are tracked
 in [issue #319](https://github.com/PTO-ISA/pyCircuit/issues/319).
 
 Modules, Rules and Methods share admitted finite typed scalar, nominal payload
-and fixed nonempty tuple signatures. A local Rule declaration automatically binds
-one autonomous computation per Module/System instance. Its name denotes its
-results in Module wiring; repeated references are fanout, not repeated activation.
-Local formals bind through explicit default expressions, while captures remain
-ordinary inputs. Source-global Rule templates use explicit actuals; template and
-Method calls within a Rule stay in that outer transaction. Unannotated
+and fixed nonempty tuple signatures. A local `@rule` declaration is a private
+callable and registers no work. Each complete Module/System-scope call registers
+one transaction; bind its returned values once for fanout. Local Rule names are
+not data values. A local `@autorule` has no parameters or results and registers
+once at its declaration per Module/System instance; it cannot be called. Both
+forms capture definition-time lexical SSA values, state and child instances. Rule
+formal defaults are rejected. Source-global Rule templates use explicit actuals;
+template and Method calls within a Rule stay in that outer transaction. Local
+Rule calls inside transactions remain unsupported. Unannotated
 executable Rules specialize from actual SSA types, ownership and closed facts.
 The compiler carries output availability for guarded valued Rules; authors do
 not add a valid field or a holding register to make their results usable.
@@ -587,8 +590,9 @@ dropping its updates/checks. Void rules reject in value contexts. Existing
 unannotated value-return Rules specialize from actual SSA rather than a guessed
 first-registration signature. An assigned or nested call infers its returned
 scalar or tuple; a direct Module-return call retains the declared output context.
-Early or branch-local returns remain rejected. A nested Rule call invokes the
-callee in the current transaction rather than registering another transaction.
+Early or branch-local returns remain rejected. A source-global Rule call inside
+a transaction invokes the callee within that transaction. Calls to local Rules
+inside transactions remain unsupported.
 
 Within one rule, assignment order and its effective owner enable are unchanged.
 Across rules, a known-enabled writer must not mask an unknown-enabled sibling
@@ -1228,9 +1232,9 @@ Module-owned variables.
   output-type mapping. The selected root may have explicit ports.
 - A structural call such as `child = Child()` creates an instance. A call to
   that instance at Module scope binds its complete input signature.
-- Directly nested `@rule` functions declare autonomous Work computations.
-  Each declaration registers once per Module instance; its name denotes its
-  computed results at Module wiring sites. Explicit activation calls reject.
+- Directly nested `@rule` functions are private callables. Each explicit
+  Module-scope call registers one transaction and returns ordinary values.
+  Zero-argument, zero-result `@autorule` declarations register once per instance.
 - Storage is explicit: `dff(T=...)`, `dffe(T=...)` and the standard memory leaves
   own state. Ordinary modules and wires add no register delay.
 - Reads observe current Q throughout Work; Xfer commits prepared data and clock
@@ -1251,7 +1255,8 @@ width/range mismatches remain errors.
 
 Use an ordinary typed `def` for reusable combinational computation. A helper
 may be top-level or declared directly inside a Module/System. `@rule` identifies
-an autonomous registration and is not a helper decorator.
+a transaction callable and is not a pure-helper decorator. `@autorule` registers
+zero-argument, zero-result work at its declaration.
 
 ```python
 from pycircuit import u8
@@ -1304,10 +1309,10 @@ Table expression lambdas remain unsupported. Helper purity is separate from the
 transaction execution and resource boundaries described below.
 
 Defining a Rule does not execute it. Each Module/System-scope Rule call creates
-a distinct registration, including repeated calls to one declaration. A call
-inside a Rule or Method invokes the callable in the existing outer transaction;
+a distinct registration, including repeated calls to one declaration. A source-global Rule call
+inside a Rule or Method invokes the template in the existing outer transaction;
 a Method never registers autonomous work. General calls in Table callbacks,
-selectors, guards and pure helpers remain rejected. A pure autonomous Rule
+selectors, guards and pure helpers remain rejected. A pure local Rule
 remains a Rule; its return type or absence of writes does not silently convert
 it into a helper. Use a typed `def` for a pure expression helper.
 
@@ -1323,14 +1328,15 @@ mathematical provenance, including when captured by a rule.
 
 Local names are immutable in this structural slice. They cannot shadow inputs,
 static formals, instances, definitions, imports or active intrinsic grammar names.
-A local Rule name is reserved for its autonomous declaration and computed results;
+A local Rule or autorule name is reserved for its declaration;
 ordinary data cannot reuse that name before or after the declaration. Use distinct
 names for saved values and callbacks. Output mapping keys do not declare variables,
 so an ordinary local and its output key may share a name.
 
 Ordinary wires captured by a Rule must be available in its lexical binding
-snapshot. Rule results are connected at Module wiring sites, not captured by a
-second local Rule. Previously saved ordinary aliases retain their SSA values.
+snapshot. Results bound by explicit Rule calls are ordinary values and may be
+captured by later local Rules under the existing compiler-owned availability
+checks. Previously saved ordinary aliases retain their SSA values.
 General forward reads of ordinary locals and bindings after the Module's return
 remain rejected; explicit child connections retain their documented forward-wiring
 support. Fixed-result bindings retain their shape and freshness restrictions.

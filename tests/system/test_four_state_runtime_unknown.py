@@ -18,7 +18,7 @@ def Divide(numerator: ac.u8, denominator: ac.u8) -> ac.u8:
 @ac.system(samples=((1, 0),))
 def Scenario():
     result = Divide(1, 0)
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'quotient', result)
         assert not ac.is_known(result)

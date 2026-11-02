@@ -1,4 +1,4 @@
-"""Automatic declarations, result wiring and independent current-state reads."""
+"""Explicit Rule calls, autonomous updates and independent current-state reads."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def identity(value: ac.u8) -> ac.u8:
 """
 
 
-@pytest.mark.parametrize("capture_mode", ["body", "default"])
+@pytest.mark.parametrize("capture_mode", ["body", "argument"])
 @pytest.mark.parametrize(
     ("imports", "child"),
     [
@@ -50,8 +50,9 @@ def test_imported_child_is_an_explicit_boundary_between_local_rule_results(
     source.mkdir()
     provider_source = source / "provider.py"
     provider_source.write_text(CHILD_BOUNDARY_PROVIDER)
-    parameters = "incoming=forwarded" if capture_mode == "default" else ""
-    captured = "incoming" if capture_mode == "default" else "forwarded"
+    parameters = "incoming: ac.u8" if capture_mode == "argument" else ""
+    call_arguments = "forwarded" if capture_mode == "argument" else ""
+    captured = "incoming" if capture_mode == "argument" else "forwarded"
     (source / "consumer.py").write_text(
         f"""import pycircuit as ac
 {imports}
@@ -61,21 +62,23 @@ def Pipeline(value: ac.u8) -> ac.u8:
     @ac.rule
     def produce() -> ac.u8:
         return value + 1
-    forwarded = {child}(produce)
+    produced = produce()
+    forwarded = {child}(produced)
     @ac.rule
     def consume({parameters}) -> ac.u8:
         return {captured} + 1
-    return consume
+    consumed = consume({call_arguments})
+    return consumed
 
 @ac.system
 def ExerciseChildBoundary():
     phase: ac.u8 = 0
     incoming = 0 if phase == 0 else 1 if phase == 1 else 17 if phase == 2 else 253
     result = Pipeline(incoming)
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         phase = phase + 1
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "child boundary", incoming, result)
 """
@@ -131,7 +134,7 @@ def ExerciseChildBoundary():
     assert final.read_bytes() == original
 
 
-@pytest.mark.parametrize("capture_mode", ["body", "default"])
+@pytest.mark.parametrize("capture_mode", ["body", "argument"])
 @pytest.mark.parametrize(
     ("declarations", "expression"),
     [
@@ -144,7 +147,7 @@ def ExerciseChildBoundary():
     ],
     ids=["direct-alias", "same-source-helper", "imported-helper"],
 )
-def test_aliases_and_pure_helpers_do_not_create_child_rule_boundaries(
+def test_aliases_and_pure_helpers_forward_explicit_local_rule_results(
     tmp_path, declarations, expression, capture_mode
 ):
     source = tmp_path / "source"
@@ -158,8 +161,9 @@ def test_aliases_and_pure_helpers_do_not_create_child_rule_boundaries(
     hidden = tmp_path / "hidden-provider.ac"
     provider_source.unlink()
     body.rename(hidden)
-    parameters = "incoming=forwarded" if capture_mode == "default" else ""
-    captured = "incoming" if capture_mode == "default" else "forwarded"
+    parameters = "incoming: ac.u8" if capture_mode == "argument" else ""
+    call_arguments = "forwarded" if capture_mode == "argument" else ""
+    captured = "incoming" if capture_mode == "argument" else "forwarded"
     try:
 
         def design(forwarded):
@@ -170,30 +174,19 @@ def Pipeline(value: ac.u8) -> ac.u8:
     @ac.rule
     def produce() -> ac.u8:
         return value + 1
+    produced = produce()
     forwarded = {forwarded}
     @ac.rule
     def consume({parameters}) -> ac.u8:
         return {captured} + 1
-    return consume
+    consumed = consume({call_arguments})
+    return consumed
 """
 
-        # The helper/import itself is valid; only feeding it a local Rule result
-        # and capturing that derived value in another Rule must be rejected.
-        (source / "control.py").write_text(
-            design(expression.replace("produce", "value"))
+        (source / "consumer.py").write_text(
+            design(expression.replace("produce", "produced"))
         )
-        _ok(_compile(source, "control.py", tmp_path / "control", [provider]))
-        (source / "invalid.py").write_text(design(expression))
-        output = tmp_path / "rejected"
-        result = _compile(source, "invalid.py", output, [provider])
-        assert result.returncode != 0, result.stdout + result.stderr
-        assert (
-            "Traceback" not in result.stderr and "Assertion failed" not in result.stderr
-        )
-        assert any(
-            term in result.stderr.lower() for term in ("local rule", "forwarded")
-        ), result.stderr
-        assert not (output / "unit.json").exists()
+        _ok(_compile(source, "consumer.py", tmp_path / "consumer", [provider]))
     finally:
         hidden.rename(body)
 
@@ -201,14 +194,16 @@ def Pipeline(value: ac.u8) -> ac.u8:
 def _provider(reverse: bool) -> str:
     writer = """
     @ac.rule
-    def advance(owned=count, amount=delta) -> None:
+    def advance(owned, amount) -> None:
         owned = owned + amount
+    advance(count, delta)
 """
     observer = """
     @ac.rule
-    def unused(snapshot=saved) -> ac.u8:
+    def unused(snapshot) -> ac.u8:
         ac.log("info", "unused result", snapshot)
         return snapshot
+    unused_result = unused(saved)
 """
     return (
         """import pycircuit as ac
@@ -233,18 +228,20 @@ def Identity(value: ac.u8) -> ac.u8:
 @ac.module
 def Dataflow(value: ac.u8) -> tuple[ac.u8, ac.u8, Packet, ac.u8, ac.u8, ac.u8]:
     @ac.rule
-    def scalar(argument=value) -> ac.u8:
+    def scalar(argument) -> ac.u8:
         return argument + 1
+    scalar_result = scalar(value)
     @ac.rule
-    def packet(argument: ac.u8=value) -> Packet:
+    def packet(argument: ac.u8) -> Packet:
         return Packet(value=argument + 2, check=argument + 3)
+    packet_result = packet(value)
     @ac.rule
-    def pair(argument=value) -> tuple[ac.u8, ac.u8]:
+    def pair(argument) -> tuple[ac.u8, ac.u8]:
         return argument + 4, argument + 5
-    left, right = pair
-    copied = Identity(scalar)
+    left, right = pair(value)
+    copied = Identity(scalar_result)
     bound_template = template(value)
-    return scalar, copied, packet, left, right, bound_template
+    return scalar_result, copied, packet_result, left, right, bound_template
 
 @ac.module
 def Counter(delta: ac.u8) -> ac.u8:
@@ -271,10 +268,10 @@ def ExerciseAutomaticRules():
     first = Counter(1)
     second = Counter(3)
     scalar, copied, packet, left, right, bound_template = Dataflow(phase)
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         method_value = first.read(4)
         ac.log("info", "automatic values", phase, first, second,
@@ -370,10 +367,10 @@ def test_automatic_rules_keep_one_activation_fanout_and_current_reads(
         "    step()\n    return step\n",
         "    alias = step\n    return alias()\n",
         "    step = value\n    return step\n",
-        "    @ac.rule\n    def consume() -> ac.u8:\n        return step\n    return consume\n",
-        "    alias = step\n    @ac.rule\n    def consume() -> ac.u8:\n        return alias\n    return consume\n",
-        "    @ac.rule\n    def consume(argument=step) -> ac.u8:\n        return argument\n    return consume\n",
-        "    def helper() -> ac.u8:\n        return step\n    @ac.rule\n    def consume() -> ac.u8:\n        return helper()\n    return consume\n",
+        "    @ac.rule\n    def consume() -> ac.u8:\n        return step\n    consume_result = consume()\n    return consume_result\n",
+        "    alias = step\n    @ac.rule\n    def consume() -> ac.u8:\n        return alias\n    consume_result = consume()\n    return consume_result\n",
+        "    @ac.rule\n    def consume(argument) -> ac.u8:\n        return argument\n    consume_result = consume(step)\n    return consume_result\n",
+        "    def helper() -> ac.u8:\n        return step\n    @ac.rule\n    def consume() -> ac.u8:\n        return helper()\n    consume_result = consume()\n    return consume_result\n",
     ],
     ids=[
         "explicit-call",
@@ -381,7 +378,7 @@ def test_automatic_rules_keep_one_activation_fanout_and_current_reads(
         "rebind",
         "direct-dependency",
         "aliased-dependency",
-        "default-dependency",
+        "argument-dependency",
         "helper-dependency",
     ],
 )
@@ -395,8 +392,9 @@ def test_local_rule_results_cannot_hide_callable_or_callback_dependencies(
 @ac.module
 def Invalid(value: ac.u8) -> ac.u8:
     @ac.rule
-    def step(argument=value) -> ac.u8:
+    def step(argument) -> ac.u8:
         return argument + 1
+    step_result = step(value)
 """
         + body
     )
@@ -416,10 +414,10 @@ def test_retired_after_cannot_return_through_saved_anchor_or_final_metadata(tmp_
 @ac.system
 def Counter():
     count: ac.u8 = 5
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         count = count + 1
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "current", count)
 """

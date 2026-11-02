@@ -34,7 +34,7 @@ def Ledger():  # noqa: N802
 
 @ac.module
 def Writer(counter: Counter, ledger: Ledger, allow: ac.u1):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def transfer() -> None:
         counter.increment()
         ledger.record(allow)
@@ -42,7 +42,7 @@ def Writer(counter: Counter, ledger: Ledger, allow: ac.u1):  # noqa: N802
 
 @ac.module
 def Reader(counter: Counter, ledger: Ledger):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         count = counter.read()
         total = ledger.read()

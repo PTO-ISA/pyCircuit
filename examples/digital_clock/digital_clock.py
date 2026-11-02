@@ -43,7 +43,7 @@ def DigitalClock(  # noqa: N802
     seconds_encoded = EncodeBcd(sec)
 
     @ac.rule
-    def advance_clock() -> ClockResult:
+    def advance_clock_rule() -> ClockResult:
         # Published outputs and all transition predicates use the old-Q snapshot.
         prescaler_q = prescaler
         sec_q = sec
@@ -93,5 +93,7 @@ def DigitalClock(  # noqa: N802
         mode = (0 if mode_q == 3 else mode_q + 1) if btn_set else mode_q
         blink = ~blink_q if tick_1hz else blink_q
         return result
+
+    advance_clock = advance_clock_rule()
 
     return advance_clock

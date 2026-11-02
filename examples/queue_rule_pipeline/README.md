@@ -23,7 +23,7 @@ and the parent's `transferred` become storage. No loop iteration adds a cycle.
 
 If the output queue cannot accept the result, **all** transfer proposals are discarded: the
 input head, child total and parent count stay unchanged. Authors write no
-ready/valid tests. The `transfer` and `progress` Rule declarations activate
+ready/valid tests. The `transfer` and `progress` autorule declarations activate
 independently. `progress` and the `snapshot` Method both read committed state;
 a transfer becomes visible to them after its rising-edge commit. Callable
 `put`, `get`, `add` and `snapshot` operations are Methods, without autonomous

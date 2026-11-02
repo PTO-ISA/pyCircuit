@@ -1,7 +1,7 @@
 from history_scalar_parameterized.scalar_parameterized_types import (
     scalar_parameterized_types,
 )
-from pycircuit import bits, log, rule, system, u8
+from pycircuit import bits, log, rule, system, u8, autorule
 
 
 @rule
@@ -30,7 +30,7 @@ def ScalarParameterizedTypesSystem():
     dut = scalar_parameterized_types(value=incoming)
 
 
-    @rule
+    @autorule
     def inspect():
         assert dut == incoming, "17-bit identity"
         log("info", "identity", dut)

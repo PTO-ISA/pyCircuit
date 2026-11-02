@@ -14,7 +14,7 @@ def ConditionalProbe():
     owner = ConditionalCounter()
     sibling = ConditionalCounter()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         owner.stop(prior)
         first = owner.add(1)

@@ -13,13 +13,13 @@ def Store():
         return tokens.pop()
 @ac.module
 def Producer(value: ac.u8, store: Remote):
-    @ac.rule
+    @ac.autorule
     def produce() -> None:
         store.push(value)
         ac.log("info", "external pop pushed", value)
 @ac.module
 def Consumer(allow: ac.u1, take: ac.u1, store: Remote):
-    @ac.rule(guard=lambda: allow)
+    @ac.autorule(guard=lambda: allow)
     def consume() -> None:
         if take:
             value = store.pop()
@@ -44,7 +44,7 @@ def CreditPair(value: ac.u8):
     count: ac.u8 = 0
     remote = Remote()
     branch = Branch(allow, take, value, remote)
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         count = count + 1
 @ac.system

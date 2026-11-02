@@ -5,7 +5,7 @@ from example_bitfield_decode_pipeline.bitfield_decode_pipeline import (
     DecodeItem,
     DecodeResult,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -255,7 +255,7 @@ def BitfieldDecodePipelineSystem():  # noqa: N802
     )
     dut = BitfieldDecodePipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "bitfield_decode_pipeline input capacity"

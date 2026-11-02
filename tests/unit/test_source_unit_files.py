@@ -404,7 +404,7 @@ def test_capture_rejects_source_that_changes_during_snapshot(
         calls += 1
         value = real_fstat(descriptor)
         if calls == 2:
-            source.write_text("value = 2\n", encoding="utf-8")
+            source.write_text("value = 22\n", encoding="utf-8")
         return value
 
     monkeypatch.setattr(_source_capture.os, "fstat", unstable)

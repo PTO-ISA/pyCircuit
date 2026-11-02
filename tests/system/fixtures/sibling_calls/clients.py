@@ -8,7 +8,7 @@ def Writer(  # noqa: N802
 ):
     alias = counter
 
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         alias.increment()
         ledger.deposit(change_marker)
@@ -20,19 +20,19 @@ def Writer(  # noqa: N802
 def Reader(counter: Counter, ledger: Ledger):  # noqa: N802
     alias = counter
 
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         value = alias.read()
         balance, marker = ledger.read()
         ac.log("info", "sibling visible", value, balance, marker)
 
-    @ac.rule
+    @ac.autorule
     def observe_six() -> None:
         value = alias.at_six()
         balance, marker = ledger.read()
         ac.log("info", "sibling six", value, balance, marker)
 
-    @ac.rule
+    @ac.autorule
     def observe_balance() -> None:
         value = alias.read()
         marker = ledger.at_fifty()

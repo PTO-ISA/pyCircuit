@@ -107,7 +107,7 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
         return result
 
     @ac.rule
-    def transact() -> RobResult:
+    def transact_rule() -> RobResult:
         flush()
         completed = complete()
         retired = retire()
@@ -121,6 +121,8 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
             retired_value=retired.value,
             count=allocated.count,
         )
+
+    transact = transact_rule()
 
     return transact
 

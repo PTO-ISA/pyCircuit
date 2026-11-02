@@ -20,13 +20,13 @@ def HierarchyQueue():
     def take() -> ac.u8:
         return tokens.pop()
 
-    @ac.rule
+    @ac.autorule
     def local_take() -> None:
         if not phase:
             value = tokens.pop()
             ac.log("info", "queue hierarchy local", cycle, value)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = ~phase  # noqa: F841 - captured hardware state or child instance.
         cycle = cycle + 1  # noqa: F841 - captured hardware state or child instance.

@@ -1,7 +1,20 @@
 """Regular-clock rob scenario; original physical-control oracles remain."""
 
 from example_rob.rob import Rob
-from pycircuit import bits, log, rule, struct, system, table, u1, u2, u3, u8, u16
+from pycircuit import (
+    bits,
+    log,
+    autorule,
+    rule,
+    struct,
+    system,
+    table,
+    u1,
+    u2,
+    u3,
+    u8,
+    u16,
+)
 
 
 @struct
@@ -337,7 +350,7 @@ def ExerciseRob():  # noqa: N802
         scenario.flush,
     )
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 284:
             assert (

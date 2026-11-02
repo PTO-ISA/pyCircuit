@@ -4,7 +4,7 @@
 
 from enum import Enum
 
-from pycircuit import encoding, module, queue, rule, struct, table, u1, u2, u3, u8
+from pycircuit import encoding, module, queue, rule, struct, table, u1, u2, u3, u8, autorule
 
 
 @encoding(width=1)

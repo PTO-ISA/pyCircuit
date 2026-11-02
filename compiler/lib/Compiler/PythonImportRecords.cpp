@@ -81,10 +81,6 @@ enum class NestedRulePhase { Future, Data, Declared };
 struct NestedRuleBinding {
   AstNode declaration;
   NestedRulePhase phase = NestedRulePhase::Future;
-  bool registered = false;
-  bool protectedOuterRule = false;
-  SmallVector<Value> results;
-  ReturnShape returnShape = ReturnShape::None;
 };
 struct NestedRuleScope {
   ModuleDecl *owner;
@@ -104,7 +100,7 @@ struct SourceCallableDecl {
   bool inferResults = false;
   bool lexical = true;
   bool privateSpecialization = false;
-  bool autonomous = false;
+  bool autoRegistration = false;
   SmallVector<Value> actualFacts;
   SmallVector<DictionaryAttr> specializationAncestry;
 };
@@ -3489,9 +3485,13 @@ FailureOr<Value> Importer::expression(
     if (found == instances.end())
       return error() << "unknown instance output";
     for (size_t i = 0; i < found->second->outputs.size(); ++i)
-      if (found->second->outputs[i].name == node.string("attr"))
-        return captures ? (*captures)[name][i]
-                        : found->second->op->getResult(i);
+      if (found->second->outputs[i].name == node.string("attr")) {
+        Value value = captures ? (*captures)[name][i]
+            : helperCapture(found->second->op->getResult(i), at.getBlock(),
+                            node.location(b.getContext(), source.path));
+        if (!value) return failure();
+        return value;
+      }
     return error() << "unknown instance output '" << node.string("attr") << "'";
   }
   if (node.kind() == "Constant" || sourceLiteral) {
@@ -4769,13 +4769,8 @@ LogicalResult Importer::requireNestedRuleDataVisible(StringRef name,
     return success();
   auto *binding = nestedRuleBinding(name);
   if (!binding) return success();
-  if (activeSourceEffects || activeValueHelper || activeHelperFrame)
-    return mlir::emitError(use.location(b.getContext(), source.path))
-           << "local Rule result is not a Rule input; wire through a child Module interface";
-  if (!binding->registered || binding->results.empty())
-    return mlir::emitError(use.location(b.getContext(), source.path))
-           << "autonomous Rule has no available result: '" << name << "'";
-  return success();
+  return mlir::emitError(use.location(b.getContext(), source.path))
+         << "Rule name denotes a callable, not a result: '" << name << "'";
 }
 
 LogicalResult Importer::requireNestedRuleDataTarget(StringRef name,
@@ -4783,7 +4778,7 @@ LogicalResult Importer::requireNestedRuleDataTarget(StringRef name,
   auto *binding = nestedRuleBinding(name);
   if (!binding) return success();
   return mlir::emitError(assignment.location(b.getContext(), source.path))
-         << "autonomous Rule declaration cannot be rebound: '" << name << "'";
+         << "Rule declaration cannot be rebound: '" << name << "'";
 }
 
 void Importer::noteNestedRuleDataBinding(StringRef name) {
@@ -4854,8 +4849,6 @@ LogicalResult Importer::noteNestedRuleRegistration(const AstNode &call) {
   auto *binding = &found->second;
   auto plan = checkedRuleRegistration(call, binding->declaration);
   if (failed(plan)) return failure();
-  if (binding->registered) return error() << "Rule declaration must be registered exactly once";
-  binding->registered = true;
   return success();
 }
 
@@ -4876,7 +4869,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
     if (!pathFits || !queryBudget.reserve(pathFee, pathReason))
       return error() << "ordered-Rule inventory: " << (pathFits ? pathReason : "path storage exhausted");
     auto declaration = decl.node.item("body", i);
-    if (declaration.kind() != "FunctionDef" || !hasDecorator(declaration, "rule")) continue;
+    if (declaration.kind() != "FunctionDef" ||
+        (!hasDecorator(declaration, "rule") && !hasDecorator(declaration, "autorule"))) continue;
     StringRef name = declaration.string("name");
     if (names.contains(name) || structs.contains(name) || enums.contains(name) ||
         llvm::any_of(decl.inputs, [&](const Port &port) { return port.name == name; }) ||
@@ -4912,7 +4906,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
     scope.bindings.reserve(count);
     auto key = declaration.fields().getAs<StringAttr>("name");
     if (!scope.bindings.try_emplace(key, NestedRuleBinding{
-            declaration, NestedRulePhase::Future, false, behavioralRules.contains(name)}).second)
+            declaration, NestedRulePhase::Future}).second)
       return error() << "duplicate nested Rule declaration";
   }
   if (decl.transactionEffects)
@@ -5063,7 +5057,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
           return declarationError()
                  << "pure module local declaration after Return is unsupported";
         bool intrinsic = llvm::is_contained(
-            ArrayRef<StringRef>{"module", "rule", "system", "log", "report",
+            ArrayRef<StringRef>{"module", "rule", "autorule", "system", "log", "report",
                                 "bool", "int", "range", "Annotated"},
             instanceName);
         if (values.contains(instanceName) || instances.contains(instanceName) ||

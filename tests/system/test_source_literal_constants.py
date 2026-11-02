@@ -274,7 +274,7 @@ def require_boolean(value: bool) -> bool:
 @ac.system
 def Exercise():
     selected = Identity({ref["limit"]})
-    @ac.rule
+    @ac.autorule
     def observe():
         packet = LocalPacket()
         wide: ac.bits[101] = {ref["BIG"]}
@@ -306,7 +306,7 @@ def test_mixed_provider_predeclarations_and_boolean_record_binding(tmp_path):
 from checks.provider import Packet, WIDTH, limit, ENABLED
 @ac.system
 def Exercise():
-    @ac.rule
+    @ac.autorule
     def observe():
         value = Packet(flag=ENABLED, payload=limit)
         ac.log("info", "flag", value.flag)
@@ -391,8 +391,8 @@ def test_constant_collision_rejects_at_protected_hardware_scope(tmp_path, bindin
     bodies = {
         "module-local": "@ac.module\ndef Top() -> ac.u8:\n    VALUE = 3\n    return VALUE\n",
         "module-formal": "@ac.module\ndef Top(VALUE: ac.u8) -> ac.u8:\n    return VALUE\n",
-        "rule-local": "@ac.module\ndef Top() -> ac.u8:\n    @ac.rule\n    def get() -> ac.u8:\n        VALUE = 3\n        return VALUE\n    return get\n",
-        "rule-formal": "@ac.module\ndef Top() -> ac.u8:\n    @ac.rule\n    def get(VALUE=3) -> ac.u8:\n        return VALUE\n    return get\n",
+        "rule-local": "@ac.module\ndef Top() -> ac.u8:\n    @ac.rule\n    def get() -> ac.u8:\n        VALUE = 3\n        return VALUE\n    get_result = get()\n    return get_result\n",
+        "rule-formal": "@ac.module\ndef Top() -> ac.u8:\n    @ac.rule\n    def get(VALUE) -> ac.u8:\n        return VALUE\n    get_result = get(3)\n    return get_result\n",
         "static-formal": "@ac.module\ndef Top(value: ac.bits[VALUE], *, VALUE: int = 8) -> ac.bits[VALUE]:\n    return value\n",
     }
     _write(source, "bench.py", "import pycircuit as ac\nVALUE = 19\n" + bodies[binding])
@@ -417,7 +417,7 @@ def local(value: ac.u8) -> ac.u8:
     return VALUE
 @ac.system
 def Exercise():
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log("info", "formal", formal(4))
         ac.log("info", "local", local(4))
@@ -706,7 +706,7 @@ def test_valid_native_list_constant_is_not_a_frontend_literal(
         + f"""
 @ac.system
 def Exercise():
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log("info", "value", {expression})
 """,

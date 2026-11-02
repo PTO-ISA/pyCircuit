@@ -18,7 +18,7 @@ def StateCell(selector: ac.u1):
     def value() -> ac.u8:
         return state
 
-    @ac.rule
+    @ac.autorule
     def local_update() -> None:
         if not selector:
             state = state + 1
@@ -51,7 +51,7 @@ def PayloadCell(selector: ac.u1):
     def value() -> StatePayload:
         return state
 
-    @ac.rule
+    @ac.autorule
     def local_update() -> None:
         if not selector:
             state = StatePayload(

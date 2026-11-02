@@ -16,7 +16,7 @@ def ExerciseLoopElseBoundaries():
     phase: ac.u2 = 0
     total: ac.u8 = 5
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         saved = total
         index: ac.u8 = 9
@@ -65,6 +65,6 @@ def ExerciseLoopElseBoundaries():
             total,
         )
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

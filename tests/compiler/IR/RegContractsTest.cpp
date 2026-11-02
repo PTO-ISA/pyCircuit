@@ -150,7 +150,7 @@ protected:
   void SetUp() override {
     static constexpr llvm::StringLiteral source = R"py(
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 
 Word = Annotated[int, range(16)]
 
@@ -158,7 +158,7 @@ Word = Annotated[int, range(16)]
 def Counter():
     q: Word = 3
 
-    @rule
+    @autorule
     def advance():
         nonlocal q
         q = q
@@ -284,7 +284,7 @@ TEST_F(RegContractsTest, V09_RejectsSameWidthButDifferentLogicalType) {
 TEST_F(RegContractsTest, V16_ConcreteListMaterializesExactlyThreeRegElements) {
   static constexpr llvm::StringLiteral source = R"py(
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 
 Word = Annotated[int, range(16)]
 
@@ -292,7 +292,7 @@ Word = Annotated[int, range(16)]
 def RegisterBank():
     cells: list[Word] = [3, 7, 11]
 
-    @rule
+    @autorule
     def hold():
         return
 
@@ -407,7 +407,7 @@ def RangeBank():
 TEST_F(RegContractsTest, V16_RejectsCollectionAuthorityDivergence) {
   static constexpr llvm::StringLiteral source = R"py(
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 
 Word = Annotated[int, range(16)]
 
@@ -415,7 +415,7 @@ Word = Annotated[int, range(16)]
 def RegisterBank():
     cells: list[Word] = [3, 7, 11]
 
-    @rule
+    @autorule
     def hold():
         return
 

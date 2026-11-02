@@ -25,7 +25,7 @@ def Counter():  # noqa: N802
 
 @ac.module
 def Writer(counter: Counter):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         counter.increment()
 
@@ -33,7 +33,9 @@ def Writer(counter: Counter):  # noqa: N802
 @ac.module
 def Reader(counter: Counter) -> ac.u8:  # noqa: N802
     @ac.rule
-    def read() -> ac.u8:
+    def read_rule() -> ac.u8:
         return counter.read()
+
+    read = read_rule()
 
     return read

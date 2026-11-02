@@ -712,7 +712,7 @@ def Top(a: ac.bits[W], b: ac.bits[69], *, W: int = 7):
     small = Exchange(W=W)
     wide = Exchange(W=69)
     reader = Reader(b[0:7])
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert small.flip(a) == (a ^ 1)
         assert wide.flip(b) == (b ^ 1)
@@ -758,7 +758,7 @@ def Top(value: ac.bits[7 + 1]) -> ac.bits[7 + 1]:
 @ac.module
 def Top(value: ac.bits[7 + 1]):
     owner = Exchange(W=7 + 1)
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert owner.flip(value) == (value ^ 1)
 """,
@@ -860,7 +860,7 @@ from checks.counter import Counter
 def Exercise():
     small = Counter(W=7)
     wide = Counter(W=69)
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         old_small = small.read()
         old_wide = wide.read()

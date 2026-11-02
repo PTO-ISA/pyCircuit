@@ -1,7 +1,7 @@
 """Regular-clock obs_points scenario; original physical-control oracles remain."""
 
 from example_obs_points.obs_points import ObsPoints
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, autorule
 
 
 @rule
@@ -106,7 +106,7 @@ def ExerciseObsPoints():  # noqa: N802
         )
     )
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 264:
             assert dut.y == expected_y, "obs_points: y"

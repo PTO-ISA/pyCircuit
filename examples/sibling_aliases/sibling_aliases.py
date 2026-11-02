@@ -20,7 +20,7 @@ def Counter():  # noqa: N802
 def Stepper(counter: Counter):  # noqa: N802
     alias = counter
 
-    @ac.rule
+    @ac.autorule
     def step_twice() -> None:
         first = counter.increment()
         second = alias.increment()

@@ -1,7 +1,7 @@
 """Regular-clock record checks; independent physical-control oracles remain intact."""
 
 from example_popcount_pipeline.popcount_pipeline import PopcountPipeline, Item, Result
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -230,7 +230,7 @@ def PopcountPipelineSystem():  # noqa: N802
     packet = Item(value=frame.input_value, count=frame.input_count)
     dut = PopcountPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "popcount_pipeline input capacity"
         assert dut.valid == frame.expected_valid, (

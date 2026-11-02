@@ -489,8 +489,7 @@ def main():
         "from pycircuit import bits, module", "from pycircuit import bits, module, rule"
     ).replace(
         "    return value",
-        "    @rule\n    def keep(value=value) -> bits[width]:\n"
-        "        return value\n\n    result = keep()\n    return result",
+        '    @rule\n    def keep(value) -> bits[width]:\n        return value\n    keep_result = keep(value)\n\n    result = keep_result()\n    return result',
     )
     provider_path.write_text(nested_keep)
     try:

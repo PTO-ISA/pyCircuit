@@ -89,15 +89,14 @@ from typing import Annotated
 Word = Annotated[int, range(256)]
 """
 
-LEAF = """\
-from pycircuit import module, rule
+LEAF = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter():
     state: Word = 254
 
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = (state + 1) & 255

@@ -65,7 +65,7 @@ def source_cases():
         "unused-missing-topology": '    unused = ac.instance_ref(Peer, "..", "absent")\n',
         "unused-alias": '    unused = ac.instance_ref(Peer, "..", "absent")\n    alias = unused\n',
         "used-descendant": '''    ref = ac.instance_ref(Peer, "peer")
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert ref.read() == 7, "descendant"
 ''',
@@ -131,7 +131,7 @@ def Parent():
 @ac.module
 def Child():
     parent = ac.instance_ref(Parent, "..")
-    @ac.rule
+    @ac.autorule
     def observe():
         assert parent.read() == 7
 @ac.system
@@ -154,7 +154,7 @@ def Top():
 def link_rejection_cases():
     used = '''
     ref = ac.instance_ref(Peer, "peer")
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert ref.read() == 7, "topology required"
 '''
@@ -173,7 +173,7 @@ def Caller():
     @ac.method
     def read() -> ac.u8:
         return ref.read()
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         assert ref.read() == 7, "contextual caller"
 '''

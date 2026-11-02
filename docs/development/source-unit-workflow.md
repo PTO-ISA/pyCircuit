@@ -228,8 +228,8 @@ that declared interface do not grant access to private descendants. Reference
 semantics retain their existing schema marker and exact body/interface checks.
 Unused reference formals still require this transaction interface contract.
 
-Local autonomous registrations use their real FunctionDef occurrence; explicit
-global-template bindings use their real Call occurrence. The private transparent
+Autorule registrations use their real FunctionDef occurrence; explicit local
+and global Rule bindings use their real Call occurrence. The private transparent
 entry retains exact capture forwarding and public-result authentication. Source
 ordering metadata is rejected rather than republished: neither native attributes
 nor a loaded anchor can restore cross-Rule candidate forwarding.

@@ -8,7 +8,7 @@ from static_routes.counter import Counter
 def Worker(peer: Counter, distinct: Counter):
     same = peer
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         saved = peer.read()
         untouched = distinct.read()

@@ -11,7 +11,7 @@ def SiblingAtomic():  # noqa: N802
     Writer(counter, ledger, phase != 1)
     Reader(counter, ledger)
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         ac.log("info", "atomic committed", counter.committed(), ledger.read())
         phase = phase + 1

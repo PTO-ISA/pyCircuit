@@ -36,7 +36,7 @@ def ExerciseMultiOutput():
     header, payload, valid = StatefulTuple(phase + 10, 1)
     wrapped = Wrapped(phase + 10, 1)
 
-    @ac.rule
+    @ac.autorule
     def drive():
         assert header.sequence == wrapped.header.sequence
         assert header.sequence == wrapped.repeated_header.sequence

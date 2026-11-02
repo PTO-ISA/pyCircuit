@@ -1,9 +1,9 @@
-from pycircuit import module, rule
+from pycircuit import autorule, module
 
 
 @module
 def Independent():
-    @rule
+    @autorule
     def idle():
         return
 

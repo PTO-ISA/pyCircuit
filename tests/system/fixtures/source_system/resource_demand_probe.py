@@ -19,7 +19,7 @@ def ResourceDemandProbe():
     def require(enabled: ac.u1) -> None:
         pass
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         require(early)
         require(later)
@@ -29,6 +29,6 @@ def ResourceDemandProbe():
             value = right.pop()
         output.push(value)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         count = count + 1

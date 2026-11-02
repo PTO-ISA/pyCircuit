@@ -64,8 +64,10 @@ and authoring-contract review. Keep compiler-only implementation routing separat
 
 For source authoring, first read [.codex/skills/pycircuit-authoring/SKILL.md](.codex/skills/pycircuit-authoring/SKILL.md).
 Write function calls, ordinary local computations and sequential Rule assignments.
-Directly nested Rules register automatically once per Module instance. Their
-names denote results at Module wiring sites; do not call them explicitly.
+Directly nested `@rule` declarations are private callables and register no work.
+Each explicit Module-scope call registers one transaction and binds its results.
+Use zero-argument, zero-result `@autorule` for work registered once per Module
+instance at declaration. Neither decorator accepts formal defaults.
 Source-global Rule templates receive explicit arguments. Callable component
 operations use Methods, independently of their parameter count.
 Module variables own persistent state; ACIR supplies storage and its controls.

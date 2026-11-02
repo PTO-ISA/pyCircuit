@@ -215,7 +215,12 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     if (!charge())
       return failure();
     auto stmt = source.module.item("body", i);
+    if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "autorule"))
+      return diagnostic(stmt) << "autorule requires a Module/System owner";
     if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule")) {
+      if (failed(readCallableSyntax(stmt,
+              [&](const AstNode &node) { return binding(node); },
+              [&] { return diagnostic(stmt); }))) return failure();
       if (!rules.try_emplace(stmt.string("name"), stmt).second)
         return diagnostic(stmt) << "duplicate rule name";
     }
@@ -231,7 +236,11 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     llvm::StringSet<> nestedRuleNames;
     for (size_t j = 0; j < module.array("body").size(); ++j) {
       auto declaration = module.item("body", j);
-      if (declaration.kind() == "FunctionDef" && hasDecorator(declaration, "rule")) {
+      if (declaration.kind() == "FunctionDef" &&
+          (hasDecorator(declaration, "rule") || hasDecorator(declaration, "autorule"))) {
+        if (failed(readCallableSyntax(declaration,
+                [&](const AstNode &node) { return binding(node); },
+                [&] { return diagnostic(declaration); }))) return failure();
         if (!nestedRuleNames.insert(declaration.string("name")).second)
           return diagnostic(declaration) << "duplicate Rule declaration";
         rules[declaration.string("name")] = declaration;
@@ -246,7 +255,8 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
           for (size_t i = 0; i < target.array("elts").size(); ++i) targetWalk(targetWalk, target.item("elts", i));
       };
       if (node.kind() == "FunctionDef" || node.kind() == "ClassDef") {
-        if (!hasDecorator(node, "rule")) bound.insert(node.string("name"));
+        if (!hasDecorator(node, "rule") && !hasDecorator(node, "autorule"))
+          bound.insert(node.string("name"));
         return success();
       }
       if (node.kind() == "Assign")
@@ -271,9 +281,6 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     for (size_t j = 0; j < module.array("body").size(); ++j)
       if (failed(collectLocals(collectLocals, module.item("body", j), moduleShadows))) return failure();
     for (const auto &name : nestedRuleNames) moduleShadows.erase(name.getKey());
-    llvm::StringMap<unsigned> registrations;
-    llvm::StringSet<> ordinaryData;
-    llvm::StringSet<> ruleResultAliases;
     auto orderBefore = [&](const AstNode &use, StringRef name) -> FailureOr<bool> {
       auto found = rules.find(name);
       if (!nestedRuleNames.contains(name) || found == rules.end()) return false;
@@ -287,24 +294,23 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     auto registerCall = [&](const AstNode &call, const AstNode &statement) -> LogicalResult {
       if (!charge())
         return failure();
-      bool local = call.kind() == "FunctionDef";
-      auto function = local ? call : call.child("func");
-      if (!local && function.kind() != "Name")
+      bool automatic = call.kind() == "FunctionDef";
+      auto function = automatic ? call : call.child("func");
+      if (!automatic && function.kind() != "Name")
         return success();
-      StringRef registrationName = function.string(local ? "name" : "id");
+      StringRef registrationName = function.string(automatic ? "name" : "id");
       auto found = rules.find(registrationName);
       if (found == rules.end())
         return success();
-      ++registrations[registrationName];
-      if (!local && !nestedRuleNames.contains(function.string("id")) &&
+      if (!automatic && !nestedRuleNames.contains(function.string("id")) &&
           sourceBindingShadowed(source, function, function.string("id")))
         return diagnostic(function)
                << "source rule binding is shadowed in its lexical scope: '"
                << function.string("id") << "'";
       SourceRuleCallPlan plan;
       plan.module = module; plan.occurrence = call; plan.rule = found->second;
-      plan.kind = local ? SourceRuleCallPlan::Kind::LocalDeclaration
-                        : SourceRuleCallPlan::Kind::GlobalTemplateCall;
+      plan.kind = automatic ? SourceRuleCallPlan::Kind::AutoDeclaration
+                            : SourceRuleCallPlan::Kind::ExplicitCall;
       plan.statement = statement;
       auto formals = plan.rule.child("args");
       SmallVector<StringRef> formalNames;
@@ -312,13 +318,9 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
         formalNames.push_back(formals.item("args", j).string("arg"));
       SmallVector<AstNode> actuals;
       SmallVector<size_t> evaluationOrder;
-      if (local) {
-        if (formals.array("defaults").size() != formalNames.size())
-          return diagnostic(call) << "autonomous Rule formal requires an explicit default binding";
-        for (size_t j = 0; j < formalNames.size(); ++j) {
-          actuals.push_back(formals.item("defaults", j));
-          evaluationOrder.push_back(j);
-        }
+      if (automatic) {
+        if (!formalNames.empty())
+          return diagnostic(call) << "autorule requires no explicit parameters";
       } else {
         auto normalized = normalizeCallArguments(call, formalNames,
             [&] { return diagnostic(call); },
@@ -437,40 +439,39 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     auto expressions = [&](auto &&self, const AstNode &node,
                            const AstNode &registration,
                            const llvm::StringSet<> &shadows,
-                           bool callableScope, const AstNode *captureSite,
+                           bool callableScope,
                            bool transactionScope = false) -> LogicalResult {
       if (!charge()) return failure();
       if (!node) return success();
       llvm::StringSet<> nestedShadows;
       const llvm::StringSet<> *scope = &shadows;
       if (node.kind() == "FunctionDef" || node.kind() == "Lambda") {
+        bool rule = node.kind() == "FunctionDef" &&
+            (hasDecorator(node, "rule") || hasDecorator(node, "autorule"));
+        if (rule) {
+          auto found = rules.find(node.string("name"));
+          if (callableScope || found == rules.end() ||
+              !sameOccurrence(found->second, node))
+            return diagnostic(node) << "Rule declarations require direct Module/System placement";
+        }
         callableScope = true;
-        transactionScope = node.kind() == "FunctionDef" &&
-            (hasDecorator(node, "rule") || hasDecorator(node, "method"));
-        if (node.kind() == "FunctionDef" && node.array("decorator_list").empty())
-          captureSite = &node;
+        transactionScope = rule ||
+            (node.kind() == "FunctionDef" && hasDecorator(node, "method"));
         nestedShadows = shadows;
-        for (const auto &alias : ruleResultAliases) nestedShadows.erase(alias.getKey());
         auto arguments = node.child("args");
         for (StringRef field : {"args", "posonlyargs", "kwonlyargs"})
           for (size_t i = 0; i < arguments.array(field).size(); ++i)
             nestedShadows.insert(arguments.item(field, i).string("arg"));
         auto statements = node.array("body");
         for (size_t i = 0; statements && i < statements.size(); ++i)
-          if (failed(collectLocals(collectLocals, node.item("body", i), nestedShadows))) return failure();
+          if (failed(collectLocals(collectLocals, node.item("body", i), nestedShadows)))
+            return failure();
         scope = &nestedShadows;
-        auto bindingShadows = shadows;
-        for (const auto &alias : ruleResultAliases) bindingShadows.erase(alias.getKey());
         for (size_t k = 0; k < arguments.array("defaults").size(); ++k)
           if (failed(self(self, arguments.item("defaults", k), AstNode(),
-                          bindingShadows, true, nullptr, transactionScope))) return failure();
+                          shadows, true, transactionScope))) return failure();
       }
-      if (callableScope && node.kind() == "Name" &&
-          ruleResultAliases.contains(node.string("id")) && !scope->contains(node.string("id")))
-        return diagnostic(node) << "local Rule result alias is not a Rule input; wire through a child Module interface";
-      // Module data formals do not turn an existing Rule into a callable
-      // value. Preserve the write-analysis diagnostic before planning can
-      // discard that registration; helper-local value shadows remain lexical.
+      // Module data formals cannot turn a bound Rule into a callable value.
       if (!callableScope && node.kind() == "Call" &&
           node.child("func").kind() == "Name" &&
           rules.contains(node.child("func").string("id")) &&
@@ -478,56 +479,48 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
         return diagnostic(node.child("func"))
                << "source rule binding is shadowed in its lexical scope: '"
                << node.child("func").string("id") << "'";
-      bool earlierData = false;
       StringRef referenced = node.kind() == "Name" ? node.string("id")
           : node.kind() == "Call" && node.child("func").kind() == "Name"
               ? node.child("func").string("id") : StringRef();
-      if (!referenced.empty() && nestedRuleNames.contains(referenced) &&
-          !scope->contains(referenced)) {
-        auto before = orderBefore(captureSite ? *captureSite : node, referenced);
-        if (failed(before)) return failure();
-        bool assignmentTarget = false;
-        if (!callableScope && node.kind() == "Name" && node.path.size() > module.path.size() + 2) {
-          const auto &step = node.path[module.path.size() + 2];
-          assignmentTarget = step.field == "targets";
-        }
-        earlierData = *before && (ordinaryData.contains(referenced) || assignmentTarget);
-        if (earlierData && node.kind() == "Call")
-          return diagnostic(node) << "ordinary data binding is not a callable Rule";
-      }
-      if (!referenced.empty() && nestedRuleNames.contains(referenced) &&
-          !scope->contains(referenced) && !earlierData) {
-        if (node.kind() == "Call")
-          return diagnostic(node) << "autonomous local Rule cannot be called; use its result at Module wiring";
+      bool boundRule = !referenced.empty() && rules.contains(referenced) &&
+                       !scope->contains(referenced);
+      bool localRule = boundRule && nestedRuleNames.contains(referenced);
+      if (localRule && node.kind() == "Call") {
+        if (hasDecorator(rules[referenced], "autorule"))
+          return diagnostic(node) << "autorule cannot be explicitly called";
         if (callableScope)
-          return diagnostic(node) << "local Rule result is not a Rule input; wire through a child Module interface";
+          return diagnostic(node) << "local Rule calls require a Module/System registration";
+        auto before = orderBefore(node, referenced);
+        if (failed(before)) return failure();
+        if (*before)
+          return diagnostic(node) << "local Rule must be declared before registration";
       }
-      // Transaction calls use the complete callable inventory, including
-      // source-global Rules whose actual owners are bound by the caller.
-      bool nestedCall = transactionScope && node.kind() == "Call" &&
-          node.child("func").kind() == "Name" &&
-          rules.contains(node.child("func").string("id")) &&
-          !scope->contains(node.child("func").string("id")) && !earlierData;
+      // Only source-global templates retain nested transaction invocation.
+      bool nestedCall = boundRule && !localRule && transactionScope &&
+                        node.kind() == "Call";
       AstNode invocation = nestedCall ? node : registration;
-      if (node.kind() == "Name" && rules.contains(node.string("id")) && !nestedRuleNames.contains(node.string("id")) && !scope->contains(node.string("id")) && !earlierData) {
+      if (boundRule && node.kind() == "Name") {
         auto function = invocation ? invocation.child("func") : AstNode();
         if (!function || !sameOccurrence(node, function))
-          return diagnostic(node) << "Rule is only a complete Module/System registration; it is not a helper or callback";
+          return diagnostic(node) << "Rule name is callable, not a result value";
       }
-      if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-          rules.contains(node.child("func").string("id")) && !scope->contains(node.child("func").string("id")) && !earlierData) {
-        if (!nestedCall && (!registration || !sameOccurrence(node, registration)))
-          return diagnostic(node) << "Rule call must be a complete Module/System registration";
-      }
+      if (boundRule && node.kind() == "Call" && !nestedCall &&
+          (!registration || !sameOccurrence(node, registration)))
+        return diagnostic(node) << "Rule call must be a complete Module/System registration";
       for (NamedAttribute raw : node.fields()) {
         auto name = raw.getName().getValue();
-        if (name == "decorator_list" || name == "args" && node.kind() == "FunctionDef" || name == "returns") continue;
+        if (name == "decorator_list" ||
+            (name == "args" && node.kind() == "FunctionDef") || name == "returns")
+          continue;
         if (auto array = dyn_cast<ArrayAttr>(raw.getValue())) {
           for (size_t j = 0; j < array.size(); ++j)
             if (auto child = dyn_cast<DictionaryAttr>(array[j]); child && child.getAs<StringAttr>("kind"))
-              if (failed(self(self, node.item(name, j), invocation, *scope, callableScope, captureSite, transactionScope))) return failure();
+              if (failed(self(self, node.item(name, j), invocation, *scope,
+                              callableScope, transactionScope))) return failure();
         } else if (auto child = dyn_cast<DictionaryAttr>(raw.getValue())) {
-          if (child.getAs<StringAttr>("kind") && failed(self(self, node.child(name), invocation, *scope, callableScope, captureSite, transactionScope))) return failure();
+          if (child.getAs<StringAttr>("kind") &&
+              failed(self(self, node.child(name), invocation, *scope,
+                          callableScope, transactionScope))) return failure();
         }
       }
       return success();
@@ -549,77 +542,11 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
                          ? stmt.child("value") : AstNode();
       bool registration = call.kind() == "Call" && call.child("func").kind() == "Name" &&
                           rules.contains(call.child("func").string("id")) && !moduleShadows.contains(call.child("func").string("id"));
-      if (registration && ordinaryData.contains(call.child("func").string("id"))) {
-        auto before = orderBefore(call, call.child("func").string("id"));
-        if (failed(before)) return failure();
-        if (*before) registration = false;
-      }
-      if (failed(expressions(expressions, stmt, registration ? call : AstNode(), moduleShadows, false, nullptr))) return failure();
+      if (failed(expressions(expressions, stmt, registration ? call : AstNode(),
+                             moduleShadows, false))) return failure();
       if (registration && failed(registerCall(call, stmt))) return failure();
-      if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule") &&
+      if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "autorule") &&
           failed(registerCall(stmt, stmt))) return failure();
-      if (stmt.kind() == "Assign") {
-        auto depends = [&](auto &&self, const AstNode &node) -> bool {
-          if (!node || !charge()) return false;
-          if (node.kind() == "Name")
-            return nestedRuleNames.contains(node.string("id")) || ruleResultAliases.contains(node.string("id"));
-          // A call may establish a child-output boundary, including through an
-          // imported or aliased Module. The typed importer authenticates that
-          // boundary from actual Instance SSA; helper calls remain ordinary
-          // value dependencies there. Source spelling cannot distinguish them.
-          if (node.kind() == "Call") return false;
-          for (NamedAttribute field : node.fields()) {
-            if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
-              if (child.getAs<StringAttr>("kind") && self(self, node.child(field.getName().getValue()))) return true;
-            } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-              for (size_t k = 0; k < children.size(); ++k)
-                if (auto child = dyn_cast<DictionaryAttr>(children[k]); child && child.getAs<StringAttr>("kind") &&
-                    self(self, node.item(field.getName().getValue(), k))) return true;
-          }
-          return false;
-        };
-        if (depends(depends, stmt.child("value")))
-          for (size_t k = 0; k < stmt.array("targets").size(); ++k)
-            if (failed(forEachAssignmentLeaf(stmt.item("targets", k), [&](const AstNode &leaf) {
-                  if (leaf.kind() == "Name") ruleResultAliases.insert(leaf.string("id"));
-                  return success();
-                }))) return failure();
-      }
-      if (stmt.kind() == "Assign") {
-        auto bind = [&](auto &&self, const AstNode &target) -> LogicalResult {
-          if (target.kind() == "Tuple" || target.kind() == "List") {
-            for (size_t k = 0; k < target.array("elts").size(); ++k)
-              if (failed(self(self, target.item("elts", k)))) return failure();
-            return success();
-          }
-          if (target.kind() != "Name" || !nestedRuleNames.contains(target.string("id"))) return success();
-          auto before = orderBefore(stmt, target.string("id"));
-          if (failed(before)) return failure();
-          if (nestedRuleNames.contains(target.string("id")))
-            return diagnostic(target) << "ordinary data cannot replace a declared or registered Rule";
-          StringRef name = target.string("id");
-          // contains and insertion each hash the borrowed name. A new key
-          // owns its entry/text; bucket growth owns pointers, hashes and a
-          // sentinel, and scans the previous bucket array before rehashing.
-          if (!charge(name.size()) || !charge(1 + name.size())) return failure();
-          if (!ordinaryData.contains(name)) {
-            uint64_t oldCapacity = ordinaryData.getNumBuckets();
-            uint64_t capacity = std::max(uint64_t(16), oldCapacity);
-            uint64_t count = ordinaryData.size() + 1;
-            while (count * 4 >= capacity * 3) capacity *= 2;
-            uint64_t bytes = sizeof(llvm::StringMapEntry<std::nullopt_t>) + name.size() + 1;
-            if (capacity > oldCapacity)
-              bytes += capacity * (sizeof(void *) + sizeof(unsigned)) + sizeof(void *);
-            if (!charge(1 + bytes / 8 + (bytes % 8 != 0) +
-                        (capacity > oldCapacity ? oldCapacity : 0)))
-              return failure();
-            ordinaryData.insert(name);
-          }
-          return success();
-        };
-        for (size_t k = 0; k < stmt.array("targets").size(); ++k)
-          if (failed(bind(bind, stmt.item("targets", k)))) return failure();
-      }
     }
   }
   return success();

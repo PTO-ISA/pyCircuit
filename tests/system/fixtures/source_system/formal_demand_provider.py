@@ -8,4 +8,6 @@ def FormalDemandProvider() -> ac.u8:
     def denied() -> ac.u8:
         return 99
 
-    return denied
+    denied_result = denied()
+
+    return denied_result

@@ -381,16 +381,7 @@ def test_module_facade_preserves_canonical_child_definition(tmp_path: Path) -> N
     provider_source = _write(
         root,
         "provider.py",
-        "from typing import Annotated\n"
-        "from pycircuit import module, rule\n"
-        "Word = Annotated[int, range(256)]\n\n"
-        "@module\n"
-        "def Pass(source: Word, sink: Word):\n"
-        "    @rule\n"
-        "    def forward():\n"
-        "        nonlocal sink\n"
-        "        sink = source\n\n"
-        "    forward()\n",
+        "from typing import Annotated\nfrom pycircuit import module, rule, autorule\nWord = Annotated[int, range(256)]\n\n@module\ndef Pass(source: Word, sink: Word):\n    @autorule\n    def forward():\n        nonlocal sink\n        sink = source\n\n    forward()\n",
     )
     provider = _compile(provider_source, root=root, output=tmp_path / "provider-out")
     assert provider.completed.returncode == 0, provider.completed.stderr

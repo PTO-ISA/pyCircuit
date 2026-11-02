@@ -1,8 +1,8 @@
-from pycircuit import module, rule
+from pycircuit import module, autorule
 
 @module
 def Top(path: bool, condition: bool) -> {"value": bool}:
-    @rule
+    @autorule
     def inspect():
         if path:
             assert condition, "matrix"

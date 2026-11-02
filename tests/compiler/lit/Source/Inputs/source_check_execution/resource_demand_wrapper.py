@@ -19,7 +19,7 @@ def SharedLeaf():
 def CallerA():
     child = SharedLeaf()
 
-    @ac.rule
+    @ac.autorule
     def call() -> None:
         child.push(7)
 
@@ -36,6 +36,6 @@ def Top():
     wrapper = WrapperB()  # noqa: F841 - captured hardware state or child instance.
     cycle: ac.u8 = 0
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         cycle = cycle + 1  # noqa: F841 - captured hardware state or child instance.

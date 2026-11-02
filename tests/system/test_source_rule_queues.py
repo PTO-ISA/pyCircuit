@@ -202,10 +202,10 @@ def test_rule_queue_same_physical_port_conflicts_reject(
     source.mkdir()
     effect = "tokens.pop()" if direction == "pop" else "tokens.push(7)"
     body = (
-        f"    @ac.rule\n    def first() -> None:\n        {effect}\n"
-        f"    @ac.rule\n    def second() -> None:\n        {effect}\n"
+        f"    @ac.autorule\n    def first() -> None:\n        {effect}\n"
+        f"    @ac.autorule\n    def second() -> None:\n        {effect}\n"
         if separate_rules
-        else f"    @ac.rule\n    def repeated() -> None:\n        {effect}\n"
+        else f"    @ac.autorule\n    def repeated() -> None:\n        {effect}\n"
         f"        {effect}\n"
     )
     (source / "conflict.py").write_text(

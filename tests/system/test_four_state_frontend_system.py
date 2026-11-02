@@ -166,7 +166,7 @@ def Top() -> tuple[Payload, ac.table[2, ac.bits[5]]]:
     saved: Payload = Payload(small=ac.four_state('10xz1'),
                              wide=ac.four_state('1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'))
     entries: ac.table[2, ac.bits[5]] = (ac.four_state('10xz1'), ac.four_state('z01x0'))
-    @ac.rule
+    @ac.autorule
     def hold():
         saved = saved
         entries = entries
@@ -215,7 +215,7 @@ def exact(value: ac.bits[4]) -> bool:
 def Top(value: ac.bits[4]) -> ac.bits[4]:
     same = exact(value)
     known = ac.is_known(value)
-    @ac.rule
+    @ac.autorule
     def check():
         if same:
             assert same
@@ -250,7 +250,7 @@ def inspect(value: ac.bits[4]) -> Inspection:
 def Top(value: ac.bits[4]) -> ac.bits[4]:
     result = inspect(value)
     saved: ac.bits[4] = 0
-    @ac.rule
+    @ac.autorule
     def update():
         assert result.observed
         ac.log('info', 'known', result.observed)
@@ -303,7 +303,7 @@ def test_verification_predicate_functional_escape_rejected(
     result = "ac.bits[4]"
     if case == "state":
         setup = """    saved: bool = False
-    @ac.rule
+    @ac.autorule
     def write():
         saved = ac.is_known(value)
 """
@@ -311,7 +311,7 @@ def test_verification_predicate_functional_escape_rejected(
     elif case == "index":
         setup = "    entries: ac.table[2, ac.bits[4]] = (ac.four_state('0000'), ac.four_state('1111'))\n"
     elif case == "guard":
-        setup = """    @ac.rule(guard=lambda: ac.is_known(value))
+        setup = """    @ac.autorule(guard=lambda: ac.is_known(value))
     def guarded():
         pass
 """
@@ -355,13 +355,13 @@ SYSTEM_SOURCE = """import pycircuit as ac
 @ac.module
 def Register(incoming: ac.u8) -> ac.u8:
     saved: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def update(): saved = incoming
     return saved
 @ac.system(samples=((0, 0), (1, ac.four_state('x'))))
 def Scenario():
     observed = Register(ac.four_state('10xz0011'))
-    @ac.rule
+    @ac.autorule
     def check():
         assert ac.case_eq(observed, ac.four_state('00000000'))
 """
@@ -370,7 +370,7 @@ GUARD_SYSTEM_SOURCE = """import pycircuit as ac
 @ac.system(samples=((0, 0), (1, ac.four_state('x'))))
 def Scenario():
     marker: ac.u1 = 0
-    @ac.rule(guard=lambda: ac.four_state('x'))
+    @ac.autorule(guard=lambda: ac.four_state('x'))
     def effect():
         marker = 1
 """
@@ -560,7 +560,7 @@ def test_four_state_logs_preserve_bits4_planes_and_known_legacy_values(
         f"""import pycircuit as ac
 @ac.system(samples=((1, 0),))
 def Observe():
-    @ac.rule
+    @ac.autorule
     def publish():
         ac.log('info', 'payloads', ac.four_state('10xz'),
                ac.four_state({wide65!r}), ac.four_state({wide130!r}),
@@ -606,7 +606,7 @@ def test_numeric_reports_reject_unknown_or_wide_bits(
     source = f"""import pycircuit as ac
 @ac.system(samples=((0, 0),))
 def Observe():
-    @ac.rule
+    @ac.autorule
     def publish():
         ac.report('numeric', {expression})
 """
@@ -642,10 +642,10 @@ def test_failed_epoch_publishes_no_four_state_observation(tmp_path: Path) -> Non
 @ac.system(samples=((1, 0),))
 def Observe():
     marker: ac.u1 = 0
-    @ac.rule
+    @ac.autorule
     def publish():
         ac.log('info', 'discarded', ac.four_state('10xz'))
-    @ac.rule(guard=lambda: ac.four_state('x'))
+    @ac.autorule(guard=lambda: ac.four_state('x'))
     def fail():
         marker = 1
 """,
@@ -697,7 +697,7 @@ def test_public_run_uses_finite_samples_and_iverilog_without_cycles(
         """import pycircuit as ac
 @ac.system(samples=((0, 0),))
 def Scenario():
-    @ac.rule
+    @ac.autorule
     def publish():
         ac.log('info', 'payload', ac.four_state('10xz'))
 """,

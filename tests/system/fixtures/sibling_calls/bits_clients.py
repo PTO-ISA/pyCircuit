@@ -4,14 +4,14 @@ from checks.bits import BitsOwner
 
 @ac.module
 def BitsWriter(owner: BitsOwner, payload: ac.u4, enabled: ac.u1):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         owner.write(payload, enabled)
 
 
 @ac.module
 def BitsReader(owner: BitsOwner):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def read() -> None:
         value = owner.read()
         ac.log("info", "bits forwarded", value)

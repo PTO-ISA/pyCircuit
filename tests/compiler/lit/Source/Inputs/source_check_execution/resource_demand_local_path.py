@@ -11,6 +11,6 @@ def Top():
     def probe(path: ac.u1) -> None:
         ignored = tokens.peek()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         probe(enabled)

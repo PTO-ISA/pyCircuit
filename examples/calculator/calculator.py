@@ -25,7 +25,7 @@ def Calculator(key: ac.u5, key_press: ac.u1) -> CalcResult:  # noqa: N802
     shown: ac.u64 = 0
 
     @ac.rule
-    def step() -> CalcResult:
+    def step_rule() -> CalcResult:
         # Outputs retain the committed state while this transaction builds D.
         lhs_q = lhs
         rhs_q = rhs
@@ -76,5 +76,7 @@ def Calculator(key: ac.u5, key_press: ac.u1) -> CalcResult:  # noqa: N802
         in_rhs = 0 if is_ac else in_rhs
         shown = 0 if is_ac else shown
         return result
+
+    step = step_rule()
 
     return step

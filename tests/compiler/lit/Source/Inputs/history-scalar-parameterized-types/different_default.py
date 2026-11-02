@@ -1,4 +1,4 @@
-from pycircuit import bits, log, module, rule, system, u8
+from pycircuit import bits, log, module, rule, system, u8, autorule
 
 
 @module
@@ -34,7 +34,7 @@ def DifferentDefaultSystem():
     dut = DifferentIdentity(value=incoming)
 
 
-    @rule
+    @autorule
     def inspect():
         assert dut == incoming, "different32-bit identity"
         log("info", "identity", dut)

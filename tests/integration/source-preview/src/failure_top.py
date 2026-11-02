@@ -1,5 +1,5 @@
 # ruff: noqa: N802,F841
-from pycircuit import log, module, report, rule
+from pycircuit import autorule, log, module, report
 
 from .types import Word
 
@@ -8,7 +8,7 @@ from .types import Word
 def FailureTop():
     count: Word = 0
 
-    @rule
+    @autorule
     def fail_on_second_tick():
         nonlocal count
         log("info", "failure_probe", count)

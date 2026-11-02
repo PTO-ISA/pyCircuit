@@ -44,19 +44,22 @@ def Bindings(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annotate
     @rule
     def update() -> Annotated[int, range(1 << 8)]:
         return late
+    update_result = update()
 
     @rule
     def update_signed() -> Annotated[int, range(1 << 8)]:
         return signed_mask
+    update_signed_result = update_signed()
 
     @rule
     def update_zero() -> Annotated[int, range(1 << 1)]:
         return singleton >> 0
+    update_zero_result = update_zero()
 
     result = late
-    old = WordState(clk, rst, update)
-    signed_q = WordState(clk, rst, update_signed)
-    zero_q = BitState(clk, rst, update_zero)
+    old = WordState(clk, rst, update_result)
+    signed_q = WordState(clk, rst, update_signed_result)
+    zero_q = BitState(clk, rst, update_zero_result)
     return {"result": result, "q": old, "signed_mask": signed_mask,
             "signed_q": signed_q, "zero_q": zero_q,
             "selected": selected, "input_alias": input_snapshot,

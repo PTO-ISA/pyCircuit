@@ -15,7 +15,7 @@ def ExerciseNestedRules():
         left.require(phase != 1)
         return before, after
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         before, middle = nested(2)
         second_before, after = left.add(3)
@@ -23,14 +23,14 @@ def ExerciseNestedRules():
         assert second_before == middle
         ac.log("info", "nested accepted", after)
 
-    @ac.rule
+    @ac.autorule
     def advance_independent() -> None:
         right.add(1)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "nested owners", left.read(), right.read(), phase)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

@@ -8,7 +8,7 @@ def ExerciseScfRules():
     phase: ac.u3 = 0
     owner = ScfRuleOwner()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         before, local, left, right = owner.advance(phase)
         ac.log(
@@ -21,10 +21,10 @@ def ExerciseScfRules():
             right,
         )
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         owner.snapshot()
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

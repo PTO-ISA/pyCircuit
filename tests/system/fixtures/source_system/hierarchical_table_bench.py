@@ -9,17 +9,17 @@ def ExerciseHierarchicalTable():
     child = TableCell(selector)
     spare = TableCell(not selector)
 
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         if selector:
             child.update(9, 17)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         rows = child.value()
         other = spare.value()
         ac.log("info", "hierarchical table", rows[0], rows[1], other[0], other[1])
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         selector = ~selector

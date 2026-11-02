@@ -17,7 +17,7 @@ def ExerciseTableRule():  # noqa: N802
     take = phase != 4
     result = TableRule(1 if sending else 0, request, 1 if take else 0)
 
-    @ac.rule
+    @ac.autorule
     def check_and_advance() -> None:
         expected_response = (phase >= 3 and phase <= 7) or phase == 11 or phase == 12
         # The first access to each slot returns its zero-initialized Entry.

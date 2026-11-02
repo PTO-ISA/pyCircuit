@@ -74,7 +74,7 @@ def rule_if(value: ac.u8, enabled: ac.u1) -> ac.u8:
 def Exercise():
     module_value = ModuleIf(7, 1)
     helper_value = helper_if(7, 1)
-    @ac.rule
+    @ac.autorule
     def check():
         rule_value = rule_if(7, 1)
         assert module_value == 8
@@ -151,7 +151,7 @@ def rule_compute(value: ac.u8, selector: ac.u1) -> ac.u8:
 def Exercise():
     module_value = ModuleCompute(7, 1)
     helper_value = helper_compute(7, 1)
-    @ac.rule
+    @ac.autorule
     def check():
         rule_value = rule_compute(7, 1)
         assert module_value == 12
@@ -201,7 +201,7 @@ def WithChild(value: ac.u8, enabled: ac.u1) -> tuple[ac.u8, ac.u8]:
 def Exercise():
     plain_before, plain_after = Plain(7, 1)
     child_before, child_after = WithChild(7, 1)
-    @ac.rule
+    @ac.autorule
     def check():
         assert plain_before == 8
         assert plain_after == 9
@@ -227,7 +227,7 @@ def test_module_ordinary_values_and_state_writing_rule_keep_one_state_owner(
 def Top(incoming: ac.u8) -> ac.u8:
     candidate = incoming + 1
     saved: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def update():
         saved = candidate
     return saved
@@ -298,7 +298,7 @@ def Update(pair: Pair, values: ac.table[2, ac.u8]) -> tuple[Pair, ac.table[2, ac
 @ac.system(samples=((1, 0),))
 def Exercise():
     pair, values = Update(Pair(left=3, right=9), (4, 7))
-    @ac.rule
+    @ac.autorule
     def check():
         assert pair.left == 4
         assert pair.right == 9
@@ -365,7 +365,7 @@ def Pipeline(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8, ac.u1]:
 @ac.system(samples=((1, 0),))
 def Exercise():
     original_tag, tag, payload, valid = Pipeline(7)
-    @ac.rule
+    @ac.autorule
     def check():
         assert original_tag == 8
         assert tag == 18
@@ -513,7 +513,7 @@ def Select(selector: ac.u1, left: ac.bits[5], right: ac.bits[5]) -> ac.bits[5]:
 def Exercise():
     selected_x = Select(ac.four_state('x'), ac.four_state({left!r}), ac.four_state({right!r}))
     selected_z = Select(ac.four_state('z'), ac.four_state({left!r}), ac.four_state({right!r}))
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'selected', selected_x, selected_z)
 """,

@@ -7,7 +7,7 @@ def WriteCounter():
     owner = Counter()
     held = Counter()
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         before = owner.read()
         after = owner.add(3)

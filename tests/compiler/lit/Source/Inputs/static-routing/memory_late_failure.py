@@ -22,7 +22,7 @@ def Worker(store: Remote):
     progress: ac.u8 = 0
     held: ac.u8 = ac.four_state("10xz0011")
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         previous = store.read()
         store.write(previous + 3)
@@ -56,7 +56,7 @@ def Top():
     branch = Branch(remote)
     other_memory = ac.byte_mem[ac.u16](depth=4)
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         previous = other_memory.read(0)
         other_memory.write(0, previous + 5)

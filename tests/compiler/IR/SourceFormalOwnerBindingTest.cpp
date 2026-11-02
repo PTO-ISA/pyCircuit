@@ -83,7 +83,7 @@ def pair(left: ac.u8, right: ac.u8) -> None:
 def Top(input_left: ac.u8, input_right: ac.u8):
     left: ac.u8 = 11
     right: ac.u8 = 29
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         snapshot = left
         forward(snapshot)
@@ -93,7 +93,7 @@ def Top(input_left: ac.u8, input_right: ac.u8):
 def Top():
     left: ac.u8 = 11
     right: ac.u8 = 29
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         snapshot = left
         forward(snapshot)
@@ -192,7 +192,7 @@ def replace(left: TYPE, right: TYPE) -> None:
 def Top(index: INDEX, rhs: ac.u4, input_left: TYPE, input_right: TYPE):
     left: TYPE = INITIAL
     right: TYPE = INITIAL
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         saved = left
         relay(saved, input_right, index, rhs)

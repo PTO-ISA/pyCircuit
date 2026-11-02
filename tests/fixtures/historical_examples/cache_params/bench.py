@@ -1,7 +1,7 @@
 """Complete known-input table from the retained independent cache_params oracle."""
 
 from example_cache_params.cache_params import CacheParams
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -51,7 +51,7 @@ def ExerciseCacheParams():  # noqa: N802
 
     expected_tag = scenario.expected_tag
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 14:
             assert dut.tag == expected_tag, "cache_params: tag"

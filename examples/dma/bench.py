@@ -140,7 +140,7 @@ def ExerciseDma():  # noqa: N802
         scenario.take_check,
     )
 
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert dut.seed_ready == 1, "dma: seed request capacity"
         assert dut.copy_ready == 1, "dma: copy request capacity"

@@ -9,7 +9,7 @@ from example_frontend_composition_pipeline.frontend_composition_pipeline import 
     Result,
     Opcode,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -279,7 +279,7 @@ def FrontendCompositionPipelineSystem():  # noqa: N802
     )
     dut = FrontendCompositionPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "frontend_composition_pipeline input capacity"

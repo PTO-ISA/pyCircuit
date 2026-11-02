@@ -21,11 +21,14 @@ language reference and execution evidence determine supported features.
 - Do not expose `clk`, reset, register `q`/`d`, DFF/DFFE binding, proposal wires or
   commit controls in ordinary author-facing sources, including benchmark ports.
   ACIR analysis/lowering chooses storage and generates its control connections.
-- Directly nested Rules automatically register once per Module instance and
-  may capture Module inputs, local state and child outputs. Their names denote
-  results at Module wiring sites; do not add activation calls. Local formal
-  parameters require explicit default binding expressions. Source-global Rule
-  templates use explicit actual arguments and cannot capture caller locals.
+- Directly nested `@rule` declarations are private callables with no automatic
+  registration. Each explicit Module-scope call registers a transaction; bind
+  returned values once and reuse those values for fanout. Use `@autorule` for
+  zero-argument, zero-result work registered once at its declaration. Both forms
+  capture definition-time lexical SSA values, visible state and child instances.
+  Rule formals have no defaults. Source-global Rule templates use explicit
+  actual arguments and cannot capture caller locals. Local Rule calls inside
+  another transaction remain unsupported.
 - Use one cohesive Rule for operations that must commit together. Separate
   independent functions into separate Rules. Method and source-global template
   calls retain the outer transaction; they do not create another commit or cycle.

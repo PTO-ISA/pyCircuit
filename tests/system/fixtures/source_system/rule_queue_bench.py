@@ -8,7 +8,7 @@ def ExerciseRuleQueue():
     phase: ac.u8 = 0
     owner = RuleQueue()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         if phase < 2:
             owner.send(phase + 10)
@@ -19,7 +19,7 @@ def ExerciseRuleQueue():
             old = owner.take()
             ac.log("info", "queue taken", phase, old)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1
 
@@ -29,7 +29,7 @@ def ExerciseAtomicQueuePaths():
     phase: ac.u8 = 0
     owner = AtomicQueuePair()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         if phase == 0:
             owner.seed_left()
@@ -51,6 +51,6 @@ def ExerciseAtomicQueuePaths():
             old = owner.pick(0)
             ac.log("info", "queue empty path", phase, old)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

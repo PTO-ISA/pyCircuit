@@ -17,15 +17,14 @@ pytestmark = pytest.mark.system
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests/integration/fixtures/source_language"
 
-ACCUMULATOR_PROBE = """\
-from pycircuit import module, rule
+ACCUMULATOR_PROBE = """from pycircuit import module, rule, autorule
 from .packet import Request, Word
 
 @module
 def AccumulatorProbe(request: Request, result: Word):
     total: Word = 0
 
-    @rule
+    @autorule
     def forward():
         nonlocal result
         result = request.value
@@ -323,17 +322,7 @@ def test_rule_member_read_uses_member_identity_not_argument_index(
     assert packet.completed.returncode == 0, packet.completed.stderr
     path = source / "member_read_probe.py"
     path.write_text(
-        "from pycircuit import module, rule\n"
-        "from .packet import Word\n\n"
-        "@module\n"
-        "def MemberReadProbe(result: Word):\n"
-        "    total: Word = 0\n"
-        "    alias = total\n\n"
-        "    @rule\n"
-        "    def forward():\n"
-        "        nonlocal result\n"
-        "        result = alias\n\n"
-        "    forward()\n",
+        "from pycircuit import module, rule, autorule\nfrom .packet import Word\n\n@module\ndef MemberReadProbe(result: Word):\n    total: Word = 0\n    alias = total\n\n    @autorule\n    def forward():\n        nonlocal result\n        result = alias\n\n    forward()\n",
         encoding="utf-8",
     )
 
@@ -359,16 +348,7 @@ def test_nonlocal_proposal_target_is_not_a_current_value_read(tmp_path: Path) ->
     assert packet.completed.returncode == 0, packet.completed.stderr
     path = source / "store_target_probe.py"
     path.write_text(
-        "from pycircuit import module, rule\n"
-        "from .packet import Request, Word\n\n"
-        "@module\n"
-        "def StoreTargetProbe(request: Request, result: Word):\n"
-        "    @rule\n"
-        "    def forward():\n"
-        "        nonlocal result\n"
-        "        if request.valid:\n"
-        "            result = request.value\n\n"
-        "    forward()\n",
+        "from pycircuit import module, rule, autorule\nfrom .packet import Request, Word\n\n@module\ndef StoreTargetProbe(request: Request, result: Word):\n    @autorule\n    def forward():\n        nonlocal result\n        if request.valid:\n            result = request.value\n\n    forward()\n",
         encoding="utf-8",
     )
 
@@ -459,7 +439,7 @@ def test_valid_unregistered_rule_is_inactive(tmp_path: Path) -> None:
     assert packet.completed.returncode == 0, packet.completed.stderr
     valid = ACCUMULATOR_PROBE.replace(
         "    forward()\n",
-        "    @rule\n" "    def inactive():\n" "        return\n\n" "    forward()\n",
+        "    @autorule\n    def inactive():\n        return\n\n    forward()\n",
     )
     path = source / "inactive_probe.py"
     path.write_text(valid, encoding="utf-8")

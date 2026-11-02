@@ -1,7 +1,7 @@
 """Regular-clock digital_filter scenario; original physical-control oracles remain."""
 
 from example_digital_filter.digital_filter import DigitalFilter
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import autorule, bits, log, rule, system, struct, table
 
 
 @struct
@@ -216,7 +216,7 @@ def ExerciseDigitalFilter():  # noqa: N802
     expected_y_out = scenario.expected_y_out
     expected_y_valid = scenario.expected_y_valid
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 177:
             assert dut.y_out == expected_y_out, "digital_filter: y_out"

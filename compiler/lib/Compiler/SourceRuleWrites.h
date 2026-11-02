@@ -30,10 +30,10 @@ struct SourceRuleBinding {
   AstNode expression;
 };
 struct SourceRuleCallPlan {
-  enum class Kind { LocalDeclaration, GlobalTemplateCall };
-  // occurrence is a real nested FunctionDef or a complete global template Call.
+  enum class Kind { AutoDeclaration, ExplicitCall };
+  // occurrence is a real autorule FunctionDef or a complete Rule Call.
   AstNode module, occurrence, rule;
-  Kind kind = Kind::GlobalTemplateCall;
+  Kind kind = Kind::ExplicitCall;
   AstNode statement;
   llvm::SmallVector<SourceRuleBinding, 0> bindings;
   llvm::SmallVector<SourceOwnerWrite, 0> writes;

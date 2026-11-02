@@ -8,15 +8,16 @@ def IndexProvider(valid: bool) -> ac.u2:
     @ac.rule(guard=lambda: valid)
     def produce() -> ac.u2:
         return 3
+    produce_result = produce()
 
-    return produce
+    return produce_result
 
 
 @ac.module
 def Bank(index: ac.u2, choose: bool) -> tuple[ac.u8, ac.u8]:
     entries = ac.table[4, ac.u8](init=0)
 
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         entries[0] = 7
         if choose:
@@ -39,7 +40,7 @@ def Exercise():
     first_only, untouched_last = Top(True, False)
     both_first, both_last = Top(True, True)
 
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "indexed-demand", masked_first, masked_last,
                denied_first, denied_last, first_only, untouched_last,

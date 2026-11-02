@@ -1,6 +1,7 @@
 """Independent source semantics, hierarchy identity and dual-backend oracles."""
 
 import argparse
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -84,8 +85,8 @@ runtime = next(
     None,
 )
 assert runtime is not None, "Runtime archive missing from this build/install"
-with tempfile.TemporaryDirectory(
-    prefix="defaults-composition-", dir=scratch
+with nullcontext(
+    tempfile.mkdtemp(prefix="defaults-composition-", dir=scratch)
 ) as temporary:
     build = Path(temporary)
     source = build / "source"
@@ -108,10 +109,17 @@ with tempfile.TemporaryDirectory(
         ]
         if replace:
             arguments.append("--replace")
+        if path == design and rules_unit.exists():
+            interfaces = (*interfaces, rules_unit)
         for interface in interfaces:
             arguments.extend(["-I", interface])
         return cli(*arguments, accepted=accepted)
 
+    rules_source = source / "rules.py"
+    shutil.copyfile(fixtures / "defaults-composition-rules.py", rules_source)
+    rules_unit = build / "rules-unit"
+    compile_source(rules_source, rules_unit)
+    rules_source.unlink()  # Consumer capture must use the published interface.
     compile_source(design, unit)
     unit_receipt = json.loads((unit / "unit.json").read_text())
     unit_text = (unit / unit_receipt["files"]["body"]).read_text()
@@ -140,7 +148,7 @@ with tempfile.TemporaryDirectory(
         if parameters:
             assert "default = {present = false}" in parameters
     final = build / "defaults.ac"
-    cli("link", unit, "--top", "defaults_probe.design.Top", "-o", final)
+    cli("link", rules_unit, unit, "--top", "defaults_probe.design.Top", "-o", final)
     # Each syntactic call remains an instance; the shared local value is fanout.
     # Top owns two Middle calls, four Add occurrences and one TableProbe;
     # Middle owns one Cell.
@@ -162,7 +170,15 @@ with tempfile.TemporaryDirectory(
     assert source_calls(final_text, "Middle") == ["Cell"]
     assert '"pyc_clk"' in final_text and '"pyc_rst"' in final_text
     twins = build / "twins.ac"
-    cli("link", unit, "--top", "defaults_probe.design.SameInputs", "-o", twins)
+    cli(
+        "link",
+        rules_unit,
+        unit,
+        "--top",
+        "defaults_probe.design.SameInputs",
+        "-o",
+        twins,
+    )
     twin_calls = source_calls(twins.read_text(), "SameInputs")
     assert twin_calls == ["Cell", "Cell"], twin_calls
     for target in ("cpp", "verilog"):
@@ -465,6 +481,43 @@ def Explicit(value: ac.u5) -> Record:
             ("pyc_clk", "name", "resolve", "binding"),
         ),
     }
+    local_rule = """import pycircuit as ac
+@ac.module
+def Top(value: ac.u5) -> ac.u5:
+    @ac.rule
+    def choose(argument: ac.u5) -> ac.u5:
+        return argument + 1
+    result = choose(value)
+    return result
+"""
+    cases.update(
+        {
+            "rule-name-is-not-a-result": (
+                local_rule.replace("return result", "return choose"),
+                ("rule", "call", "value", "binding"),
+            ),
+            "conditional-rule-registration": (
+                local_rule.replace(
+                    "    result = choose(value)",
+                    "    if value:\n        result = choose(value)",
+                ),
+                ("rule", "scope", "call", "statement", "registration"),
+            ),
+            "explicit-autorule-call": (
+                """import pycircuit as ac
+@ac.module
+def Top() -> ac.u5:
+    count: ac.u5 = 0
+    @ac.autorule
+    def tick():
+        count = count + 1
+    tick()
+    return count
+""",
+                ("autorule", "autonomous", "call"),
+            ),
+        }
+    )
     unit_before = snapshot(unit)
     for name, (invalid, diagnostic) in cases.items():
         design.write_text(invalid)
@@ -697,6 +750,7 @@ def Caller(value: ac.u5) -> {"out": ac.u5}:
         fixtures / ("defaults-composition" + suffix)
         for suffix in (
             "-design.py",
+            "-rules.py",
             "-table-provider.py",
             "-table-caller.py",
             ".py",

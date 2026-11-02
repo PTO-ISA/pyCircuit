@@ -35,6 +35,7 @@ MarkerKind classifyImportedMarker(StringRef module, StringRef remoteName) {
       .Case("module", MarkerKind::Module)
       .Case("system", MarkerKind::System)
       .Case("rule", MarkerKind::Rule)
+      .Case("autorule", MarkerKind::AutoRule)
       .Case("method", MarkerKind::Method)
       .Case("struct", MarkerKind::Struct)
       .Case("bits", MarkerKind::Bits)
@@ -66,6 +67,7 @@ bool hasSourceDecorator(const AstNode &declaration, MarkerKind marker,
     auto decorator = declaration.item("decorator_list", i);
     if (decorator.kind() == "Call" &&
         (marker == MarkerKind::Encoding || marker == MarkerKind::Rule ||
+         marker == MarkerKind::AutoRule ||
          marker == MarkerKind::Method || marker == MarkerKind::System))
       decorator = decorator.child("func");
     if (resolvesMarker(decorator, marker, bindings))
@@ -85,18 +87,26 @@ readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
   auto resolved = target && bindings ? bindings(target) : std::nullopt;
   auto marker = resolved && !resolved->nominalSymbol ? resolved->marker
                                                    : MarkerKind::None;
-  if (marker != MarkerKind::Rule && marker != MarkerKind::Method)
-    return emitError() << "callable decorator must resolve to pycircuit rule or method";
-  // Dynamic default bindings belong only to a direct Module-local Rule.
-  // Source-global templates and Methods retain their required-formal ABI.
-  bool localRule = marker == MarkerKind::Rule && declaration.path.size() == 4 &&
-                   declaration.path[0].field == "body" && !declaration.path[0].index &&
-                   declaration.path[1].index &&
-                   declaration.path[2].field == "body" && !declaration.path[2].index &&
-                   declaration.path[3].index;
+  if (marker != MarkerKind::Rule && marker != MarkerKind::AutoRule &&
+      marker != MarkerKind::Method)
+    return emitError() << "callable decorator must resolve to pycircuit rule, autorule or method";
   auto formals = declaration.child("args");
-  if (!localRule && !formals.array("defaults").empty())
-    return emitError() << "only autonomous local Rules accept hardware default bindings";
+  if (!formals.array("defaults").empty() ||
+      !formals.array("posonlyargs").empty() ||
+      !formals.array("kwonlyargs").empty() || formals.child("vararg") ||
+      formals.child("kwarg"))
+    return emitError() << "Rule/Method parameters require ordinary required positional arguments";
+  if (marker == MarkerKind::AutoRule) {
+    if (!formals.array("args").empty() ||
+        !formals.array("posonlyargs").empty() ||
+        !formals.array("kwonlyargs").empty() || formals.child("vararg") ||
+        formals.child("kwarg"))
+      return emitError() << "autorule requires no explicit parameters";
+    auto returns = declaration.child("returns");
+    if (returns && !(returns.kind() == "Constant" &&
+                     isa<UnitAttr>(returns.get("value"))))
+      return emitError() << "autorule cannot return a payload";
+  }
   CapturedCallableSyntax result{marker, {}, {}};
   if (decorator.kind() != "Call")
     return result;
@@ -122,11 +132,7 @@ readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
            !arguments.child("vararg") && !arguments.child("kwarg");
   };
   auto guardFormals = result.guard.child("args");
-  bool boundFormals = localRule &&
-      formals.array("posonlyargs").empty() && formals.array("kwonlyargs").empty() &&
-      !formals.child("vararg") && !formals.child("kwarg") &&
-      formals.array("defaults").size() == formals.array("args").size();
-  if ((!required(formals) && !boundFormals) || !required(guardFormals) ||
+  if (!required(formals) || !required(guardFormals) ||
       formals.array("args").size() != guardFormals.array("args").size())
     return emitError() << "guard lambda requires the callable's exact required positional parameters";
   for (size_t i = 0; i < formals.array("args").size(); ++i)

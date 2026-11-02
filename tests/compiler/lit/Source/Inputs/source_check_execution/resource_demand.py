@@ -18,7 +18,7 @@ def Top():
         output.push(value)
         return value
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         if phase == 0:
             left.push(11)
@@ -27,6 +27,6 @@ def Top():
             value = consume(phase == 1, phase != 3)
             ac.log("info", "demand consume", phase, value)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

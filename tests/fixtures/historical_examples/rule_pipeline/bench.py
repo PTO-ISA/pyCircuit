@@ -1,7 +1,7 @@
 """Regular-clock record checks; independent physical-control oracles remain intact."""
 
 from example_rule_pipeline.rule_pipeline import RulePipeline, RuleToken, RuleResult
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -228,7 +228,7 @@ def RulePipelineSystem():  # noqa: N802
     packet = RuleToken(value=frame.input_value)
     dut = RulePipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "rule_pipeline input capacity"
         assert dut.valid == frame.expected_valid, "rule_pipeline result availability"

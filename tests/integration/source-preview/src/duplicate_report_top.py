@@ -1,5 +1,5 @@
 # ruff: noqa: N802,F841
-from pycircuit import module, report, rule
+from pycircuit import autorule, module, report
 
 from .types import Word
 
@@ -8,7 +8,7 @@ from .types import Word
 def DuplicateReportTop():
     value: Word = 7
 
-    @rule
+    @autorule
     def observe_duplicate_report():
         report("same", value)
         report("same", value)

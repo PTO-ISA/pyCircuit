@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_fifo_loopback.fifo_loopback import FifoLoopback
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import autorule, bits, log, rule, struct, system, table
 
 
 @struct
@@ -380,7 +380,7 @@ def FifoLoopbackSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = FifoLoopback(frame.in_valid, frame.in_data, frame.out_ready)
 
-    @rule
+    @autorule
     def exercise():
         assert (
             dut.in_ready == frame.expected_in_ready

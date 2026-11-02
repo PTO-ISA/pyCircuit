@@ -5,7 +5,7 @@ from example_masked_decode_pipeline.masked_decode_pipeline import (
     Instruction,
     Result,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -234,7 +234,7 @@ def MaskedDecodePipelineSystem():  # noqa: N802
     packet = Instruction(opcode=frame.input_opcode, is_compute=frame.input_is_compute)
     dut = MaskedDecodePipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "masked_decode_pipeline input capacity"

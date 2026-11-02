@@ -5,15 +5,7 @@ from example_bit_primitive_pipeline.bit_primitive_pipeline import (
     Item,
     Result,  # noqa: F401 -- preserve the original published interface import.
 )
-from pycircuit import (
-    bits,
-    enum_to_bits,
-    log,
-    rule,
-    struct,
-    system,
-    table,
-)  # noqa: F401 -- preserve original imports.
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule  # noqa: F401 -- preserve original imports.
 
 
 @struct
@@ -423,7 +415,7 @@ def BitPrimitivePipelineSystem():  # noqa: N802
     )
     dut = BitPrimitivePipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "bit_primitive_pipeline input capacity"

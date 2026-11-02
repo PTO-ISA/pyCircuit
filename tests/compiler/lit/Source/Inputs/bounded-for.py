@@ -902,18 +902,19 @@ def Four() -> ac.u8:
 @ac.module
 def Local() -> ac.u8:
     @ac.rule
-    def add(count=3) -> ac.u8:
+    def add(count) -> ac.u8:
         value: ac.u8 = 42
         for index in range(count):
             value = value + 1
         return value
-    return add
+    add_result = add(3)
+    return add_result
 @ac.system
 def Top():
     two = Two()
     four = Four()
     local = Local()
-    @ac.rule
+    @ac.autorule
     def check():
         assert two == 44, "two closed iterations"
         assert four == 46, "four closed iterations"

@@ -2,7 +2,7 @@
 
 # ruff: noqa: N802 -- hardware module name.
 
-from pycircuit import module, queue, rule, struct, table, u1, u3, u4, u8
+from pycircuit import module, queue, rule, struct, table, u1, u3, u4, u8, autorule
 
 
 @struct

@@ -52,7 +52,7 @@ def MultiOutputsSystem():  # noqa: N802
     tag, data, valid = MultiOutputs(row.word, row.enable)
     grouped_tag, grouped_data, grouped_valid = GroupedOutputs(row.word, row.enable)
 
-    @ac.rule
+    @ac.autorule
     def check():
         assert tag == row.expected_tag, "multi_outputs: header consumer"
         assert data == row.expected_data, "multi_outputs: payload consumer"

@@ -174,6 +174,7 @@ LogicalResult Importer::scanSourceCallables() {
             decorator.kind() == "Call" ? decorator.child("func") : decorator;
         auto resolved = resolveBinding(target);
         marked |= resolved && (resolved->marker == MarkerKind::Rule ||
+                               resolved->marker == MarkerKind::AutoRule ||
                                resolved->marker == MarkerKind::Method);
       }
       if (!marked)
@@ -186,93 +187,8 @@ LogicalResult Importer::scanSourceCallables() {
       }
       if (syntax->after) return error() << "source after is retired; independent Rules read current state";
       staged[moduleName].push_back({declaration, *syntax});
-      if (syntax->marker == MarkerKind::Rule) transactionModuleNames.insert(moduleName);
       if (syntax->marker == MarkerKind::Method)
         methodOwnerNames.insert(moduleName);
-      if (syntax->marker == MarkerKind::Rule && (syntax->guard || syntax->after))
-        transactionModuleNames.insert(moduleName);
-      if (syntax->marker != MarkerKind::Rule || syntax->guard)
-        continue;
-      // Only statement-arm observations need the typed route here. Assertions
-      // and unconditional observations retain their existing behavioral route.
-      // In particular, selectors and nested helper/loop bodies are not scanned.
-      struct PendingStatement {
-        AstNode node;
-        bool inArm;
-      };
-      SmallVector<PendingStatement, 0> pending;
-      auto enqueue = [&](const AstNode &parent, StringRef field,
-                         bool inArm) -> LogicalResult {
-        for (size_t k = parent.array(field).size(); k != 0; --k) {
-          TableQueryCharge charge;
-          std::string reason;
-          // item() copies the path, then appends two steps. Pay possible
-          // copy-and-grow storage, retained-step moves and both appends before
-          // constructing that AstNode.
-          uint64_t pathCapacity =
-              3 * std::max(parent.path.size(), AstNode().path.capacity()) + 1;
-          bool fits = TableQueryBudget::addProduct(
-                          charge, TableQueryResource::Slots, pathCapacity,
-                          (sizeof(AstStep) + 7) / 8) &&
-                      TableQueryBudget::addProduct(
-                          charge, TableQueryResource::Work,
-                          parent.path.size(), 2) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Work, 2);
-          size_t capacity = pending.capacity();
-          if (pending.size() == capacity) {
-            capacity = 2 * capacity + 1;
-            fits &= TableQueryBudget::addProduct(
-                        charge, TableQueryResource::Slots, capacity,
-                        (sizeof(PendingStatement) + 7) / 8) &&
-                    TableQueryBudget::add(charge, TableQueryResource::Work,
-                                          pending.size());
-          }
-          if (!fits || !queryBudget.reserve(charge, reason))
-            return error() << (fits ? reason
-                                   : "source callable scan budget exhausted");
-          pending.reserve(capacity);
-          pending.push_back({parent.item(field, k - 1), inArm});
-        }
-        return success();
-      };
-      if (failed(enqueue(declaration, "body", false)))
-        return failure();
-      while (!pending.empty()) {
-        PendingStatement statement = pending.pop_back_val();
-        if (statement.node.kind() == "If") {
-          if (failed(enqueue(statement.node, "orelse", true)) ||
-              failed(enqueue(statement.node, "body", true)))
-            return failure();
-          continue;
-        }
-        if (!statement.inArm || statement.node.kind() != "Expr")
-          continue;
-        // Each child() copies the path and can move all retained steps when
-        // appending. The second child starts with the first child's new step.
-        TableQueryCharge charge;
-        std::string reason;
-        uint64_t pathCapacity =
-            3 * std::max(statement.node.path.size() + 1,
-                         AstNode().path.capacity()) + 1;
-        bool fits = TableQueryBudget::addProduct(
-                        charge, TableQueryResource::Slots, pathCapacity,
-                        2 * ((sizeof(AstStep) + 7) / 8)) &&
-                    TableQueryBudget::addProduct(
-                        charge, TableQueryResource::Work,
-                        statement.node.path.size(), 4) &&
-                    TableQueryBudget::add(charge, TableQueryResource::Work, 4);
-        if (!fits || !queryBudget.reserve(charge, reason))
-          return error() << (fits ? reason
-                                 : "source callable scan budget exhausted");
-        AstNode call = statement.node.child("value");
-        if (call.kind() != "Call")
-          continue;
-        AstNode function = call.child("func");
-        if (intrinsic(function, "log") || intrinsic(function, "report")) {
-          transactionModuleNames.insert(moduleName);
-          break;
-        }
-      }
     }
   }
   llvm::DenseSet<DictionaryAttr> globalRuleDefinitions;
@@ -319,97 +235,11 @@ LogicalResult Importer::scanSourceCallables() {
         return failure();
     }
   }
-  // A Rule may be a callable definition without an autonomous registration.
-  // Local nested invocations use the same typed effect producer as Methods.
-  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
-    AstNode module = source.module.item("body", i);
-    auto entries = staged.find(module.string("name"));
-    if (module.kind() != "FunctionDef" || entries == staged.end()) continue;
-    StringRef moduleName = module.string("name");
-    llvm::StringSet<> localRules;
-    llvm::StringMap<unsigned> registrations;
-    for (const auto &entry : entries->second)
-      if (entry.second.marker == MarkerKind::Rule)
-        localRules.insert(entry.first.string("name"));
-    for (size_t j = 0; j < module.array("body").size(); ++j) {
-      auto statement = module.item("body", j);
-      auto call = statement.child("value");
-      if (call.kind() == "Call" && call.child("func").kind() == "Name" &&
-          localRules.contains(call.child("func").string("id")))
-        ++registrations[call.child("func").string("id")];
-    }
-    for (const auto &name : localRules)
-      if (!registrations.lookup(name.getKey()))
-        callableRuleNames[moduleName].insert(name.getKey());
-    auto visit = [&](auto &&self, const AstNode &node) -> void {
-      if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
-      if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-          localRules.contains(node.child("func").string("id")))
-        callableRuleNames[moduleName].insert(node.child("func").string("id"));
-      for (NamedAttribute field : node.fields()) {
-        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
-          if (child.getAs<StringAttr>("kind")) self(self, node.child(field.getName().getValue()));
-        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-          for (size_t k = 0; k < children.size(); ++k)
-            if (auto child = dyn_cast<DictionaryAttr>(children[k]);
-                child && child.getAs<StringAttr>("kind"))
-              self(self, node.item(field.getName().getValue(), k));
-      }
-    };
-    llvm::StringSet<> moduleOwners;
-    for (size_t j = 0; j < module.array("body").size(); ++j) {
-      auto statement = module.item("body", j);
-      if (statement.kind() == "AnnAssign")
-        moduleOwners.insert(assignmentRoot(statement.child("target")));
-      auto value = statement.child("value");
-      if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
-          value.kind() == "Call" && value.child("func").kind() == "Subscript" &&
-          intrinsic(value.child("func").child("value"), "table"))
-        moduleOwners.insert(assignmentRoot(statement.item("targets", 0)));
-    }
-    for (const auto &entry : entries->second) {
-      llvm::StringSet<> formals;
-      bool typedContract = static_cast<bool>(entry.first.child("returns"));
-      auto args = entry.first.child("args");
-      for (size_t k = 0; k < args.array("args").size(); ++k) {
-        formals.insert(args.item("args", k).string("arg"));
-        typedContract &= static_cast<bool>(args.item("args", k).child("annotation"));
-      }
-      if (typedContract && entry.second.marker == MarkerKind::Rule)
-        callableRuleNames[moduleName].insert(entry.first.string("name"));
-      auto effects = [&](auto &&self, const AstNode &node) -> void {
-        if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
-        if (typedContract && (node.kind() == "For" || node.kind() == "While"))
-          transactionModuleNames.insert(moduleName);
-        auto ownerWrite = [&](const AstNode &target) {
-          (void)forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
-            StringRef root = assignmentRoot(leaf);
-            if (moduleOwners.contains(root) && !formals.contains(root))
-              transactionModuleNames.insert(moduleName);
-            return success();
-          });
-        };
-        if (node.kind() == "Assign")
-          for (size_t k = 0; k < node.array("targets").size(); ++k)
-            ownerWrite(node.item("targets", k));
-        else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
-          ownerWrite(node.child("target"));
-        for (StringRef field : {"body", "orelse"}) {
-          auto statements = node.array(field);
-          for (size_t k = 0; statements && k < statements.size(); ++k)
-            self(self, node.item(field, k));
-        }
-      };
-      for (size_t j = 0; j < entry.first.array("body").size(); ++j) {
-        auto statement = entry.first.item("body", j);
-        visit(visit, statement);
-        effects(effects, statement);
-      }
-    }
-    if (!callableRuleNames[moduleName].empty() ||
-        llvm::any_of(registrations, [](const auto &entry) { return entry.second > 1; }))
-      transactionModuleNames.insert(moduleName);
-  }
+  // Callable identity is independent of whether a declaration is registered.
+  for (const auto &module : staged)
+    for (const auto &entry : module.second)
+      if (entry.second.marker != MarkerKind::Method)
+        callableRuleNames[module.first()].insert(entry.first.string("name"));
   // Every authored Rule registration uses the same transaction producer.
   // Static elaboration-only binding Rules are no longer a second Rule route.
   for (const auto &entry : staged)
@@ -487,18 +317,14 @@ LogicalResult Importer::scanSourceCallables() {
       CapturedCallableSyntax syntax = entry.second;
       SourceCallableDecl callable{declaration, syntax};
       callable.lexical = !globalRuleDefinitions.contains(declaration.value);
-      callable.autonomous = callable.lexical && syntax.marker == MarkerKind::Rule;
+      callable.autoRegistration = syntax.marker == MarkerKind::AutoRule;
       AstNode arguments = declaration.child("args");
       if (!arguments.array("posonlyargs").empty() ||
           !arguments.array("kwonlyargs").empty() ||
-          ((!callable.lexical || syntax.marker != MarkerKind::Rule) &&
-           !arguments.array("defaults").empty()) || arguments.child("vararg") ||
+          !arguments.array("defaults").empty() || arguments.child("vararg") ||
           arguments.child("kwarg"))
         return error() << "Rule/Method parameters require ordinary required "
                           "positional arguments";
-      if (callable.lexical && syntax.marker == MarkerKind::Rule &&
-          arguments.array("defaults").size() != arguments.array("args").size())
-        return error() << "autonomous Rule formal requires an explicit default binding";
       llvm::StringSet<> names;
       for (size_t k = 0; k < arguments.array("args").size(); ++k) {
         AstNode argument = arguments.item("args", k);
@@ -556,7 +382,7 @@ LogicalResult Importer::scanSourceCallables() {
       if (!returns) {
         if (syntax.marker == MarkerKind::Method)
           return error() << "Method requires an explicit return annotation";
-        callable.inferredSignature = true;
+        callable.inferredSignature = !callable.autoRegistration;
         bool valueReturn = false;
         // Seed result inference from the suites that may execute in the outer
         // statement context. Actual zero-trip and targeting-break admission
@@ -578,6 +404,8 @@ LogicalResult Importer::scanSourceCallables() {
         for (size_t k = 0; k < declaration.array("body").size(); ++k)
           if (failed(resultPresence(resultPresence, declaration.item("body", k))))
             return failure();
+        if (callable.autoRegistration && valueReturn)
+          return error() << "autorule cannot return a payload";
         callable.inferResults = valueReturn;
         none = true;
       }
@@ -826,41 +654,27 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   auto &methods = sourceMethods[decl.node.string("name")];
   auto &rules = sourceRules[decl.node.string("name")];
   using CaptureSnapshot = SmallVector<std::pair<std::string, Value>, 0>;
-  llvm::StringMap<CaptureSnapshot> methodCaptures, ruleCaptures;
+  llvm::StringMap<CaptureSnapshot> methodCaptures;
+  llvm::DenseMap<DictionaryAttr, llvm::StringMap<StateOwner>> stateCaptures;
+  llvm::DenseMap<DictionaryAttr, llvm::StringMap<Instance *>> instanceCaptures;
   llvm::DenseSet<DictionaryAttr> ordinaryModuleAssignments;
   llvm::StringSet<> authoredInputs;
   for (size_t i = 0; i < decl.sourceInputCount; ++i)
     authoredInputs.insert(decl.inputs[i].name);
 
-  // Child outputs are explicit interfaces. An ordinary alias/computation of a
-  // local Rule result is not a new input boundary and must not create hidden
-  // availability dependencies merely because snapshots inventory lexical wires.
-  auto localRuleResult = [&](Value value) {
-    SmallVector<Value> pending{value};
-    llvm::DenseSet<Value> seen;
-    while (!pending.empty()) {
-      Value current = pending.pop_back_val();
-      if (!seen.insert(current).second) continue;
-      auto *producer = current.getDefiningOp();
-      if (!producer || isa<ac::InstanceOp, ac::SourceStateOp>(producer)) continue;
-      if (isa<ac::SourceTransactionOp>(producer)) return true;
-      llvm::append_range(pending, producer->getOperands());
-    }
-    return false;
-  };
-  auto snapshot = [&](CaptureSnapshot &captures) {
+  auto snapshot = [&](CaptureSnapshot &captures,
+                      const llvm::StringMap<Instance *> &visibleInstances) {
     captures.clear();
     llvm::DenseSet<Value> seen;
     for (const auto &value : moduleValues)
-      if (value.first() != "pyc_clk" && value.first() != "pyc_rst" &&
-          !localRuleResult(value.second)) {
+      if (value.first() != "pyc_clk" && value.first() != "pyc_rst") {
         captures.push_back({value.first().str(), value.second});
         seen.insert(value.second);
       }
     // Instance outputs are ordinary lexical SSA captures. Empty names keep
     // them out of the source value namespace while captureValue records their
     // actual producer identity for raw-view lookup inside Method/Rule regions.
-    for (const auto &entry : instances)
+    for (const auto &entry : visibleInstances)
       if (entry.second->op)
       for (Value output : entry.second->op->getResults())
         if (seen.insert(output).second)
@@ -918,7 +732,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     for (const auto &entry : valueHelpers) {
       if (entry.second->lexicalOwner != decl.symbol) continue;
       for (const auto &capture : entry.second->captures)
-        if (!localRuleResult(capture.second) && llvm::none_of(captures, [&](const auto &existing) { return existing.second == capture.second; }))
+        if (llvm::none_of(captures, [&](const auto &existing) { return existing.second == capture.second; }))
           captures.push_back({{}, capture.second});
     }
   };
@@ -976,12 +790,16 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                             bool guard) -> FailureOr<SmallVector<Value>> {
     // Owner-bound Rule formals name the analyzed physical owner. Ordinary
     // Method/value parameters remain SSA, and saved read results stay snapshots.
-    auto callableStates = callable.lexical ? states : llvm::StringMap<StateOwner>();
+    auto callableStates = !callable.lexical ? llvm::StringMap<StateOwner>()
+        : callable.syntax.marker == MarkerKind::Method ? states
+        : stateCaptures.lookup(callable.declaration.value);
     for (const Port &port : callable.inputs) callableStates.erase(port.name);
     for (const auto &formal : callable.stateFormals)
       callableStates[formal.first()] = states.lookup(formal.second);
     auto &states = callableStates;
-    auto callableInstances = callable.lexical ? instances : llvm::StringMap<Instance *>();
+    auto callableInstances = !callable.lexical ? llvm::StringMap<Instance *>()
+        : callable.syntax.marker == MarkerKind::Method ? instances
+        : instanceCaptures.lookup(callable.declaration.value);
     auto &instances = callableInstances;
     auto boundHardwareIdentity = [&](StringRef name) {
       return names.contains(name) || structs.contains(name) || enums.contains(name) ||
@@ -2443,7 +2261,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         formalProposals.push_back(at.getI64IntegerAttr(index));
     if (!formalProposals.empty())
       method->setAttr("ac.formal_proposals", at.getArrayAttr(formalProposals));
-    if (callable.autonomous || callable.privateSpecialization || !callable.stateFormals.empty())
+    if ((callable.lexical && callable.syntax.marker != MarkerKind::Method) ||
+        callable.privateSpecialization || !callable.stateFormals.empty())
       method->setAttr("sym_visibility", at.getStringAttr("private"));
     for (unsigned regionIndex = 0; regionIndex < 2; ++regionIndex) {
       auto *block = new Block();
@@ -2521,8 +2340,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     DictionaryAttr invocation = sourceOccurrence(at, decl.symbol, call);
     SourceCallableDecl &callable = registeredCallables[invocation];
     callable = rules[name];
-    if (callable.autonomous && !localDeclaration)
-      return error() << "autonomous local Rule cannot be called; use its result at Module wiring";
+    if (callable.autoRegistration != localDeclaration)
+      return error() << "autorule registers only at its declaration";
+    if (callable.lexical && !localDeclaration) {
+      auto *binding = nestedRuleBinding(name);
+      if (!binding || binding->phase != NestedRulePhase::Declared)
+        return error() << "local Rule must be defined before registration";
+    }
     if (callable.inferResults && statement.kind() == "Return") {
       callable.resultContracts = decl.outputs;
       callable.returnShape = decl.returnShape;
@@ -2559,19 +2383,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     for (const Port &port : callable.inputs) formalNames.push_back(port.name);
     SmallVector<AstNode> sourceActuals;
     SmallVector<size_t> sourceOrder;
-    auto expectedKind = localDeclaration ? SourceRuleCallPlan::Kind::LocalDeclaration
-                                         : SourceRuleCallPlan::Kind::GlobalTemplateCall;
+    auto expectedKind = localDeclaration ? SourceRuleCallPlan::Kind::AutoDeclaration
+                                         : SourceRuleCallPlan::Kind::ExplicitCall;
     if ((*plan)->kind != expectedKind || !sameSourceSite((*plan)->statement, statement))
       return error() << "Rule registration kind/statement differs from its real source site";
-    if (localDeclaration) {
-      auto formals = callable.declaration.child("args");
-      if (formals.array("defaults").size() != callable.inputs.size())
-        return error() << "autonomous Rule formal requires an explicit default binding";
-      for (size_t index = 0; index < callable.inputs.size(); ++index) {
-        sourceActuals.push_back(formals.item("defaults", index));
-        sourceOrder.push_back(index);
-      }
-    } else {
+    if (!localDeclaration) {
       auto normalized = normalizeCallArguments(call, formalNames, error,
           "Rule template binding argument arity mismatch", &sourceOrder);
       if (failed(normalized)) return failure();
@@ -2622,13 +2438,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       auto value = expression(actual, at, decl.symbol, actualValues, instances,
                               port.type ? std::optional<Type>(port.type) : std::nullopt);
       if (failed(value)) return failure();
-      if (localDeclaration && localRuleResult(*value))
-        return mlir::emitError(actual.location(b.getContext(), source.path))
-               << "local Rule result alias is not a Rule input; wire through a child Module interface";
       // Complete the declared argument boundary before deriving the formal's
       // binding facts, as bindCallableArguments does for explicit calls.
       // In particular a contextual integer literal acquires its checked Bits
-      // boundary here; unannotated defaults retain their actual source kind.
+      // boundary here; unannotated arguments retain their actual source kind.
       if (port.type) {
         auto converted = applyBindingBoundary(*value, BindingBoundary{port, true},
                                                actual, at, decl.symbol);
@@ -2695,17 +2508,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       remember(result, contract.sourceKind);
       if (contract.fixedBits) fixedValues.insert(result);
     }
-    if (localDeclaration) {
-      if (auto *binding = nestedRuleBinding(name)) {
-        if (binding->registered) return error() << "autonomous Rule declaration is already registered";
-        binding->registered = true;
-        binding->results.assign(transaction->getResults().begin(), transaction->getResults().end());
-        binding->returnShape = callable.returnShape;
-      }
-      if (callable.results.size() == 1 && callable.returnShape != ReturnShape::Tuple)
-        moduleValues[name] = transaction->getResult(0);
-      return success();
-    }
+    if (localDeclaration) return success();
     if (statement.kind() == "Return" && callable.returnShape == ReturnShape::Tuple)
       return error() << "tuple Rule call requires direct Tuple unpacking";
     if (statement.kind() != "Assign") return success();
@@ -2821,11 +2624,23 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                        << "' cannot be rebound before its Rule declaration";
       if (rules.contains(name) && rules[name].lexical &&
           failed(noteNestedRuleDeclaration(statement))) return failure();
-      if (methods.contains(name)) snapshot(methodCaptures[name]);
-      if (rules.contains(name) && rules[name].lexical) {
-        snapshot(ruleCaptures[name]);
-        if (failed(registerRule(statement, statement))) return failure();
+      if (methods.contains(name)) {
+        stateCaptures[statement.value] = states;
+        auto &visibleInstances = instanceCaptures[statement.value];
+        for (const auto &instance : instances) {
+          auto order = sourceDeclarationOrder(source, decl.node, instance.second->node,
+              statement, [&](uint64_t work) {
+                return succeeded(chargeLoopDescriptorWork(statement, "callable instance capture", work));
+              });
+          if (failed(order)) return failure();
+          if (*order != SourceDeclarationOrder::AtOrAfter)
+            visibleInstances[instance.first()] = instance.second;
+        }
+        snapshot(methodCaptures[name], methods[name].syntax.marker == MarkerKind::Method
+                                          ? instances : visibleInstances);
       }
+      if (rules.contains(name) && rules[name].autoRegistration &&
+          failed(registerRule(statement, statement))) return failure();
       continue;
     }
     if (statement.kind() == "Assign" &&
@@ -2839,20 +2654,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                          decl.symbol, moduleValues, instances);
       if (failed(bound)) return failure();
       if (*bound) {
-        ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
-        continue;
-      }
-    }
-    if (statement.kind() == "Assign" && statement.child("value").kind() == "Name") {
-      StringRef resultName = statement.child("value").string("id");
-      if (auto *binding = nestedRuleBinding(resultName);
-          binding && binding->returnShape == ReturnShape::Tuple) {
-        if (failed(requireNestedRuleDataVisible(resultName, statement.child("value")))) return failure();
-        llvm::StringSet<> forbidden;
-        for (const auto &input : authoredInputs) forbidden.insert(input.getKey());
-        for (const auto &state : states) forbidden.insert(state.first());
-        if (failed(bindCallableResults(statement, binding->results, at, decl.symbol,
-                                        moduleValues, instances, forbidden))) return failure();
         ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
         continue;
       }
@@ -2912,7 +2713,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           return error() << "ordinary data binding is not a callable Rule";
       }
       if (failed(registerRule(statement, registrationCall))) return failure();
-      if (binding) binding->registered = true;
       continue;
     }
     if (statement.kind() == "If" || statement.kind() == "Match" ||
@@ -3221,7 +3021,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   for (auto &entry : methodCaptures)
     if (methods.find(entry.first()) != methods.end() && methods.find(entry.first())->second.lexical)
       retainHelperSnapshots(entry.second);
-  for (auto &entry : ruleCaptures) retainHelperSnapshots(entry.second);
 
   SmallVector<Value> moduleOutputs;
   llvm::DenseSet<DictionaryAttr> ordinaryModuleReturns;
@@ -3236,7 +3035,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                                   : AstNode();
     bool localDeclaration = statement.kind() == "FunctionDef" &&
                             rules.contains(statement.string("name")) &&
-                            rules[statement.string("name")].lexical;
+                            rules[statement.string("name")].autoRegistration;
     if (localDeclaration) call = statement;
     bool registration = localDeclaration || (call.kind() == "Call" &&
                         call.child("func").kind() == "Name" &&
@@ -3317,6 +3116,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       llvm::append_range(moduleOutputs, transaction->getResults());
     }
   }
+  // An unused zero-argument local definition needs no actuals to validate its
+  // body. Inferred templates with formals retain actual-SSA specialization.
+  for (const auto &entry : rules)
+    if (entry.second.lexical && entry.second.inferredSignature &&
+        entry.second.inputs.empty() && !transactionsForCallable.contains(entry.first()) &&
+        queuedMethods.insert(entry.first()).second)
+      methodWork.push_back(entry.first().str());
   for (size_t pending = 0; pending < methodWork.size(); ++pending)
     if (failed(emitMethod(methodWork[pending]))) return failure();
 
@@ -3365,6 +3171,31 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         structuralCallSites.contains(sourceOccurrence(
             at, decl.symbol, instance.node.child("value"))) && !instance.bound)
       return error() << "unbound structural instance";
+  // Definition snapshots retain every visible binding until body lowering has
+  // established actual SSA uses. Remove unused captures from both regions so
+  // unrelated results do not become availability/proof dependencies.
+  for (const auto &entry : emittedMethods) {
+    auto method = cast<ac::SourceMethodOp>(entry.second);
+    unsigned inputs = method.getFunctionType().getNumInputs();
+    for (unsigned i = method.getCaptures().size(); i-- > 0;) {
+      if (failed(chargeLoopDescriptorWork(decl.node, "unused callable captures")))
+        return failure();
+      auto guard = method.getGuard().front().getArgument(inputs + i);
+      auto body = method.getBody().front().getArgument(inputs + i);
+      if (!guard.use_empty() || !body.use_empty()) continue;
+      for (Value value : {Value(guard), Value(body)}) {
+        numericValues.erase(value);
+        fixedValues.erase(value);
+        arithmeticValues.erase(value);
+        originalCaptures.erase(value);
+      }
+      method->eraseOperand(i);
+      method.getGuard().front().eraseArgument(inputs + i);
+      method.getBody().front().eraseArgument(inputs + i);
+    }
+    helperCaptureBindings.erase(&method.getGuard().front());
+    helperCaptureBindings.erase(&method.getBody().front());
+  }
   structuralCallSites.clear();
   directCallSites.clear();
   forwardCallBindings.clear();
@@ -3444,6 +3275,16 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       auto &references = staticInstanceReferences[activeSourceEffects->module->symbol.getValue()];
       auto selected = references.find(receiverName);
       if (selected != references.end()) {
+        auto *caller = activeSourceEffects->callable;
+        if (caller && caller->lexical && caller->syntax.marker != MarkerKind::Method) {
+          auto order = sourceDeclarationOrder(source, activeSourceEffects->module->node,
+              selected->second.declaration, caller->declaration, [&](uint64_t work) {
+                return succeeded(chargeLoopDescriptorWork(node, "Rule reference capture", work));
+              });
+          if (failed(order)) return failure();
+          if (*order != SourceDeclarationOrder::Before)
+            return error() << "Rule cannot capture an instance reference declared later";
+        }
         relative = &selected->second;
         if (relative->ancestorDepth || relative->childNames.size() != 1)
           return error() << "Rule receiver must be a direct child or declared Module-reference interface";
@@ -3485,7 +3326,8 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       !activeSourceEffects->callable->lexical && target->lexical)
     return error() << "source-global Rule cannot capture a Module-local callable";
   auto importedVisibility = imported ? imported->getVisibility() : StringAttr();
-  if ((target && (target->autonomous || target->privateSpecialization || !target->stateFormals.empty())) ||
+  if ((target && ((target->lexical && target->syntax.marker != MarkerKind::Method) ||
+                   target->privateSpecialization || !target->stateFormals.empty())) ||
       (importedVisibility && importedVisibility.getValue() == "private"))
     return error() << "private compiler callable is not an authored source interface";
   if (relative && activeSourceEffects->callable && !activeSourceEffects->callable->lexical)

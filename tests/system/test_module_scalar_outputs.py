@@ -44,7 +44,7 @@ def ExerciseScalarModules():
     word = Byte(phase)
     valid = Gate(phase != 3)
     copy, = Singleton(word)
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         ac.log("info", "scalar module", phase, word, valid, copy)
         phase = phase + 1

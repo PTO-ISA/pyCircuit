@@ -1,7 +1,7 @@
 """Two depth-two queues surrounding independent unsigned64-bit field updates."""
 
 import pycircuit as ac
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 
 
 @ac.struct

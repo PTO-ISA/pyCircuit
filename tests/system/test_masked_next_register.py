@@ -28,15 +28,14 @@ from typing import Annotated
 Word = Annotated[int, range(256)]
 """
 
-COUNTER = """\
-from pycircuit import module, rule
+COUNTER = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter():
     state: Word = 254
 
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = (state + 1) & 255
@@ -366,8 +365,7 @@ def _linked_from_source(
     return _link([types, counter], tmp_path / "counter.ac")
 
 
-COPY_SOURCE = """\
-from pycircuit import module, rule
+COPY_SOURCE = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
@@ -375,7 +373,7 @@ def Counter():
     state: Word = 254
     other: Word = 3
 
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = other
@@ -383,15 +381,14 @@ def Counter():
     tick()
 """
 
-CONSTANT_SOURCE = """\
-from pycircuit import module, rule
+CONSTANT_SOURCE = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter():
     state: Word = 254
 
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = 7

@@ -41,20 +41,20 @@ def ExerciseFormalAliases():
     forwarded: ac.u8 = 41
     owner = AliasOwner()
 
-    @ac.rule
+    @ac.autorule
     def update_alias() -> None:
         owner.advance(phase != 1)
 
-    @ac.rule
+    @ac.autorule
     def inspect_alias() -> None:
         owner.inspect()
 
-    @ac.rule
+    @ac.autorule
     def update_formal() -> None:
         before = revise(count, phase != 1, phase == 2)
         ac.log("info", "formal conditional", before, count)
 
-    @ac.rule
+    @ac.autorule
     def exercise_forwarding() -> None:
         snapshot = forwarded
         simple_value = forward(snapshot)
@@ -72,6 +72,6 @@ def ExerciseFormalAliases():
             forwarded,
         )
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

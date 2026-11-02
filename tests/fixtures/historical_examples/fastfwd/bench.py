@@ -1,7 +1,7 @@
 """All 24 original known frames; independent four-state forwarding oracle is preserved."""
 
 from example_fastfwd.fastfwd import Fastfwd, LaneInput, Channel
-from pycircuit import bits, log, rule, struct, system
+from pycircuit import bits, log, rule, struct, system, autorule
 
 
 @struct
@@ -615,7 +615,7 @@ def FastfwdSystem():  # noqa: N802
         engine3_out,
     ) = Fastfwd(lane0, lane1, lane2, lane3, engine0, engine1, engine2, engine3)
 
-    @rule
+    @autorule
     def check():
         assert backpressure == 0, "stateless backpressure"
         assert lane0_out.valid == frame.lane0_valid, "lane0 valid forwarding"

@@ -33,15 +33,14 @@ Word = Annotated[int, range(256)]
 Phase = Annotated[int, range(8)]
 """
 
-CHILD = """\
-from pycircuit import module, rule
+CHILD = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter(incoming: Word, outgoing: Word):
     count: Word = 0
 
-    @rule
+    @autorule
     def tick():
         nonlocal count, outgoing
         count = incoming
@@ -50,8 +49,7 @@ def Counter(incoming: Word, outgoing: Word):
     tick()
 """
 
-SYSTEM = """\
-from pycircuit import system, rule, log, report
+SYSTEM = """from pycircuit import system, rule, log, report, autorule
 from .types import Word, Phase
 from .counter import Counter
 
@@ -65,7 +63,7 @@ def TestCounters():
     left = Counter(left_input, left_output)
     right = Counter(right_input, right_output)
 
-    @rule
+    @autorule
     def fixture():
         nonlocal phase
         if phase == 0:

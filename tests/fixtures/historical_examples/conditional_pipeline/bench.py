@@ -5,7 +5,7 @@ from example_conditional_pipeline.conditional_pipeline import (
     Item,
     ConditionalResult,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -234,7 +234,7 @@ def ConditionalPipelineSystem():  # noqa: N802
     packet = Item(value=frame.input_value, route=frame.input_route)
     dut = ConditionalPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "conditional_pipeline input capacity"
         assert dut.valid == frame.expected_valid, (

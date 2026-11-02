@@ -1,6 +1,6 @@
 """Four-entry dependency scheduling with persistent key history."""
 
-from pycircuit import bits, concat, module, queue, rule, struct, table, u1, u2, u64
+from pycircuit import bits, concat, module, queue, struct, table, u1, u2, u64, autorule
 
 
 @struct
@@ -146,7 +146,7 @@ def PersistentSchedule(
         ready_policy="local_occupancy",
     )
     retire = done_valid & space
-    @rule
+    @autorule
     def advance():
         resource_check: u2 = head.resource
         if admit:

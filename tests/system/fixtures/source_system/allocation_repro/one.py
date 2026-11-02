@@ -7,7 +7,7 @@ def Exercise():
     phase: ac.u8 = 0
     owner = AllocationPool()
 
-    @ac.rule
+    @ac.autorule
     def send() -> None:
         if phase == 0:
             owner.submit(Request(
@@ -18,11 +18,11 @@ def Exercise():
                 stale=False,
             ))
 
-    @ac.rule
+    @ac.autorule
     def recv() -> None:
         r = owner.allocate_response()
         ac.log('info', 'result', r.accepted, r.current_position)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

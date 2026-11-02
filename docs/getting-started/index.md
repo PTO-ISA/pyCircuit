@@ -1,6 +1,6 @@
 # Get started
 
-pyCircuit 6.1 uses ordinary Python functions decorated with `@module`, `@rule`
+pyCircuit 6.1 uses ordinary Python functions decorated with `@module`, `@rule`, `@autorule`
 and `@system`. Typed variables describe state, rules compute updates, and MLIR
 lowers the design to one verified hardware representation for C++ and Verilog.
 A closed system generates its own native and Verilator simulation harnesses.

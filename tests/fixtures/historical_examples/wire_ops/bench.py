@@ -1,7 +1,7 @@
 """Regular-clock wire_ops scenario; original physical-control oracles remain."""
 
 from example_wire_ops.wire_ops import WireOps
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, autorule
 
 
 @rule
@@ -55,7 +55,7 @@ def ExerciseWireOps():  # noqa: N802
         )
     )
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 7:
             assert dut.y == expected_y, "wire_ops: y"

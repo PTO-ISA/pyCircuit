@@ -4,14 +4,14 @@ from example_sibling_calls.counter import Counter
 
 @ac.module
 def Writer(counter: Counter):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def write() -> None:
         counter.increment()
 
 
 @ac.module
 def Reader(counter: Counter):  # noqa: N802
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         value = counter.read()
         ac.log("info", "count", value)

@@ -5,7 +5,7 @@ from example_barrier_pipeline.barrier_pipeline import (
     LeftToken,
     RightToken,
 )
-from pycircuit import bits, log, rule, struct, system, table, u1, u16, u32
+from pycircuit import bits, log, rule, struct, system, table, u1, u16, u32, autorule
 
 
 @struct
@@ -403,7 +403,7 @@ def ExerciseBarrierPipeline():  # noqa: N802
         scenario.right_take,
     )
 
-    @rule
+    @autorule
     def check():
         if phase < 347:
             assert left.ready == scenario.expected_left_ready, (

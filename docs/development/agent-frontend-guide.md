@@ -136,38 +136,41 @@ retiring an old example.
 
 Keep each Rule simple and cohesive. A Rule describes one function, including
 related outputs and effects that must succeed together. Use separate Rules for
-independent functions. Nesting a Rule or Method call keeps its state proposals,
-guards and body effects within the caller's outer atomic transaction.
+independent functions. Nesting a source-global Rule or Method call keeps its
+state proposals, guards and body effects within the caller's outer atomic
+transaction.
 
-A directly nested `@rule` declares one autonomous computation in each actual
-Module or System instance. The compiler schedules it during Work; do not write a
-trailing activation call. A Rule's name denotes its scalar, Struct or tuple result
-in Module wiring expressions: use `return transform`, `child = Child(transform)`
-or `a, b = transform`. Repeated references fan out the same results. Void Rules
-cannot be values, and autonomous Rule identifiers cannot be rebound or called.
+A directly nested `@rule` declares a private callable and registers no work.
+Each complete Module/System-scope call registers one transaction. Its scalar,
+Struct or tuple results are ordinary values; bind them once and reuse them for
+fanout. A Rule name is not a result value. Local Rule calls inside another
+transaction, helper or expression remain unsupported.
 
-Rules read their Module inputs, child outputs and committed local state (which
-lowers to child storage). They drive child interfaces, local next-state proposals
-and Module outputs. Pure aliases and helpers do not grant access to another local
-Rule's results or a foreign owner's private state. Declared nominal Module
-references retain their explicit interfaces; ancestor/sibling bypasses reject.
+Use `@autorule` for zero-argument, zero-result work that registers once at its
+declaration per Module/System instance. It may fall through, return `None` or use
+a bare return. It cannot be called or used as a value. Rule formal defaults are
+not supported; pass actual arguments explicitly.
 
-Inputs can be captured or explicitly bound by local default expressions:
+Both local forms capture lexical SSA values, visible Module state and child
+instances at definition time. Later rebinding does not change that snapshot.
+State captures retain their owner and read committed state for each independent
+transaction. Declared nominal Module references retain their explicit interfaces;
+ancestor/sibling bypasses reject.
 
 ```python
 @ac.module
 def Stage(data: ac.u8) -> ac.u8:
     @ac.rule
-    def transform(value=data) -> ac.u8:
+    def transform(value: ac.u8) -> ac.u8:
         return value + 1
-    return transform
+
+    transformed = transform(data)
+    return transformed
 ```
 
-These defaults describe hardware bindings evaluated from current values, not
-Python execution or a first-epoch snapshot. Every local formal needs a binding;
-annotations constrain its type, and otherwise actual SSA supplies the type.
-Methods are callable operations, not autonomous registrations. Modules may expose
-both Methods and ordinary data outputs through their existing interface.
+Methods remain callable component operations. Modules may expose both Methods
+and ordinary data outputs through their existing interface. Local Rules remain
+private and are not exported as Methods.
 
 Use explicit finite input and result annotations for published callable
 interfaces. A result can be one admitted scalar or nominal payload, `None`, or a
@@ -194,8 +197,8 @@ def Accumulator(incoming: ac.u8) -> ac.u8:
 A source-global Rule is a reusable template. A complete Module-scope template
 call, as above, binds one autonomous transaction; a template call within a Rule
 participates in that outer transaction. A global declaration alone activates
-nothing and captures no caller locals. Nested Rule declarations instead establish
-their Module ownership directly.
+nothing and captures no caller locals. Local Rule declarations capture their
+Module ownership; only explicit calls register transactions. Autorule declarations register their work immediately.
 
 Existing unannotated executable Rules remain supported. Their finite argument
 contracts come from actual SSA values and declared owners, preserving Boolean,
@@ -204,8 +207,7 @@ separate private specializations. A direct Module-return call keeps its enclosin
 declared result context; unannotated assigned or nested calls infer their scalar
 or tuple result from the returned SSA. Closed actual constants can supply an
 admitted static loop bound. This does not invent a public ABI from a first registration or execute Python.
-Local autonomous defaults supply explicit bindings; global templates retain their
-explicit-actual interface.
+Local and global Rule calls use explicit actual arguments without formal defaults.
 Callable-only external interfaces without an unambiguous published contract need
 explicit annotations. A source-global Rule receives its explicit arguments; it
 does not capture unrelated locals or state from a calling Module.
@@ -229,10 +231,12 @@ def Counter() -> Update:
     count: ac.u8 = 5
 
     @ac.rule
-    def bump(target: ac.u8 = count) -> Update:
+    def bump_rule(target: ac.u8) -> Update:
         before = target
         target = target + 1
         return Update(before=before, after=target)
+
+    bump = bump_rule(count)
 
     return bump
 ```
@@ -261,7 +265,7 @@ or generate separate source definitions. For example:
 def Bank(enable: ac.u1, *, N: int = 4, W: int = 8) -> ac.table[N, ac.bits[W]]:
     entries: ac.table[N, ac.bits[W]] = 3
 
-    @ac.rule
+    @ac.autorule
     def increment():
         last: ac.u64 = N - 1
         if enable:
@@ -351,7 +355,7 @@ def Increment():
     def get() -> ac.u16:
         return egress.pop()
 
-    @ac.rule
+    @ac.autorule
     def transfer() -> None:
         value = ingress.pop()
         egress.push(value + 1)
@@ -557,7 +561,8 @@ Named callbacks retain fixed-Bits parameters/results and no free captures.
 Generic row types must exactly match their formal annotations; individual lane
 values do not supply range or constant authority. Helper calls inside expression
 lambdas remain unsupported. Use ordinary typed `def` for pure reuse and reserve
-`@rule` for exactly one static autonomous registration per declaration/instance.
+`@rule` for explicit transaction calls and `@autorule` for one zero-result
+registration per declaration/instance.
 See [pure value helpers](../reference/language.md#pure-value-helpers) for lexical
 snapshots, publication and the bounded body grammar. Ordered prefixes can use the
 [bounded literal-range loop profile](../reference/language.md#bounded-source-loops)
@@ -708,15 +713,10 @@ Use a single local assignment to share a supported pure expression, for example
 It recomputes during Work and retains old-Q semantics, source kind, interval and
 mathematical provenance; assignment does not allocate storage or narrow it.
 Structural local wires reject rebinding, protected-name shadowing, direct forward
-references, new locals after Return and rule-local assignment. In ordinary
-structural/behavioral Module/System bodies, a data local may precede a directly
-nested Rule of the same name. Save an alias before the Rule declaration if the
-data is needed afterwards: from that declaration onward, the original spelling
-identifies the Rule and requires an admitted registration. Earlier helper captures keep their snapshots; later helpers
-cannot capture the retired data spelling. Storage, instances, imports, formal
-names and intrinsic grammar remain protected. This exception does not extend
-typed transaction/Method-owner binding or change that structural profile's
-forward-registration rules. Aliasing does not make shift
+references, new locals after Return and rule-local assignment. Rule and autorule
+names cannot replace data bindings or be rebound as data.
+Storage, instances, imports, formal names and intrinsic grammar remain protected.
+Aliasing does not make shift
 counts, divisors or parameter/default positions static. See
 [immutable local wires](../reference/language.md#immutable-local-wires).
 
@@ -814,7 +814,7 @@ the body or statement `if`/`elif`/`else` arms. A saved local value remains the
 candidate value at that statement; later writes do not change it. Assertions check the completed
 outer transaction and do not control later calls. All body effects use the final
 transaction fire, so a later false guard suppresses earlier body effects too.
-Put unrelated autonomous work in another registered Rule.
+Put unrelated autonomous work in another registered transaction.
 
 Rule and Method transaction bodies may use bounded statement `if`/`elif`/`else`
 and `pass` over admitted finite state and scalar, Enum, Struct and Table locals.

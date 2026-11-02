@@ -2872,7 +2872,7 @@ def test_retired_ehr_order_rejects_without_replacing_published_unit(tmp_path):
 @ac.system
 def ExerciseEhrOrder():
     count: ac.u8 = 5
-    @ac.rule
+    @ac.autorule
     def advance():
         count = count + 1
 """
@@ -3499,7 +3499,7 @@ def test_conditional_report_conflict_rejects_and_preserves_final_artifact(tmp_pa
 @ac.system
 def ConditionalReports():
     selector: ac.u1 = 0
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         if selector:
             ac.report('left', selector)
@@ -3587,7 +3587,7 @@ def OrderedBindings():
         return check.value
     check = Packet(value=phase + 7)
     child = Echo(check)
-    @ac.rule
+    @ac.autorule
     def verify_payload():
         assert saved.value == phase
         assert child.value == phase + 7

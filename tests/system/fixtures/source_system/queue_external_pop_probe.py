@@ -9,17 +9,17 @@ def ExternalPopProbe():
     count: ac.u8 = 0
     tokens = ac.queue[ac.u8](depth=1, latency=1)
 
-    @ac.rule
+    @ac.autorule
     def produce() -> None:
         tokens.push(23)
         ac.log("info", "external pop pushed", 23)
 
-    @ac.rule(guard=lambda: allow)
+    @ac.autorule(guard=lambda: allow)
     def consume() -> None:
         if take:
             value = tokens.pop()
             ac.log("info", "external pop retired", value)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         count = count + 1

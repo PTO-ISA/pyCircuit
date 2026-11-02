@@ -7,7 +7,7 @@ from example_encoded_enum_pipeline.encoded_enum_pipeline import (
     Opcode,
     WideOpcode,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -261,7 +261,7 @@ def EncodedEnumPipelineSystem():  # noqa: N802
     )
     dut = EncodedEnumPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "encoded_enum_pipeline input capacity"
         assert dut.valid == frame.expected_valid, (

@@ -19,7 +19,7 @@ def StructTransformStorage(  # noqa: N802 - hardware module definition
     state: Packet = Packet()
 
     @ac.rule
-    def capture_and_transform() -> Packet:
+    def capture_and_transform_rule() -> Packet:
         op_wide: ac.u32 = state.op
         result = Packet(
             op=state.op,
@@ -29,6 +29,8 @@ def StructTransformStorage(  # noqa: N802 - hardware module definition
         )
         state = packet
         return result
+
+    capture_and_transform = capture_and_transform_rule()
 
     return capture_and_transform
 

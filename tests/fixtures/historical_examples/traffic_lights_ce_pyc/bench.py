@@ -1,7 +1,7 @@
 """Regular-clock traffic_lights_ce_pyc scenario; original physical-control oracles remain."""
 
 from example_traffic_lights_ce_pyc.traffic_lights_ce_pyc import TopTrafficLights
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -109,7 +109,7 @@ def ExerciseTopTrafficLights():  # noqa: N802
     expected_ns_yellow = scenario.expected_ns_yellow
     expected_ns_green = scenario.expected_ns_green
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 209:
             assert dut.ew_bcd == expected_ew_bcd, "traffic_lights_ce_pyc: ew_bcd"

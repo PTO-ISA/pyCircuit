@@ -1,7 +1,7 @@
 """Fixed-table map combinators through the standard two-stage queue contract."""
 
 # ruff: noqa: N802 -- hardware module name.
-from pycircuit import module, queue, rule, struct, table, u1, u2, u3, u4, u8
+from pycircuit import module, queue, rule, struct, table, u1, u2, u3, u4, u8, autorule
 
 
 @struct

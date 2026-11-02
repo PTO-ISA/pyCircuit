@@ -51,15 +51,14 @@ def _design_harness() -> str:
 
 DECLARATION = TYPES
 
-LEAF = """\
-from pycircuit import module, rule
+LEAF = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter():
     state: Word = 254
 
-    @rule
+    @autorule
     def tick():
         nonlocal state
         state = (state + 1) & 255
@@ -67,14 +66,14 @@ def Counter():
     tick()
 """
 
-BROKEN = """\
-from pycircuit import module, rule
+BROKEN = """from pycircuit import module, rule
 
 @module
 def Broken():
     @rule
     def tick():
         return 1
+    tick_result = tick()
 
     tick()
 """

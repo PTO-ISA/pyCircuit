@@ -62,6 +62,7 @@ def FreeCell() -> ac.u8:
     @ac.rule
     def value() -> ac.u8:
         return count
+    value_result = value()
 
     advance()
     return value()
@@ -79,6 +80,7 @@ def GatedCell(enable: ac.u1) -> ac.u8:
     @ac.rule
     def value() -> ac.u8:
         return count
+    value_result = value()
 
     advance()
     return value()
@@ -102,9 +104,10 @@ def TypedCell() -> tuple[bool, ac.bits[65], Nested]:
     @ac.rule
     def value() -> tuple[bool, ac.bits[65], Nested]:
         return flag, wide, nested
+    value_result_0, value_result_1, value_result_2 = value()
 
     advance()
-    result_flag, result_wide, result_nested = value()
+    result_flag, result_wide, result_nested = value_result_0, value_result_1, value_result_2()
     return result_flag, result_wide, result_nested
 
 
@@ -119,6 +122,7 @@ def GuardedCell(enable: ac.u1) -> ac.u8:
     @ac.rule
     def value() -> ac.u8:
         return count
+    value_result = value()
 
     advance()
     return value()
@@ -135,6 +139,7 @@ def WholeCell() -> Pair:
     @ac.rule
     def value() -> Pair:
         return pair
+    value_result = value()
 
     advance()
     return value()
@@ -153,6 +158,7 @@ def PartialCell(enable: ac.u1) -> Pair:
     @ac.rule
     def value() -> Pair:
         return pair
+    value_result = value()
 
     advance()
     return value()
@@ -364,7 +370,7 @@ def ExerciseOrderedStorageWriters():
     def guarded_head_second() -> None:
         guarded_head = guarded_head * 2
 
-    @ac.rule(
+    @ac.autorule(
         after=(unconditional_second, guarded_tail_second, guarded_head_second)
     )
     def observe() -> None:

@@ -353,7 +353,7 @@ def Top() -> Result:
     x: ac.u4 = 2
     rows = ac.table[3, ac.u4](init=0)
     @ac.rule
-    def evaluate(x=x, rows=rows) -> Result:
+    def evaluate(x, rows) -> Result:
         saved = x
         x = x + 1
         rows[0] = 3
@@ -368,7 +368,8 @@ def Top() -> Result:
                       mapped0=mapped[0], mapped1=mapped[1], mapped2=mapped[2],
                       saved_map0=saved_map[0],
                       shadow0=shadowed[0], shadow1=shadowed[1], shadow2=shadowed[2])
-    return evaluate
+    evaluate_result = evaluate(x, rows)
+    return evaluate_result
 """
     fields = {
         "saved": 4,

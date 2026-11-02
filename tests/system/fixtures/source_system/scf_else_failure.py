@@ -9,7 +9,7 @@ def LoopElseFailure():
     total: ac.u8 = 5
     peer: ac.u8 = 7
 
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         before = total
         for index in range(3):
@@ -23,7 +23,7 @@ def LoopElseFailure():
         assert allow, "loop_else_late_check"
         ac.report("loop total", total)
 
-    @ac.rule
+    @ac.autorule
     def sibling() -> None:
         peer = peer + 1
         ac.log("info", "loop sibling", peer)

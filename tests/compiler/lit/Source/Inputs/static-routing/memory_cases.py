@@ -50,7 +50,7 @@ def source(shape=2, profile="byte", repeated=False):
     text += "\n\n@ac.module\ndef Worker(seed: " + worker_type + ", store: " + reference_type + "):\n"
     text += "    phase: ac.u3 = 0\n"
     text += '''
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         if phase == 0:
             store.write_low(LOW)

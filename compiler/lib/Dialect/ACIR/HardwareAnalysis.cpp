@@ -774,6 +774,70 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
     if (failed(budget.debit(16 + operation->getNumOperands() + operation->getNumResults(), site))) return failure();
     return verifyResolvedOperation(operation, *contexts[scope]);
   };
+  // A private callable may be reached by several explicit registration sites.
+  // Its formal range is bounded by those actuals only when every caller is an
+  // authenticated transparent registration; ordinary Method calls retain their
+  // unconstrained formal ABI. Different actuals are ranges to join, not aliases.
+  auto registrationActuals = [&](BlockArgument argument)
+      -> FailureOr<SmallVector<Value>> {
+    auto method = dyn_cast<SourceMethodOp>(argument.getOwner()->getParentOp());
+    auto visibility = method ? method->getAttrOfType<StringAttr>("sym_visibility")
+                             : StringAttr();
+    if (!method || !visibility || visibility.getValue() != "private" ||
+        argument.getArgNumber() >= method.getFunctionType().getNumInputs())
+      return SmallVector<Value>();
+    auto module = method->getParentOfType<ModuleOp>();
+    if (!module) return failure();
+    SmallVector<Value> actuals;
+    bool invalid = false, allRegistrations = true;
+    module.walk([&](Operation *operation) -> WalkResult {
+      if (failed(budget.debit(1, site))) {
+        invalid = true;
+        return WalkResult::interrupt();
+      }
+      auto call = dyn_cast<SourceMethodCallOp>(operation);
+      if (!call) return WalkResult::advance();
+      auto callee = call.getCalleeAttr();
+      if (callee.getRootReference() != module.getSymNameAttr() ||
+          callee.getNestedReferences().size() != 1 ||
+          callee.getNestedReferences().front().getValue() != method.getSymName())
+        return WalkResult::advance();
+      auto transaction = dyn_cast_or_null<SourceTransactionOp>(call->getParentOp());
+      if (!transaction) {
+        allRegistrations = false;
+        return WalkResult::interrupt();
+      }
+      if (failed(budget.debit(16 + transaction.getCaptures().size() +
+              call.getArguments().size() + call.getNumResults(), site))) {
+        invalid = true;
+        return WalkResult::interrupt();
+      }
+      auto entry = getSourceRegistrationEntry(transaction);
+      if (failed(entry)) {
+        invalid = true;
+        return WalkResult::interrupt();
+      }
+      if (!*entry || (**entry).method != method || (**entry).call != call) {
+        allRegistrations = false;
+        return WalkResult::interrupt();
+      }
+      unsigned ordinal = argument.getArgNumber();
+      if (ordinal >= (**entry).argumentCaptureOrdinals.size()) {
+        invalid = true;
+        return WalkResult::interrupt();
+      }
+      unsigned capture = (**entry).argumentCaptureOrdinals[ordinal];
+      if (capture >= transaction.getCaptures().size()) {
+        invalid = true;
+        return WalkResult::interrupt();
+      }
+      actuals.push_back(transaction.getCaptures()[capture]);
+      return WalkResult::advance();
+    });
+    if (invalid) return failure();
+    if (!allRegistrations) actuals.clear();
+    return actuals;
+  };
   // Only value-preserving routes are identities. In particular Module inputs
   // never follow caller samples, and ordinary Method formals are not captures.
   auto alias = [&](Node node) -> FailureOr<std::optional<Node>> {
@@ -805,16 +869,12 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
         if (argument.getOwner()->getNumArguments() != signature.getNumInputs() + method.getCaptures().size()) return failure();
         if (ordinal >= signature.getNumInputs()) next = method.getCaptures()[ordinal - signature.getNumInputs()];
         else {
-          auto module = method->getParentOfType<ModuleOp>();
-          for (auto transaction : module.getBody().front().getOps<SourceTransactionOp>()) {
-            if (failed(budget.debit(1, site))) return failure();
-            if (transaction.getOccurrence() != transaction.getDeclaration() || transaction.getDeclaration() != method.getOccurrence()) continue;
-            auto entry = getSourceRegistrationEntry(transaction);
-            if (failed(entry) || !*entry || (**entry).method != method || ordinal >= (**entry).argumentCaptureOrdinals.size()) return failure();
-            unsigned capture = (**entry).argumentCaptureOrdinals[ordinal];
-            if (next || capture >= transaction.getCaptures().size()) return failure();
-            next = transaction.getCaptures()[capture];
-          }
+          auto actuals = registrationActuals(argument);
+          if (failed(actuals)) return failure();
+          if (!actuals->empty() && llvm::all_of(*actuals, [&](Value actual) {
+                return actual == actuals->front();
+              }))
+            next = actuals->front();
         }
       }
       if (next) {
@@ -967,6 +1027,24 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
         auto range = infer(**next, depth + 1);
         if (failed(range)) return failure();
         return range->zextOrTrunc(width);
+      }
+      if (auto argument = dyn_cast<BlockArgument>(node.value)) {
+        auto actuals = registrationActuals(argument);
+        if (failed(actuals)) return failure();
+        if (!actuals->empty()) {
+          Range joined = Range::getEmpty(width);
+          for (Value supplied : *actuals) {
+            auto formalType = resolveType(node.value.getType(), actual, site);
+            auto suppliedType = resolveType(supplied.getType(), actual, site);
+            if (failed(formalType) || failed(suppliedType) ||
+                !areEquivalentHardwareTypes(*formalType, *suppliedType))
+              return failure();
+            auto range = infer(Node{supplied, node.context}, depth + 1);
+            if (failed(range)) return failure();
+            joined = joined.unionWith(range->zextOrTrunc(width));
+          }
+          return joined;
+        }
       }
       auto *operation = node.value.getDefiningOp();
       if (auto constant = dyn_cast_or_null<BitsConstantOp>(operation)) {

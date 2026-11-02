@@ -67,7 +67,7 @@ def Bank() -> BankResult:
     def dequeue() -> BankRequest:
         return responses.pop()
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         if idle:
             request = requests.pop()
@@ -115,7 +115,7 @@ def MemoryBanks(valid: ac.u1, request: BankRequest, take: ac.u1) -> BanksResult:
     input_head = inputs.data
     merge_space = merged.ready
 
-    @ac.rule
+    @ac.autorule
     def route_request() -> None:
         head = inputs.pop()
         if head.bank == 0:
@@ -127,7 +127,7 @@ def MemoryBanks(valid: ac.u1, request: BankRequest, take: ac.u1) -> BanksResult:
         else:
             bank3.enqueue(head)
 
-    @ac.rule
+    @ac.autorule
     def merge_response() -> None:
         if bank0.output_valid:
             response = bank0.dequeue()

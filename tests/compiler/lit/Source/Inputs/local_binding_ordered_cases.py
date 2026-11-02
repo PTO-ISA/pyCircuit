@@ -92,7 +92,7 @@ def memory_rule_collision_cases():
         "sync_mem": "ac.sync_mem[ac.u8](ren, addr, False, addr, 0, 0, depth=2)",
         "byte_mem": "ac.byte_mem[ac.u8](addr, False, addr, 0, 0, depth=2)",
     }
-    declaration = "    @ac.rule\n    def check():\n        pass\n"
+    declaration = '    @ac.autorule\n    def check():\n        pass\n'
     for kind, call in calls.items():
 
         def design(body):
@@ -114,7 +114,7 @@ def memory_rule_collision_cases():
             "    raw_memory_result = "
             + call
             + "\n    check = raw_memory_result\n    saved = check\n"
-            + "    @ac.rule\n    def check_rule():\n        pass\n"
+            + '    @ac.autorule\n    def check_rule():\n        pass\n'
             + "    return Packet(value=saved)\n"
         )
         # The only use of the colliding result is BEFORE declaration. A later
@@ -139,7 +139,7 @@ def memory_rule_collision_cases():
         "    first, second = "
         + dp
         + "\n    check = first\n    saved = check\n"
-        + "    @ac.rule\n    def check_rule():\n        pass\n"
+        + '    @ac.autorule\n    def check_rule():\n        pass\n'
         + "    return Packet(value=saved ^ second)\n",
         arguments="ren: ac.u1, addr: ac.u1",
     )
@@ -166,7 +166,7 @@ def retired_collision_cases():
     cases = {
         "scalar_alias": structural("""    check = a
     saved = check
-    @ac.rule
+    @ac.autorule
     def check():
         assert True
     return {"result": saved}
@@ -174,7 +174,7 @@ def retired_collision_cases():
         "nominal_aliases": nominal("""    check = Packet(value=a)
     saved = check
     field = check.value
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     return Packet(value=saved.value ^ field)
@@ -183,7 +183,7 @@ def retired_collision_cases():
             """    check = values
     saved = check
     field = check[1]
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     return Packet(value=saved[0] ^ field)
@@ -194,7 +194,7 @@ def retired_collision_cases():
     saved = check
     check = a ^ 1
     later = check
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     return Packet(value=saved ^ later)
@@ -203,13 +203,13 @@ def retired_collision_cases():
     def read() -> ac.u8:
         return check
     check = a ^ 1
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     return Packet(value=read())
 """),
         "helper_formal_after": nominal("""    check = a
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     def read(check: ac.u8) -> ac.u8:
@@ -217,7 +217,7 @@ def retired_collision_cases():
     return Packet(value=read(a))
 """),
         "helper_local_after": nominal("""    check = a
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     def read(value: ac.u8) -> ac.u8:
@@ -230,25 +230,27 @@ def retired_collision_cases():
     @ac.rule
     def check() -> Packet:
         return saved
-    return check
+    check_result = check()
+    return check_result
 """),
         "valued_assignment": nominal("""    check = Packet(value=a)
     saved = check
     @ac.rule
     def check() -> Packet:
         return saved
-    result = check
+    check_result = check()
+    result = check_result
     return result
 """),
         "early_structural_return": structural("""    check = a
     return {"result": check}
-    @ac.rule
+    @ac.autorule
     def check():
         assert True
 """),
         "pure_fixed_result": nominal("""    check, member = ac.enum_from_bits[Tag](a)
     saved = check
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     return Packet(value=ac.enum_to_bits(saved))
@@ -261,7 +263,7 @@ def positive_cases():
     cases = {
         "scalar_alias": structural("""    check = a
     saved = check
-    @ac.rule
+    @ac.autorule
     def check_rule():
         assert True
     return {"result": saved}
@@ -269,7 +271,7 @@ def positive_cases():
         "nominal_aliases": nominal("""    check = Packet(value=a)
     saved = check
     field = check.value
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     return Packet(value=saved.value ^ field)
@@ -278,7 +280,7 @@ def positive_cases():
             """    check = values
     saved = check
     field = check[1]
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     return Packet(value=saved[0] ^ field)
@@ -289,7 +291,7 @@ def positive_cases():
     saved = check
     changed = a ^ 1
     later = changed
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     return Packet(value=saved ^ later)
@@ -298,13 +300,13 @@ def positive_cases():
     def read() -> ac.u8:
         return check
     changed = a ^ 1
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     return Packet(value=read())
 """),
         "helper_formal_after": nominal("""    check = a
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     def read(check: ac.u8) -> ac.u8:
@@ -312,7 +314,7 @@ def positive_cases():
     return Packet(value=read(a))
 """),
         "helper_local_after": nominal("""    check = a
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     def read(value: ac.u8) -> ac.u8:
@@ -325,25 +327,27 @@ def positive_cases():
     @ac.rule
     def check_rule() -> Packet:
         return saved
-    return check_rule
+    check_rule_result = check_rule()
+    return check_rule_result
 """),
         "valued_assignment": nominal("""    check = Packet(value=a)
     saved = check
     @ac.rule
     def check_rule() -> Packet:
         return saved
-    result = check_rule
+    check_rule_result = check_rule()
+    result = check_rule_result
     return result
 """),
         "early_structural_return": structural("""    check = a
     return {"result": check}
-    @ac.rule
+    @ac.autorule
     def check_rule():
         assert True
 """),
         "pure_fixed_result": nominal("""    check, member = ac.enum_from_bits[Tag](a)
     saved = check
-    @ac.rule
+    @ac.autorule
     def check_rule():
         pass
     return Packet(value=ac.enum_to_bits(saved))
@@ -361,11 +365,12 @@ def positive_cases():
 def Top():
     count: ac.u8 = 0
     @ac.rule
-    def advance(value=count):
+    def advance(value):
         value = value + 1
+    advance(count)
 """
     # Mapping + assertion-only body is the structural declaration-first control.
-    cases["structural_declared_first"] = structural("""    @ac.rule
+    cases["structural_declared_first"] = structural("""    @ac.autorule
     def check():
         assert a == a
     return {"result": a}
@@ -377,30 +382,35 @@ def Top():
 
 
 def negative_cases():
-    declaration = "    @ac.rule\n    def check():\n        pass\n"
+    declaration = '    @ac.autorule\n    def check():\n        pass\n'
     cases = {
         "hidden_rule_result_capture": nominal("""    @ac.rule
     def produce() -> ac.u8:
         return a
+    produce_result = produce()
     @ac.rule
     def consume() -> ac.u8:
-        return produce
-    return Packet(value=consume)
+        return produce_result
+    consume_result = consume()
+    return Packet(value=consume_result)
 """),
         "hidden_rule_result_alias_capture": nominal("""    @ac.rule
     def produce() -> ac.u8:
         return a
-    saved = produce
+    produce_result = produce()
+    saved = produce_result
     @ac.rule
     def consume() -> ac.u8:
         return saved
-    return Packet(value=consume)
+    consume_result = consume()
+    return Packet(value=consume_result)
 """),
         "forward_data_capture": nominal("""    @ac.rule
     def read() -> ac.u8:
         return later
+    read_result = read()
     later = a
-    return Packet(value=read)
+    return Packet(value=read_result)
 """),
         "data_call_before": nominal(
             "    check = a\n    check()\n"
@@ -422,7 +432,7 @@ def negative_cases():
         ),
         "structural_reassignment": structural(
             "    check = a\n    check = a ^ 1\n"
-            + "    @ac.rule\n    def check():\n        assert True\n"
+            + '    @ac.autorule\n    def check():\n        assert True\n'
             + '    check()\n    return {"result": a}\n'
         ),
         "helper_capture_after": nominal(
@@ -432,7 +442,7 @@ def negative_cases():
             + "    return Packet(value=read())\n"
         ),
         "nested_expression": nominal(
-            "    check = a\n    @ac.rule\n    def check() -> ac.u8:\n        return a\n"
+            '    check = a\n    @ac.rule\n    def check() -> ac.u8:\n        return a\n    check_result = check()\n'
             + "    return Packet(value=check() + 1)\n"
         ),
         "callback": nominal(
@@ -476,12 +486,12 @@ def Owner():
     @ac.method
     def read() -> ac.u8:
         return 1
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         pass
 """,
         "forward_structural": structural("""    check()
-    @ac.rule
+    @ac.autorule
     def check():
         assert a == a
     return {"result": a}
@@ -528,7 +538,7 @@ def Owner():
 """)
     instance_module = '@ac.module\ndef Child() -> {"q": ac.u8}:\n    return {"q": 0}\n'
     cases["structural_instance_conflict"] = structural(
-        "    check = Child()\n    @ac.rule\n    def check():\n        assert True\n"
+        '    check = Child()\n    @ac.autorule\n    def check():\n        assert True\n'
         + '    check()\n    return {"result": a}\n'
     ).replace("@ac.module\ndef Top", instance_module + "@ac.module\ndef Top", 1)
     cases["behavioral_instance_conflict"] = nominal(

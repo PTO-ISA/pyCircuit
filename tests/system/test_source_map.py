@@ -15,7 +15,7 @@ import test_public_emit as public
 pytestmark = pytest.mark.system
 SOURCES = {
     "types.py": "import pycircuit as ac\n@ac.struct\nclass Word:\n    data: ac.u8\n@ac.struct\nclass UnusedWord:\n    data: ac.u4\n@ac.struct\nclass _PrivateWord:\n    data: ac.u3\n",
-    "child.py": "from pycircuit import module, rule\n@module\ndef Child(value: bool) -> bool:\n    @rule\n    def forward() -> bool:\n        return value\n    return forward\n",
+    "child.py": "from pycircuit import module, rule\n@module\ndef Child(value: bool) -> bool:\n    @rule\n    def forward() -> bool:\n        return value\n    forward_result = forward()\n    return forward_result\n",
     "design_top.py": 'from source_public.child import Child\nfrom pycircuit import module\n@module\ndef DesignTop(value: bool) -> {"left": bool, "right": bool}:\n    left = Child(value)\n    right = Child(value)\n    return {"left": left, "right": right}\n',
     "empty.py": '"""An empty provenance unit."""\n',
     "子.py": '"""An empty unit with a Unicode source path."""\n',

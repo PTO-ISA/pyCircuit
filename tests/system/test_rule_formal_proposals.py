@@ -37,14 +37,15 @@ def Producer(valid: ac.u1, phase: ac.u8) -> ac.u8:
         else:
             value = (phase + 1) * 10
         return value
-    return produce
+    produce_result = produce()
+    return produce_result
 @ac.system
 def Exercise():
     phase: ac.u8 = 0
     first = ac.table[4, ac.u8](init=0)
     second = ac.table[4, ac.u8](init=0)
     value = Producer(phase != 2, phase)
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         index = phase[:2]
         other = (phase + 1)[:2]
@@ -58,12 +59,12 @@ def Exercise():
                 second[other] = value + 4
         else:
             put(first, index, value + 5)
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "formal-table", phase,
                first[0], first[1], first[2], first[3],
                second[0], second[1], second[2], second[3])
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         assert phase < 5, "formal-table-stop"
         phase = phase + 1
@@ -259,9 +260,7 @@ def test_unpublished_cross_unit_rule_template_preserves_consumer(tmp_path):
         if path.is_file()
     }
     consumer_source.write_text(
-        "import pycircuit as ac\nfrom checks.provider import revise\n"
-        "@ac.module\ndef Consumer():\n    count: ac.u8 = 7\n"
-        "    @ac.rule\n    def advance() -> None:\n        revise(count)\n"
+        "import pycircuit as ac\nfrom checks.provider import revise\n@ac.module\ndef Consumer():\n    count: ac.u8 = 7\n    @ac.autorule\n    def advance() -> None:\n        revise(count)\n"
     )
     rejected = _cli(
         "compile",

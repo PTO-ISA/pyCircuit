@@ -16,7 +16,7 @@ def release_depth() -> None:
 def ExerciseWhileControls():
     phase: ac.u2 = 0
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         nested: ac.u8 = 5
         cursor: ac.u2 = 0

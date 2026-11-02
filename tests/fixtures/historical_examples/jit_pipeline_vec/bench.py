@@ -1,7 +1,7 @@
 """Regular-clock jit_pipeline_vec scenario; original physical-control oracles remain."""
 
 from example_jit_pipeline_vec.jit_pipeline_vec import JitPipelineVec
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -120,7 +120,7 @@ def ExerciseJitPipelineVec():  # noqa: N802
     expected_data = scenario.expected_data
     expected_lo8 = scenario.expected_lo8
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 75:
             assert dut.tag == expected_tag, "jit_pipeline_vec: tag"

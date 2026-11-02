@@ -5,7 +5,8 @@ order. `Rob` groups its external request pins into one `RobRequest` and passes
 that structured value directly to `RobStorage`.
 
 The Module owns the entry Table and `head`, `tail`, and `count` variables.
-One autonomous `transact` Rule calls four local Methods in statement order:
+One explicit `transact_rule()` call registers a transaction that calls four local
+Methods in statement order:
 
 1. `flush` clears the entries and indices.
 2. `complete` marks a matching live tag as done.
@@ -13,9 +14,9 @@ One autonomous `transact` Rule calls four local Methods in statement order:
 4. `allocate` can use the space released by retirement, including from a full buffer.
 
 The calls share one transaction, so each Method sees the earlier calls'
-candidates. `transact` assembles one `RobResult`; the Module returns its bare
-Rule name as the output connection. Its declaration activates it without an
-explicit call. Independent Rules would read committed state. The compiler owns
+candidates. `transact_rule` assembles one `RobResult`; the Module binds that
+explicit call's result to `transact` and returns it. Independent transactions
+would read committed state. The compiler owns
 candidate visibility, conflicts and state commit.
 
 `Entry.valid` defaults to one for a newly constructed allocation. The explicit

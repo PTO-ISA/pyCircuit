@@ -55,7 +55,7 @@ SYSTEM = """
 @ac.system
 def Exercise():
     count: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def exercise():
         item = Envelope(inner=Leaf(flag=count == 1, payload=count), fixed=1)
         first = envelope_identity(item)
@@ -230,7 +230,7 @@ def test_local_boolean_defaults_and_contextual_zero_execute(tmp_path: Path):
         + """
 @ac.system
 def Exercise():
-    @ac.rule
+    @ac.autorule
     def exercise():
         omitted = Leaf(payload=9)
         zero: Envelope = 0
@@ -289,7 +289,7 @@ def test_integer_or_fixed_bits_cannot_bind_boolean_field(
 """
     elif binding == "persistent-update":
         body = """    item: Leaf = Leaf(flag=False, payload=4)
-    @ac.rule
+    @ac.autorule
     def update():
         item.flag = flag
     return item.flag
@@ -300,11 +300,12 @@ def test_integer_or_fixed_bits_cannot_bind_boolean_field(
         items: ac.table[2, Leaf] = (Leaf(flag=False, payload=4), Leaf(flag=True, payload=5))
         items[0].flag = flag
         return items[0].flag
-    return update
+    update_result = update()
+    return update_result
 """
     elif binding == "persistent-table-update":
         body = """    items: ac.table[2, Leaf] = (Leaf(flag=False, payload=4), Leaf(flag=True, payload=5))
-    @ac.rule
+    @ac.autorule
     def update():
         items[0].flag = flag
     return items[0].flag
@@ -318,7 +319,8 @@ def test_integer_or_fixed_bits_cannot_bind_boolean_field(
         items: ac.table[2, Leaf] = (Leaf(flag=False, payload=4), Leaf(flag=True, payload=5))
         changed = rewrite(items, flag, bits)
         return changed[0].flag
-    return transform
+    transform_result = transform()
+    return transform_result
 """
     helper = ""
     if binding == "helper-update":
@@ -650,7 +652,7 @@ def test_boolean_record_state_reset_hold_and_discard(tmp_path: Path):
 @ac.module
 def Remember(flag: bool, enable: bool) -> Leaf:
     saved: Leaf = Leaf(flag=False, payload=3)
-    @ac.rule(guard=lambda: enable)
+    @ac.autorule(guard=lambda: enable)
     def update():
         saved = Leaf(flag=flag, payload=saved.payload + 1)
     return saved

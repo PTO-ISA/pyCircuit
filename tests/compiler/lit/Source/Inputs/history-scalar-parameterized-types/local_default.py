@@ -1,4 +1,4 @@
-from pycircuit import bits, log, module, rule, system, u8
+from pycircuit import bits, log, module, rule, system, u8, autorule
 
 
 @module
@@ -32,7 +32,7 @@ def LocalDefaultSystem():
     dut = LocalIdentity(value=incoming)
 
 
-    @rule
+    @autorule
     def inspect():
         assert dut == incoming, "local17-bit identity"
         log("info", "identity", dut)

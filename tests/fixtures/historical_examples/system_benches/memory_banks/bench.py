@@ -1,7 +1,7 @@
 """Regular-clock full known-input stream from the retained memory_banks oracle."""
 
 from example_memory_banks.memory_banks import MemoryBanks, BankRequest
-from pycircuit import bits, log, rule, struct, system, table, u1, u2, u4, u8, u16
+from pycircuit import bits, log, rule, struct, system, table, u1, u2, u4, u8, u16, autorule
 
 
 @struct
@@ -497,7 +497,7 @@ def ExerciseMemoryBanks():  # noqa: N802
     )
     dut = MemoryBanks(scenario.valid, request, scenario.take)
 
-    @rule
+    @autorule
     def check():
         if phase < 440:
             assert dut.input_ready == scenario.expected_input_ready, (

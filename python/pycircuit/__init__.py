@@ -8,6 +8,7 @@ __all__ = [
     "module",
     "instance_ref",
     "rule",
+    "autorule",
     "method",
     "struct",
     "bits",
@@ -48,7 +49,12 @@ def instance_ref(module, *path):
 
 
 def rule(declaration=None, *, guard=None):
-    """Declare automatic Module work, or a source-global Rule template."""
+    """Declare a Rule callable, registered by explicit Module/System calls."""
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def autorule(declaration=None, *, guard=None):
+    """Declare parameterless work registered once per Module/System instance."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 

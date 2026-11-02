@@ -13,7 +13,8 @@ def GuardedOutputs(word: ac.u8, enabled: ac.u1) -> tuple[Packet, ac.u8]:
     def produce() -> tuple[Packet, ac.u8]:
         return Packet(data=word + 1), word + 3
 
-    packet, extra = produce
+    packet, extra = produce()
+
     return packet, extra
 
 

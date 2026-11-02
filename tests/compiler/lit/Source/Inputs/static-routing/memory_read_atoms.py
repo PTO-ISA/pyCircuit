@@ -18,7 +18,7 @@ def Store():
 
 @ac.module
 def Worker(a: ac.u1, b: ac.u1, store: Store):
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         ac.log("info", "atom-inputs", a, b)
         if a:

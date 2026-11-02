@@ -3,7 +3,7 @@
 from example_net_resolution_depth_smoke.net_resolution_depth_smoke import (
     NetResolutionDepthSmoke,
 )
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, autorule
 
 
 @rule
@@ -83,7 +83,7 @@ def ExerciseNetResolutionDepthSmoke():  # noqa: N802
         )
     )
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 264:
             assert dut.y == expected_y, "net_resolution_depth_smoke: y"

@@ -3,7 +3,7 @@
 from example_bitfield_scalar_pipeline.bitfield_scalar_pipeline import (
     BitfieldScalarPipeline,
 )
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -203,7 +203,7 @@ def BitfieldScalarPipelineSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = BitfieldScalarPipeline(frame.valid, frame.data, frame.take)
 
-    @rule
+    @autorule
     def exercise():
         assert dut.ready == frame.expected_ready, (
             "bitfield_scalar_pipeline ready old-state check"

@@ -8,7 +8,7 @@ from example_recursive_aggregate_payload_pipeline.recursive_aggregate_payload_pi
     RecursiveAggregatePayloadPipeline,
     Tagged,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -125,7 +125,7 @@ def RecursiveAggregatePayloadPipelineSystem():  # noqa: N802
     )
     dut = RecursiveAggregatePayloadPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, (
             "recursive_aggregate_payload_pipeline ready old-state check"

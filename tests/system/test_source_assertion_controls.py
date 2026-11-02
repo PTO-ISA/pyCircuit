@@ -18,15 +18,14 @@ from test_generic_assignment_roundtrip import (
 
 pytestmark = pytest.mark.system
 
-SOURCE = """\
-from pycircuit import system, rule, log
+SOURCE = """from pycircuit import system, rule, log, autorule
 @system
 def AssertControls():
     ok: bool = True
     condition: bool = {condition}
     gate: bool = False
     sink: bool = False
-    @rule
+    @autorule
     def step():
         nonlocal gate, sink
         if ok:

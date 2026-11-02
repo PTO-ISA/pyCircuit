@@ -30,7 +30,7 @@ def Store():
 def Worker(store: Remote):
     phase: ac.u2 = 0
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         if phase == 0:
             store.fill(13)

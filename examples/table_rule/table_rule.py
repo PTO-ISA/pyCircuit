@@ -36,7 +36,7 @@ def TableRule(valid: ac.u1, data: Entry, take: ac.u1) -> Result:  # noqa: N802
         entries[entry.index] = entry
         return old
 
-    @ac.rule
+    @ac.autorule
     def transfer() -> None:
         incoming = ingress.pop()
         old = install(incoming)

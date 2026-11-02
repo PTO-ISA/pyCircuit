@@ -13,7 +13,7 @@ def ExerciseSiblings():  # noqa: N802
     Writer(counter, ledger, phase != 1, phase == 0)
     Relay(counter, ledger)
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         count = counter.old()
         balance, marker = ledger.read()

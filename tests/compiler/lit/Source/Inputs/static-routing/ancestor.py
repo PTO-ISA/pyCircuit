@@ -21,7 +21,7 @@ def Parent():
 @ac.module
 def Child(parent: Provider):
 
-    @ac.rule
+    @ac.autorule
     def sample() -> None:
         value = parent.read()
         assert value == 7, "ancestor value"

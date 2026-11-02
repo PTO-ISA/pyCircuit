@@ -360,7 +360,7 @@ def BF16Fmac(  # noqa: N802
     packed = pack_result(s3, normalization, left, right)
 
     @ac.rule
-    def advance_fmac() -> FmacResult:
+    def advance_fmac_rule() -> FmacResult:
         # Output and enable observe old Q; all four boundaries commit together.
         result = FmacResult(result=result_r, result_valid=valid_r)
         output_enable = s3.valid
@@ -371,5 +371,7 @@ def BF16Fmac(  # noqa: N802
             result_r = packed
         valid_r = output_enable
         return result
+
+    advance_fmac = advance_fmac_rule()
 
     return advance_fmac

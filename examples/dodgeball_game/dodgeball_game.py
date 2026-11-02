@@ -46,7 +46,7 @@ def DodgeballGame(  # noqa: N802
     vga_v_count: ac.u10 = 0
 
     @ac.rule
-    def advance_game() -> GameResult:
+    def advance_game_rule() -> GameResult:
         # Explicit snapshots retain old-Q RHS values after later owner assignments.
         cnt = pix_cnt
         old_pix_stb = pix_stb
@@ -231,5 +231,7 @@ def DodgeballGame(  # noqa: N802
         if cond_rst_s2:
             ob3_y = 0
         return result
+
+    advance_game = advance_game_rule()
 
     return advance_game

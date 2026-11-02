@@ -1,7 +1,7 @@
 """Regular-clock pipeline_builder scenario; original physical-control oracles remain."""
 
 from example_pipeline_builder.pipeline_builder import PipelineBuilder
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -113,7 +113,7 @@ def ExercisePipelineBuilder():  # noqa: N802
     expected_word = scenario.expected_word
     expected_valid = scenario.expected_valid
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 72:
             assert dut.word == expected_word, "pipeline_builder: word"

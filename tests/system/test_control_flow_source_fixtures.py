@@ -23,13 +23,12 @@ Word = Annotated[int, range(256)]
 Phase = Annotated[int, range(8)]
 """
 
-INCREMENT = """\
-from pycircuit import module, rule
+INCREMENT = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Increment(enabled: bool, incoming: Word, outgoing: Word):
-    @rule
+    @autorule
     def update():
         nonlocal outgoing
         if enabled and incoming != 0:
@@ -50,8 +49,7 @@ def Pipeline(enabled: bool, incoming: Word, outgoing: Word):
     second = Increment(enabled, middle, outgoing)
 """
 
-TEST_INCREMENT = """\
-from pycircuit import system, rule, log, report
+TEST_INCREMENT = """from pycircuit import system, rule, log, report, autorule
 from .types import Word, Phase
 from .increment import Increment
 
@@ -63,7 +61,7 @@ def TestIncrement():
     phase: Phase = 0
     dut = Increment(enabled, incoming, outgoing)
 
-    @rule
+    @autorule
     def fixture():
         nonlocal enabled, incoming, phase
         if phase == 0:
@@ -88,8 +86,7 @@ def TestIncrement():
     fixture()
 """
 
-TEST_PIPELINE = """\
-from pycircuit import system, rule, log, report
+TEST_PIPELINE = """from pycircuit import system, rule, log, report, autorule
 from .types import Word, Phase
 from .pipeline import Pipeline
 
@@ -101,7 +98,7 @@ def TestPipeline():
     phase: Phase = 0
     dut = Pipeline(enabled, incoming, outgoing)
 
-    @rule
+    @autorule
     def fixture():
         nonlocal enabled, incoming, phase
         if phase == 0:
@@ -126,16 +123,15 @@ def TestPipeline():
     fixture()
 """
 
-SHORT_CIRCUIT = """\
-from typing import Annotated
-from pycircuit import rule, system
+SHORT_CIRCUIT = """from typing import Annotated
+from pycircuit import rule, system, autorule
 Word = Annotated[int, range(256)]
 @system
 def ShortCircuit():
     enabled: bool = True
     incoming: Word = 1
     outgoing: Word = 0
-    @rule
+    @autorule
     def update():
         nonlocal outgoing
         if enabled and incoming != 0:
@@ -143,16 +139,15 @@ def ShortCircuit():
     update()
 """
 
-LIVE_PATH_ASSERT = """\
-from typing import Annotated
-from pycircuit import rule, system
+LIVE_PATH_ASSERT = """from typing import Annotated
+from pycircuit import rule, system, autorule
 Word = Annotated[int, range(256)]
 @system
 def LivePathAssert():
     ready: bool = True
     source: Word = 7
     sink: Word = 0
-    @rule
+    @autorule
     def guarded():
         nonlocal sink
         cached = source
@@ -164,9 +159,8 @@ def LivePathAssert():
     guarded()
 """
 
-EXCLUSIVE_WRITES = """\
-from typing import Annotated
-from pycircuit import rule, system
+EXCLUSIVE_WRITES = """from typing import Annotated
+from pycircuit import rule, system, autorule
 Word = Annotated[int, range(256)]
 @system
 def ExclusiveWrites():
@@ -174,7 +168,7 @@ def ExclusiveWrites():
     left: Word = 3
     right: Word = 5
     sink: Word = 0
-    @rule
+    @autorule
     def choose():
         nonlocal sink
         if choose_left:
@@ -184,9 +178,8 @@ def ExclusiveWrites():
     choose()
 """
 
-COMPOSITION_AUTHORITY = """\
-from typing import Annotated
-from pycircuit import rule, system
+COMPOSITION_AUTHORITY = """from typing import Annotated
+from pycircuit import rule, system, autorule
 Word = Annotated[int, range(256)]
 @system
 def CompositionAuthority():
@@ -194,7 +187,7 @@ def CompositionAuthority():
     left: Word = 1
     right: Word = 2
     sink: Word = 0
-    @rule
+    @autorule
     def choose():
         nonlocal sink
         if guard_a and left < 4:
@@ -206,16 +199,15 @@ def CompositionAuthority():
     choose()
 """
 
-RUNTIME_RUNTIME_COMPARE = """\
-from typing import Annotated
-from pycircuit import rule, system
+RUNTIME_RUNTIME_COMPARE = """from typing import Annotated
+from pycircuit import rule, system, autorule
 Word = Annotated[int, range(256)]
 @system
 def RuntimeRuntimeCompare():
     left: Word = 1
     right: Word = 2
     sink: Word = 0
-    @rule
+    @autorule
     def compare():
         nonlocal sink
         if left < right:

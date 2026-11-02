@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_latency_pipeline.latency_pipeline import LatencyPipeline
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -201,7 +201,7 @@ def LatencyPipelineSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = LatencyPipeline(frame.valid, frame.data, frame.take)
 
-    @rule
+    @autorule
     def exercise():
         assert dut.ready == frame.expected_ready, (
             "latency_pipeline ready old-state check"

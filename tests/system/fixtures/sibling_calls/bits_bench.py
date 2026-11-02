@@ -11,7 +11,7 @@ def ExerciseBits():  # noqa: N802
     BitsWriter(owner, ac.four_state("10xz"), phase != 1)
     BitsReader(owner)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         ac.log("info", "bits old", owner.old())
         phase = phase + 1

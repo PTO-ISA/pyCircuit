@@ -3,7 +3,7 @@
 from example_inferred_boundary_pipeline.inferred_boundary_pipeline import (
     InferredBoundaryPipeline,
 )
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -389,7 +389,7 @@ def InferredBoundaryPipelineSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = InferredBoundaryPipeline(frame.valid, frame.data, frame.take)
 
-    @rule
+    @autorule
     def exercise():
         assert dut.ready == frame.expected_ready, (
             "inferred_boundary_pipeline ready old-state check"

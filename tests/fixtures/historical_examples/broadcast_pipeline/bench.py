@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_broadcast_pipeline.broadcast_pipeline import BroadcastPipeline
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -201,7 +201,7 @@ def BroadcastPipelineSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = BroadcastPipeline(frame.valid, frame.data, frame.take)
 
-    @rule
+    @autorule
     def exercise():
         assert dut.ready == frame.expected_ready, (
             "broadcast_pipeline ready old-state check"

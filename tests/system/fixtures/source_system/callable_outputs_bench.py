@@ -11,11 +11,12 @@ def split(value: ac.u8) -> tuple[ac.u8, ac.u8]:
 @ac.module
 def BehavioralTuple(value: ac.u8) -> tuple[ac.u8, ac.u8]:
     @ac.rule
-    def singleton(argument: ac.u8 = value) -> tuple[ac.u8]:
+    def singleton(argument: ac.u8) -> tuple[ac.u8]:
         left, right = split(argument)
         return (right,)
 
-    (saved,) = singleton
+    (saved,) = singleton(value)
+
     return value, saved
 
 
@@ -41,7 +42,7 @@ def CallableResults() -> tuple[ac.u8, Packet, bool, ac.u8, ac.u8, ac.u8]:
 
     @ac.rule
     def produce(
-        delta: ac.u8 = 2, enabled: bool = True
+        delta: ac.u8, enabled: bool
     ) -> tuple[ac.u8, Packet, bool, ac.u8, ac.u8, ac.u8]:
         before, packet, logical = imported.advance(delta, enabled)
         (saved_packet,) = imported.singleton(packet)
@@ -52,7 +53,23 @@ def CallableResults() -> tuple[ac.u8, Packet, bool, ac.u8, ac.u8, ac.u8]:
         assert second_flag == logical
         return before, saved_packet, logical, second_before, local_before, saved_local
 
-    return produce
+    (
+        produce_result_0,
+        produce_result_1,
+        produce_result_2,
+        produce_result_3,
+        produce_result_4,
+        produce_result_5,
+    ) = produce(2, True)
+
+    return (
+        produce_result_0,
+        produce_result_1,
+        produce_result_2,
+        produce_result_3,
+        produce_result_4,
+        produce_result_5,
+    )
 
 
 @ac.module
@@ -60,14 +77,14 @@ def PhaseResults() -> tuple[ac.u8, ac.u8]:
     phase: ac.u8 = 4
 
     @ac.rule(guard=lambda owned, increment: True)
-    def advance_phase(
-        owned: ac.u8 = phase, increment: ac.u8 = 2
-    ) -> tuple[ac.u8, ac.u8]:
+    def advance_phase(owned: ac.u8, increment: ac.u8) -> tuple[ac.u8, ac.u8]:
         before = owned
         owned = owned + increment
         return before, owned
 
-    return advance_phase
+    advance_phase_result_0, advance_phase_result_1 = advance_phase(phase, 2)
+
+    return advance_phase_result_0, advance_phase_result_1
 
 
 @ac.system
@@ -78,7 +95,7 @@ def ExerciseCallableOutputs():
     phase_before, phase_after = PhaseResults()
     behavioral_left, behavioral_right = BehavioralTuple(17)
 
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         assert packet.value == before + 2
         assert second_before == packet.value

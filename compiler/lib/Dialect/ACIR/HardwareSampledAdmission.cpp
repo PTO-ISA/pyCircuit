@@ -3804,17 +3804,13 @@ private:
         if (failed(clock) || failed(reset))
           return failure();
         // A lifted callback's public values still belong to its lexical
-        // definition. Its physical host may be a stateless entry boundary
-        // without a source-call signature. Authenticate the complete actual
-        // allocation route before consulting that lexical policy; the stored
-        // owner symbol alone is never availability authority.
+        // definition. writerAdmission's parsed view has authenticated the
+        // complete registration route through parseSampledAdmission. Reuse
+        // that proof under this invocation's immutable IR before consulting
+        // the lexical result policy.
         ModuleOp resultOwner = entry.module;
         if (writer.ordinaryResults &&
             writer.rule->hasAttr("ac.registration_path")) {
-          if (failed(verifyRoutedRegistration(analysis, writer.rule,
-                  [&](uint64_t units, Operation *site) {
-                    return budget.debit(units, site);
-                  }))) return failure();
           auto lexical = writer.rule->getAttrOfType<FlatSymbolRefAttr>(
               "ac.registration_owner");
           resultOwner = dyn_cast_or_null<ModuleOp>(

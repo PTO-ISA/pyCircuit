@@ -183,8 +183,9 @@ def Top(seed: ac.u8) -> Packet:
     saved = packet
     field = packet.value
     @ac.rule
-    def check(value=count):
+    def check(value):
         value = value + field
+    check(count)
     return saved
 )py");
   ASSERT_TRUE(captured);
@@ -194,7 +195,7 @@ def Top(seed: ac.u8) -> Packet:
   ASSERT_EQ(module.string("name"), "Top");
   auto data = module.item("body", 1).child("value");
   auto declaration = module.item("body", 4);
-  auto registration = declaration;
+  auto registration = module.item("body", 5).child("value");
   ASSERT_EQ(declaration.string("name"), "check");
   source::SourceRuleWritesAnalysis writes(captured->getOperation());
   ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
@@ -227,7 +228,7 @@ class Packet:
 def Top(seed: ac.u8) -> Packet:
     packet = Packet(value=seed)
     saved = packet
-    @ac.rule
+    @ac.autorule
     def check():
         pass
     return saved
@@ -323,18 +324,20 @@ def Top(seed: ac.u8) -> Packet:
     packet = Packet(value=seed)
     saved = packet
     @ac.rule
-    def check(value=count):
+    def check(value):
         value = value + saved.value
+    check(count)
     @ac.rule
-    def other(value=other_count):
+    def other(value):
         value = value + 1
+    other(other_count)
     return Packet(value=count)
 )py");
     ASSERT_TRUE(captured);
     auto tree = source::readSingleCapture(*captured, error());
     ASSERT_TRUE(succeeded(tree));
     auto module = tree->module.item("body", 2);
-    auto registration = module.item("body", 4);
+    auto registration = module.item("body", 5).child("value");
     source::SourceRuleWritesAnalysis writes(captured->getOperation());
     ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
     auto located =
@@ -345,7 +348,7 @@ def Top(seed: ac.u8) -> Packet:
     EXPECT_EQ(plan->rule.value, module.item("body", 4).value);
     if (forged)
       const_cast<source::SourceRuleCallPlan *>(plan)->rule =
-          module.item("body", 5);
+          module.item("body", 6);
     auto headers =
         compiler::SourceHeaderRegistry::create(&context, {}, error());
     ASSERT_TRUE(succeeded(headers));
@@ -366,45 +369,49 @@ def Top(seed: ac.u8) -> Packet:
 
 
 TEST_F(SourceMemoryBindingsTest,
-       AutonomousPlanUsesRealDeclarationAndExactDefaultExpressionSites) {
+       ExplicitPlanUsesRealDeclarationAndExactArgumentSites) {
   auto captured = capture("automatic_plan.py", R"py(import pycircuit as ac
 @ac.module
 def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
     count: ac.u8 = 5
     saved = count
     @ac.rule
-    def update(target=count, amount=delta) -> ac.u8:
+    def update(target, amount) -> ac.u8:
         target = target + amount
         return target
+    update_result = update(count, delta)
     @ac.rule
-    def snapshot(value=saved) -> ac.u8:
+    def snapshot(value) -> ac.u8:
         value = value + 2
         return value
-    return update, snapshot
+    snapshot_result = snapshot(saved)
+    return update_result, snapshot_result
 )py");
   ASSERT_TRUE(captured);
   auto tree = source::readSingleCapture(*captured, error());
   ASSERT_TRUE(succeeded(tree));
   auto module = tree->module.item("body", 1);
   auto declaration = module.item("body", 2);
-  auto snapshot = module.item("body", 3);
+  auto statement = module.item("body", 3);
+  auto call = statement.child("value");
+  auto snapshot = module.item("body", 5).child("value");
   ASSERT_EQ(declaration.kind(), "FunctionDef");
   source::SourceRuleWritesAnalysis writes(captured->getOperation());
   ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
-  auto located = writes.lookup(module, declaration, [](uint64_t) { return true; });
+  auto located = writes.lookup(module, call, [](uint64_t) { return true; });
   ASSERT_TRUE(succeeded(located));
   ASSERT_NE(*located, nullptr);
   const auto &plan = **located;
-  EXPECT_EQ(plan.kind, source::SourceRuleCallPlan::Kind::LocalDeclaration);
+  EXPECT_EQ(plan.kind, source::SourceRuleCallPlan::Kind::ExplicitCall);
   EXPECT_EQ(plan.module.value, module.value);
-  EXPECT_EQ(plan.occurrence.value, declaration.value);
+  EXPECT_EQ(plan.occurrence.value, call.value);
   EXPECT_EQ(plan.rule.value, declaration.value);
-  EXPECT_EQ(plan.statement.value, declaration.value);
+  EXPECT_EQ(plan.statement.value, statement.value);
   ASSERT_EQ(plan.bindings.size(), 2u);
   for (unsigned ordinal = 0; ordinal != 2; ++ordinal) {
     EXPECT_EQ(plan.bindings[ordinal].ordinal, ordinal);
     EXPECT_EQ(plan.bindings[ordinal].expression.value,
-              declaration.child("args").item("defaults", ordinal).value);
+              call.item("args", ordinal).value);
     EXPECT_EQ(plan.bindings[ordinal].expression.kind(), "Name");
   }
   ASSERT_EQ(plan.writes.size(), 1u);
@@ -415,13 +422,13 @@ def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
   ASSERT_NE(*saved, nullptr);
   ASSERT_EQ((*saved)->bindings.size(), 1u);
   EXPECT_EQ((*saved)->bindings[0].expression.value,
-            snapshot.child("args").item("defaults", 0).value);
+            snapshot.item("args", 0).value);
   EXPECT_TRUE((*saved)->writes.empty());
   EXPECT_TRUE(writes.pendingPairs().empty());
 }
 
 TEST_F(SourceMemoryBindingsTest,
-       AutonomousPreparedPlanCannotSubstituteDeclarationOrDefaultBinding) {
+       ExplicitPreparedPlanCannotSubstituteDeclarationOrArgumentBinding) {
   for (unsigned mutation = 0; mutation != 4; ++mutation) {
     SCOPED_TRACE(mutation);
     auto captured = capture("automatic_plan_mutation.py", R"py(import pycircuit as ac
@@ -430,23 +437,26 @@ def Top(delta: ac.u8) -> ac.u8:
     count: ac.u8 = 5
     other: ac.u8 = 11
     @ac.rule
-    def update(target=count, amount=delta) -> ac.u8:
+    def update(target, amount) -> ac.u8:
         target = target + amount
         return target
+    update_result = update(count, delta)
     @ac.rule
-    def inspect(value=other) -> None:
+    def inspect(value) -> None:
         ac.log("info", "other", value)
-    return update
+    inspect(other)
+    return update_result
 )py");
     ASSERT_TRUE(captured);
     auto tree = source::readSingleCapture(*captured, error());
     ASSERT_TRUE(succeeded(tree));
     auto module = tree->module.item("body", 1);
     auto declaration = module.item("body", 2);
-    auto other = module.item("body", 3);
+    auto call = module.item("body", 3).child("value");
+    auto other = module.item("body", 5).child("value");
     source::SourceRuleWritesAnalysis writes(captured->getOperation());
     ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
-    auto located = writes.lookup(module, declaration, [](uint64_t) { return true; });
+    auto located = writes.lookup(module, call, [](uint64_t) { return true; });
     ASSERT_TRUE(succeeded(located));
     ASSERT_NE(*located, nullptr);
     auto *plan = const_cast<source::SourceRuleCallPlan *>(*located);
@@ -454,7 +464,7 @@ def Top(delta: ac.u8) -> ac.u8:
     if (mutation == 0) plan->rule = other;
     if (mutation == 1) plan->occurrence = other;
     if (mutation == 2)
-      plan->bindings[0].expression = other.child("args").item("defaults", 0);
+      plan->bindings[0].expression = other.item("args", 0);
     if (mutation == 3) plan->bindings[0].ordinal = 1;
     auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
     ASSERT_TRUE(succeeded(headers));

@@ -3,7 +3,7 @@
 from example_multi_input_rule_pipeline.multi_input_rule_pipeline import (
     MultiInputRulePipeline,
 )
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -212,7 +212,7 @@ def MultiInputRulePipelineSystem():  # noqa: N802
         frame.take,
     )
 
-    @rule
+    @autorule
     def exercise():
         assert left_ready == frame.expected_left_ready, (
             "multi_input_rule_pipeline left_ready old-state check"

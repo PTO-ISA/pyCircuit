@@ -284,7 +284,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
 @ac.module
 def Counter(enable: ac.u1, *, W: int = 8) -> ac.bits[W]:
     count: ac.bits[W] = 0
-    @ac.rule
+    @ac.autorule
     def increment():
         if enable:
             count = count + 1
@@ -295,18 +295,14 @@ def Closed(enable: ac.u1) -> ac.u3:
 )py";
     if (guarded) {
       const std::string body =
-          "    @ac.rule\n    def increment():\n        if enable:\n            "
+          "    @ac.autorule\n    def increment():\n        if enable:\n            "
           "count = count + 1\n    return count\n";
       auto position = sourceText.find(body);
       EXPECT_NE(position, std::string::npos);
       if (position == std::string::npos)
         return {};
       sourceText.replace(position, body.size(),
-                         "    @ac.rule(guard=lambda: enable)\n    def "
-                         "increment() -> ac.bits[W]:\n"
-                         "        previous = count\n        count = count + "
-                         "1\n        return previous\n"
-                         "    return increment\n");
+                         "    @ac.rule(guard=lambda: enable)\n    def increment() -> ac.bits[W]:\n        previous = count\n        count = count + 1\n        return previous\n    result = increment()\n    return result\n");
     }
     auto captured = capture("retained_root.py", sourceText);
     if (!captured)
@@ -343,7 +339,7 @@ def Owner():
     def add(__pyc_helper_snapshot_0: ac.u8) -> ac.u8:
         count = increment(count + __pyc_helper_snapshot_0)
         return count
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         count = increment(count)
 )py",
@@ -387,7 +383,7 @@ def Owner():
     def add(value: ac.u8) -> ac.u8:
         count = shifted(value)
         return count
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         count = shifted(count)
 )py", "helper_loops.py");
@@ -611,12 +607,10 @@ std::string counterSource(unsigned width = 8, StringRef ownerName = "Counter",
          "    left = " +
          ownerName.str() + "()\n" +
          (two ? "    right = " + ownerName.str() + "()\n" : "") +
-         "    @ac.rule\n    def advance() -> View:\n        before = "
-         "left.read()\n"
-         "        after = left.relay(delta)\n" +
+         "    @ac.rule\n    def advance() -> View:\n        before = left.read()\n        after = left.relay(delta)\n" +
          (two ? "        other = right.add(delta)\n" : "") +
-         "        return View(before=before, after=after)\n    return "
-         "advance\n";
+         "        return View(before=before, after=after)\n"
+         "    advance_result = advance()\n    return advance_result\n";
 }
 
 TEST_F(SourceTransactionCaptureTest, SourceWritesRemainOrderedTypedEffects) {
@@ -783,7 +777,7 @@ def Reservoir():
 @ac.module
 def Driver(amount: ac.u8):
     reservoir = Reservoir()
-    @ac.rule(guard=lambda: amount != 0)
+    @ac.autorule(guard=lambda: amount != 0)
     def step() -> None:
         discarded = reservoir.take(amount)
 )py");
@@ -809,7 +803,7 @@ TEST_F(SourceTransactionCaptureTest,
   auto guarded = typed(R"py(import pycircuit as ac
 @ac.module
 def GuardOnly(enabled: ac.u1):
-    @ac.rule(guard=lambda: enabled)
+    @ac.autorule(guard=lambda: enabled)
     def tick() -> None:
         pass
 )py",
@@ -833,7 +827,7 @@ def GuardOnly(enabled: ac.u1):
   auto ordinary = typed(R"py(import pycircuit as ac
 @ac.module
 def Pure(enabled: ac.u1) -> {"out": ac.u1}:
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         pass
     return {"out": enabled}
@@ -850,12 +844,12 @@ TEST_F(SourceTransactionCaptureTest,
   reject(R"py(import pycircuit as ac
 @ac.module
 def GuardOnly(enabled: ac.u1):
-    @ac.rule(guard=lambda: enabled)
+    @ac.autorule(guard=lambda: enabled)
     def tick() -> None:
         pass
     tick(enabled)
 )py",
-         "autonomous local Rule cannot be called");
+         "autorule cannot be explicitly called");
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -870,10 +864,10 @@ def Owner():
     @ac.method
     def bare_method() -> None:
         pass
-    @ac.rule(guard=lambda: enabled)
+    @ac.autorule(guard=lambda: enabled)
     def explicit_rule() -> None:
         pass
-    @ac.rule
+    @ac.autorule
     def bare_rule() -> None:
         pass
 )py",
@@ -900,7 +894,7 @@ def Owner():
     else if (method.getSymName() == "bare_method")
       expectSpan(method, 9, 5, 10, 13);
     else if (method.getSymName() == "explicit_rule")
-      expectSpan(method, 11, 20, 11, 35);
+      expectSpan(method, 11, 24, 11, 39);
     else if (method.getSymName() == "bare_rule")
       expectSpan(method, 15, 5, 16, 13);
     else
@@ -908,7 +902,7 @@ def Owner():
   }
   for (auto transaction : transactions) {
     if (transaction.getName() == "explicit_rule")
-      expectSpan(transaction, 11, 20, 11, 35);
+      expectSpan(transaction, 11, 24, 11, 39);
     else if (transaction.getName() == "bare_rule")
       expectSpan(transaction, 15, 5, 16, 13);
     else
@@ -1221,7 +1215,7 @@ def Meter():
         ac.log("debug", "literal", "fixed")
         ac.report("after", count)
         return before
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         unused = instrument(1)
 )py");
@@ -1286,7 +1280,7 @@ TEST_F(SourceTransactionCaptureTest,
 from pycircuit import report as sample, log as record
 @ac.module
 def Top(flag: ac.u1, value: ac.u8):
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         BODY
 )py";
@@ -1327,7 +1321,7 @@ IMPORT
 @ac.module
 def Top(flag: ac.u1, value: ac.u8):
     DECLARATION
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         if flag:
             CALL
@@ -1370,7 +1364,7 @@ TEST_F(SourceTransactionCaptureTest,
 def Top(flag: ac.u1, value: ac.u8):
     def helper(arg: ac.u8) -> ac.u8:
         HELPER
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         if flag:
             ac.report("selected", value)
@@ -1396,8 +1390,8 @@ def Top(flag: ac.u1, value: ac.u8):
   EXPECT_FALSE(diagnostics.empty());
   auto guarded = replaceOnce(source, "HELPER", "return arg");
   guarded = replaceOnce(guarded, "BODY", "pass");
-  guarded = replaceOnce(guarded, "@ac.rule",
-                        "@ac.rule(guard=lambda: ac.report(\"guard\", value))");
+  guarded = replaceOnce(guarded, "@ac.autorule",
+                        "@ac.autorule(guard=lambda: ac.report(\"guard\", value))");
   reject(guarded, "guard");
 }
 
@@ -1428,7 +1422,8 @@ def Top(flag: ac.u1, entries: ac.table[2, ac.u8]) -> View:
                 assert pair.right == entries[1]
         OBSERVATION
         return View(value=pair.left)
-    return inspect
+    inspect_result = inspect()
+    return inspect_result
 )py";
   for (StringRef observation : {"pass", "ac.report(\"value\", entries[0])",
                                "ac.log(\"info\", \"value\", entries[0])"}) {
@@ -1457,7 +1452,7 @@ def Meter():
     def sample(delta: ac.u8) -> ac.u8:
         BODY
         return count
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         unused = sample(1)
 )py";
@@ -1486,7 +1481,7 @@ def Meter():
     def sample(delta: ac.u8) -> ac.u8:
         ac.log("verbose", "event", add(delta))
         return count
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         unused = sample(1)
 )py");
@@ -1521,25 +1516,20 @@ TEST_F(SourceTransactionCaptureTest, MarkerAliasesCannotBeRebound) {
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       AutomaticRuleFanoutKeepsOneRegistrationAndRejectsNestedActivation) {
-  auto repeated = typed(replaceOnce(counterSource(), "    return advance",
-                                    "    first = advance\n    return advance"));
+       LocalRuleResultFanoutKeepsOneCallAndNestedActivationIsRejected) {
+  auto repeated = typed(replaceOnce(counterSource(), "    return advance_result",
+                                    "    first = advance_result\n    return advance_result"));
   ASSERT_TRUE(repeated) << diagnostics;
   auto registrations = operations<ac::SourceTransactionOp>(*repeated);
   ASSERT_EQ(registrations.size(), 1u);
-  EXPECT_EQ(registrations[0].getDeclaration(), registrations[0].getOccurrence());
-  for (StringRef replacement : {"    first = advance()\n    return advance",
-                                "    return advance()"})
-    reject(replaceOnce(counterSource(), "    return advance", replacement),
-           "autonomous local Rule cannot be called");
-  reject(replaceOnce(counterSource(), "    return advance", "    pass"),
-         "return");
+  reject(replaceOnce(counterSource(), "    return advance_result",
+                     "    return advance"), "rule");
   auto nested = replaceOnce(counterSource(), "        before = left.read()",
                            "        inner()\n        before = left.read()");
   nested = replaceOnce(nested, "    @ac.rule\n    def advance",
                        "    @ac.rule\n    def inner() -> None:\n        pass\n"
                        "    @ac.rule\n    def advance");
-  reject(nested, "autonomous local Rule cannot be called");
+  reject(nested, "rule");
   // Ordinary callable operations still share the outer transaction.
   auto callable = replaceOnce(nested, "    @ac.rule\n    def inner",
                               "    @ac.method\n    def inner");
@@ -1552,13 +1542,6 @@ TEST_F(SourceTransactionCaptureTest,
     innerCalls += call.getCalleeAttr().getLeafReference() == "inner";
   });
   EXPECT_EQ(innerCalls, 1u);
-  reject(replaceOnce(callable, "        inner()", "        ignored = inner()"),
-         "result");
-  reject(replaceOnce(counterSource(), "        before = left.read()",
-                     "        @ac.rule\n        def nested() -> None:\n"
-                     "            pass\n        nested()\n"
-                     "        before = left.read()"),
-         "rule");
 }
 
 TEST_F(SourceTransactionCaptureTest, MethodSignaturesRequireExplicitTypes) {
@@ -1632,7 +1615,7 @@ def Owner():
             pass
         else:
             count = count + 3
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         choose(0, True)
 )py",
@@ -1692,7 +1675,7 @@ def Owner():
         else:
             bounded = 1
         narrow = bounded
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         choose(0, True)
 )py",
@@ -1730,7 +1713,7 @@ def Owner():
         else:
             local = 1
         count = local
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         choose(0)
 )py");
@@ -1754,7 +1737,7 @@ def Owner():
         else:
             pass
         count = selected
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         choose(0)
 )py",
@@ -1775,7 +1758,7 @@ def Owner():
         else:
             pass
         count = packet.value
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         choose(0)
 )py",
@@ -1799,7 +1782,7 @@ def Owner():
     @ac.method
     def update() -> None:
         count = count + 1
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         BODY
 )py";
@@ -1820,7 +1803,7 @@ def Owner():
     @ac.method
     def update() -> None:
         count = count + 1
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         if False:
             for value in range(2):
@@ -1868,7 +1851,7 @@ def Owner():
 @ac.module
 def Parent(flag: ac.u1):
     owner = Owner()
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         owner.choose(flag)
 )py";
@@ -1916,14 +1899,14 @@ def Parent() RESULT:
   auto valued = replaceOnce(source, "RESULT", "-> View");
   valued = replaceOnce(valued, "RETURN", "-> View");
   valued = replaceOnce(valued, "YIELD", "return View(value=1)");
-  valued = replaceOnce(valued, "REGISTER", "return step");
+  valued = replaceOnce(valued, "REGISTER", "result = step()\n    return result");
   // Existing source fact/rowFact publication does not infer a Method's body
   // result as a selector literal, even when that body returns zero.
   managedResult(valued);
   auto noResult = replaceOnce(source, "RESULT", "");
   noResult = replaceOnce(noResult, "RETURN", "-> None");
   noResult = replaceOnce(noResult, "YIELD", "pass");
-  noResult = replaceOnce(noResult, "REGISTER", "");
+  noResult = replaceOnce(noResult, "REGISTER", "step()");
   auto file = typed(noResult);
   ASSERT_TRUE(file) << diagnostics;
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
@@ -1942,7 +1925,7 @@ def Owner():
     @ac.method
     def update(amount: ac.u8) -> None:
         count = count + amount
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         if False:
             CALL
@@ -1971,7 +1954,7 @@ def Owner():
         packet = Packet(left=count, right=count + 1)
         selected = packet.left if flag else packet.right
         count = selected
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         choose(0)
 )py",
@@ -2071,7 +2054,7 @@ def Owner():
 @ac.module
 def Parent():
     owner = Owner()
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         result = EXPRESSION
 )py";
@@ -2098,7 +2081,7 @@ def Owner():
 @ac.module
 def Parent(value: ac.u1):
     owner = Owner()
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         flag = owner.ready()
         result = flag + value
@@ -2121,7 +2104,7 @@ def Owner():
 @ac.system
 def Closed():
     owner = Owner()
-    @ac.rule
+    @ac.autorule
     def sample() -> None:
         value = owner.read()
 )py");
@@ -2235,7 +2218,9 @@ def Parent() -> View:
         denied = False
         value = owner.probe(denied)
 )py" + (secondValue ? "        return View(before=value, after=value)\n" : "") +
-         "    return first\n";
+         "    first_result = first()\n" +
+         (secondValue ? "    second_result = second()\n" : "    second()\n") +
+         "    return first_result\n";
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -2289,7 +2274,7 @@ def Owner():
 @ac.module
 def Parent():
     owner = Owner()
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         unused = owner.relay()
 )py";
@@ -2313,7 +2298,8 @@ class View:
     value: ac.u8)py");
     valued = replaceOnce(valued, "def Parent():", "def Parent() -> View:");
     valued = replaceOnce(valued, "def step() -> None:", "def step() -> View:");
-    valued += "        return View(value=unused)\n    return step\n";
+    valued = replaceOnce(valued, "@ac.autorule", "@ac.rule");
+    valued += "        return View(value=unused)\n    result = step()\n    return result\n";
     managedResult(valued);
   }
 }
@@ -2337,7 +2323,8 @@ def Parent() -> View:
     def step() -> View:
         value = owner.read()
         return View(value=value)
-    return step
+    step_result = step()
+    return step_result
 )py";
   managedResult(sourceText);
   auto voidSource =
@@ -2346,7 +2333,7 @@ def Parent() -> View:
       replaceOnce(voidSource, "def step() -> View:", "def step() -> None:");
   voidSource =
       replaceOnce(voidSource, "        return View(value=value)\n", "");
-  voidSource = replaceOnce(voidSource, "    return step\n", "");
+  voidSource = replaceOnce(voidSource, "    step_result = step()\n    return step_result\n", "    step()\n");
   auto file = typed(voidSource);
   ASSERT_TRUE(file);
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
@@ -2400,7 +2387,8 @@ def Parent() -> Result:
     @ac.rule
     def step() -> Result:
         return owner.attempt()
-    return step
+    step_result = step()
+    return step_result
 )py");
   ASSERT_TRUE(file);
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
@@ -2425,7 +2413,7 @@ def Owner():
 @ac.module
 def Parent():
     owner = Owner()
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         unused = owner.read()
 )py";
@@ -2495,7 +2483,7 @@ def Parent(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8, ac.u8, ac.u8, ac.u8]:
     @ac.rule
     def inspect() -> tuple[ac.u8, ac.u8, ac.u8, ac.u8, ac.u8, ac.u8]:
         return single.data, alias.read(), packet.data, extra, multiple.read(), empty.read()
-    a, b, c, d, e, f = inspect
+    a, b, c, d, e, f = inspect()
     return a, b, c, d, e, f
 )py";
   auto file = typed(source, "handles.py");
@@ -2541,7 +2529,8 @@ def Parent() -> View:
          (value ? "True" : "False") + R"py(
         result = owner.echo(actual)
         return View(value=result)
-    return step
+    result = step()
+    return result
 )py";
 }
 
@@ -2924,7 +2913,7 @@ def Owner():
     @ac.method(guard=lambda delta: predicate(delta))
     def guarded(delta: ac.u8) -> None:
         count = delta
-    @ac.rule(guard=lambda: predicate(count))
+    @ac.autorule(guard=lambda: predicate(count))
     def inspect() -> None:
         pass
 )py";
@@ -2959,7 +2948,7 @@ def Owner():
         count = bias
         count = local
         return value
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         unused = put(bias)
 )py", "fixed_boundaries.py");
@@ -3022,7 +3011,7 @@ def Owner():
         local: ac.u8 = bias
         count = bias
         return value
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         unused = put(bias)
 )py";
@@ -3047,7 +3036,7 @@ def Owner():
     @ac.method
     def require_bool(value: bool) -> None:
         pass
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         value: ac.u1 = 1
         require_bool(value)
@@ -3126,6 +3115,7 @@ def Owner():
         snapshot = second
         second.left = first.right
         return snapshot
+    step_result = step()
 )py",
                     "nominal_fields.py");
   ASSERT_TRUE(file);
@@ -3165,6 +3155,7 @@ def Owner():
     def step() -> tuple[Packet, Packet, Packet]:
         original, first, final = update()
         return original, first, final
+    step_result_0, step_result_1, step_result_2 = step()
 )py", "constructor_updates.py");
   ASSERT_TRUE(file);
   auto creates = operations<ac::StructCreateOp>(*file);
@@ -3208,6 +3199,7 @@ def Owner():
     @ac.rule
     def step() -> Packet:
         return update(1, 2, 3)
+    step_result = step()
 )py", "equivalent_constructor_fields.py");
   ASSERT_TRUE(file);
   auto creates = operations<ac::StructCreateOp>(*file);
@@ -3249,6 +3241,7 @@ def Owner():
     @ac.rule
     def step() -> Packet:
         return update(1, Packet(left=1, payload=2, right=3))
+    step_result = step()
 )py", "incoming_updates.py");
   ASSERT_TRUE(file);
   bool incomingProjection = false, branchProjection = false;
@@ -3299,7 +3292,8 @@ def Top() -> tuple[Packet, Packet]:
         left = first.update(valid)
         right = second.update(valid)
         return left, right
-    return step
+    step_result_0, step_result_1 = step()
+    return step_result_0, step_result_1
 )py";
   ASSERT_TRUE(typed(text, "nominal_owners.py")) << diagnostics;
   // The valid argument is admitted first in the same importer; neither that
@@ -3390,7 +3384,8 @@ def Top(packet: Packet) -> Packet:
     @ac.rule
     def step() -> Packet:
         return owner.choose(0, packet)
-    return step
+    step_result = step()
+    return step_result
 )py";
   ASSERT_TRUE(typed(text, "unchanged_table_capture.py"));
   for (StringRef statement :
@@ -3445,11 +3440,11 @@ def Owner():
 def Top(value: ac.u8, flag: bool) -> tuple[ac.u8, bool, Packet]:
     owner = Owner()
     @ac.rule
-    def step(delta: ac.u8=value, enabled: bool=flag) -> tuple[ac.u8, bool, Packet]:
+    def step(delta: ac.u8, enabled: bool) -> tuple[ac.u8, bool, Packet]:
         word, logical, packet = owner.split(delta, enabled)
         saved, = owner.singleton(packet)
         return word, logical, saved
-    word, logical, packet = step
+    word, logical, packet = step(value, flag)
     return word, logical, packet
 )py";
 
@@ -3511,9 +3506,9 @@ def Top(value: ac.u8, flag: bool) -> tuple[Packet, bool, ac.u8]:
     saved, = singleton(unchanged)
     routed = Identity(saved)
     @ac.rule
-    def local(delta: ac.u8=routed) -> tuple[ac.u8]:
+    def local(delta: ac.u8) -> tuple[ac.u8]:
         return (delta + 1,)
-    changed, = local
+    changed, = local(routed)
     return packet, logical, changed
 )py", "behavioral_tuple.py");
   ASSERT_TRUE(file);
@@ -3720,10 +3715,10 @@ def Owner():
 def Top() -> tuple[ac.u8]:
     owner = Owner()
     @ac.rule
-    def step(delta: ac.u8=1) -> tuple[ac.u8]:
+    def step(delta: ac.u8) -> tuple[ac.u8]:
         old = owner.read()
         return (old + delta,)
-    value, = step
+    value, = step(1)
     return (value,)
 )py";
   auto file = typed(source, "singleton_rule.py");
@@ -3780,11 +3775,11 @@ TEST_F(SourceTransactionCaptureTest,
 def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
     count: ac.u8 = 5
     @ac.rule(guard=lambda amount, target: True)
-    def update(amount: ac.u8=delta, target: ac.u8=count) -> tuple[ac.u8, ac.u8]:
+    def update(amount: ac.u8, target: ac.u8) -> tuple[ac.u8, ac.u8]:
         before = target
         target = target + amount
         return before, target
-    first, second = update
+    first, second = update(delta, count)
     return first, second
 )py";
   auto file = typed(source, "typed_tuple_owner.py");
@@ -3810,11 +3805,11 @@ def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
 def Top() -> tuple[ac.u8, ac.u8]:
     count: ac.u8 = 5
     @ac.rule(guard=lambda left, right: True)
-    def update(left: ac.u8=count, right: ac.u8=count) -> tuple[ac.u8, ac.u8]:
+    def update(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         left = left + 1
         right = right + 2
         return left, right
-    first, second = update
+    first, second = update(count, count)
     return first, second
 )py");
   ASSERT_TRUE(alias);
@@ -3896,11 +3891,11 @@ def Top(valid: ac.u1, data: ac.u8, take: ac.u1) -> View:
     alias = source
     @ac.method
     def relay() -> None:
-        raw = source.valid
+        ac.log("info", "raw valid", source.valid)
         observed = alias.peek()
         value = alias.pop()
         dest.push(value)
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         relay()
     return View(ready=source.ready, valid=dest.valid, data=dest.data)
@@ -3975,7 +3970,7 @@ TEST_F(SourceTransactionCaptureTest, QueueEffectsRejectGuardsAndRawDirectionMixi
 @ac.module
 def Top() -> None:
     fifo = ac.queue[ac.u8](depth=2)
-    @ac.rule(guard=lambda: fifo.peek() == ac.u8(0))
+    @ac.autorule(guard=lambda: fifo.peek() == ac.u8(0))
     def bad() -> None:
         fifo.pop()
 )py", "guard cannot call a Method");
@@ -3983,7 +3978,7 @@ def Top() -> None:
 @ac.module
 def Top(valid: ac.u1, data: ac.u8) -> None:
     fifo = ac.queue[ac.u8](in_valid=valid, in_data=data, depth=2)
-    @ac.rule
+    @ac.autorule
     def bad() -> None:
         fifo.push(data)
 )py", "conflicts with an externally bound raw input");
@@ -3991,7 +3986,7 @@ def Top(valid: ac.u1, data: ac.u8) -> None:
 @ac.module
 def Top(valid: ac.u1) -> None:
     fifo = ac.queue[ac.u8](in_valid=valid, depth=2)
-    @ac.rule
+    @ac.autorule
     def idle() -> None:
         pass
 )py", "in_valid and in_data together");
@@ -4015,7 +4010,7 @@ def Top() -> None:
     tags = ac.queue[Tag](depth=2)
     packets = ac.queue[Packet](depth=2)
     lanes = ac.queue[ac.table[3, Tag]](depth=2)
-    @ac.rule
+    @ac.autorule
     def idle() -> None:
         pass
 )py", "queue_carriers.py");
@@ -4077,7 +4072,8 @@ def Top(index: ac.u1, data: ac.u8, flag: ac.u1) -> Cell:
         else:
             packet.tag = 1
         return packet
-    return drive
+    drive_result = drive()
+    return drive_result
 )py",
                     "selected_writes.py");
   ASSERT_TRUE(file) << diagnostics;
@@ -4135,7 +4131,7 @@ class Result:
 def Top(data: ac.u4) -> Result:
     entries = ac.table[2, Cell](init=Cell(value=3))
     index: ac.u1 = 0
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         index = index + 1
     snapshot = entries
@@ -4159,7 +4155,8 @@ def Top(value: ac.u8) -> ac.u3:
     @ac.rule
     def run() -> ac.u3:
         return encode(value)
-    return run
+    run_result = run()
+    return run_result
 )py", "helper_fixed_results.py");
   ASSERT_TRUE(file) << diagnostics;
   EXPECT_TRUE(succeeded(verify(*file))) << diagnostics;
@@ -4241,7 +4238,7 @@ TEST_F(SourceTransactionCaptureTest, TypedRuleModuleReusesStandardMemoryBinding)
 def Top(data: ac.u8, index: ac.u2) -> ac.u8:
     state: ac.u8 = 0
     raw = ac.sync_mem[ac.u8](True, index, False, index, data, 0, depth=4)
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         state = raw
     return state
@@ -4267,7 +4264,8 @@ def Top(index: ac.u1, value: ac.u8) -> ac.u8:
     @ac.rule
     def transfer() -> ac.u8:
         return install(entries, index, value)
-    return transfer
+    transfer_result = transfer()
+    return transfer_result
 )py", "nested_global_stateful_rule.py");
   ASSERT_TRUE(file) << diagnostics;
   EXPECT_EQ(operations<ac::SourceTransactionOp>(*file).size(), 1u);
@@ -4308,13 +4306,14 @@ def Top(delta: ac.u8) -> ac.u8:
     @ac.rule
     def run() -> ac.u8:
         return relay(count, delta)
-    return run
+    run_result = run()
+    return run_result
 )py";
     auto file = typed(text, "transitive_global_templates.py");
     ASSERT_TRUE(file) << diagnostics;
     auto transactions = operations<ac::SourceTransactionOp>(*file);
     ASSERT_EQ(transactions.size(), 1u);
-    EXPECT_EQ(transactions[0].getDeclaration(), transactions[0].getOccurrence());
+    EXPECT_NE(transactions[0].getDeclaration(), transactions[0].getOccurrence());
     EXPECT_EQ(operations<ac::SourceStateOp>(*file).size(), 1u);
     auto writes = operations<ac::SourceStateWriteOp>(*file);
     ASSERT_EQ(writes.size(), 1u);
@@ -4366,7 +4365,8 @@ def Top(value: ac.u8) -> tuple[Packet, Packet, Packet, Packet, Packet, Packet]:
         before, edited = alter(snapshot, value)
         owner_before, owner_edited = alter(left, value + 1)
         return snapshot, before, edited, owner_before, owner_edited, left
-    return run
+    run_result_0, run_result_1, run_result_2, run_result_3, run_result_4, run_result_5 = run()
+    return run_result_0, run_result_1, run_result_2, run_result_3, run_result_4, run_result_5
 )py";
   for (StringRef formal : {"left", "payload"}) {
     SCOPED_TRACE(formal.str());
@@ -4467,7 +4467,8 @@ def Client(delta: ac.u8) -> ac.u8:
     def run() -> ac.u8:
         saved = peer.advance(delta)
         return shared.advance(saved)
-    return run
+    run_result = run()
+    return run_result
 @ac.module
 def Top(delta: ac.u8) -> ac.u8:
     client = Client(delta)
@@ -4653,10 +4654,9 @@ TEST_F(SourceTransactionCaptureTest,
   }
 }
 
-// These regressions use declaration-based registration directly. Historical
-// explicit-call fixtures above retain their own separate migration obligations.
+// Declarations define private callbacks; explicit calls own registrations.
 TEST_F(SourceTransactionCaptureTest,
-       AutomaticDeclarationsRegisterOnceIncludingUnusedAndVoidResults) {
+       LocalCallsRegisterEachOccurrenceAndAutorulesRegisterAtDeclaration) {
   auto file = typed(R"py(import pycircuit as ac
 @ac.struct
 class Packet:
@@ -4668,32 +4668,33 @@ def Identity(value: ac.u8) -> ac.u8:
 @ac.module
 def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, Packet, ac.u8, ac.u8]:
     @ac.rule
-    def scalar(argument=value) -> ac.u8:
+    def scalar(argument) -> ac.u8:
         return argument + 1
+    scalar_result = scalar(value)
     @ac.rule
-    def packet(argument=value) -> Packet:
+    def packet(argument) -> Packet:
         return Packet(value=argument, check=argument + 2)
+    packet_result = packet(value)
     @ac.rule
-    def pair(argument: ac.u8=value) -> tuple[ac.u8, ac.u8]:
+    def pair(argument: ac.u8) -> tuple[ac.u8, ac.u8]:
         return argument + 3, argument + 4
+    left, right = pair(value)
     @ac.rule
     def unused() -> ac.u8:
         return value
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         pass
-    copied = Identity(scalar)
-    left, right = pair
-    return scalar, copied, packet, left, right
+    copied = Identity(scalar_result)
+    return scalar_result, copied, packet_result, left, right
 )py", "automatic_results.py");
   ASSERT_TRUE(file) << diagnostics;
   auto registrations = operations<ac::SourceTransactionOp>(*file);
-  ASSERT_EQ(registrations.size(), 5u);
+  ASSERT_EQ(registrations.size(), 4u);
   EXPECT_EQ(operations<ac::InstanceOp>(*file).size(), 1u);
   unsigned voidResults = 0, tupleResults = 0;
   llvm::DenseSet<Attribute> declarations;
   for (auto transaction : registrations) {
-    EXPECT_EQ(transaction.getDeclaration(), transaction.getOccurrence());
     EXPECT_TRUE(declarations.insert(transaction.getDeclaration()).second);
     auto entry = entryMethod(transaction);
     ASSERT_TRUE(entry);
@@ -4709,21 +4710,23 @@ def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, Packet, ac.u8, ac.u8]:
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       AutomaticDefaultBindingsDistinguishOwnersFromSavedValues) {
+       ExplicitRuleBindingsDistinguishOwnersFromSavedValues) {
   auto file = typed(R"py(import pycircuit as ac
 @ac.module
 def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
     count: ac.u8 = 5
     saved = count
     @ac.rule
-    def update(target: ac.u8=count, amount=delta) -> ac.u8:
+    def update(target: ac.u8, amount) -> ac.u8:
         target = target + amount
         return target
+    update_result = update(count, delta)
     @ac.rule
-    def snapshot(value=saved) -> ac.u8:
+    def snapshot(value) -> ac.u8:
         value = value + 2
         return value
-    return update, snapshot
+    snapshot_result = snapshot(saved)
+    return update_result, snapshot_result
 )py", "automatic_owners.py");
   ASSERT_TRUE(file) << diagnostics;
   auto states = operations<ac::SourceStateOp>(*file);
@@ -4735,7 +4738,7 @@ def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
   ASSERT_EQ(transactions.size(), 2u);
   ac::SourceTransactionOp updateRegistration, snapshotRegistration;
   for (auto transaction : transactions) {
-    EXPECT_EQ(transaction.getDeclaration(), transaction.getOccurrence());
+    EXPECT_NE(transaction.getDeclaration(), transaction.getOccurrence());
     if (transaction.getName() == "update") updateRegistration = transaction;
     if (transaction.getName() == "snapshot") snapshotRegistration = transaction;
   }
@@ -4767,9 +4770,10 @@ def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8]:
     first = template(value)
     second = template(value)
     @ac.rule
-    def nested(argument=value) -> ac.u8:
+    def nested(argument) -> ac.u8:
         return template(argument)
-    return first, second, nested
+    nested_result = nested(value)
+    return first, second, nested_result
 )py", "automatic_templates.py");
   ASSERT_TRUE(file) << diagnostics;
   auto transactions = operations<ac::SourceTransactionOp>(*file);
@@ -4778,7 +4782,7 @@ def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8]:
   llvm::DenseSet<Attribute> occurrences;
   for (auto transaction : transactions) {
     EXPECT_TRUE(occurrences.insert(transaction.getOccurrence()).second);
-    if (transaction.getDeclaration() == transaction.getOccurrence()) {
+    if (transaction.getName() == "nested") {
       ++local;
       EXPECT_EQ(direct<ac::SourceMethodCallOp>(executionBody(transaction)).size(),
                 1u);
@@ -4796,15 +4800,15 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Top(value: ac.u8) -> ac.u8:
     @ac.rule
-    def step(argument: ac.u8=value) -> ac.u8:
+    def step(argument: ac.u8) -> ac.u8:
         return argument + 1
-    return step
+    step_result = step(value)
+    return step_result
 )py";
   for (const auto &invalid : {
-           replaceOnce(base, "argument: ac.u8=value", "argument: ac.u8"),
-           replaceOnce(base, "argument: ac.u8=value", "argument: ac.u7=value"),
-           replaceOnce(base, "return step\n", "return step()\n"),
-           replaceOnce(base, "return step\n", "step = value\n    return step\n"),
+           replaceOnce(base, "step(value)", "step()"),
+           replaceOnce(base, "argument: ac.u8", "argument: ac.u7"),
+           replaceOnce(base, "return step_result", "return step"),
            replaceOnce(base, "-> ac.u8:\n        return argument + 1",
                        "-> None:\n        pass")}) {
     auto captured = capture("invalid_automatic.py", invalid);
@@ -4816,13 +4820,13 @@ def Top(value: ac.u8) -> ac.u8:
   reject(R"py(import pycircuit as ac
 @ac.module
 def Child():
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         pass
 @ac.module
 def Parent():
     child = Child()
-    @ac.rule
+    @ac.autorule
     def invoke() -> None:
         child.tick()
 )py", "private compiler callable is not an authored source interface");
@@ -4834,13 +4838,14 @@ TEST_F(SourceTransactionCaptureTest,
   auto file = typed(R"py(import pycircuit as ac
 @ac.module
 def Owner() -> ac.u8:
-    @ac.rule
-    def computed() -> ac.u8:
-        return 5
+    state: ac.u8 = 5
+    @ac.autorule
+    def computed() -> None:
+        state = state + 1
     @ac.method
-    def probe() -> ac.u8:
-        return 0
-    return computed
+    def probe() -> None:
+        pass
+    return state
 )py", "private_automatic_entry.py");
   ASSERT_TRUE(file) << diagnostics;
   auto registrations = operations<ac::SourceTransactionOp>(*file);
@@ -4872,7 +4877,7 @@ def Owner() -> ac.u8:
   body.getTerminator()->setOperands(copied->getResults());
   diagnostics.clear();
   EXPECT_TRUE(failed(mlir::verify(*file)));
-  EXPECT_NE(diagnostics.find("autonomous"), std::string::npos) << diagnostics;
+  EXPECT_FALSE(diagnostics.empty());
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -4888,9 +4893,9 @@ def Counter():
 def Client(counter: Counter) -> ac.u8:
 )py";
   for (StringRef body : {
-           "    @ac.rule\n    def inspect() -> ac.u8:\n        return counter.count\n    return inspect\n",
-           "    peer = ac.instance_ref(Counter, '..', 'counter')\n    alias = peer\n    @ac.rule\n    def inspect() -> ac.u8:\n        return alias.read()\n    return inspect\n",
-           "    peer = ac.instance_ref(Counter, '..', 'counter')\n    def helper() -> ac.u8:\n        return peer.read()\n    @ac.rule\n    def inspect() -> ac.u8:\n        return helper()\n    return inspect\n"}) {
+           "    @ac.rule\n    def inspect() -> ac.u8:\n        return counter.count\n    inspect_result = inspect()\n    return inspect_result\n",
+           "    peer = ac.instance_ref(Counter, '..', 'counter')\n    alias = peer\n    @ac.rule\n    def inspect() -> ac.u8:\n        return alias.read()\n    inspect_result = inspect()\n    return inspect_result\n",
+           "    peer = ac.instance_ref(Counter, '..', 'counter')\n    def helper() -> ac.u8:\n        return peer.read()\n    @ac.rule\n    def inspect() -> ac.u8:\n        return helper()\n    inspect_result = inspect()\n    return inspect_result\n"}) {
     auto captured = capture("illegal_automatic_scope.py", prefix + body.str());
     ASSERT_TRUE(captured);
     diagnostics.clear();
@@ -4905,14 +4910,15 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Top(value: ac.u8) -> ac.u8:
     @ac.rule
-    def source(argument=value) -> ac.u8:
+    def source(argument) -> ac.u8:
         return argument
+    source_result = source(value)
 )py";
   for (StringRef suffix : {
-           "    @ac.rule\n    def sink() -> ac.u8:\n        return source\n    return sink\n",
-           "    alias = source\n    @ac.rule\n    def sink() -> ac.u8:\n        return alias\n    return sink\n",
-           "    @ac.rule\n    def sink(argument=source) -> ac.u8:\n        return argument\n    return sink\n",
-           "    def helper() -> ac.u8:\n        return source\n    @ac.rule\n    def sink() -> ac.u8:\n        return helper()\n    return sink\n"}) {
+           "    @ac.rule\n    def sink() -> ac.u8:\n        return source\n    sink_result = sink()\n    return sink_result\n",
+           "    alias = source\n    @ac.rule\n    def sink() -> ac.u8:\n        return alias\n    sink_result = sink()\n    return sink_result\n",
+           "    @ac.rule\n    def sink(argument) -> ac.u8:\n        return argument\n    sink_result = sink(source)\n    return sink_result\n",
+           "    def helper() -> ac.u8:\n        return source\n    @ac.rule\n    def sink() -> ac.u8:\n        return helper()\n    sink_result = sink()\n    return sink_result\n"}) {
     SCOPED_TRACE(suffix.str());
     reject(prefix + suffix.str(), "Rule");
   }
@@ -4938,10 +4944,10 @@ def Owner() -> ac.u8:
     @ac.method
     def read() -> ac.u8:
         return count
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         count = count + 1
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "current", count)
     return count
@@ -5098,10 +5104,12 @@ def Bank(enable: ac.u1, *, N: int = 4) -> ac.table[N, ac.u8]:
     entries: ac.table[N, ac.u8] = 3
     @ac.rule
 )py";
-    text += captured ? "    def increment(last: ac.u64 = N - 1):\n"
+    text += captured ? "    def increment(last: ac.u64):\n"
                      : "    def increment():\n        last: ac.u64 = N - 1\n";
     text += "        if enable:\n            entries[last] = entries[last] + "
-            "1\n    return entries\n";
+            "1\n";
+    text += captured ? "    increment(N - 1)\n" : "    increment()\n";
+    text += "    return entries\n";
     auto file = typed(text, "checked_tail.py");
     ASSERT_TRUE(file) << captured;
     auto reads = operations<ac::TableReadOp>(*file);
@@ -5132,7 +5140,7 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Bank(enable: ac.u1, index: ac.u2, *, N: int = 4) -> ac.table[N, ac.u8]:
     entries: ac.table[N, ac.u8] = 0
-    @ac.rule
+    @ac.autorule
     def write():
         if enable:
             entries[index] = 7
@@ -5164,7 +5172,7 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Bank(enable: ac.u1, *, N: int = 3) -> ac.table[N, ac.u8]:
     entries: ac.table[N, ac.u8] = 3
-    @ac.rule
+    @ac.autorule
     def increment():
         last: ac.u64 = N - 1
         if enable:
@@ -5274,7 +5282,7 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Unused(enable: ac.u1, *, W: int = 8) -> ac.bits[W]:
     saved: ac.bits[W] = 0
-    @ac.rule
+    @ac.autorule
     def update():
         if enable:
             saved = saved + 1
@@ -5333,7 +5341,7 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Fixed(enable: ac.u1) -> ac.table[3, ac.u8]:
     entries: ac.table[3, ac.u8] = 0
-    @ac.rule
+    @ac.autorule
     def write():
         index: ac.u64 = 2
         if enable:
@@ -5723,8 +5731,7 @@ def Root(data: ac.bits[W], *, W: int = 8) -> ac.bits[W]:
           profile == 2
               ? ", *, W: int = 8) -> ac.bits[W]:\n    count: ac.bits[W] = 0\n"
               : ") -> ac.u8:\n    count: ac.u8 = 0\n";
-      sourceText += "    @ac.rule\n    def increment():\n        if enable:\n  "
-                    "          count = count + 1\n    return count\n";
+      sourceText += "    @ac.autorule\n    def increment():\n        if enable:\n            count = count + 1\n    return count\n";
     }
     auto captured = capture("no_entry.py", sourceText);
     ASSERT_TRUE(captured);

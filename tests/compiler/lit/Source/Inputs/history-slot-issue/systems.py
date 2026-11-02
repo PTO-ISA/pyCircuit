@@ -9,7 +9,7 @@ from history_slot_issue.providers import (
     issue,
     nested_mailbox,
 )
-from pycircuit import concat, log, queue, rule, struct, system, u1, u16
+from pycircuit import concat, log, queue, rule, struct, system, u1, u16, autorule
 
 
 @struct
@@ -105,7 +105,7 @@ def slot_rule_mailbox():
     left = explicit_mailbox(left_in_available, left_in_head, left_out_ready)
 
 
-    @rule
+    @autorule
     def drive_nested():
         assert (right.incoming_take == 0) or (
             right_in_available != 0
@@ -123,7 +123,7 @@ def slot_rule_mailbox():
         log("info", "right_out_available", right_out_available)
         log("info", "right_out_head", right_out_head.value)
 
-    @rule
+    @autorule
     def observe_left():
         assert (left.incoming_take == 0) or (
             left_in_available != 0
@@ -157,7 +157,7 @@ def resident_issue():
         issued_take=frame.issued_take,
     )
 
-    @rule
+    @autorule
     def drive():
         assert (dut.allocation_capture == 0) or (
             dut.allocation_available != 0

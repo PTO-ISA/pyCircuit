@@ -46,13 +46,13 @@ def QueueRulePipeline():  # noqa: N802
     def snapshot() -> tuple[ac.u8, ac.u8]:
         return accumulator.snapshot(), transferred
 
-    @ac.rule
+    @ac.autorule
     def transfer() -> None:
         packet = ingress.pop()
         result = accumulator.add(packet)
         transferred = transferred + 1
         egress.push(result)
 
-    @ac.rule
+    @ac.autorule
     def progress() -> None:
         ac.log("info", "queue progress", transferred)

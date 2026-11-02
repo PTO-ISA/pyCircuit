@@ -216,7 +216,7 @@ def Exercise():
     explicit = Explicit()
     pair = Pair(phase)
     scalar = Scalar(phase)
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         ac.log("info", "void baseline", phase, scalar)
         phase = phase + 1
@@ -251,7 +251,7 @@ def test_void_parent_preserves_two_effectful_child_instances(tmp_path, binding):
 @ac.module
 def Counter(delta: ac.u8) -> None:
     count: ac.u8 = 0
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         ac.log("info", "void child", delta, count)
         count = count + delta
@@ -346,10 +346,7 @@ def test_unannotated_module_results_still_require_an_annotation(tmp_path, payloa
             "ac.u8",
         ),
         (
-            "    first = Empty()\n    alias = first\n    count: ac.u8 = 0\n"
-            "    def alias() -> ac.u8:\n        return 7\n"
-            "    @ac.rule\n    def step() -> None:\n        count = count + 1\n"
-            "    return alias()\n",
+            "    first = Empty()\n    alias = first\n    count: ac.u8 = 0\n    def alias() -> ac.u8:\n        return 7\n    @ac.rule\n    def step() -> None:\n        count = count + 1\n    return alias()\n",
             "ac.u8",
         ),
     ],

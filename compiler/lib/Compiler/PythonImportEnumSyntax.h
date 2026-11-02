@@ -16,6 +16,7 @@ enum class MarkerKind {
   Module,
   System,
   Rule,
+  AutoRule,
   Method,
   Struct,
   Bits,

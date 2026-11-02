@@ -71,12 +71,12 @@ compileCounter(mlir::MLIRContext &context, bool lower,
   llvm::SmallString<256> source(sourceRoot);
   llvm::sys::path::append(source, "counter.py");
   std::string program = R"py(from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 Word = Annotated[int, range(256)]
 @module
 def Counter():
     state: Word = 0
-    @rule
+    @autorule
     def advance():
         nonlocal state
         state = EXPRESSION

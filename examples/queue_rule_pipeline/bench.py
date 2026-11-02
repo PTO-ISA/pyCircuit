@@ -12,13 +12,13 @@ def QueueRulePipelineSystem():  # noqa: N802
     sent: ac.u4 = 0
     received: ac.u4 = 0
 
-    @ac.rule
+    @ac.autorule
     def produce() -> None:
         if sent < 4:
             pipeline.put(Packet(tag=sent, value=sent + 10))
             sent = sent + 1
 
-    @ac.rule(guard=lambda: cycle >= 6)
+    @ac.autorule(guard=lambda: cycle >= 6)
     def consume() -> None:
         packet = pipeline.get()
         ordinal = received
@@ -30,7 +30,7 @@ def QueueRulePipelineSystem():  # noqa: N802
         assert packet.value == expected, "queue pipeline: accumulated payload"
         ac.log("info", "queue received", cycle, packet.tag, packet.value)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         total, transferred = pipeline.snapshot()
         ac.log("info", "queue committed", cycle, sent, received, total, transferred)
@@ -45,6 +45,6 @@ def QueueRulePipelineSystem():  # noqa: N802
             assert total == 54, "queue pipeline: final child state"
             assert transferred == 4, "queue pipeline: exactly four transfers"
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         cycle = cycle + 1

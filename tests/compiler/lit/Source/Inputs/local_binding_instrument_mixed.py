@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pycircuit import log, module, report, rule
+from pycircuit import log, module, report, autorule
 from locals.local_binding_child import WordState
 
 
@@ -13,7 +13,7 @@ def Instrument(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annota
     complete = raw & 255
     state = WordState(clk, rst, complete)  # noqa: F841 - retain the storage/instrumentation combination.
 
-    @rule
+    @autorule
     def observe():
         log("info", "exact", raw >> 0, negative & 255,
             raw if condition else 256)

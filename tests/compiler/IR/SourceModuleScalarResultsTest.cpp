@@ -394,7 +394,8 @@ def NestedRule() -> ac.u8:
     @ac.rule
     def literal() -> ac.u8:
         return 0
-    return literal
+    literal_result = literal()
+    return literal_result
 )py";
   }
   static StringRef source() {
@@ -684,7 +685,7 @@ TEST_F(SourceModuleScalarResultsTest, RuleStateAndMemoryTypeBindingsSurvivePubli
 def Read(index: ac.u2, data: ac.u8) -> ac.u8:
     state: ac.u8 = 0
     raw = ac.sync_mem[ac.u8](True, index, False, index, data, 1, depth=4)
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         state = raw
     return state

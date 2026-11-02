@@ -62,7 +62,7 @@ coverage. Long comparison matrices still belong in the existing nightly tier.
 ## Active interface boundaries
 
 The current module profile uses typed values, Module-owned variables and
-source-global or nested `@rule` functions. ACIR infers storage, control and
+source-global or nested `@rule` functions and local `@autorule` declarations. ACIR infers storage, control and
 transaction lowering; Work/Xfer belongs to generated execution. See the language reference for supported
 source expressions and the typed C++ DUT. Closed default-domain `@system`
 simulation uses generated C++ and Verilator/Icarus closures; explicit X/Z

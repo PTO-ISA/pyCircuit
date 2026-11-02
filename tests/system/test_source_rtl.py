@@ -329,15 +329,7 @@ def test_verilog_formals_that_collide_after_identifier_legalization_are_rejected
     source_root.mkdir()
     (source_root / "types.py").write_text(cpp.TYPES, encoding="utf-8")
     (source_root / "child.py").write_text(
-        "from pycircuit import module, rule\n"
-        "from .types import Word\n\n"
-        "@module\n"
-        "def Child(A: Word, a: Word):\n"
-        "    @rule\n"
-        "    def combine():\n"
-        "        nonlocal a\n"
-        "        a = A\n"
-        "    combine()\n",
+        "from pycircuit import module, rule, autorule\nfrom .types import Word\n\n@module\ndef Child(A: Word, a: Word):\n    @autorule\n    def combine():\n        nonlocal a\n        a = A\n    combine()\n",
         encoding="utf-8",
     )
     (source_root / "top.py").write_text(
@@ -385,17 +377,7 @@ def test_verilog_rejects_formal_enable_name_collision_with_owned_state(
     source_root.mkdir()
     (source_root / "types.py").write_text(cpp.TYPES, encoding="utf-8")
     (source_root / "child.py").write_text(
-        "from pycircuit import module, rule\n"
-        "from .types import Word\n\n"
-        "@module\n"
-        "def Child(Q0: Word):\n"
-        "    state0: Word = 0\n\n"
-        "    @rule\n"
-        "    def advance():\n"
-        "        nonlocal Q0, state0\n"
-        "        Q0 = state0\n"
-        "        state0 = Q0\n"
-        "    advance()\n",
+        "from pycircuit import module, rule, autorule\nfrom .types import Word\n\n@module\ndef Child(Q0: Word):\n    state0: Word = 0\n\n    @autorule\n    def advance():\n        nonlocal Q0, state0\n        Q0 = state0\n        state0 = Q0\n    advance()\n",
         encoding="utf-8",
     )
     (source_root / "top.py").write_text(
@@ -442,15 +424,7 @@ def test_verilog_rejects_parent_formal_collision_with_child_output_wire(
     source_root.mkdir()
     (source_root / "types.py").write_text(cpp.TYPES, encoding="utf-8")
     (source_root / "child.py").write_text(
-        "from pycircuit import module, rule\n"
-        "from .types import Word\n\n"
-        "@module\n"
-        "def Child(incoming: Word, outgoing: Word):\n"
-        "    @rule\n"
-        "    def forward():\n"
-        "        nonlocal outgoing\n"
-        "        outgoing = incoming\n"
-        "    forward()\n",
+        "from pycircuit import module, rule, autorule\nfrom .types import Word\n\n@module\ndef Child(incoming: Word, outgoing: Word):\n    @autorule\n    def forward():\n        nonlocal outgoing\n        outgoing = incoming\n    forward()\n",
         encoding="utf-8",
     )
     (source_root / "parent.py").write_text(
@@ -514,18 +488,7 @@ def test_distinct_source_owners_can_each_define_a_child_named_child(
     source_root = tmp_path / "same-short-name-source"
     for directory in (source_root / "left", source_root / "right"):
         directory.mkdir(parents=True, exist_ok=True)
-    child_source = (
-        "from typing import Annotated\n"
-        "from pycircuit import module, rule\n\n"
-        "Word = Annotated[int, range(256)]\n\n"
-        "@module\n"
-        "def Child(incoming: Word, outgoing: Word):\n"
-        "    @rule\n"
-        "    def forward():\n"
-        "        nonlocal outgoing\n"
-        "        outgoing = incoming\n"
-        "    forward()\n"
-    )
+    child_source = "from typing import Annotated\nfrom pycircuit import module, rule, autorule\n\nWord = Annotated[int, range(256)]\n\n@module\ndef Child(incoming: Word, outgoing: Word):\n    @autorule\n    def forward():\n        nonlocal outgoing\n        outgoing = incoming\n    forward()\n"
     for relative in ("left/child.py", "right/child.py"):
         (source_root / relative).write_text(child_source, encoding="utf-8")
     (source_root / "top.py").write_text(

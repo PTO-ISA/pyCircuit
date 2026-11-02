@@ -8,6 +8,6 @@ def SiblingAliases():  # noqa: N802
     independent = Counter()
     Relay(shared)
 
-    @ac.rule
+    @ac.autorule
     def observe_independent() -> None:
         ac.log("info", "independent count", independent.read())

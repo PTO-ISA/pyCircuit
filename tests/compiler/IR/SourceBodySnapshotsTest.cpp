@@ -171,14 +171,14 @@ protected:
         snapshotRead(
             ACIR_TEST_REPO_ROOT
             "/tests/integration/fixtures/source_language/packet.py"));
-    snapshotWrite(probe, R"py(from pycircuit import module, rule
+    snapshotWrite(probe, R"py(from pycircuit import module, rule, autorule
 from .packet import Request, Word
 
 @module
 def AccumulatorProbe(request: Request, result: Word):
     total: Word = 0
 
-    @rule
+    @autorule
     def forward():
         nonlocal result
         result = request.value

@@ -86,14 +86,16 @@ def Dram(
         return response
 
     @ac.rule
-    def current_response() -> DmaRequest:
+    def current_response_rule() -> DmaRequest:
         return response_value()
+
+    current_response = current_response_rule()
 
     writer_responses = ac.queue[DmaRequest](
         depth=2, ready_policy="local_occupancy", out_ready=take_seed
     )
 
-    @ac.rule(guard=lambda: busy & (remaining > 1))
+    @ac.autorule(guard=lambda: busy & (remaining > 1))
     def advance_latency() -> None:
         if state.capture_old:
             state.request.data = memory.result()
@@ -105,12 +107,12 @@ def Dram(
         state.busy = 0
         return response_value()
 
-    @ac.rule(guard=lambda: eligible & ~reader)
+    @ac.autorule(guard=lambda: eligible & ~reader)
     def finish_write() -> None:
         writer_responses.push(response_value())
         state.busy = 0
 
-    @ac.rule(guard=lambda: accepted)
+    @ac.autorule(guard=lambda: accepted)
     def accept_request() -> None:
         # Admission uses the saved old idle state: release cannot accept again.
         memory.request(selected.dram_address)
@@ -169,24 +171,24 @@ def Sram(
     def enqueue_copy(request: DmaRequest) -> None:
         copy_requests.push(request)
 
-    @ac.rule(guard=lambda: busy & (remaining > 1))
+    @ac.autorule(guard=lambda: busy & (remaining > 1))
     def advance_latency() -> None:
         if state.capture_old:
             state.request.data = memory.result()
             state.capture_old = 0
         state.remaining = state.remaining - 1
 
-    @ac.rule(guard=lambda: eligible & reader)
+    @ac.autorule(guard=lambda: eligible & reader)
     def finish_read() -> None:
         reader_responses.push(response)
         state.busy = 0
 
-    @ac.rule(guard=lambda: eligible & ~reader)
+    @ac.autorule(guard=lambda: eligible & ~reader)
     def finish_write() -> None:
         writer_responses.push(response)
         state.busy = 0
 
-    @ac.rule(guard=lambda: accepted)
+    @ac.autorule(guard=lambda: accepted)
     def accept_request() -> None:
         # Admission uses the saved old idle state: release cannot accept again.
         if ~check.valid:
@@ -259,7 +261,7 @@ def Dma(
         take_copy,
     )
 
-    @ac.rule
+    @ac.autorule
     def forward_copy() -> None:
         sram.enqueue_copy(dram.finish_read())
 

@@ -1096,7 +1096,7 @@ add(
     "arm-local-rule-call",
     scalar(body="            other(payload)").replace(
         "    value: ac.u2 = 0",
-        "    @ac.rule\n    def other(value=payload):\n        return value\n    value: ac.u2 = 0",
+        "    @ac.rule\n    def other(value):\n        return value\n    other_result = other(payload)\n    value: ac.u2 = 0",
     ),
     "scalar",
     "autonomous Rule declarations cannot be nested in a Rule",

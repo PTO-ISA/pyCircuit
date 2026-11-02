@@ -1,7 +1,7 @@
 """Regular-clock record checks; independent physical-control oracles remain intact."""
 
 from example_bit_widths.bit_widths import BitWidths, MaskedTag, Result
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -239,7 +239,7 @@ def BitWidthsSystem():  # noqa: N802
     )
     dut = BitWidths(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "bit_widths input capacity"
         assert dut.valid == frame.expected_valid, "bit_widths result availability"

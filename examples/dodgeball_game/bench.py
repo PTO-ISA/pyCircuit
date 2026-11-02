@@ -1,7 +1,7 @@
 """Regular-clock dodgeball_game scenario; original physical-control oracles remain."""
 
 from example_dodgeball_game.dodgeball_game import DodgeballGame
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import autorule, bits, log, rule, system, struct, table
 
 
 @struct
@@ -230,7 +230,7 @@ def ExerciseDodgeballGame():  # noqa: N802
     expected_dbg_ob3_x = (phase[:4] & 0) | 7
     expected_dbg_ob3_y = scenario.expected_dbg_ob3_y
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 4001:
             assert dut.VGA_HS_O == expected_VGA_HS_O, "dodgeball_game: VGA_HS_O"

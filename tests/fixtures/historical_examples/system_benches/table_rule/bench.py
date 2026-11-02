@@ -1,7 +1,7 @@
 """Regular-clock full known-input stream from the retained table_rule oracle."""
 
 from example_table_rule.table_rule import TableRule, Entry
-from pycircuit import bits, log, rule, struct, system, table, u1, u7
+from pycircuit import bits, log, rule, struct, system, table, u1, u7, autorule
 
 
 @struct
@@ -1383,7 +1383,7 @@ def ExerciseTableRule():  # noqa: N802
     payload = Entry(index=scenario.index, value=scenario.value)
     dut = TableRule(valid=scenario.valid, data=payload, take=scenario.take)
 
-    @rule
+    @autorule
     def check():
         if phase < 1343:
             assert dut.ready == scenario.expected_ready, "table_rule: ready"

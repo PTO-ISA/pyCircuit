@@ -9,7 +9,7 @@ def ExerciseAnchorCollection():
     rows = ac.table[4, ac.u8](init=2)
     position: ac.u2 = 0
 
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         old = rows[position]
         rows[position] = old + 3

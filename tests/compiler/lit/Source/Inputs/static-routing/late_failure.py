@@ -21,7 +21,7 @@ def Counter():
 def Worker(peer: Counter):
     progress: ac.u8 = 0
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         previous = peer.read()
         peer.write(previous + 3)
@@ -37,6 +37,6 @@ def Top():
     worker = Worker(peer)
     sibling: ac.u8 = 29
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         sibling = sibling + 5

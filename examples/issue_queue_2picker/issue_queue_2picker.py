@@ -33,7 +33,7 @@ def IssueQueue2Picker(  # noqa: N802 - hardware module definition
     s3: Slot = Slot()
 
     @ac.rule
-    def transact() -> PickerResult:
+    def transact_rule() -> PickerResult:
         # All output and shift decisions use the old slot snapshot.
         s0_q = s0
         s1_q = s1
@@ -78,5 +78,7 @@ def IssueQueue2Picker(  # noqa: N802 - hardware module definition
         s2 = Slot(valid=a2_2.valid | en2, data=in_data if en2 else a2_2.data)
         s3 = Slot(valid=a2_3.valid | en3, data=in_data if en3 else a2_3.data)
         return result
+
+    transact = transact_rule()
 
     return transact

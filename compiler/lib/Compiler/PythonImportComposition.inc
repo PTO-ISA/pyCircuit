@@ -8,7 +8,8 @@ LogicalResult Importer::inferModuleGraph() {
     llvm::StringSet<> structuralInstances;
     for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
       auto statement = decl.node.item("body", i);
-      if (statement.kind() == "FunctionDef" && hasDecorator(statement, "rule"))
+      if (statement.kind() == "FunctionDef" &&
+          (hasDecorator(statement, "rule") || hasDecorator(statement, "autorule")))
         nestedRules[statement.string("name")] = statement;
       if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
           statement.item("targets", 0).kind() == "Name" && moduleCall(statement.child("value"))) {
@@ -719,20 +720,6 @@ Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
       return failure();
     outputs.push_back(*converted);
     return outputs;
-  }
-  if (node.kind() == "Name") {
-    if (auto *binding = nestedRuleBinding(node.string("id"))) {
-      if (failed(requireNestedRuleDataVisible(node.string("id"), node))) return failure();
-      if (binding->results.size() != decl.outputs.size())
-        return error() << "Rule result arity differs from Module output signature";
-      for (auto [result, output] : llvm::zip(binding->results, decl.outputs)) {
-        auto converted = applyBindingBoundary(result, BindingBoundary{output, true},
-                                               node, at, decl.symbol);
-        if (failed(converted)) return failure();
-        outputs.push_back(*converted);
-      }
-      return outputs;
-    }
   }
   bool tuple = decl.returnShape == ReturnShape::Tuple;
   if (tuple) {

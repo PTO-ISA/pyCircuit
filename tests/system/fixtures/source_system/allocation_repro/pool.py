@@ -53,7 +53,7 @@ def AllocationPool() -> None:
         response.steps = distance
         completed.push(response)
 
-    @ac.rule
+    @ac.autorule
     def route() -> None:
         response = completed.pop()
         if response.operation == ALLOCATE:

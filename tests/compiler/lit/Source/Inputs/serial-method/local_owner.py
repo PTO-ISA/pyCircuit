@@ -1,5 +1,5 @@
 # ruff: noqa: F823, F841 -- hardware owner writes and retained snapshot/capture probes.
-from pycircuit import method, module, rule, u7
+from pycircuit import method, module, u7, autorule
 
 
 @module
@@ -39,7 +39,7 @@ def LocalOwner():
     def uncalled(allowed: bool) -> None:
         count = count
 
-    @rule
+    @autorule
     def step() -> None:
         bias = 11
         first = read()
@@ -53,6 +53,6 @@ def LocalOwner():
         copied = copy_payload()
         identity = identity
 
-    @rule
+    @autorule
     def inspect() -> None:
         old_seen = read()

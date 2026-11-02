@@ -9,14 +9,14 @@ def ExerciseConditionalQueueExchange():
     selected: ac.u1 = 0
     owner = ConditionalQueueExchange()
 
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         if cycle == 0:
             owner.seed()
         else:
             owner.step(cycle, selected)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         cycle = cycle + 1
         selected = ~selected

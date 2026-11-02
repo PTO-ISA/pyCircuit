@@ -7,7 +7,7 @@ def ExerciseScfControl():
     phase: ac.u3 = 0
     total: ac.u8 = 3
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         amount: ac.u8 = 0
         last: ac.u3 = 7
@@ -36,6 +36,6 @@ def ExerciseScfControl():
         total = total + amount
         ac.log("info", "scf control", before, amount, last, cursor, total)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

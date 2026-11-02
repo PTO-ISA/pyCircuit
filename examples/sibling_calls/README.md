@@ -4,7 +4,7 @@
 one while the count is below 7; `read` returns the current count.
 
 `Writer(counter: Counter)` and `Reader(counter: Counter)` receive the same existing
-Module instance. Each declares one autonomous Rule and calls that instance's
+Module instance. Each declares one autorule and calls that instance's
 Methods. Passing a Module reference creates no copy of its state. The compiler
 routes the declared reference interface and keeps both outer transactions atomic.
 

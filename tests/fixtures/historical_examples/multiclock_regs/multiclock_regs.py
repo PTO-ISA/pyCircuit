@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pycircuit import dff, module, rule
+from pycircuit import dff, module, rule, autorule
 
 
 @module
@@ -13,11 +13,11 @@ def MulticlockRegs(  # noqa: N802
     a = dff(T=Annotated[int, range(1 << 8)])
     b = dff(T=Annotated[int, range(1 << 8)])
 
-    @rule
+    @autorule
     def update_a():
         a(clk=clk_a, rst=rst_a, d=(a.q + 1) & 255, init=0)
 
-    @rule
+    @autorule
     def update_b():
         b(clk=clk_b, rst=rst_b, d=(b.q + 1) & 255, init=0)
 

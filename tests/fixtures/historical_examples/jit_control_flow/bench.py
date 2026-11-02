@@ -1,7 +1,7 @@
 """Complete known-input table from the retained independent jit_control_flow oracle."""
 
 from example_jit_control_flow.jit_control_flow import JitControlFlow
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -107,7 +107,7 @@ def ExerciseJitControlFlow():  # noqa: N802
 
     expected_result = scenario.expected_result
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 65:
             assert dut.result == expected_result, "jit_control_flow: result"

@@ -9,18 +9,18 @@ def ExerciseFiniteState():
     owner = FiniteStateOwner()
     isolated = FiniteStateOwner()
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         owner.advance(phase != 1)
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         owner.observe()
 
-    @ac.rule
+    @ac.autorule
     def inspect_isolated() -> None:
         isolated.observe()
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

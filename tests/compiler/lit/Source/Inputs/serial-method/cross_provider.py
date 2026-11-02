@@ -1,5 +1,5 @@
 # ruff: noqa: F823, F841 -- hardware owner writes and lexical snapshot probes.
-from pycircuit import method, module, rule, u7
+from pycircuit import method, module, u7, autorule
 
 
 @module
@@ -49,6 +49,6 @@ def Counter():
         copied = p
         identity = identity
 
-    @rule
+    @autorule
     def inspect() -> None:
         old_seen = read()

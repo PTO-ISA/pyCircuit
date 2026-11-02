@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_queue_pipeline.queue_pipeline import QueuePipeline
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -201,7 +201,7 @@ def QueuePipelineSystem():  # noqa: N802
     frame = stimulus(phase)
     dut = QueuePipeline(frame.valid, frame.data, frame.take)
 
-    @rule
+    @autorule
     def exercise():
         assert dut.ready == frame.expected_ready, "queue_pipeline ready old-state check"
         assert dut.valid == frame.expected_valid, "queue_pipeline valid old-state check"

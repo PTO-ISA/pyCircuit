@@ -1,4 +1,4 @@
-from pycircuit import log, module, report, rule, struct, system, u8, u16
+from pycircuit import log, module, report, rule, struct, system, u8, u16, autorule
 
 
 @rule
@@ -69,7 +69,7 @@ def ObservationGroups():
     left = GroupLeaf(incoming=input_left)
     right = GroupLeaf(incoming=input_right)
 
-    @rule
+    @autorule
     def inspect():
         assert left.value == (0 if phase == 0 else 16 + phase), "left old Q"
         assert right.value == (0 if phase == 0 else 50 + phase), "right old Q"
@@ -90,7 +90,7 @@ def ObservationGroupsFailure():
     left = GroupLeaf(incoming=input_left)
     right = GroupLeaf(incoming=input_right)
 
-    @rule
+    @autorule
     def inspect():
         assert left.value == (0 if phase == 0 else 16 + phase), "left old Q"
         assert right.value == (0 if phase == 0 else 50 + phase), "right old Q"
@@ -109,7 +109,7 @@ class ArithmeticOut:
 
 @module
 def ArithmeticLeaf(x: u8, wide: u16) -> ArithmeticOut:
-    @rule
+    @autorule
     def inspect():
         assert x <= 255, "arithmetic byte"
         log(
@@ -183,7 +183,7 @@ def CapturedArithmeticObservationGroups():
     x: u8 = 0
     wide: u16 = 1  # noqa: F841 - declared operand for rejection mutations
 
-    @rule
+    @autorule
     def inspect():
         assert x <= 255, "arithmetic byte"
         log(
@@ -221,12 +221,12 @@ def OnlyObservationGroups():
     phase: u8 = 0
     sample: u8 = 17
 
-    @rule
+    @autorule
     def inspect_log():
         log("info", "only_log", "old", sample, phase + 7, sample == 20, 17 + sample)
         log("info", "only_literal", "unchanged")
 
-    @rule
+    @autorule
     def inspect_report():
         report("observation_sample", sample)
 
@@ -238,12 +238,12 @@ def OnlyObservationGroupsFailure():
     phase: u8 = 0
     sample: u8 = 17
 
-    @rule
+    @autorule
     def inspect_log():
         log("info", "only_log", "old", sample, phase + 7, sample == 20, 17 + sample)
         log("info", "only_literal", "unchanged")
 
-    @rule
+    @autorule
     def inspect_report():
         report("observation_sample", sample)
 

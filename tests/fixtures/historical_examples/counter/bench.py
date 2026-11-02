@@ -1,7 +1,7 @@
 """Regular-clock counter scenario; original physical-control oracles remain."""
 
 from example_counter.counter import Counter
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, autorule
 
 
 @rule
@@ -41,7 +41,7 @@ def ExerciseCounter():  # noqa: N802
         )
     )
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 263:
             assert dut.count == expected_count, "counter: count"

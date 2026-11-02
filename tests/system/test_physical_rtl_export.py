@@ -28,7 +28,7 @@ class Record:
 @ac.module
 def RecordInitial(incoming: ac.u8) -> Record:
     saved: Record = Record(inner=Inner(tag=Tag.READY, count=17), payload=165)
-    @ac.rule
+    @ac.autorule
     def hold() -> None:
         saved = saved
     return saved
@@ -44,7 +44,7 @@ def Cell(incoming: ac.u8, enabled: ac.u1) -> ac.u8:
 @ac.module
 def GuardedCell(incoming: ac.u8, enabled: ac.u1) -> ac.u8:
     saved: ac.u8 = 0
-    @ac.rule(guard=lambda: enabled)
+    @ac.autorule(guard=lambda: enabled)
     def update() -> None:
         saved = incoming
     return saved
@@ -55,7 +55,7 @@ def GuardedPair(first: ac.u8, second: ac.u8, enable_first: ac.u1,
 @ac.module
 def TableState(incoming: ac.u8) -> ac.table[2, ac.u8]:
     entries: ac.table[2, ac.u8] = (1, 2)
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         entries[0] = incoming
         entries[1] = entries[0] + 1
@@ -63,7 +63,7 @@ def TableState(incoming: ac.u8) -> ac.table[2, ac.u8]:
 @ac.module
 def TableList(incoming: ac.u8) -> ac.table[2, ac.u8]:
     entries: ac.table[2, ac.u8] = [3, 4]
-    @ac.rule
+    @ac.autorule
     def update() -> None:
         entries[0] = incoming
         entries[1] = entries[0] + 1
@@ -83,7 +83,7 @@ def WideInitial(incoming: ac.u8) -> tuple[ac.bits[65], ac.bits[130], ac.bits[65]
     first: ac.bits[65] = (1 << 64) + 1
     second: ac.bits[130] = (1 << 129) + 3
     low_word: ac.bits[65] = 0xffffffff
-    @ac.rule
+    @ac.autorule
     def hold() -> None:
         first = first
         second = second

@@ -21,18 +21,19 @@ outside the current example catalog.
 | [table_rule](table_rule/README.md) | Persistent Table entries and nested calls in one transaction. |
 | [calculator](calculator/README.md) | A complete control function with sequential local calculations and state updates. |
 
-A directly nested Rule is one autonomous computation per Module or System
-instance. Its declaration activates it; do not add a trailing call. At Module
-wiring, its bare name supplies its scalar, Struct or tuple results. Captures
-supply inputs; any Rule formal requires an explicit default binding. Source-global
-Rule templates retain explicit actual calls, such as `advance(phase)` in the
-benches.
+A directly nested `@rule` is a private callable; its declaration registers no
+work. Each explicit Module/System-scope call creates one transaction. Bind the
+returned scalar, Struct or tuple values once and reuse those values for fanout.
+Use `@autorule` for zero-argument, zero-result work registered once at declaration.
+Captures retain definition-time lexical bindings; Rule formal defaults are not
+supported. Source-global Rule templates retain explicit actual calls, such as
+`advance(phase)` in the benches.
 
 Use separate Rules for independent functions: each reads committed state.
 Sequential assignments and Method calls within one Rule share its candidate
 state and atomic commit. Put dependent operations in that one callback, as in
 ROB. Callable component operations use Methods, including zero-argument reads;
-local autonomous Rules are not callable. `after` ordering is retired.
+local Rule calls inside another transaction remain unsupported. `after` ordering is retired.
 
 Each static Module call creates a distinct child instance. Bind the result once
 and reuse it to fan out existing outputs. Pass fields that travel together as one
@@ -71,7 +72,7 @@ stress belong in API tests. Queue protocol recipes may share a tutorial, while
 retaining distinct atomicity and backpressure regressions in their test owners.
 Do not combine all variants into one giant demonstration module.
 
-There is no Signal declaration/set/get API. Use typed Module and autonomous Rule
+There is no Signal declaration/set/get API. Use typed Module and Rule
 results for connections, compiler-propagated Rule output availability, and state
 or Queue when a value must survive across cycles.
 

@@ -1,7 +1,7 @@
 """Historical first case, then an exhaustive byte decode oracle."""
 
 from example_decode_rules.decode_rules import DecodeRules
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, autorule
 
 
 @rule
@@ -26,7 +26,7 @@ def ExerciseDecodeRules():  # noqa: N802
     )
     expected_len = 4 if (insn >= 16) & (insn < 64) else (insn[:3] & 0)
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 257:
             # Three disjoint numerical intervals define the independent oracle.

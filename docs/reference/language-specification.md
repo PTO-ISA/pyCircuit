@@ -36,7 +36,7 @@ Verilog emitter 中另建一套设计语义编译器。
 - `@ac.struct` 声明名义记录类型。
 - `@ac.encoding(...)` 配合 Python Enum 声明名义编码值。
 - `@ac.module` 声明硬件定义；静态调用 occurrence 创建实例。
-- Module/System 内的 `@ac.rule` 声明自动参与 Work 的计算/事务，无需调用激活；Module 接线中以 Rule 名引用结果。全局 Rule 是需要显式实参绑定的模板。
+- Module/System 内的 `@ac.rule` 声明是私有可调用定义，不自动注册事务；每个 Module 层显式调用注册一个事务，并绑定返回值供接线复用。`@ac.autorule` 无参数、无结果，在声明处每实例自动注册一次，不能显式调用。两者捕获定义时的词法 SSA、状态和实例绑定；Rule 不支持形参默认值。全局 Rule 仍是显式实参模板，局部 Rule 不能在事务内部调用。
 - 独立 Rule 读取同一份 current；禁止 `after` 引入跨 Rule 候选状态可见性。局部绑定默认参数由 MLIR 解析，捕获阶段不执行 Python。
 - 普通局部表达式产生组合 SSA 值，不能因赋值自动增加寄存器。
 - 模块作用域的受支持注解变量声明持久状态；rule 内同类注解描述局部值。

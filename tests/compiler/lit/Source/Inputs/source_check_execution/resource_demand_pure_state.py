@@ -12,13 +12,13 @@ def Top():
     def guarded(enabled: ac.u1) -> ac.u8:
         return 7
 
-    @ac.rule
+    @ac.autorule
     def drive() -> None:
         value = guarded(phase != 0)
         if phase == 1:
             saved = value
         output.push(phase)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

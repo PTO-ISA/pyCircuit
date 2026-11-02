@@ -7,7 +7,7 @@ from example_enum_payload_pipeline.enum_payload_pipeline import (
     Result,
     Mode,
 )
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import autorule, bits, enum_to_bits, log, rule, struct, system, table
 
 
 @struct
@@ -244,7 +244,7 @@ def EnumPayloadPipelineSystem():  # noqa: N802
     )
     dut = EnumPayloadPipeline(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "enum_payload_pipeline input capacity"
         assert (

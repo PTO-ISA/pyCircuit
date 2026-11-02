@@ -1,7 +1,7 @@
 """Regular-clock digital_clock scenario; original physical-control oracles remain."""
 
 from example_digital_clock.digital_clock import DigitalClock
-from pycircuit import bits, log, rule, system, table
+from pycircuit import autorule, bits, log, rule, system, table
 
 
 def editing_sequence() -> table[64, bits[8]]:
@@ -157,7 +157,7 @@ def ExerciseDigitalClockSettings():  # noqa: N802
     )
     expected_colon_blink = 0
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 160:
             assert dut.hours_bcd == expected_hours_bcd, "digital_clock: hours_bcd"
@@ -217,7 +217,7 @@ def ExerciseDigitalClock():  # noqa: N802
         else (phase[:1] & 0)
     )
 
-    @rule
+    @autorule
     def check_calendar():
         if phase <= 100_000_000:
             assert dut.hours_bcd == expected_hours, "digital_clock: hours"

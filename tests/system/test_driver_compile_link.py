@@ -42,15 +42,14 @@ from typing import Annotated
 Word = Annotated[int, range(256)]
 """
 
-COUNTER = """\
-from pycircuit import module, rule
+COUNTER = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter():
     total: Word = {initial}
 
-    @rule
+    @autorule
     def tick():
         nonlocal total
         total = (total + 1) & 255
@@ -58,8 +57,7 @@ def Counter():
     tick()
 """
 
-BROKEN = """\
-from pycircuit import module, rule
+BROKEN = """from pycircuit import module, rule
 
 @module
 def Broken():
@@ -67,6 +65,7 @@ def Broken():
     @rule
     def tick():
         return 1
+    tick_result = tick()
 
     tick()
 """

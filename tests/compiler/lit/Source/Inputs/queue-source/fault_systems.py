@@ -1,7 +1,7 @@
 """Closed test systems for queue fault checking and whole-system discard."""
 # ruff: noqa: F841, B011 -- hardware capture preserves unused effects and asserts.
 
-from pycircuit import module, queue, rule, struct, system, u8
+from pycircuit import module, queue, rule, struct, system, u8, autorule
 from q4_queue.pyc_credit_pipeline import CreditPipeline, CreditToken
 from q4_queue.pyc_reorder_pipeline import ReorderPipeline, Token
 from q4_queue.pyc_route_merge_pipeline import RouteMergePipeline
@@ -107,7 +107,7 @@ def AtomicSiblingFault():
     pipeline = RouteMergePipeline(valid=0, data=0, take=0)
     sibling = Sibling()
 
-    @rule
+    @autorule
     def reject():
         assert False, "queue_atomic_rejection"
 

@@ -231,7 +231,7 @@ def Exercise():
     index_x_low = Read(value, ac.four_state('000000x'))
     index_x_high = Read(value, ac.four_state('x000000'))
     index_z_high = Read(value, ac.four_state('z000000'))
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'bits_index', lsb, selected_z,
                index_x_low, index_x_high, index_z_high)
@@ -279,7 +279,7 @@ def Read(value: ac.bits[4], index: ac.bits[130]) -> ac.u1:
 def Exercise():
     selected_x = Read(ac.four_state('1010'), ac.four_state({high_x!r}))
     selected_z = Read(ac.four_state('1010'), ac.four_state({high_z!r}))
-    @ac.rule
+    @ac.autorule
     def observe():
         ac.log('info', 'wide_selector', selected_x, selected_z)
 """,

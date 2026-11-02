@@ -11,31 +11,31 @@ def ExerciseOutputValidity():
     packet, extra = GuardedOutputs(phase, phase != 1)
     sink = ValiditySink()
 
-    @ac.rule
+    @ac.autorule
     def consume() -> None:
         sink.put(packet, extra)
 
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "validity destination", sink.read(), phase, seen, checked_count)
 
-    @ac.rule
+    @ac.autorule
     def publish() -> None:
         seen = seen + 1
         ac.log("info", "validity output", packet.data, extra)
 
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         checked_count = checked_count + 1
         assert packet.data == phase + 1
 
-    @ac.rule
+    @ac.autorule
     def selected() -> None:
         if phase == 1:
             ac.log("info", "validity constant", 99)
         else:
             ac.log("info", "validity selected", packet.data)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

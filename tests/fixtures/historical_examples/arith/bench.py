@@ -1,7 +1,7 @@
 """Complete known-input table from the retained independent arith oracle."""
 
 from example_arith.arith import Arith
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -50,7 +50,7 @@ def ExerciseArith():  # noqa: N802
 
     expected_sum = scenario.expected_sum
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 10:
             assert dut.sum == expected_sum, "arith: sum"

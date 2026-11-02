@@ -1,10 +1,10 @@
 import pycircuit as ac
-from pycircuit import log, report, rule
+from pycircuit import log, report, autorule
 
 
 @ac.module
 def Top(value: ac.u8, second: ac.u4, ok: bool) -> {"out": ac.u8}:  # noqa: N802, F821 - hardware module and named output annotation
-    @rule
+    @autorule
     def inspect():
         report("gauge_a", value)
         report("gauge_b", second)

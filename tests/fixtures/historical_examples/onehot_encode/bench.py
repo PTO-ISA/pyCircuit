@@ -1,7 +1,7 @@
 """Regular-clock record checks; independent physical-control oracles remain intact."""
 
 from example_onehot_encode.onehot_encode import OnehotEncode, EncodedFlags, Result
-from pycircuit import bits, enum_to_bits, log, rule, struct, system, table
+from pycircuit import bits, enum_to_bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -399,7 +399,7 @@ def OnehotEncodeSystem():  # noqa: N802
     )
     dut = OnehotEncode(frame.valid, packet, frame.take)
 
-    @rule
+    @autorule
     def check():
         assert dut.ready == frame.expected_ready, "onehot_encode input capacity"
         assert dut.valid == frame.expected_valid, "onehot_encode result availability"

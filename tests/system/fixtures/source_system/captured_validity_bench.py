@@ -11,15 +11,15 @@ def ExerciseCapturedValidity():
     unused_packet, spare = GuardedOutputs(phase + 7, phase == 1)
     held = CapturedPayload(packet.data, spare)
 
-    @ac.rule
+    @ac.autorule
     def invoke() -> None:
         sent = sent + 2
         held.publish()
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "captured state", phase, sent)
 
-    @ac.rule
+    @ac.autorule
     def tick() -> None:
         phase = phase + 1

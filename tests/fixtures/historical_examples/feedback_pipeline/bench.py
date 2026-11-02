@@ -1,7 +1,7 @@
 """Regular-clock full known-input stream from the retained feedback_pipeline oracle."""
 
 from example_feedback_pipeline.feedback_pipeline import FeedbackPipeline, Item
-from pycircuit import bits, log, rule, struct, system, table, u1, u4, u32, u64
+from pycircuit import bits, log, rule, struct, system, table, u1, u4, u32, u64, autorule
 
 
 @struct
@@ -1098,7 +1098,7 @@ def ExerciseFeedbackPipeline():  # noqa: N802
     payload = Item(value=scenario.value, remaining=scenario.remaining)
     dut = FeedbackPipeline(scenario.valid, payload, scenario.take)
 
-    @rule
+    @autorule
     def check():
         if phase < 3763:
             assert dut.ready == scenario.expected_ready, "feedback_pipeline: ready"

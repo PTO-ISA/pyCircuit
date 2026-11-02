@@ -7,7 +7,7 @@ from example_record_spread_pipeline.record_spread_pipeline import (
     Payload,
     Patch,
 )
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -238,7 +238,7 @@ def ExerciseRecordSpreadPipeline():  # noqa: N802
         scenario.take,
     )
 
-    @rule
+    @autorule
     def check():
         if phase < 158:
             assert base_ready == scenario.expected_base_ready, (

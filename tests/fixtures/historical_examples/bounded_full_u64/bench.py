@@ -1,7 +1,7 @@
 """Regular-clock known-state checks; original physical-control oracles remain independent."""
 
 from example_bounded_full_u64.bounded_full_u64 import BoundedFullU64
-from pycircuit import bits, log, rule, struct, system, table
+from pycircuit import bits, log, rule, struct, system, table, autorule
 
 
 @struct
@@ -217,7 +217,7 @@ def BoundedFullU64System():  # noqa: N802
         frame.take_checked_flag,
     )
 
-    @rule
+    @autorule
     def exercise():
         assert ready == frame.expected_ready, "bounded_full_u64 ready old-state check"
         assert wrapped.valid == frame.expected_wrapped_valid, (

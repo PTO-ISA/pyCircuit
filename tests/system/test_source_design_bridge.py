@@ -23,13 +23,12 @@ Word = Annotated[int, range(256)]
 Phase = Annotated[int, range(8)]
 """
 
-INCREMENT = """\
-from pycircuit import module, rule
+INCREMENT = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Increment(enabled: bool, incoming: Word, outgoing: Word):
-    @rule
+    @autorule
     def update():
         nonlocal outgoing
         if enabled and incoming != 0:
@@ -38,8 +37,7 @@ def Increment(enabled: bool, incoming: Word, outgoing: Word):
     update()
 """
 
-TEST_INCREMENT = """\
-from pycircuit import system, rule, log, report
+TEST_INCREMENT = """from pycircuit import system, rule, log, report, autorule
 from .types import Word, Phase
 from .increment import Increment
 
@@ -51,7 +49,7 @@ def TestIncrement():
     phase: Phase = 0
     dut = Increment(enabled, incoming, outgoing)
 
-    @rule
+    @autorule
     def fixture():
         nonlocal enabled, incoming, phase
         if phase == 0:
@@ -646,8 +644,7 @@ def test_glue_output_refuses_existing_paths_without_publishing(
         assert not glue.resolve(strict=False).exists()
 
 
-BLINKER = """\
-from pycircuit import module, rule
+BLINKER = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
@@ -655,7 +652,7 @@ def Blinker():
     phase: Word = 0
     level: Word = 0
 
-    @rule
+    @autorule
     def tick():
         nonlocal phase, level
         phase = (phase + 1) & 255
@@ -665,8 +662,7 @@ def Blinker():
     tick()
 """
 
-TEST_BLINKER = """\
-from pycircuit import system, rule, log, report
+TEST_BLINKER = """from pycircuit import system, rule, log, report, autorule
 from .types import Word
 from .blinker import Blinker
 
@@ -675,7 +671,7 @@ def TestBlinker():
     phase: Word = 0
     dut = Blinker()
 
-    @rule
+    @autorule
     def fixture():
         nonlocal phase
         if phase == 0:
@@ -890,15 +886,14 @@ def test_private_regression_fixtures_do_not_leak_into_shipped_surfaces() -> None
             assert fixture not in text, f"{fixture} leaked into {path}"
 
 
-MULTI_VALUE_OBSERVATION = """\
-from pycircuit import system, rule
+MULTI_VALUE_OBSERVATION = """from pycircuit import system, rule, autorule
 
 @system
 def Multi():
     first: bool = True
     second: bool = False
 
-    @rule
+    @autorule
     def observe():
         print("event", first, second)
 

@@ -166,7 +166,8 @@ def check_source_ir(text, path):
         if isinstance(node, ast.FunctionDef)
         and any(
             isinstance(dec, ast.Name | ast.Attribute)
-            and (dec.id if isinstance(dec, ast.Name) else dec.attr) == "rule"
+            and (dec.id if isinstance(dec, ast.Name) else dec.attr)
+            in ("rule", "autorule")
             for dec in node.decorator_list
         )
     }
@@ -799,8 +800,9 @@ def main():
         ),
         "wide": (
             baseline.replace("condition: bool", "condition: ac.u2").replace(
-                "from pycircuit import module, rule",
-                "import pycircuit as ac\nfrom pycircuit import module, rule",
+                "from pycircuit import",
+                "import pycircuit as ac\nfrom pycircuit import",
+                1,
             ),
             "unsigned boundary hardware type mismatch",
         ),

@@ -1,9 +1,9 @@
-from pycircuit import module, rule
+from pycircuit import module, autorule
 
 
 @module
 def Checked(ok: bool) -> {"value": bool}:
-    @rule
+    @autorule
     def inspect():
         assert ok, "local binding publication"
 

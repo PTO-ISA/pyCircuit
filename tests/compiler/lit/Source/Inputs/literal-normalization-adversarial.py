@@ -255,17 +255,8 @@ UNCLOSED = (
 )
 
 CHECKED_BINDING = (
-    HEADER + "from pycircuit import sync_mem\n"
-    "@ac.module\n"
-    "def Checked(clk: bool, rst: bool, addr: ac.u2, data: ac.u13,\n"
-    '            strobe: ac.u2, ok: bool) -> {"rdata": ac.u13}:\n'
-    "    memory = sync_mem(T=ac.u13, ADDR_WIDTH=2, DEPTH=3)\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    '        assert ok, "__GATE__"\n'
-    "    memory(clk=clk, rst=rst, ren=ok, raddr=addr,\n"
-    "               wvalid=ok, waddr=addr, wdata=data, wstrb=strobe)\n"
-    '    return {"rdata": memory.rdata}\n'
+    HEADER
+    + 'from pycircuit import sync_mem\n@ac.module\ndef Checked(clk: bool, rst: bool, addr: ac.u2, data: ac.u13,\n            strobe: ac.u2, ok: bool) -> {"rdata": ac.u13}:\n    memory = sync_mem(T=ac.u13, ADDR_WIDTH=2, DEPTH=3)\n    @ac.autorule\n    def bind():\n        assert ok, "__GATE__"\n    memory(clk=clk, rst=rst, ren=ok, raddr=addr,\n               wvalid=ok, waddr=addr, wdata=data, wstrb=strobe)\n    return {"rdata": memory.rdata}\n'
 )
 
 # name -> (source, expected acceptance, structural expectation)

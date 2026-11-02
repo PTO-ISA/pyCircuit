@@ -45,10 +45,7 @@ def _capture_transport(
     [
         (
             "imports.py",
-            "from pycircuit import module, rule\n\n"
-            "@module\ndef Leaf():\n"
-            "    @rule\n    def idle():\n        return\n\n"
-            "    idle()\n",
+            "from pycircuit import module, rule, autorule\n\n@module\ndef Leaf():\n    @autorule\n    def idle():\n        return\n\n    idle()\n",
             None,
         ),
         (

@@ -35,7 +35,7 @@ def Bank():
         packet.left = incoming
         entries[index] = incoming
 
-    @ac.rule
+    @ac.autorule
     def inspect() -> None:
         ac.log("info", "partial-state", packet.left, packet.right, packet.held,
                entries[0], entries[1], entries[2], entries[3])
@@ -46,7 +46,7 @@ def Bank():
 def LeftWorker(choose_disabled: ac.u1, bank: Remote):
     progress: ac.u8 = 0
 
-    @ac.rule(guard=lambda: not choose_disabled)
+    @ac.autorule(guard=lambda: not choose_disabled)
     def step() -> None:
         saved_packet, saved_entries = bank.read()
         bank.put_left(saved_packet.left + 3, saved_entries[0] + 7)
@@ -63,7 +63,7 @@ def LeftWorker(choose_disabled: ac.u1, bank: Remote):
 def RightWorker(bank: Remote):
     progress: ac.u8 = 0
 
-    @ac.rule
+    @ac.autorule
     def step() -> None:
         saved_packet, saved_entries = bank.read()
         bank.put_right(saved_packet.right + 5, saved_entries[1] + 11)
@@ -80,7 +80,7 @@ def RightWorker(bank: Remote):
 def DisabledWorker(enabled: ac.u1, index: ac.u2, bank: Remote):
     progress: ac.u8 = 0
 
-    @ac.rule(guard=lambda: enabled)
+    @ac.autorule(guard=lambda: enabled)
     def step() -> None:
         bank.put_disabled(index, 199)
         progress = progress + 1
@@ -125,10 +125,10 @@ def Top():
     right = RightBranch(disabled_gate, remote)
     phase: ac.u8 = 0
 
-    @ac.rule
+    @ac.autorule
     def advance() -> None:
         phase = phase + 1
 
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert phase < 255, "partial_late_failure"

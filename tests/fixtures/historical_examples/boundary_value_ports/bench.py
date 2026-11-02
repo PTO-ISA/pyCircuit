@@ -1,7 +1,7 @@
 """Complete known-input table from the retained independent boundary_value_ports oracle."""
 
 from example_boundary_value_ports.boundary_value_ports import BoundaryValuePorts
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, struct, table, autorule
 
 
 @struct
@@ -54,7 +54,7 @@ def ExerciseBoundaryValuePorts():  # noqa: N802
 
     expected_acc = scenario.expected_acc
 
-    @rule
+    @autorule
     def check_and_advance():
         if phase < 16:
             assert dut.acc == expected_acc, "boundary_value_ports: acc"

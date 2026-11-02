@@ -8,10 +8,10 @@ def SiblingTransitive():  # noqa: N802
     Writer(counter)
     value = Reader(counter)
 
-    @ac.rule
+    @ac.autorule
     def observe() -> None:
         ac.log("info", "transitive visible", value)
 
-    @ac.rule
+    @ac.autorule
     def observe_committed() -> None:
         ac.log("info", "transitive committed", counter.committed())

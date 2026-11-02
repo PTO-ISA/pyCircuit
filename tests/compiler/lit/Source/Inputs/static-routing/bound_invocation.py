@@ -19,7 +19,7 @@ def Provider(*, WIDTH: int = 16):
 def Top():
     provider = Provider(WIDTH=24)
 
-    @ac.rule
+    @ac.autorule
     def run() -> None:
         known = provider.apply(173)
         unknown = provider.apply(ac.four_state("xxxxxxxx"))

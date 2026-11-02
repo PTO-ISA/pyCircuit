@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pycircuit import module, rule
+from pycircuit import module, rule, autorule
 from locals.local_binding_child import Word
 
 
@@ -8,7 +8,7 @@ from locals.local_binding_child import Word
 def Bad(a: Annotated[int, range(1 << 8)], flag: bool) -> {"result": Annotated[int, range(1 << 8)]}:
     child = Word()
 
-    @rule
+    @autorule
     def Word():
         assert flag
 

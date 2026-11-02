@@ -35,20 +35,19 @@ Phase = Annotated[int, range(8)]
 # The child owns one hidden register per instance and writes to a register
 # borrowed from its parent. The two instances keep distinct copies of that
 # state without duplicating either parent output.
-COUNTER_CHILD = """\
-from pycircuit import module, rule
+COUNTER_CHILD = """from pycircuit import module, rule, autorule
 from .types import Word
 
 @module
 def Counter(incoming: Word, outgoing: Word):
     count: Word = 0
 
-    @rule
+    @autorule
     def capture():
         nonlocal count
         count = incoming
 
-    @rule
+    @autorule
     def forward():
         nonlocal outgoing
         outgoing = count
@@ -57,8 +56,7 @@ def Counter(incoming: Word, outgoing: Word):
     forward()
 """
 
-COUNTER_SYSTEM = """\
-from pycircuit import system, rule, log, report
+COUNTER_SYSTEM = """from pycircuit import system, rule, log, report, autorule
 from .types import Word, Phase
 from .counter import Counter
 
@@ -72,7 +70,7 @@ def TestCounters():
     left = Counter(left_input, left_output)
     right = Counter(right_input, right_output)
 
-    @rule
+    @autorule
     def fixture():
         nonlocal phase
         if phase == 0:

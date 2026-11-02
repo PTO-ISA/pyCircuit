@@ -73,7 +73,7 @@ def ExerciseMemoryBanks():  # noqa: N802
     )
     dut = MemoryBanks(scenario.valid, request, scenario.take)
 
-    @ac.rule
+    @ac.autorule
     def check() -> None:
         assert dut.input_ready == 1, "memory banks: input capacity"
         assert dut.output_valid == scenario.output_valid, "memory banks: output valid"
