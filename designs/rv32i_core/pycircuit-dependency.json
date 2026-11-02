@@ -2,7 +2,7 @@
   "schema": "pycircuit-example-tool-dependency-v1",
   "repository": "https://github.com/PTO-ISA/pyCircuit.git",
   "pull_request": "https://github.com/PTO-ISA/pyCircuit/pull/370",
-  "ref": "refs/pull/370/head",
-  "commit": "29a7378bbfb9865f516dfb24c7c340967903f1be",
+  "ref": "f8471d74a1d0b51a36175b4c57f8a2888920e7a1",
+  "commit": "f8471d74a1d0b51a36175b4c57f8a2888920e7a1",
   "reason": "shared execution profiles, installed clocked-memory execution, physical RTL and NDF specification traceability"
 }

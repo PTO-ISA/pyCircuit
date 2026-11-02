@@ -20,10 +20,11 @@ Circuit repository. The latter is a private historical archive.
    PTO-ISA/pyCircuit.
 2. Develop processor-, accelerator-, model-comparison-, and board-specific
    designs and tooling in their owning consumer repositories against a pinned
-   pyCircuit revision.
+   pyCircuit revision. Curated standalone SDK projects may instead live in
+   `designs/`, with their own specifications and verification.
 3. Submit only reusable language, IR, runtime, backend, and generic diagnostic
-   fixes to framework source roots. Consumer designs and payload/trace adapters
-   have no in-tree exception.
+   fixes to framework source roots. Gallery projects and their payload/trace
+   adapters stay under their own `designs/` directory.
 4. Update the downstream default branch from the upstream default branch after
    upstream changes merge.
 5. Keep downstream-only commits focused and rebaseable; do not rewrite upstream
@@ -188,7 +189,9 @@ Only PTO-ISA/pyCircuit may:
 Downstream repositories may publish compatibility evidence, but must link to
 the matching upstream revision and must not reuse canonical release tags for
 divergent commits. Consumer design sources, testbenches, board files, payload
-and trace adapters, and comparison scripts always remain out of tree.
+and trace adapters, and comparison scripts remain in their owning consumer
+repositories. Curated `designs/` gallery projects may live here as standalone SDK
+consumers, with project-owned specifications, dependency pins and verification.
 
 ## Fork synchronization
 

@@ -60,7 +60,7 @@ RTL; fixed Spike for the independent oracle; sv2v0.0.12 and Yosys0.33/ABC for
 mapping. Linux SDK runtime dependency bundling needs patchelf. Existing tools may
 be reused; third-party source/build output is never committed here.
 
-From a clean checkout of this demo PR, select local dependency/output paths:
+From a clean checkout of this repository, select local dependency/output paths:
 
 ```sh
 export DEMO_OUT="$PWD/.pycircuit_out/rv32i-demo"
@@ -71,7 +71,7 @@ export PYC_TOOLCHAIN_ROOT="$DEMO_OUT/toolchain/install"
 "$PYC_TOOLCHAIN_ROOT/bin/pycircuit" doctor --toolchain "$PYC_TOOLCHAIN_ROOT" --rtl
 ```
 
-The bootstrap fetches the immutable public upstream PR commit, verifies it,
+The bootstrap fetches the immutable merged upstream SDK commit, verifies it,
 and performs a real standard build/install. It does not update credentials or
 use a private SDK bundle. `TOOLS.md` documents fixed Spike/source dependencies
 and standard open-tool installation. Set `RV32_CLANG`, `SPIKE`, `SV2V`, `YOSYS`
