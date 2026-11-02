@@ -39,7 +39,7 @@ def test_counter():
     ...
 ```
 
-Qualified `ndf://PROJECT/ID` targets are also accepted. `implements` targets
+Qualified `ndf://PROJECT/ID` targets in the owning project are also accepted. `implements` targets
 requirement clauses; `verifies` targets verification clauses. Bind the actual
 state-owning Module, atomic transaction and pure calculation where appropriate.
 A test binding points to the independent assertion's entry, not its expected

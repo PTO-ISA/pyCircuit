@@ -105,7 +105,7 @@ compiler/Runtime and supplied raw/state expectations. See the
 [project workflow](docs/development/model-project-workflow.md) and
 [product scope/roadmap](docs/development/model-tool-product-plan.md).
 A separate [complete-state clocked profile](docs/development/clocked-model-execution.md)
-supports pure hierarchy and checked idle-cycle folding. The non-CPU
+supports pure hierarchy and checked idle-cycle folding. The
 [accumulator example](examples/clocked_accumulator/README.md) demonstrates
 installed native/physical-RTL execution without a second authored model.
 For a model with NDF requirements, `pycircuit spec-check` checks the versioned
