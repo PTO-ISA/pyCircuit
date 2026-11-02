@@ -177,9 +177,34 @@ def _cmd_project(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_spec_check(args: argparse.Namespace) -> int:
+    import subprocess
+
+    from ._spec import check_spec
+
+    try:
+        result = check_spec(args.source, args.ndf, args.output)
+    except (OSError, ValueError, SyntaxError, subprocess.TimeoutExpired) as error:
+        print(f"pycircuit spec-check: {error}", file=sys.stderr)
+        return 1
+    print(f"Spec traceability PASS: {len(result['bindings'])} definition bindings")
+    print("Behavioral conformance and approval are recorded separately.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pycircuit", allow_abbrev=False)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    specification = sub.add_parser(
+        "spec-check", help="Check NDF specification and Python definition traceability"
+    )
+    specification.add_argument(
+        "source", help="Project containing ndf.yaml and ndf.lock"
+    )
+    specification.add_argument("--ndf", required=True, help="Pinned NDF CLI executable")
+    specification.add_argument("--output", required=True, help="New evidence directory")
+    specification.set_defaults(fn=_cmd_spec_check)
 
     compile_units = sub.add_parser(
         "compile",
