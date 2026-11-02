@@ -1,31 +1,20 @@
-# Generated processor snapshot
+# C++ 与 RTL 生成产物
 
-These files are real outputs of the main-based source and SDK at
-`3ee29b077725638081b69dcb0b267979ade07f1f`, including the held-operand repair.
-They are executable deliverables: [the experiment report](../EXPERIMENT.md)
-shows how to compile and verify them without recapturing the processor.
+这里提供由同一份 PyCircuit CPU 源码生成的 C++ 软件模型和物理 RTL。
+[中文实验报告](../EXPERIMENT.md)说明 NDF、Spec、实现与验证如何连接，并给出
+可直接运行的步骤。[生成说明](artifacts.json)集中记录源码/SDK 版本、执行描述和
+工具、工艺依赖。
 
-| Path | Contents |
+| 路径 | 内容 |
 | --- | --- |
-| `cpp/` | Complete emitted C++ headers/sources, CMake entry, port metadata and source maps |
-| `rtl/` | Physical top, five hardware modules, port metadata, emitted build metadata and source maps |
-| `profiles/` | Original functional execution descriptors; the payload directories retain original timing descriptors |
-| `artifacts.json` | Generation/source/tool identities, shared-profile rule, original IR hashes, dependencies and exact payload file checksums |
+| `cpp/` | 完整 C++ 头文件与源码、CMake 入口、端口和源码映射 |
+| `rtl/` | 物理顶层、五个硬件模块、端口与源码映射 |
+| `profiles/` | 功能执行描述；各产物目录保留时序执行描述 |
 
-C++ and RTL are different backends. Timing and functional are execution policies.
-The emitted computation/state files are byte-identical across policies, so only
-the small differing descriptors are duplicated. The consumer in
-`verification/artifact_driver` compiles these exact files and supplies the
-external memory/clock boundary; it has no instruction semantics.
+两种执行策略使用相同的计算与状态源码，因此产物各保存一份，执行描述分别保留。
+`verification/artifact_driver` 提供编译和存储器/时钟适配，运行方式见
+[直接运行生成产物](../EXPERIMENT.md#直接运行生成产物)。
 
-The large generated C++ headers may exceed GitHub's inline viewer limit. Use
-[core.hpp](cpp/sources/rv32i_core/core.hpp)'s Raw/download action, a repository
-checkout, or the commit archive. No large-file service or private bundle is
-required; the largest file is about 3.17 MB. The manifest provides SHA-256 for
-byte verification after download. Runtime primitives and headers come from the
-fixed public SDK and are not copied here.
-
-Keep emitted files unformatted. Checksums and compilation/simulation establish
-the identity of these snapshots; explanatory text and adapters have separate
-owners. Full IR can be regenerated with the pinned source commands and checked
-against the recorded hashes; it is not needed to build the included C++.
+可以直接浏览文件，或使用 Raw/download 和仓库 checkout 获取。最大的
+[core.hpp](cpp/sources/rv32i_core/core.hpp)约 3.17 MB，适合通过 Raw 查看。
+重新生成的公开命令见[从源码重新生成](../EXPERIMENT.md#从源码重新生成)。

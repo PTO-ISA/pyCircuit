@@ -1,32 +1,22 @@
-# SKY130 mapping deliverable
+# SKY130 综合与映射结果
 
-This is the fresh mapping of the repaired main-based physical RTL, not the old
-processor netlist. The [experiment](../../EXPERIMENT.md#synthesis-area-and-mapped-simulation)
-explains the boundary, dependencies, measured results and reproduction commands.
+本目录提供五级 RV32I core 的实际综合输入、标准单元映射网表和运行记录。
+实验得到 **13,860 个单元、109,284.8128 µm² Liberty 单元面积**。
+生成来源与工艺依赖集中在[生成说明](../../generated/artifacts.json)，结果解释与
+复现步骤见[中文实验报告](../../EXPERIMENT.md#综合与面积)。
 
-| File | Meaning |
+| 文件 | 内容 |
 | --- | --- |
-| `mapped.v` | Complete actual mapped Verilog, unchanged from Yosys output |
-| `synthesis.v` | Actual sv2v conversion input to Yosys, unchanged |
-| `synth.ys.in` | Actual command sequence; only Liberty/input paths use named placeholders |
-| `yosys.txt` | Complete original Yosys/ABC log with local path prefixes made portable |
-| `stat.json`, `area.json`, `cell-counts.csv` | Native statistics and per-type inventory; only invocation/dependency paths are normalized |
-| `normalization.json` | Exact cell/type/parameter and logical-port/pin connectivity check during normalization |
-| `ports.json` | Port objects extracted verbatim from the original mapped graph JSON, sufficient for scalar pin adaptation |
+| `mapped.v` | 完整映射 Verilog 网表 |
+| `synthesis.v` | sv2v 转换后送入 Yosys 的输入 |
+| `synth.ys.in` | 综合命令序列，输入和 Liberty 路径使用参数占位符 |
+| `yosys.txt` | 完整 Yosys/ABC 日志，本机路径以变量表示 |
+| `stat.json`、`area.json`、`cell-counts.csv` | 综合统计、面积和各类单元数量 |
+| `normalization.json` | 归一化前后的单元与连接一致性结果 |
+| `ports.json` | 映射端口信息，用于标量端口仿真适配 |
 
-The full intermediate Yosys JSON graphs are omitted because they duplicate the
-netlist and can be produced by the synthesis entrypoint. This port map is not
-presented as a full graph. The original file checksums and report transformations
-are in [the artifact manifest](../../generated/artifacts.json).
-
-The new result is 13,860 mapped cells and 109,284.8128 square micrometres of
-Liberty cell area at HD TT025C1v80. The file `area.json` records the synthesis
-stage; its mapped-simulation field is NOT_RUN at that stage. The subsequent
-[frozen-netlist verification](../reproduction.json) and
-[simulation log](../validation/mapped-simulation.txt) record the actual successful
-mapped C application.
-
-The selected Volare distribution and external view checksums are fixed. Cell
-library files are Apache-2.0 dependencies, not embedded in this directory. The
-area includes the register file, pipeline/control and observation logic, excludes
-external RAM/testbench, and is not layout area or timing signoff.
+`area.json` 记录综合阶段，[实测结果](../reproduction.json)和
+[映射仿真日志](../validation/mapped-simulation.txt)记录后续 C 程序运行。
+通过 `verification/synthesize.py` 可以重新映射，通过
+`verification/check_mapped_artifact.py` 可以重算现有网表的单元数与面积，并进行
+映射仿真；完整命令位于实验报告。

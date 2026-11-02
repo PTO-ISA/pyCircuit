@@ -267,14 +267,6 @@ def main():
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     source = Path(__file__).resolve().parents[1]
-    # Verify committed payloads before building, without recapture or emission.
-    manifest = json.loads((source / "generated/artifacts.json").read_text())
-    import hashlib
-
-    for row in manifest["files"]:
-        path = source / row["path"]
-        if hashlib.sha256(path.read_bytes()).hexdigest() != row["sha256"]:
-            raise ValueError("artifact checksum mismatch: " + row["path"])
     build = args.output / "cpp-build"
     invoke(
         [

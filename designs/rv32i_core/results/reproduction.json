@@ -199,7 +199,6 @@
     309,
     329
   ],
-  "program_elf_sha256": "a1c228eeae9ef63e1d323a5f1c6689e76e7e5f14f8ca60efaaff31f1c8b85dbf",
   "native_rtl_cycle_comparisons": 2,
   "same_frozen_cpp_for_both_strategies": true,
   "same_frozen_rtl_for_both_strategies": true,

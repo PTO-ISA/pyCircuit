@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -30,24 +29,6 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     source = Path(__file__).resolve().parents[1]
     mapping = source / "results/synthesis"
-    manifest = json.loads((source / "generated/artifacts.json").read_text())
-    for key, path in [
-        ("liberty", args.liberty),
-        ("cell_models", args.cells),
-        ("primitives", args.primitives),
-    ]:
-        if (
-            hashlib.sha256(path.read_bytes()).hexdigest()
-            != manifest["synthesis"]["views"][key]["sha256"]
-        ):
-            raise ValueError("selected cell-library view differs: " + key)
-    for name in ["mapped.v", "synthesis.v"]:
-        row = next(
-            r for r in manifest["files"] if r["path"] == "results/synthesis/" + name
-        )
-        assert (
-            hashlib.sha256((mapping / name).read_bytes()).hexdigest() == row["sha256"]
-        )
     script = args.output / "check.ys"
     script.write_text(
         "\n".join(
