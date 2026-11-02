@@ -12,7 +12,11 @@ def package_files(root: Path, package_root: Path) -> list[str]:
     if not root.is_dir():
         return files
     for path in root.rglob("*"):
-        if path.is_file():
+        if (
+            path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix not in {".pyc", ".pyo"}
+        ):
             files.append(str(path.relative_to(package_root)))
     return files
 
@@ -59,9 +63,10 @@ setup(
         exclude=["pycircuit._toolchain*"],
     ),
     package_data={
-        "pycircuit": package_files(PACKAGE_ROOT / "_toolchain", PACKAGE_ROOT),
+        "pycircuit": package_files(PACKAGE_ROOT / "_toolchain", PACKAGE_ROOT)
+        + package_files(PACKAGE_ROOT / "templates", PACKAGE_ROOT),
     },
-    # Toolchain files are enumerated explicitly in package_data above.
+    # Toolchain and starter assets are enumerated explicitly above.
     include_package_data=False,
     zip_safe=False,
     entry_points={

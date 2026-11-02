@@ -1,0 +1,13 @@
+format_version: "0.2"
+project: telemetry-model
+roots:
+  - spec/design-input.md
+  - spec/model-spec.md
+  - spec/acceptance.md
+id_prefixes: [MODEL]
+domains: [behavior, verification]
+policies: {}
+dependencies:
+  ndf:
+    path: .pycircuit_out/ndf
+    graph: false

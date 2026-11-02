@@ -1382,9 +1382,9 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       TableContainingNominalsKeepExpandedBranchProofAndRollback) {
-  // Both shapes use the existing rank-one Table-field admission. In particular,
-  // a closed outer shape must not hide a Table below its Struct element.
+       TableContainingNominalsAuthenticateSelectionAndRollback) {
+  // Both shapes retain rank-one Table-field admission and independent source
+  // proof. Selection encoding may be compact; no nested field may be lost.
   for (bool outerTable : {false, true}) {
     SCOPED_TRACE(outerTable);
     auto file = parse();
@@ -1443,13 +1443,9 @@ TEST_F(TransactionLoweringTest,
         std::distance(prepared->transactions.begin(), selected)];
     ASSERT_EQ(transaction.branchResults.size(), 1u);
     auto &record = transaction.branchResults[0];
-    EXPECT_GT(record.generated.size(), 1u);
-    EXPECT_TRUE(llvm::none_of(record.generated, [](auto *operation) {
-      return mlir::isa<ValueMergeOp>(operation);
-    }));
-    EXPECT_TRUE(llvm::any_of(record.generated, [](auto *operation) {
-      return mlir::isa<BitsSelectOp>(operation);
-    }));
+    ASSERT_FALSE(record.generated.empty());
+    EXPECT_TRUE(areEquivalentHardwareTypes(record.value.getType(),
+                                           split->getResult(0).getType()));
     detail::SourceCheckBudget proofBudget(limits);
     ASSERT_TRUE(mlir::succeeded(capture([&] {
       return acir::detail::verifyTransactionMaterialization(

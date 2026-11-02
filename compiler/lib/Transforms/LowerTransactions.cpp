@@ -187,6 +187,55 @@ LogicalResult rebasePayloadClone(Operation *operation,
 // candidate operation is still reconstructed and checked at each occurrence.
 class BranchTypeAdmissionCache {
 public:
+  FailureOr<bool> closed(Type type, const ac::HardwareAnalysis &hardware,
+                         Operation *site, SourceCheckBudget &budget,
+                         unsigned depth = 0) {
+    if (!charge(budget, site, 2) || depth > 128)
+      return failure();
+    if (auto found = closedTypes.find(type); found != closedTypes.end())
+      return found->second;
+    auto literal = [](ac::StaticExprAttr expr) {
+      auto kind =
+          expr ? expr.getTree().getAs<StringAttr>("kind") : StringAttr();
+      return kind && kind.getValue() == "literal";
+    };
+    bool result = false;
+    if (auto bits = dyn_cast<ac::BitsType>(type))
+      result = literal(bits.getWidth());
+    else if (auto table = dyn_cast<ac::TableType>(type)) {
+      result = true;
+      for (auto shape : table.getShape())
+        result &= literal(dyn_cast<ac::StaticExprAttr>(shape));
+      auto element =
+          closed(table.getElementType(), hardware, site, budget, depth + 1);
+      if (failed(element))
+        return failure();
+      result &= *element;
+    } else if (auto record = dyn_cast<ac::StructType>(type)) {
+      auto decl = hardware.lookupStruct(record);
+      result = bool(decl);
+      if (decl)
+        for (auto raw : decl.getFields()) {
+          auto field = cast<DictionaryAttr>(raw);
+          if (field.get("source_constraint")) {
+            result = false;
+            break;
+          }
+          auto member = closed(field.getAs<TypeAttr>("type").getValue(),
+                               hardware, site, budget, depth + 1);
+          if (failed(member))
+            return failure();
+          result &= *member;
+        }
+    }
+    if (!charge(budget, site, 16))
+      return failure();
+    closedTypes.try_emplace(type, result);
+    return result;
+  }
+
+  FailureOr<bool> compact(Type type, const ac::HardwareAnalysis &hardware,
+                          Operation *site, SourceCheckBudget &budget);
   FailureOr<Type> admit(Type original, const ac::HardwareAnalysis &hardware,
                          const ac::HardwareBindings &bindings, Operation *site,
                          SourceCheckBudget &budget) {
@@ -207,6 +256,13 @@ public:
           return failure();
         emptyContexts.try_emplace(bindings.owner, context);
       }
+    }
+    if (bindings.integers.empty() && bindings.types.empty()) {
+      auto independent = closed(original, hardware, site, budget);
+      if (failed(independent))
+        return failure();
+      if (*independent)
+        context = nullptr;
     }
     auto key = std::make_pair(context, original);
     if (auto found = admitted.find(key); found != admitted.end()) return found->second;
@@ -231,6 +287,7 @@ public:
 private:
   llvm::DenseMap<std::pair<const ac::HardwareBindings *, Type>, Type> admitted;
   std::map<Operation *, const ac::HardwareBindings *> emptyContexts;
+  llvm::DenseMap<Type, bool> compactTypes, closedTypes;
 };
 
 // Only called after this traversal independently admits the complete root
@@ -331,6 +388,19 @@ FailureOr<bool> compactBranchSelection(Type root,
       return failure();
     if (isa<ac::BitsType, ac::EnumType>(next.type))
       continue;
+    if (auto table = dyn_cast<ac::TableType>(next.type)) {
+      // Whole-value merge already has field/lane availability and packed RTL
+      // semantics. Nested Tables are eligible by their original closed shape,
+      // never by one occurrence's parameter/default or candidate metadata.
+      if (failed(prepayBranchShapeProbe(table.getShape(), site, budget)))
+        return failure();
+      if (!hardware.isStaticEvaluable(table.getShape(), {}))
+        return false;
+      if (!prepayAppend(budget, site, pending))
+        return failure();
+      pending.push_back({table.getElementType(), next.depth + 1});
+      continue;
+    }
     auto structure = dyn_cast<ac::StructType>(next.type);
     if (!structure)
       return false;
@@ -345,6 +415,21 @@ FailureOr<bool> compactBranchSelection(Type root,
     }
   }
   return true;
+}
+
+FailureOr<bool>
+BranchTypeAdmissionCache::compact(Type type,
+                                  const ac::HardwareAnalysis &hardware,
+                                  Operation *site, SourceCheckBudget &budget) {
+  if (!charge(budget, site, 2))
+    return failure();
+  if (auto found = compactTypes.find(type); found != compactTypes.end())
+    return found->second;
+  auto result = compactBranchSelection(type, hardware, site, budget);
+  if (failed(result) || !charge(budget, site, 16))
+    return failure();
+  compactTypes.try_emplace(type, *result);
+  return *result;
 }
 
 FailureOr<BranchJoinLayout>
@@ -532,7 +617,7 @@ LogicalResult prepayBranchSelection(Type type,
   auto admitted = cache.admit(type, hardware, bindings, site, budget);
   if (failed(admitted))
     return failure();
-  auto compact = compactBranchSelection(type, hardware, site, budget);
+  auto compact = cache.compact(type, hardware, site, budget);
   if (failed(compact))
     return failure();
   if (*compact)
@@ -2353,7 +2438,8 @@ FailureOr<MaterializedBranchResult> materializeSelection(
       !ac::areEquivalentHardwareTypes(whenTrue.getType(), type) ||
       !ac::areEquivalentHardwareTypes(whenFalse.getType(), type))
     return failure();
-  auto compact = compactBranchSelection(type, hardware, branch, budget);
+  auto compact = cache ? cache->compact(type, hardware, branch, budget)
+                       : compactBranchSelection(type, hardware, branch, budget);
   if (failed(compact))
     return failure();
   if (*compact) {
@@ -2502,6 +2588,15 @@ public:
 
   FailureOr<MaterializedTransaction> run() {
     auto transaction = plan.transaction;
+    // Index immutable plan occurrences once. Branch lookup must not rescan the
+    // whole invocation-expanded plan for every authored branch.
+    for (auto [id, branch] : llvm::enumerate(plan.branches)) {
+      if (!charge(budget, branch.operation,
+                  1 + SourceCheckBudget::bytes(2 * sizeof(Key) +
+                                               2 * sizeof(uint64_t))))
+        return failure();
+      branches.try_emplace(Key{branch.frame, branch.operation}, id);
+    }
     auto staged = cast<ac::SourceTransactionOp>(
         packageMap.lookup(transaction.operator->()));
     if (!charge(
@@ -3135,13 +3230,12 @@ private:
         }
       } else if (auto split = dyn_cast<ac::SourceBranchOp>(op)) {
         if (failed(emitRequirements(split, frame, builder))) return failure();
-        if (!charge(budget, split, plan.branches.size()))
+        if (!charge(budget, split))
           return failure();
-        auto found = llvm::find_if(plan.branches, [&](const auto &branch) {
-          return branch.frame == frame && branch.operation == split;
-        });
-        if (found == plan.branches.end())
+        auto branchEntry = branches.find({frame, split});
+        if (branchEntry == branches.end())
           return split.emitOpError() << "transaction branch plan is missing";
+        const auto *found = &plan.branches[branchEntry->second];
         auto condition = bound(found->condition);
         if (failed(condition))
           return failure();
@@ -3322,6 +3416,7 @@ private:
   SmallVector<ac::BitsSelectOp, 0> resources;
   SmallVector<Value, 0> queuePaths, memoryPaths, memoryReadPrefixes;
   llvm::DenseMap<Key, SmallVector<uint64_t, 2>> requirementSites;
+  llvm::DenseMap<Key, uint64_t> branches;
   const TransactionPreparation &prepared;
   const ac::TransactionStatePlan &plan;
   IRMapping &packageMap;
@@ -4662,8 +4757,10 @@ private:
 
     // Derive the representation from the original admitted logical type before
     // consulting any generated opcode or inventory. Candidate merges cannot
-    // elect this proof path, including for symbolic or nested-Table payloads.
-    auto compact = compactBranchSelection(resolvedRoot, hardware, branch, budget);
+    // elect this proof path, including for symbolic Table shapes or unsupported
+    // payloads.
+    auto compact =
+        admissionCache.compact(resolvedRoot, hardware, branch, budget);
     if (failed(compact))
       return failure();
     if (*compact) {

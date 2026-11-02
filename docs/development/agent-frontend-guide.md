@@ -15,6 +15,14 @@ source variables still use the existing proposal/commit flow.
 
 ## Write a sequential program
 
+For a bounded deterministic request/response component,
+`@ac.module(execution={...})` names its worker, queue, callable and state roles.
+Keep calculation/state ownership and timing in that one source. Native link
+can derive a functional or timing entry without a second authored root;
+C++/Verilog remain backend choices. Follow the
+[shared execution contract](shared-functional-timing-model.md) for the complete
+role declaration, ownership/effect checks and rejected timing-dependent forms.
+
 Describe the function using meaningful variables, calculations, assignments and
 calls. Put persistent declarations in the owning Module and cohesive state
 transitions in Rules. Rule bodies read in statement order; ACIR supplies storage,

@@ -38,6 +38,7 @@ struct Options {
   std::optional<std::string> top;
   std::optional<std::string> parameters;
   std::optional<std::string> resetSemantics;
+  std::optional<std::string> execution;
   std::optional<std::string> design;
   std::optional<std::string> fromAnchor;
   std::optional<std::string> target;
@@ -94,7 +95,7 @@ bool parseOptions(int argc, char **argv, Options &options) {
   for (int i = 1; i < argc; ++i) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
-        arg != "--parameters" && arg != "--reset-semantics" &&
+        arg != "--parameters" && arg != "--reset-semantics" && arg != "--execution" &&
         arg != "--design" && arg != "--from-anchor" && arg != "--target" && arg != "--output" &&
         arg != "--glue-output" && arg != "--entry-owner-out" &&
         arg != "--unit-owner-out" && arg != "--transaction-input-out" &&
@@ -128,6 +129,8 @@ bool parseOptions(int argc, char **argv, Options &options) {
     } else if (arg == "--reset-semantics") {
       if (!setOnce(options.resetSemantics, value, arg))
         return false;
+    } else if (arg == "--execution") {
+      if (!setOnce(options.execution, value, arg)) return false;
     } else if (arg == "--design") {
       if (!setOnce(options.design, value, arg))
         return false;
@@ -157,6 +160,13 @@ bool parseOptions(int argc, char **argv, Options &options) {
     }
   }
 
+  if (options.execution &&
+      ((*options.execution != "timing" && *options.execution != "functional") ||
+       options.verifyOnly || options.fromAnchor || options.design ||
+       (options.target && *options.target != "final"))) {
+    llvm::errs() << "error: --execution timing|functional requires source-unit final linking\n";
+    return false;
+  }
   if (options.fromAnchor) {
     if (!options.bodies.empty() || !options.headers.empty() || options.top ||
         options.parameters || options.resetSemantics || options.design ||
@@ -585,11 +595,17 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
       *options.target == "anchor" ? acir::compiler::SourceLinkTarget::Routed
                                   : acir::compiler::SourceLinkTarget::Hardware,
       options.transactionInputOutput ? &stages : nullptr, parameters,
-      options.resetSemantics.value_or("strict"));
+      options.resetSemantics.value_or("strict"), options.execution.value_or(""));
   if (mlir::failed(program))
     return mlir::failure();
   auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(
       mlir::SymbolTable::lookupSymbolIn(**program, *options.top));
+  if (*options.target == "final") {
+    acir::ac::HardwareAnalysis analysis(**program);
+    auto bindings = acir::ac::detail::resolveHardwareLogicalRootBindings(analysis);
+    if (mlir::failed(bindings)) return mlir::failure();
+    root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(bindings->owner);
+  }
   if (!root)
     return emitError() << "linked package has no selected root";
   if (options.entryOwnerOutput &&

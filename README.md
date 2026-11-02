@@ -90,6 +90,29 @@ See the [quickstart](docs/getting-started/quickstart.md) for explicit compile/li
 emit commands and the [tutorial](docs/getting-started/tutorial.md) for inspecting
 and running the generated artifacts.
 
+A bounded [shared execution model](docs/development/shared-functional-timing-model.md)
+can declare calculation, architectural state/effects and finite queue/II timing
+once. Native `link --execution functional|timing` derives the selected execution
+entry; `cpp|verilog` remains a separate backend choice. The
+[word and state-dependent digest example](examples/timed_word_pipeline/README.md)
+shows installed input-driven runs and independent transaction/timing checks.
+Architectural timers, cancellation and unsupported topology are rejected by
+this slice, rather than erased during functional projection.
+
+For a portable bounded model project, the installed tool also provides
+`pycircuit doctor`, `init`, `verify` and `benchmark`. They reuse the same
+compiler/Runtime and supplied raw/state expectations. See the
+[project workflow](docs/development/model-project-workflow.md) and
+[product scope/roadmap](docs/development/model-tool-product-plan.md).
+A separate [complete-state clocked profile](docs/development/clocked-model-execution.md)
+supports pure hierarchy and checked idle-cycle folding. The
+[accumulator example](examples/clocked_accumulator/README.md) demonstrates
+installed native/physical-RTL execution without a second authored model.
+For a model with NDF requirements, `pycircuit spec-check` checks the versioned
+Spec and named Python implementation/test bindings using a pinned external NDF
+CLI. See the [specification workflow](docs/development/model-spec-workflow.md).
+Traceability, behavioral validation and specification approval remain distinct.
+
 ## Build from source
 
 | Task | Requirements |

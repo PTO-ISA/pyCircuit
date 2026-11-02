@@ -250,18 +250,53 @@ private:
             Budget::multiply(buckets, sizeof(void *) + sizeof(unsigned)),
             2 * sizeof(void *))))));
   }
+  // Attribute/type nodes are immutable DAG nodes. Revisit only the constant
+  // time memo lookup, not the same source-origin/type tree for every SSA use.
+  // Cache height as well so sharing never weakens the existing depth limit.
+  llvm::DenseMap<Attribute, unsigned> costAttributeHeights;
+  llvm::DenseMap<Type, unsigned> costTypeHeights;
   LogicalResult boundCost(llvm::PointerUnion<Attribute, Type> node,
                           Operation *site, unsigned depth = 0) {
     if (!node) return success();
+    if (!charge(site))
+      return failure();
     if (depth > maxDepth)
       return site->emitOpError() << "bound Method static expression depth exceeded";
-    if (!charge(site)) return failure();
+    std::optional<unsigned> cached;
+    if (auto attr = dyn_cast<Attribute>(node)) {
+      auto found = costAttributeHeights.find(attr);
+      if (found != costAttributeHeights.end())
+        cached = found->second;
+    } else {
+      auto found = costTypeHeights.find(cast<Type>(node));
+      if (found != costTypeHeights.end())
+        cached = found->second;
+    }
+    if (cached) {
+      if (*cached > maxDepth - depth)
+        return site->emitOpError()
+               << "bound Method static expression depth exceeded";
+      return success();
+    }
     bool valid = true;
+    unsigned height = 0;
     auto attribute = [&](Attribute value) {
-      if (valid && failed(boundCost(value, site, depth + 1))) valid = false;
+      if (!valid)
+        return;
+      if (failed(boundCost(value, site, depth + 1))) {
+        valid = false;
+        return;
+      }
+      height = std::max(height, 1 + costAttributeHeights.lookup(value));
     };
     auto type = [&](Type value) {
-      if (valid && failed(boundCost(value, site, depth + 1))) valid = false;
+      if (!valid)
+        return;
+      if (failed(boundCost(value, site, depth + 1))) {
+        valid = false;
+        return;
+      }
+      height = std::max(height, 1 + costTypeHeights.lookup(value));
     };
     if (auto value = dyn_cast<Attribute>(node)) {
       if (auto text = dyn_cast<StringAttr>(value))
@@ -272,7 +307,16 @@ private:
     } else {
       cast<Type>(node).walkImmediateSubElements(attribute, type);
     }
-    return success(valid);
+    if (!valid)
+      return failure();
+    // Prepay memo entry/bucket growth conservatively, within unchanged maxWork.
+    if (!charge(site, 8))
+      return failure();
+    if (auto value = dyn_cast<Attribute>(node))
+      costAttributeHeights.try_emplace(value, height);
+    else
+      costTypeHeights.try_emplace(cast<Type>(node), height);
+    return success();
   }
   static bool hardwareType(Type type) {
     return isa<BitsType, StructType, EnumType, TableType, TypeParamType>(type);

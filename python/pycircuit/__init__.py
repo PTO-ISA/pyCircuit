@@ -37,8 +37,13 @@ __all__ = [
 __version__ = "6.1.0"
 
 
-def module(declaration):
-    """Declare a hardware module in compiler input."""
+def module(declaration=None, *, execution=None):
+    """Declare a hardware module, optionally a checked request/response model.
+
+    ``execution`` is literal compiler input, never an executed Python factory.
+    Its single-worker topology is checked by the native linker before a
+    functional projection can discard transport waiting.
+    """
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 

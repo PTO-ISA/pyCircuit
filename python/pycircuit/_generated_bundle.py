@@ -139,6 +139,7 @@ def _generated_receipt(
     if type(value) is not dict or set(value) - {
         "system_samples",
         "needs_four_state",
+        "execution_model",
     } not in (
         fields,
         fields | {"root_rtl_name"},
@@ -149,6 +150,37 @@ def _generated_receipt(
     ):
         raise _PublicationError("generated.json fields are not closed")
     _execution_metadata(value)
+    if "execution_model" in value:
+        execution = value["execution_model"]
+        if type(execution) is not dict:
+            raise _PublicationError("generated execution model contract is invalid")
+        fixed = execution.get("protocol") == "clocked_fixedpoint_v1"
+        execution_fields = {"strategy", "protocol", "publication_field"} | (
+            {"state_output"} if fixed else set()
+        )
+        if (
+            set(execution) != execution_fields
+            or execution["strategy"] not in {"functional", "timing"}
+            or execution["protocol"]
+            not in {"request_response_v1", "system", "clocked_fixedpoint_v1"}
+            or (
+                execution["strategy"] == "functional"
+                and execution["protocol"] == "system"
+            )
+            or type(execution["publication_field"]) is not str
+            or (
+                execution["protocol"] == "request_response_v1"
+                and not execution["publication_field"]
+            )
+            or (
+                fixed
+                and (
+                    type(execution["state_output"]) is not int
+                    or execution["state_output"] not in (0, 1)
+                )
+            )
+        ):
+            raise _PublicationError("generated execution model contract is invalid")
     if "reset_semantics" in value and value["reset_semantics"] not in (
         "strict",
         "if_one",

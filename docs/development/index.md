@@ -1,5 +1,7 @@
 # Development guide
 
+- [NDF model specifications and traceability](model-spec-workflow.md)
+
 Development targets the approved source-unit pipeline: capture each Python
 source, resolve published interfaces and verify the linked final design in
 MLIR, then emit C++ or Verilog from that same artifact. Current support and
