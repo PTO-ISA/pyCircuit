@@ -87,6 +87,7 @@ def init_project(destination, template="stateful"):
     files = project_files(template)
     target.mkdir(parents=True)
     for name, content in files.items():
+        (target / name).parent.mkdir(parents=True, exist_ok=True)
         with (target / name).open("x", encoding="utf-8") as stream:
             stream.write(content)
     return target
@@ -238,8 +239,7 @@ def _compare_view(directory, expected, strategy):
 
 
 def verify_project(source, output, selected=None, rtl=False, timeout=180):
-    root, project, expected = load_project(source)
-    prefix = _prefix(selected)
+    root = Path(source).resolve()
     output = Path(output).resolve()
     if output == root or root in output.parents or output in root.parents:
         raise _DriverError("verification output must be outside project sources")
@@ -250,7 +250,11 @@ def verify_project(source, output, selected=None, rtl=False, timeout=180):
         "views": [],
         "scope": "independent supplied raw completions/publications and final state; cycle oracle belongs to tests",
     }
+    receipt = output / "verification.json"
+    receipt.write_text(json.dumps(report, indent=2) + "\n")
     try:
+        root, project, expected = load_project(source)
+        prefix = _prefix(selected)
         for strategy in ("functional", "timing"):
             for target in ("cpp", "verilog") if rtl else ("cpp",):
                 directory = output / f"{strategy}-{target}"
@@ -313,7 +317,7 @@ def verify_project(source, output, selected=None, rtl=False, timeout=180):
         report["error"] = str(error)
         raise
     finally:
-        (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
+        receipt.write_text(json.dumps(report, indent=2) + "\n")
     return report
 
 
@@ -400,6 +404,23 @@ def benchmark_project(
             "unknown",
         )
     try:
+        timer = None
+        for name in ("gtime", "time"):
+            candidate = shutil.which(name)
+            if candidate is None:
+                continue
+            try:
+                version = subprocess.run(
+                    [candidate, "--version"],
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if version.returncode == 0 and "gnu time" in version.stdout.lower():
+                timer = candidate
+                break
         for label in ("cold", "warm"):
             command = [
                 str(cli),
@@ -411,8 +432,7 @@ def benchmark_project(
                 str(prefix),
             ]
             resource_file = output / f"{label}-resource.txt"
-            timer = shutil.which("time")
-            if timer and Path(timer).name == "time":
+            if timer is not None:
                 command = [
                     timer,
                     "-f",

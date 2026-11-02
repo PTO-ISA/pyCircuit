@@ -65,6 +65,7 @@ def test_release_retirement_gate_checks_the_single_public_driver_contract(
         "doctor",
         "verify",
         "benchmark",
+        "spec-check",
     }
     assert '"pycircuit-emit"' in source
     for retired in ("acc.py", "pycc", "agentic-circuit"):

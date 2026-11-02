@@ -1,6 +1,7 @@
 """Small portable projects using the current, explicit source API."""
 
 import json
+from pathlib import Path
 
 
 def project_files(template):
@@ -34,6 +35,7 @@ class State:
     completed: ac.u16
     rejected: ac.u16
 
+# ndf: implements=MODEL-SPEC-001
 @ac.module
 def Worker():
     total: ac.u16 = 0
@@ -57,6 +59,7 @@ def Worker():
     def snapshot() -> State:
         return State(total=total, completed=completed, rejected=rejected)
 
+# ndf: implements=MODEL-SPEC-002
 @ac.module(execution={
     "worker": "worker", "ingress": "ingress", "egress": "egress",
     "process": "process", "snapshot": "snapshot", "submit": "submit",
@@ -173,4 +176,12 @@ is needed. Existing benchmark output directories are never overwritten.
         ("expected.json", expected),
     ):
         files[name] = json.dumps(data, indent=2) + "\n"
+    template_root = Path(__file__).parent / "templates" / "model"
+    for path in sorted(template_root.rglob("*")):
+        if path.is_file() and path.suffix != ".pyc" and "__pycache__" not in path.parts:
+            files[path.relative_to(template_root).as_posix()] = path.read_text()
+    files[".gitignore"] = ".pycircuit_out/\n__pycache__/\n*.pyc\n"
+    files[
+        "README.md"
+    ] += "\nSee [NDF specifications](spec/README.md) for L0–L3 documents and traceability.\n"
     return files

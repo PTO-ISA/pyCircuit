@@ -277,10 +277,12 @@ LogicalResult verifyTransport(ac::ModuleOp root, ModelPlan &plan,
   if (!enabled || !valid || !admission || !publication ||
       submitCalls[0]->getParentRegion() != &admission->getRegion(0) ||
       push->getParentRegion() != &publication->getRegion(0) ||
+      publication->getBlock() != process->getBlock() ||
       !directPredicate(admission.getCondition(), enabled, analysis, root) ||
       !directPredicate(publication.getCondition(), valid, analysis, root))
     return root.emitOpError("execution admission and result publication must "
-                            "match their declared predicates");
+                            "match their declared predicates without additional "
+                            "publication conditions");
   unsigned acceptedWrites = 0;
   unsigned admissionBranches = 0;
   bool unsafe = false;
@@ -1182,6 +1184,16 @@ LogicalResult selectExecutionModel(mlir::ModuleOp package, ac::ModuleOp &root,
   for (auto module : package.getOps<ac::ModuleOp>()) {
     if (!module->hasAttr("ac.execution_model"))
       continue;
+    auto declaration =
+        module->getAttrOfType<DictionaryAttr>("ac.execution_model");
+    if (declaration && declaration.getAs<StringAttr>("profile")) {
+      // Supplied units retain every definition. A clocked profile which is
+      // not the selected root remains ordinary clocked hardware; its closed
+      // declaration is not a request/FIFO role dictionary.
+      if (failed(validateFixedPoint(package, module)))
+        return failure();
+      continue;
+    }
     auto plan = planModel(package, module);
     if (failed(plan))
       return failure();

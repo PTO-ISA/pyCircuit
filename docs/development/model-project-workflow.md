@@ -121,3 +121,12 @@ failed HTTP401 before review; credentials were not changed/retried. No independe
 review or hierarchy approval is claimed. The pending design's source evidence
 is a valid hierarchical unit that still rejects at projection on ac.instance.
 The foundation commands and batch optimization do not bypass that rejection.
+
+## Project specification starter
+
+Every `pycircuit init` variant includes NDF 0.2 `ndf.yaml`/`ndf.lock`, L0/L1
+`spec/design-input.md`, L2 `spec/model-spec.md`, L3 `spec/acceptance.md` and
+`verification/verify.py`. The actual Worker/Pipeline and verification definitions
+carry source bindings. The generated `spec/README.md` explains the pinned external
+NDF CLI, project renaming and separate traceability/behavior checks. All clauses
+start as unapproved drafts; generated files make no execution or approval claim.

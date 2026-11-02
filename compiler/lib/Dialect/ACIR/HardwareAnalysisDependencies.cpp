@@ -130,7 +130,7 @@ struct Engine {
   // exact empty-binding layouts within this immutable analysis invocation;
   // actual parameterized occurrences retain their original resolution path.
   llvm::DenseMap<std::pair<Operation *, Type>, SmallVector<FieldPath>>
-      pathLayouts;
+      pathLayouts{};
   FailureOr<SmallVector<FieldPath>>
   paths(Type type, const HardwareBindings &bindings, Operation *site) {
     if (isa<BitsType, EnumType>(type) || !bindings.integers.empty() ||

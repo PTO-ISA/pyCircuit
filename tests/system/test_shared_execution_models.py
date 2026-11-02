@@ -445,6 +445,7 @@ def test_unsafe_projection_does_not_replace_published_program(tmp_path, toolchai
         "timer",
         "duplicate_effect",
         "trap",
+        "nested_publication",
         "unproved_ii",
         "invalid_interval",
     ):
@@ -480,6 +481,25 @@ def test_unsafe_projection_does_not_replace_published_program(tmp_path, toolchai
                 if isinstance(node, ast.FunctionDef) and node.name == "apply"
             )
             process.body.insert(0, ast.parse("assert request.value != 0").body[0])
+        elif mutation == "nested_publication":
+            advance = next(
+                node
+                for node in model.body
+                if isinstance(node, ast.FunctionDef) and node.name == "advance"
+            )
+            # The immediate push guard is the declared valid flag, but its
+            # enclosing false arm makes publication impossible. A functional
+            # projection must not turn this into a published valid response.
+            advance.body = ast.parse(
+                "request = pending.pop()\n"
+                "result = engine.apply(request)\n"
+                "publish = result.ok\n"
+                "if publish:\n"
+                "    pass\n"
+                "else:\n"
+                "    if publish:\n"
+                "        results.push(result)\n"
+            ).body
         elif mutation == "unproved_ii":
             declaration = model.decorator_list[0].keywords[0].value
             for n, key in enumerate(declaration.keys):
@@ -517,3 +537,71 @@ def test_unsafe_projection_does_not_replace_published_program(tmp_path, toolchai
             assert compiled == 0
             assert invoke(link_args) != 0
         assert final.read_bytes() == good
+
+
+def test_unselected_clocked_profile_uses_its_own_declaration(tmp_path, toolchain):
+    """A supplied clocked definition is not a request/FIFO role dictionary."""
+    source = tmp_path / "model.py"
+    source.write_text(
+        (EXAMPLE / "alternate_model.py").read_text()
+        + """
+
+@ac.module(execution={"profile": "clocked_fixedpoint_v1", "state_output": 1})
+def Clocked(value: ac.u8) -> tuple[ac.u8, ac.u8]:
+    state: ac.u8 = 0
+
+    @ac.rule
+    def tick() -> ac.u8:
+        state = state + value
+        return state
+
+    return tick, state
+
+@ac.module
+def Ordinary(value: ac.u8) -> ac.u8:
+    return value
+"""
+    )
+    cli = str(toolchain / "bin/pycircuit")
+    unit = tmp_path / "unit"
+    commands = [
+        [
+            "compile",
+            "-c",
+            str(source),
+            "--source-root",
+            str(tmp_path),
+            "--package-prefix",
+            "projection",
+            "-o",
+            str(unit),
+        ],
+        [
+            "link",
+            str(unit),
+            "--top",
+            "projection.model.Ordinary",
+            "-o",
+            str(tmp_path / "ordinary.ac"),
+        ],
+    ]
+    for execution in ("timing", "functional"):
+        commands.append(
+            [
+                "link",
+                str(unit),
+                "--top",
+                "projection.model.TimedDigestPipeline",
+                "--execution",
+                execution,
+                "-o",
+                str(tmp_path / f"{execution}.ac"),
+            ]
+        )
+    for command in commands:
+        result = subprocess.run(
+            [cli, *command], capture_output=True, text=True, timeout=60
+        )
+        with (tmp_path / "unselected-clocked.log").open("a") as log:
+            log.write(result.stdout + result.stderr)
+        assert result.returncode == 0, result.stdout + result.stderr

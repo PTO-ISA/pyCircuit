@@ -293,6 +293,7 @@ def scan_public_surface() -> list[str]:
             "doctor",
             "verify",
             "benchmark",
+            "spec-check",
         }
         if commands != expected_commands:
             failures.append(
