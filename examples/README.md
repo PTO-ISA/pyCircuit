@@ -78,3 +78,10 @@ ctest --test-dir /absolute/build/examples --output-on-failure --no-tests=error
 ```
 
 The aggregate build and this catalog contain the same runnable example set.
+
+## Pinned tool-extension consumer
+
+`rv32i_core/` is an independent five-stage RV32I engineering example with its
+own explicit SDK dependency and verification/mapping flow. It is not part of
+the standard System example gate. Build the pinned extension SDK described in
+`rv32i_core/README.md` before using its model execution entry.

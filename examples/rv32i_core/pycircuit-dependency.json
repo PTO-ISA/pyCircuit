@@ -1,0 +1,9 @@
+{
+  "schema": "pycircuit-example-tool-dependency-v1",
+  "repository": "https://github.com/PTO-ISA/pyCircuit.git",
+  "pull_request": "https://github.com/PTO-ISA/pyCircuit/pull/370",
+  "ref": "refs/pull/370/head",
+  "commit": "2b8b8316ac533ef4773acc1e93a280301645c8ab",
+  "reason": "shared execution profiles, installed clocked memory run and physical RTL required by this standalone example",
+  "merge_order": "tool PR first, then demo PR; demo branch diff contains no tool implementation"
+}
