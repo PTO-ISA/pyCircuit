@@ -1,0 +1,11 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/arithmetic.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [],
+  "source": {
+    "package": "rv32i_core",
+    "path": "arithmetic.py"
+  }
+}

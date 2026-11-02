@@ -26,7 +26,10 @@ Each project should contain:
 - `verification/` with independent expectations and reproducible test entrypoints.
 - An exact pyCircuit dependency record and separately scoped validation results.
 
-Keep generated files under ignored `.pycircuit_out/`. Record actual tested
+Keep build outputs under ignored `.pycircuit_out/`. The RV32I project also
+publishes a checksummed generated-source/netlist snapshot as a reproducible
+deliverable; its SDK, caches, executables and cell-library dependencies remain
+external. Record actual tested
 revisions and commands; a draft specification, successful graph check or
 successful compile is not behavioral validation. The [teaching examples](../examples/README.md)
 remain the place for focused language demonstrations and compiler smoke tests.

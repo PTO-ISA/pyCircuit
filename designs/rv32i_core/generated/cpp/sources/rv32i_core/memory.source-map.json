@@ -1,0 +1,23 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/memory.cpp",
+    "sources/rv32i_core/memory.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [
+    {
+      "location": "loc(\"memory.py\":80:1)",
+      "operation": "ac.module",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 4 : i64}], definition = @rv32i_core.memory.Memory}}"
+    },
+    {
+      "location": "loc(\"memory.py\":16:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 2 : i64}], definition = @rv32i_core.memory.ResultMemory}}"
+    }
+  ],
+  "source": {
+    "package": "rv32i_core",
+    "path": "memory.py"
+  }
+}

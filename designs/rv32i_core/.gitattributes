@@ -1,0 +1,4 @@
+# Frozen generated payloads retain their emitter bytes across checkouts.
+generated/** -text
+results/synthesis/mapped.v -text whitespace=-blank-at-eol
+results/synthesis/yosys.txt -text whitespace=-blank-at-eol

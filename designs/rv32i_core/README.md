@@ -1,5 +1,7 @@
 # Same-source five-stage RV32I core
 
+[Complete experiment and reproduction](EXPERIMENT.md) · [Generated C++/RTL](generated/README.md) · [Mapped netlist and synthesis](results/synthesis/README.md)
+
 A simple32-bit, single-issue, in-order IF/ID/EX/MEM/WB CPU demonstrates the shared
 functional/timing tool extension. One source owns computation, architectural
 state and precise effects; it generates executable native and physical RTL.
@@ -13,9 +15,16 @@ separately.
 
 ## Directory map
 
+The checked-in generated snapshot and mapped netlist are a deliberate part of
+this project's reproducible deliverable. New build outputs remain under the
+selected ignored output directory; SDKs, executables and cell libraries remain
+external dependencies.
+
 | Path | Responsibility |
 | --- | --- |
 | `spec/`, `ndf.yaml`, `ndf.lock` | Versioned design input, L1/L2 specification, L3 acceptance and exact NDF dependency |
+| `generated/`, `results/synthesis/` | Browsable generated C++/physical RTL, mapped netlist and synthesis records |
+| `programs/c-array.c`, `EXPERIMENT.md` | C application input and complete natural-language experiment |
 | `types.py`, `decoder.py`, `arithmetic.py` | Shared records/reset values and pure RV32I decode/compute units |
 | `writeback.py`, `memory.py`, `execute.py`, `frontend.py`, `core.py` | Actual phase hierarchy, one state owner and atomic commit |
 | `CMakeLists.txt`, `simulation.json`, `link.ld` | Public source-unit closure, blocking platform roles, fixed EEI link layout |

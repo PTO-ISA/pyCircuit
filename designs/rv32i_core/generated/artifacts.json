@@ -1,0 +1,386 @@
+{
+  "schema": "pycircuit-rv32i-artifact-delivery-v1",
+  "model_source_commit": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "generation_tool_commit": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "runtime_sdk_commit": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "model": "rv32i_core.core.Core",
+  "source_path": "designs/rv32i_core",
+  "sharing": "Computation/state sources byte-identical for timing/functional; only original generated.json execution strategy differs.",
+  "profiles": {
+    "timing": [
+      "generated/cpp/generated.json",
+      "generated/rtl/generated.json"
+    ],
+    "functional": [
+      "generated/profiles/functional-cpp.json",
+      "generated/profiles/functional-verilog.json"
+    ]
+  },
+  "final_ir": {
+    "timing": {
+      "sha256": "48f6819d3ef72797296980823b1398913810650797ee404ddbbb02dee1071ecf",
+      "bytes": 8503054,
+      "backends_same_bytes": true
+    },
+    "functional": {
+      "sha256": "5429e50df20fb7e09c8ab1f29eafd11c400a1023322b9f8efd7c8bff4b35496c",
+      "bytes": 8503058,
+      "backends_same_bytes": true
+    }
+  },
+  "synthesis": {
+    "source_commit": "3ee29b077725638081b69dcb0b267979ade07f1f",
+    "fresh_mapping": true,
+    "yosys": "0.33 (2584903a060) + ABC",
+    "sv2v": "0.0.12",
+    "library_distribution": "open_pdks/Volare sky130A c6d73a35f524070e85faff4a6a9eef49553ebc2b",
+    "public_source": "https://github.com/chipfoundry/volare/releases/tag/sky130-c6d73a35f524070e85faff4a6a9eef49553ebc2b",
+    "corner": "sky130_fd_sc_hd__tt_025C_1v80",
+    "license": "Apache-2.0 standard-cell views",
+    "upstream_hd_producing_commit": "UNKNOWN",
+    "views": {
+      "liberty": {
+        "filename": "sky130_fd_sc_hd__tt_025C_1v80.lib",
+        "bytes": 12841637,
+        "sha256": "8e78e14442062dba34d414fca6490b2f6b96038d4510d1438ca44fee31487135"
+      },
+      "lef": {
+        "filename": "sky130_fd_sc_hd.lef",
+        "bytes": 1415362,
+        "sha256": "3a3ea4e9d0973402702764d897659e52fe3d413eb48c306cd811de40a75264fa"
+      },
+      "cell_models": {
+        "filename": "sky130_fd_sc_hd.v",
+        "bytes": 3942003,
+        "sha256": "12d5d6448ccf265c544d88402d5c10ab6de9bee8b8cde48eee1f31ea8c3c3e45"
+      },
+      "primitives": {
+        "filename": "primitives.v",
+        "bytes": 50512,
+        "sha256": "7d4b1441d06b0f2b9662befa675a0484d77149e04eb42a5f1fa2d4cfded7b2ce"
+      }
+    },
+    "report_transformations": {
+      "area.json": "Paths/commands made portable; numeric data unchanged",
+      "stat.json": "Invocation library path made portable; final blank line normalized; all numeric data retained",
+      "yosys.txt": "Complete log; local path prefixes replaced by named variables",
+      "ports.json": "Original mapped.json port objects extracted verbatim; not a full netlist JSON",
+      "synth.ys.in": "Original command sequence, two path placeholders only"
+    },
+    "original_files": {
+      "mapped.v": "88c70e14b26e59d65aad392205912a84568a643e25af06c1d88a791fb4fea83a",
+      "synthesis.v": "23794352e9c339305c00d3aebc86c2cf17a71bbc9d0cc4dce290decbfd2dca5f",
+      "area.json": "0c4d737a9e831b3a7c9952972fe0f8977bf345f6310c83e2d97eaff9d3094cce",
+      "stat.json": "bd8086782d3f803082e1f8ba6443600fb0eab989858c7e9cb072c095828dbf8e",
+      "synth.ys": "35c956f5c3a49ffa27f9e37c7368b95bdfcdbbf9ea89efc3fcefc0c879066688",
+      "yosys.log": "1e1751935efea4f59dec42bdf70b16cd4437bdcee5b34c4d14725c98ed92b075",
+      "normalization.json": "358d9fed7e45ac70925d3ddd9b3b4557db84e028291509be7aa29dc5866ce9bd"
+    }
+  },
+  "files": [
+    {
+      "path": "generated/cpp/CMakeLists.txt",
+      "bytes": 507,
+      "sha256": "2c18a0748d04eb6841a9202d9623a0c314120a4196ca213efa773946af2e4b69"
+    },
+    {
+      "path": "generated/cpp/generated.json",
+      "bytes": 3238,
+      "sha256": "f20b39eed96b7e99f549112836d73789f77661393e88c35331c95e533854e1be"
+    },
+    {
+      "path": "generated/cpp/ports.json",
+      "bytes": 6781,
+      "sha256": "15411b8f08a395d7dc0c9b4f35e6fb12e44de0760466cf5fa8d8a3c77f4ada4d"
+    },
+    {
+      "path": "generated/cpp/pycircuit_support.hpp",
+      "bytes": 13151,
+      "sha256": "c8e4f257d3bee3f9b0b59820aceeb0f6914c3e91cd77783887d276db988f656b"
+    },
+    {
+      "path": "generated/cpp/pycircuit_system.hpp",
+      "bytes": 2244,
+      "sha256": "a4906f9ce2a6117273877e045d27d7a34de2ae8a7a862369ea37c92840745d75"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/arithmetic.hpp",
+      "bytes": 46,
+      "sha256": "66602ecdc351fde21778401111a66e3926aea3d29a8b84056438022b24ce6a16"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/arithmetic.source-map.json",
+      "bytes": 198,
+      "sha256": "f3a098ed8f54c8eafb2e813e62166ec13fbaf960c4982a172b009bed5cabcaa8"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/core.cpp",
+      "bytes": 39,
+      "sha256": "3b86fb1382dc6769e7443e1f464e3fc2c77324cfd9ff681b3afb91cddb20a1c0"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/core.hpp",
+      "bytes": 3164719,
+      "sha256": "db76a5d09b9cc25fb065c15ee78e4904c4a9b340ba5b497a5a5a4c74823a7e5f"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/core.source-map.json",
+      "bytes": 2986,
+      "sha256": "f56c2a1ca3e95ce1ec933b1db50a2f8be0899b9944fed1d21964d557f183a0ab"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/decoder.hpp",
+      "bytes": 46,
+      "sha256": "66602ecdc351fde21778401111a66e3926aea3d29a8b84056438022b24ce6a16"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/decoder.source-map.json",
+      "bytes": 192,
+      "sha256": "7637cd4344cea3ac33e8ab91784c47fe37e8a79ece038588d87279b848861c1e"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/execute.cpp",
+      "bytes": 42,
+      "sha256": "12318a4e7dbe35042552bfc9cadbc50f678a71bdc576afda97c814c4d3a6b2f3"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/execute.hpp",
+      "bytes": 599430,
+      "sha256": "a9fc1d895babad06ae03c0905aac2efc1f2f1e5f932d58bfb449af9403d9d246"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/execute.source-map.json",
+      "bytes": 776,
+      "sha256": "d9fca5ab5138a94ead6eba3e66bbaa622e80e79ec510ffb2c89bb89927d9bd7a"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/frontend.cpp",
+      "bytes": 43,
+      "sha256": "654a3fe28b271379dbd5904ad09ea7b74fc64cc08f04120949f3e020d136473e"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/frontend.hpp",
+      "bytes": 1317576,
+      "sha256": "b059adcc6c48b655674c53b888cbdc1abdb5d7ccb1bb01851bd6e6a15d956814"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/frontend.source-map.json",
+      "bytes": 1044,
+      "sha256": "1d98856e9741236503a598fe5f64103b74b4248b3e33cd15baa896608ffd85e5"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/memory.cpp",
+      "bytes": 41,
+      "sha256": "774725cba40b666e5943cad85a0d5418df23fcc6105e30fd0f214bb99369bcb6"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/memory.hpp",
+      "bytes": 443606,
+      "sha256": "f2ac76749553c6b4d1f98414fdcab199793475c40115fa36865a50c102f3e21c"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/memory.source-map.json",
+      "bytes": 757,
+      "sha256": "2c526375265a6c42dfccef7cb0f669cd47406bea5dfbf028057a74f7c1ee9d87"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/types.hpp",
+      "bytes": 46,
+      "sha256": "66602ecdc351fde21778401111a66e3926aea3d29a8b84056438022b24ce6a16"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/types.source-map.json",
+      "bytes": 2812,
+      "sha256": "766ccfffb2fb5a96395b55dc7ed21d0dd22f15c8fe6e24dc2c49c4f587ac8d28"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/writeback.cpp",
+      "bytes": 44,
+      "sha256": "b297a9249839bdf38fd9ba7674f5111769a96ca4deb7461a0dd85d5bbaad1093"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/writeback.hpp",
+      "bytes": 459144,
+      "sha256": "b70fce301f9616227079c566586debb834f71f60301d1ac23e6d4af66508af36"
+    },
+    {
+      "path": "generated/cpp/sources/rv32i_core/writeback.source-map.json",
+      "bytes": 785,
+      "sha256": "429d2143b941cd4c9362bf04ac658e24e69bd779055487e9931104ef52b01a37"
+    },
+    {
+      "path": "generated/rtl/CMakeLists.txt",
+      "bytes": 768,
+      "sha256": "c6c22d106b6bd42a581c44b8c195abd178c08229c82cdf96233284572cf8920c"
+    },
+    {
+      "path": "generated/rtl/design_top.sv",
+      "bytes": 6161,
+      "sha256": "e9d65fcc66a38ca94d2d0cabbd73bc2dd5140f210adc240dfdddbd4e945586d3"
+    },
+    {
+      "path": "generated/rtl/generated.json",
+      "bytes": 2457,
+      "sha256": "ec191eea9fd1957752ebd3f98686d6d99a012f8b02326833d133f789d297d367"
+    },
+    {
+      "path": "generated/rtl/ports.json",
+      "bytes": 6785,
+      "sha256": "e2b6ad26a8cf2d855b3ff6424a252d5d8df29ec207b1219d7ce40453a19f0598"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/arithmetic.source-map.json",
+      "bytes": 155,
+      "sha256": "8e8fe2f197ab9abf28d830f4587b5a60ded0a80e435d0901c8ff196a16af7d7f"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/core.source-map.json",
+      "bytes": 2949,
+      "sha256": "4860b33ce77c0387e2998f73361e5842c67ee3b795de4a33331e845440ff8c88"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/core.v",
+      "bytes": 15788,
+      "sha256": "9bbcc1dd07531abb50a696e3934c0a3ac4b27e05c5f8b050b17edf97bf2d3e54"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/decoder.source-map.json",
+      "bytes": 152,
+      "sha256": "6f34d6d838bf22f51130f1d6ce2edfbbc0136c0790539aa1ed91e8629b52ef6a"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/execute.source-map.json",
+      "bytes": 736,
+      "sha256": "cce68c78b3e8f664a75a8c0b4c46f5c7398e1f397542c21650b217107c0fa812"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/execute.v",
+      "bytes": 100056,
+      "sha256": "1b48b8afe5dc98bffacd545f87d98bd9f5a97d676ec6d28ac63f34958ccab437"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/frontend.source-map.json",
+      "bytes": 1003,
+      "sha256": "d43d14e6af1dd9b81d82ede88e4245f2a2b4a2d7bebd47a2f65d2cb99b870490"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/frontend.v",
+      "bytes": 211934,
+      "sha256": "3da5c9511ebcae0c96e62d20df355f37a15aadc3046dbc4d8841c1833c022f25"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/memory.source-map.json",
+      "bytes": 718,
+      "sha256": "62724beab1a3ab6d87b5f63ce1daf04b4b4f6fdef181ace9a08fc27475f73682"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/memory.v",
+      "bytes": 67027,
+      "sha256": "cc8b9a3f2e617c28bed547a7b896cbb65f8cb22ec8e7423b951e43798c52d0fb"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/types.source-map.json",
+      "bytes": 2774,
+      "sha256": "22930afddf08381739c90d3e4f1fce5c19e9a22da77061cd184e11638e5b5134"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/writeback.source-map.json",
+      "bytes": 743,
+      "sha256": "848467c37b74977fc92205c8cbfbf045bf62899c3726f1b8730cf596402568a1"
+    },
+    {
+      "path": "generated/rtl/sources/rv32i_core/writeback.v",
+      "bytes": 94331,
+      "sha256": "c5d337a066c59125e14471edb89a25b629469773d37f5acedfb893a99d79e0d4"
+    },
+    {
+      "path": "generated/profiles/functional-cpp.json",
+      "bytes": 3242,
+      "sha256": "7d9e581193dab9d96e979d78abca1aab6774f92ba85b72b452fb4c1ff5f044b0"
+    },
+    {
+      "path": "generated/profiles/functional-verilog.json",
+      "bytes": 2461,
+      "sha256": "9da195adb99eac05d577a03a2f4331cfa345d5280b88e9ff33cf9cb21aac8117"
+    },
+    {
+      "path": "results/synthesis/area.json",
+      "bytes": 3557,
+      "sha256": "993d3108cb7fc455096940c2db893efbf974bdbead4784fe30618932d7461583"
+    },
+    {
+      "path": "results/synthesis/cell-counts.csv",
+      "bytes": 1823,
+      "sha256": "f237c69b0970d76d33727ddb6d5fac216ec2adcf8a4a81434b71176be867dbf3"
+    },
+    {
+      "path": "results/synthesis/mapped.v",
+      "bytes": 1987387,
+      "sha256": "88c70e14b26e59d65aad392205912a84568a643e25af06c1d88a791fb4fea83a"
+    },
+    {
+      "path": "results/synthesis/normalization.json",
+      "bytes": 162,
+      "sha256": "358d9fed7e45ac70925d3ddd9b3b4557db84e028291509be7aa29dc5866ce9bd"
+    },
+    {
+      "path": "results/synthesis/ports.json",
+      "bytes": 375583,
+      "sha256": "13fdb7f7656b7bf17d2cc154366067682abb1b160f26592b2d818863c3a4f176"
+    },
+    {
+      "path": "results/synthesis/stat.json",
+      "bytes": 6607,
+      "sha256": "4766250c1b91605d128792e53cd8fa293ffba20f62ab97d0370d7028825ea366"
+    },
+    {
+      "path": "results/synthesis/synth.ys.in",
+      "bytes": 519,
+      "sha256": "c8c7d05b8217ed362977fe0ac7bf13e3ea8255ebcbb66b2bf0039bef3e26d783"
+    },
+    {
+      "path": "results/synthesis/synthesis.v",
+      "bytes": 422026,
+      "sha256": "23794352e9c339305c00d3aebc86c2cf17a71bbc9d0cc4dce290decbfd2dca5f"
+    },
+    {
+      "path": "results/synthesis/yosys.txt",
+      "bytes": 225243,
+      "sha256": "a2796fc15076d9b946cd18269bc16acb518f3eeb76229b13d260d48d01b97041"
+    },
+    {
+      "path": "verification/artifact_driver/CMakeLists.txt",
+      "bytes": 324,
+      "sha256": "f93420eb1b61c5954e3b343693f5ad9ad0d6570011a4722aa1133a67e5d2c2d1"
+    },
+    {
+      "path": "verification/artifact_driver/bridge.sv",
+      "bytes": 1151,
+      "sha256": "b81bd3fb6a8251abd0723a01a0c24ec91be37de0eddf544f14d1088c8a867447"
+    },
+    {
+      "path": "verification/artifact_driver/clocked.cpp",
+      "bytes": 3245,
+      "sha256": "275534f0e0e916bb04d751694b9887052a8260e5ad4dd8acc946df4d23e14832"
+    },
+    {
+      "path": "generated/README.md",
+      "bytes": 1932,
+      "sha256": "674db319c96ff0d7327c1b8503b2bf827cfd677c3c1e70d32f12de3ab4013ad0"
+    }
+  ],
+  "source_files": {
+    "types.py": "626f0187401e5caf08cc4a8b909ef880782a93d1ae4be8056f45032cba5178a6",
+    "decoder.py": "cd407e44c6850e912e0ac6e170ef15846920b38ef81599cbf960dc0b00c3709e",
+    "arithmetic.py": "235ec68be7f2dd1a0bfc1c71f5b5821be41a4dc3977a4001d6472414012ccf9a",
+    "writeback.py": "61a635d2cb2b101c9146e9af51c832673eb989296a29e96c2d86b4603f5234aa",
+    "memory.py": "276ab37cec1d04ea2dada5024bed413d5bcebbbb4abc0d212741991452d8b287",
+    "execute.py": "fa0929f82b216819b4d273e297422a1c0b33eb6216681226b566d8eab9580435",
+    "frontend.py": "0ca3d104c40751bfa38632f87793178a9a487474f24593a9c2deb85e30e84bd5",
+    "core.py": "4aa8424bf1e9cb10924900e456afe9876ca85d593f56e4d4a9301ea1ce22c215"
+  },
+  "program_input": {
+    "path": "programs/c-array.c",
+    "sha256": "7af98a8565093048a9b73d6c356076cc80afb30726b2c9c45f6b5f1b3c8c2c1f"
+  }
+}

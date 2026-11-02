@@ -1,0 +1,217 @@
+{
+  "schema": "pycircuit-rv32i-published-artifact-validation-v1",
+  "status": "PASS",
+  "source_and_sdk_commit": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "source_generation": {
+    "status": "PASS",
+    "views": 4,
+    "complete_state_groups": 1,
+    "same_final_ir_per_strategy": true,
+    "scope": "independent retirement/GPR/PC/RAM, exact stores, complete state equality and C-source signature when supplied"
+  },
+  "frozen_artifact_execution": {
+    "status": "PASS",
+    "scope": "Checked-in generated payloads, fast memory EEI, fresh independent program reference",
+    "views": [
+      {
+        "status": "PASS",
+        "retired": 434,
+        "traps": 1,
+        "model_cycles": 567,
+        "max_occupied": 5,
+        "load_use_cycles": 2,
+        "memory_wait_cycles": 0,
+        "redirects": 64,
+        "execution": "timing",
+        "target": "cpp",
+        "basis": "spike",
+        "executed_ticks": 567
+      },
+      {
+        "status": "PASS",
+        "retired": 434,
+        "traps": 1,
+        "model_cycles": 567,
+        "max_occupied": 5,
+        "load_use_cycles": 2,
+        "memory_wait_cycles": 0,
+        "redirects": 64,
+        "execution": "timing",
+        "target": "verilog",
+        "basis": "spike",
+        "executed_ticks": 567
+      },
+      {
+        "status": "PASS",
+        "retired": 434,
+        "traps": 1,
+        "model_cycles": 567,
+        "max_occupied": 5,
+        "load_use_cycles": 2,
+        "memory_wait_cycles": 0,
+        "redirects": 64,
+        "execution": "functional",
+        "target": "cpp",
+        "basis": "spike",
+        "executed_ticks": 567
+      },
+      {
+        "status": "PASS",
+        "retired": 434,
+        "traps": 1,
+        "model_cycles": 567,
+        "max_occupied": 5,
+        "load_use_cycles": 2,
+        "memory_wait_cycles": 0,
+        "redirects": 64,
+        "execution": "functional",
+        "target": "verilog",
+        "basis": "spike",
+        "executed_ticks": 567
+      }
+    ]
+  },
+  "frozen_held_operands": {
+    "status": "PASS",
+    "scope": "Current main held-operand fixtures against checked-in generated DUTs",
+    "views": [
+      {
+        "case": "alu",
+        "strategy": "timing",
+        "target": "cpp",
+        "status": "PASS",
+        "x4": 5,
+        "memory_wait_cycles": 2
+      },
+      {
+        "case": "alu",
+        "strategy": "timing",
+        "target": "verilog",
+        "status": "PASS",
+        "x4": 5,
+        "memory_wait_cycles": 2
+      },
+      {
+        "case": "alu",
+        "strategy": "functional",
+        "target": "cpp",
+        "status": "PASS",
+        "x4": 5,
+        "memory_wait_cycles": 2
+      },
+      {
+        "case": "alu",
+        "strategy": "functional",
+        "target": "verilog",
+        "status": "PASS",
+        "x4": 5,
+        "memory_wait_cycles": 2
+      },
+      {
+        "case": "store_data",
+        "strategy": "timing",
+        "target": "cpp",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_data",
+        "strategy": "timing",
+        "target": "verilog",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_data",
+        "strategy": "functional",
+        "target": "cpp",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_data",
+        "strategy": "functional",
+        "target": "verilog",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_address",
+        "strategy": "timing",
+        "target": "cpp",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_address",
+        "strategy": "timing",
+        "target": "verilog",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_address",
+        "strategy": "functional",
+        "target": "cpp",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      },
+      {
+        "case": "store_address",
+        "strategy": "functional",
+        "target": "verilog",
+        "status": "PASS",
+        "x4": 0,
+        "memory_wait_cycles": 4
+      }
+    ]
+  },
+  "mapped_netlist": {
+    "status": "PASS",
+    "cycles": 567,
+    "retired": 434,
+    "reference": "same ELF/image independently checked with fixed Spike before mapped cycle replay",
+    "returncode": 0,
+    "timing_signoff": "NOT_RUN",
+    "netlist_cells": 13860,
+    "liberty_cell_area": 109284.8128,
+    "area_unit": "um^2 (library/LEF cross-check in captured synthesis)"
+  },
+  "synthesis": {
+    "cells": 13860,
+    "sequential_cells": 2076,
+    "combinational_cells": 11784,
+    "liberty_cell_area": 109284.81280000001,
+    "sequential_area": 41559.859200000006,
+    "combinational_area": 67724.95360000001,
+    "area_unit": "um^2; all used Liberty cells match owning LEF width*height"
+  },
+  "c_signature": [
+    10208,
+    424583933,
+    309,
+    329
+  ],
+  "program_elf_sha256": "a1c228eeae9ef63e1d323a5f1c6689e76e7e5f14f8ca60efaaff31f1c8b85dbf",
+  "native_rtl_cycle_comparisons": 2,
+  "same_frozen_cpp_for_both_strategies": true,
+  "same_frozen_rtl_for_both_strategies": true,
+  "source_policies_use_same_final_ir_per_backend": true,
+  "executed_scope": "One compiled C program, four source-generated views, four frozen-file views, twelve frozen held-operand views, fresh synthesis and mapped C replay",
+  "historical_160_view_campaign_rerun": false,
+  "independent_review": "PENDING",
+  "spec_approval": "NOT_RECORDED",
+  "not_run": [
+    "official ISA certification",
+    "full formal equivalence",
+    "STA",
+    "placement/routing"
+  ]
+}
