@@ -20,6 +20,11 @@ def main():
     parser.add_argument("--spike", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
+        "--before",
+        type=Path,
+        help="Previous draft NDF project for native semantic diff and coverage impact",
+    )
+    parser.add_argument(
         "--case",
         action="append",
         choices=[
@@ -58,18 +63,18 @@ def main():
         if result.returncode:
             raise SystemExit(f"{stage} failed ({result.returncode}); see {log.name}")
 
-    run(
-        "spec",
-        [
-            str(cli),
-            "spec-check",
-            str(source),
-            "--ndf",
-            str(args.ndf.resolve()),
-            "--output",
-            str(args.output / "traceability"),
-        ],
-    )
+    spec_command = [
+        str(cli),
+        "spec-check",
+        str(source),
+        "--ndf",
+        str(args.ndf.resolve()),
+        "--output",
+        str(args.output / "traceability"),
+    ]
+    if args.before is not None:
+        spec_command += ["--before", str(args.before.resolve())]
+    run("spec", spec_command)
     programs = args.output / "programs"
     selected = args.case or [
         "families",
