@@ -45,3 +45,6 @@ source paths so the native diff does not mistake projection for clause moves.
 Existing processor execution and technology evidence is unchanged. This
 follow-up validates NDF commands and reporting; ISA/native/RTL and synthesis
 matrices are not rerun. Independent review and approval remain pending.
+
+The real-CLI fixture also distinguishes source Git identity from generated-index
+UNKNOWN identity; projections do not inherit the output container's revision.

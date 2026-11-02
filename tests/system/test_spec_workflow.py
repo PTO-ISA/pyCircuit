@@ -3,6 +3,8 @@
 import json
 import os
 import shutil
+import sqlite3
+import subprocess
 
 import pytest
 from pycircuit._spec import check_spec
@@ -40,11 +42,34 @@ def test_real_ndf_binding_workflow(tmp_path):
     (source / "test_model.py").write_text(
         "# ndf: verifies=COUNT-VER-001\ndef test_counter():\n    assert [0, 1, 2] == list(range(3))\n"
     )
+    # Source indexes have a real fixture revision; derived output must not
+    # silently inherit that surrounding repository as its own source checkout.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "counter"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=NDF fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
     report = check_spec(str(source), executable, str(tmp_path / "pass"))
     assert report["status"] == "PASS"
     assert {b["symbol"] for b in report["bindings"]} == {"Counter", "test_counter"}
     assert report["approval"] == "NOT_RECORDED"
     assert report["semantic_validation"] == "NOT_RUN"
+    for index, generated in [("spec.sqlite", False), ("bound.sqlite", True)]:
+        with sqlite3.connect(tmp_path / "pass" / index) as connection:
+            revision = connection.execute("SELECT revision FROM projects").fetchone()[0]
+        assert (revision == "0" * 40) is generated
     assert report["agent_gate"]["binding_diff"]["moved"] == []
     coverage = report["agent_gate"]["coverage_bound"]
     assert coverage["eligible_active_l1_must"] == []

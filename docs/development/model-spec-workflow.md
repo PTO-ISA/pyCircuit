@@ -88,6 +88,11 @@ Two comparisons have different meanings:
   starting point; a first draft is not an approved baseline. Both snapshots use
   the same pinned NDF and current binding adapter.
 
+Input indexes retain their real Git source revisions. Generated projections have
+no Git checkout of their own; their native revision is UNKNOWN (the NDF zero
+marker), rather than inheriting an unrelated output-directory repository. The
+controlled Git-discovery environment is recorded with that build command.
+
 ```sh
 pycircuit spec-check project --before previous-project \
   --ndf "$NDF" --output "$OUT"

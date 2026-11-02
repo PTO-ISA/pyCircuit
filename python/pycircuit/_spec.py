@@ -11,6 +11,7 @@ import ast
 import hashlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import tokenize
@@ -64,12 +65,32 @@ def _bindings(path: Path, root: Path) -> list[dict]:
     return result
 
 
-def _ndf(executable: str, arguments: list[str], output: Path) -> dict:
+def _ndf(
+    executable: str,
+    arguments: list[str],
+    output: Path,
+    git_ceiling: Path | None = None,
+) -> dict:
     output.with_suffix(".command.json").write_text(
         json.dumps([executable, *arguments], indent=2) + "\n"
     )
+    environment = None
+    if git_ceiling is not None:
+        # A generated graph is not a Git checkout. Avoid attributing it to an
+        # unrelated output-container repository. NDF records its unknown revision;
+        # the separately built input indexes retain actual source revisions.
+        environment = dict(os.environ, GIT_CEILING_DIRECTORIES=str(git_ceiling))
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"):
+            environment.pop(name, None)
+        output.with_suffix(".environment.json").write_text(
+            json.dumps({"GIT_CEILING_DIRECTORIES": str(git_ceiling)}, indent=2) + "\n"
+        )
     run = subprocess.run(
-        [executable, *arguments], capture_output=True, text=True, timeout=180
+        [executable, *arguments],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=environment,
     )
     output.write_text(run.stdout)
     output.with_suffix(".stderr").write_text(run.stderr)
@@ -290,6 +311,7 @@ def check_spec(
         executable,
         ["build", "--root", str(stage), "--output", str(bound_index)],
         destination / "bound-build.json",
+        git_ceiling=destination,
     )
     _ndf(executable, ["check", "--root", str(stage)], destination / "bound-check.json")
     gate = {
