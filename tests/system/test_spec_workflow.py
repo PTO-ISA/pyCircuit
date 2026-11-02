@@ -41,6 +41,29 @@ def test_real_ndf_binding_workflow(tmp_path):
     assert {b["symbol"] for b in report["bindings"]} == {"Counter", "test_counter"}
     assert report["approval"] == "NOT_RECORDED"
     assert report["semantic_validation"] == "NOT_RUN"
+    # Standard evidence must remain in the bound graph without promoting draft.
+    manifest = source / "ndf.yaml"
+    manifest.write_text(
+        manifest.read_text().replace("[contract.md]", "[contract.md, evidence.json]")
+    )
+    (source / "evidence.json").write_text(
+        json.dumps(
+            {
+                "format_version": "0.1",
+                "id": "COUNT-EVID-001",
+                "command": "fixture only",
+                "result": "inconclusive",
+                "tool_version": "fixture",
+                "source_revision": "0" * 40,
+                "timestamp": "2026-11-02T00:00:00Z",
+                "links": [{"clause": "COUNT-VER-001", "type": "evidenced-by"}],
+            }
+        )
+    )
+    evidence = check_spec(str(source), executable, str(tmp_path / "with-evidence"))
+    assert evidence["status"] == "PASS"
+    assert evidence["approval"] == "NOT_RECORDED"
+    assert evidence["clauses"] == report["clauses"] + 1
     # A reference that does not resolve must not leave a success receipt.
     (source / "model.py").write_text(
         "# ndf: implements=COUNT-MISSING-001\ndef Counter(count):\n    return count + 1\n"

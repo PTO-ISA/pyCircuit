@@ -108,7 +108,10 @@ A separate [complete-state clocked profile](docs/development/clocked-model-execu
 supports pure hierarchy and checked idle-cycle folding. The non-CPU
 [accumulator example](examples/clocked_accumulator/README.md) demonstrates
 installed native/physical-RTL execution without a second authored model.
-SOTA and arbitrary hierarchical projection are not established.
+For a model with NDF requirements, `pycircuit spec-check` checks the versioned
+Spec and named Python implementation/test bindings using a pinned external NDF
+CLI. See the [specification workflow](docs/development/model-spec-workflow.md).
+Traceability, behavioral validation and specification approval remain distinct.
 
 ## Build from source
 

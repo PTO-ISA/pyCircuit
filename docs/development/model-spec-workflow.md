@@ -55,7 +55,8 @@ Empty requirement graphs, dangling targets and unattached annotations fail.
 
 The pinned NDF CLI does not expose its Python repository adapter. This bridge
 therefore generates ordinary NDF Markdown source/test nodes and checks that
-bound graph with the same CLI. Original Spec files are copied byte-for-byte;
+bound graph with the same CLI. Original Spec and NDF JSON evidence files are
+copied byte-for-byte;
 the generated index is disposable. The receipt records each qualified symbol,
 source location and content digest. It is not injected into calculation IR.
 
@@ -76,3 +77,5 @@ programs, conditions and unexecuted criteria. Do not turn a subset into a full
 conformance claim. Review and any required approval follow
 [project governance](project-governance.md#independent-review); graph validity
 and a passing execution do not supply either.
+
+Candidate-bound checks are recorded in [validation results](model-spec-validation.md).

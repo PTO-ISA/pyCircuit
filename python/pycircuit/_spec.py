@@ -195,16 +195,17 @@ def check_spec(source: str, executable: str, output: str) -> dict:
     documents.mkdir(parents=True)
     for path in sorted({n["source"]["path"] for n in nodes.values()}):
         original = (root / path).resolve(strict=True)
-        if not original.is_relative_to(root) or original.suffix != ".md":
+        if not original.is_relative_to(root) or original.suffix not in (".md", ".json"):
             raise ValueError(
-                "binding projection currently requires local Markdown Spec sources"
+                "binding projection requires local Markdown Spec or NDF JSON evidence"
             )
         shutil.copyfile(
-            original, documents / (hashlib.sha256(path.encode()).hexdigest() + ".md")
+            original,
+            documents / (hashlib.sha256(path.encode()).hexdigest() + original.suffix),
         )
     (stage / "ndf.yaml").write_text(
         f'format_version: "0.2"\nproject: {project}\nroots:\n  - documents/*.md\n'
-        "id_prefixes: [SRC, TEST]\ndomains: []\npolicies: {}\n"
+        "  - documents/*.json\nid_prefixes: [SRC, TEST]\ndomains: []\npolicies: {}\n"
     )
     (stage / "ndf.lock").write_text('format_version: "0.1"\ndependencies: {}\n')
     text = (
