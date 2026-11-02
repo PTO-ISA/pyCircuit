@@ -33,3 +33,15 @@ at `2b8b831` remain in [their original validation record](shared-model-validatio
 API 25/25, examples 13/13 with Verilator 5.048 and 847 passed / 4 skipped.
 They were not rerun or relabelled as results of this metadata/CLI update.
 Independent implementation review and full nightly remain NOT_RUN.
+
+## Native NDF gate follow-up
+
+The public command now runs native build/check/diff/coverage and trace, including
+explicit eligibility inventory. The real-CLI counter regression checks draft
+coverage as N/A, an active L1 gap, a distinct snapshot/evidence diff and a trace
+containing actual implementation, verification, intent and evidence. It retains
+source paths so the native diff does not mistake projection for clause moves.
+
+Existing processor execution and technology evidence is unchanged. This
+follow-up validates NDF commands and reporting; ISA/native/RTL and synthesis
+matrices are not rerun. Independent review and approval remain pending.

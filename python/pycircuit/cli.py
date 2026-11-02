@@ -183,11 +183,17 @@ def _cmd_spec_check(args: argparse.Namespace) -> int:
     from ._spec import check_spec
 
     try:
-        result = check_spec(args.source, args.ndf, args.output)
+        result = check_spec(args.source, args.ndf, args.output, args.before)
     except (OSError, ValueError, SyntaxError, subprocess.TimeoutExpired) as error:
         print(f"pycircuit spec-check: {error}", file=sys.stderr)
         return 1
     print(f"Spec traceability PASS: {len(result['bindings'])} definition bindings")
+    coverage = result["agent_gate"]["coverage_bound"]
+    print(
+        "Native NDF coverage:",
+        coverage["interpretation"],
+        f"(eligible={len(coverage['eligible_active_l1_must'])}, draft L1={len(coverage['draft_l1_must'])})",
+    )
     print("Behavioral conformance and approval are recorded separately.")
     return 0
 
@@ -204,6 +210,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     specification.add_argument("--ndf", required=True, help="Pinned NDF CLI executable")
     specification.add_argument("--output", required=True, help="New evidence directory")
+    specification.add_argument(
+        "--before",
+        help="Distinct previous NDF project snapshot for native version diff",
+    )
     specification.set_defaults(fn=_cmd_spec_check)
 
     compile_units = sub.add_parser(

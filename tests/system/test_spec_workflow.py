@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 
 import pytest
 from pycircuit._spec import check_spec
@@ -20,8 +21,11 @@ def test_real_ndf_binding_workflow(tmp_path):
     (source / "ndf.lock").write_text('format_version: "0.1"\ndependencies: {}\n')
     (source / "contract.md").write_text(
         "---\ndoc_id: COUNT-DOC-001\nstatus: draft\nauthority: normative\nowner: core\n---\n"
-        "# Counter\n\n## Behavior {#COUNT-REQ-001}\n"
-        "<!-- ndf: kind=requirement modality=must refinement=L1 status=draft -->\n"
+        "# Counter\n\n## Intent {#COUNT-INTENT-001}\n"
+        "<!-- ndf: kind=requirement modality=must refinement=L0 status=draft -->\n"
+        "The model MUST count accepted requests.\n\n"
+        "## Behavior {#COUNT-REQ-001}\n"
+        "<!-- ndf: kind=requirement modality=must refinement=L1 status=draft refines=COUNT-INTENT-001 -->\n"
         "The count MUST increment once per request.\n\n"
         "## State {#COUNT-STATE-001}\n"
         "<!-- ndf: kind=requirement modality=must refinement=L2 status=draft refines=COUNT-REQ-001 -->\n"
@@ -41,6 +45,13 @@ def test_real_ndf_binding_workflow(tmp_path):
     assert {b["symbol"] for b in report["bindings"]} == {"Counter", "test_counter"}
     assert report["approval"] == "NOT_RECORDED"
     assert report["semantic_validation"] == "NOT_RUN"
+    assert report["agent_gate"]["binding_diff"]["moved"] == []
+    coverage = report["agent_gate"]["coverage_bound"]
+    assert coverage["eligible_active_l1_must"] == []
+    assert coverage["draft_l1_must"] == ["ndf://counter/COUNT-REQ-001"]
+    assert coverage["interpretation"] == "NOT_APPLICABLE_NO_ACTIVE_L1_MUST"
+    baseline = tmp_path / "first-draft"
+    shutil.copytree(source, baseline)
     # Standard evidence must remain in the bound graph without promoting draft.
     manifest = source / "ndf.yaml"
     manifest.write_text(
@@ -60,10 +71,40 @@ def test_real_ndf_binding_workflow(tmp_path):
             }
         )
     )
-    evidence = check_spec(str(source), executable, str(tmp_path / "with-evidence"))
+    evidence = check_spec(
+        str(source), executable, str(tmp_path / "with-evidence"), str(baseline)
+    )
     assert evidence["status"] == "PASS"
     assert evidence["approval"] == "NOT_RECORDED"
     assert evidence["clauses"] == report["clauses"] + 1
+    difference = evidence["agent_gate"]["version_comparison"]["spec_diff"]
+    assert difference["added"] == ["ndf://counter/COUNT-EVID-001"]
+    assert difference["modified"] == difference["moved"] == []
+    trace = evidence["agent_gate"]["trace"]
+    assert "ndf://counter/COUNT-INTENT-001" in trace["nodes"]
+    assert "ndf://counter/COUNT-EVID-001" in trace["nodes"]
+    assert {edge["type"] for edge in trace["edges"]} >= {
+        "references",
+        "implements",
+        "verifies",
+        "refines",
+        "evidenced-by",
+    }
+    # Native coverage is not the adapter's transitive draft-binding check.
+    # Activating L1 does not invent a direct verifies edge from its L2 check.
+    contract = source / "contract.md"
+    original = contract.read_text()
+    contract.write_text(
+        original.replace("refinement=L1 status=draft", "refinement=L1 status=active")
+    )
+    active = check_spec(str(source), executable, str(tmp_path / "active-gap"))
+    active_coverage = active["agent_gate"]["coverage_bound"]
+    assert active_coverage["eligible_active_l1_must"] == ["ndf://counter/COUNT-REQ-001"]
+    assert active_coverage["native_report"]["unverified"] == [
+        "ndf://counter/COUNT-REQ-001"
+    ]
+    assert active_coverage["interpretation"] == "GAPS"
+    contract.write_text(original)
     # A reference that does not resolve must not leave a success receipt.
     (source / "model.py").write_text(
         "# ndf: implements=COUNT-MISSING-001\ndef Counter(count):\n    return count + 1\n"

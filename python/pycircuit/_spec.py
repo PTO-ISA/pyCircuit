@@ -65,6 +65,9 @@ def _bindings(path: Path, root: Path) -> list[dict]:
 
 
 def _ndf(executable: str, arguments: list[str], output: Path) -> dict:
+    output.with_suffix(".command.json").write_text(
+        json.dumps([executable, *arguments], indent=2) + "\n"
+    )
     run = subprocess.run(
         [executable, *arguments], capture_output=True, text=True, timeout=180
     )
@@ -77,8 +80,44 @@ def _ndf(executable: str, arguments: list[str], output: Path) -> dict:
     return data
 
 
-def check_spec(source: str, executable: str, output: str) -> dict:
+def _coverage(executable: str, index: Path, prefix: Path) -> dict:
+    native = _ndf(
+        executable,
+        ["report", "coverage", "--index", str(index)],
+        prefix.with_suffix(".json"),
+    )["data"]
+    inventory = _ndf(
+        executable,
+        [
+            "query",
+            "--index",
+            str(index),
+            "--expression",
+            "kind=requirement and modality=must and refinement=L1",
+        ],
+        prefix.with_name(prefix.name + "-inventory.json"),
+    )["data"]
+    eligible = [node["id"] for node in inventory if node["status"] == "active"]
+    drafts = [node["id"] for node in inventory if node["status"] == "draft"]
+    return {
+        "native_report": native,
+        "eligible_active_l1_must": eligible,
+        "draft_l1_must": drafts,
+        "interpretation": (
+            "NOT_APPLICABLE_NO_ACTIVE_L1_MUST"
+            if not eligible
+            else "GAPS" if native["unverified"] else "NO_GAPS_IN_ACTIVE_L1_SCOPE"
+        ),
+        "scope": "Pinned native coverage checks active must L1 requirements and incoming verifies edges only",
+    }
+
+
+def check_spec(
+    source: str, executable: str, output: str, before: str | None = None
+) -> dict:
     root = Path(source).resolve(strict=True)
+    if before is not None and Path(before).resolve(strict=True) == root:
+        raise ValueError("--before must name a distinct source snapshot")
     destination = Path(output).resolve()
     # Never replace a prior receipt, source directory, or generated index.
     destination.mkdir(parents=True, exist_ok=False)
@@ -99,13 +138,13 @@ def check_spec(source: str, executable: str, output: str) -> dict:
     if version.returncode or identity.get("format_version") != "0.2":
         raise ValueError("spec-check requires the pinned NDF 0.2 CLI")
     report["ndf_version"] = identity
-    _ndf(executable, ["check", "--root", str(root)], destination / "check.json")
     index = destination / "spec.sqlite"
     _ndf(
         executable,
         ["build", "--root", str(root), "--output", str(index)],
         destination / "build.json",
     )
+    _ndf(executable, ["check", "--root", str(root)], destination / "check.json")
     exported = destination / "spec.ndf.json"
     _ndf(
         executable,
@@ -191,27 +230,35 @@ def check_spec(source: str, executable: str, output: str) -> dict:
     # The pinned NDF CLI has no Python adapter. Feed it standard Markdown source
     # and test nodes rather than forking its parser or creating another Spec.
     stage = destination / "bound-project"
-    documents = stage / "documents"
-    documents.mkdir(parents=True)
-    for path in sorted({n["source"]["path"] for n in nodes.values()}):
+    stage.mkdir()
+    paths = sorted({n["source"]["path"] for n in nodes.values()})
+    for path in paths:
+        if Path(path).is_absolute() or ".." in Path(path).parts:
+            raise ValueError("Spec sources must retain confined relative paths")
         original = (root / path).resolve(strict=True)
         if not original.is_relative_to(root) or original.suffix not in (".md", ".json"):
             raise ValueError(
                 "binding projection requires local Markdown Spec or NDF JSON evidence"
             )
-        shutil.copyfile(
-            original,
-            documents / (hashlib.sha256(path.encode()).hexdigest() + original.suffix),
-        )
+        target = stage / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(original, target)
+    bindings_path = "__pycircuit__/bindings.md"
+    if bindings_path in paths:
+        raise ValueError("Spec occupies the generated binding path")
     (stage / "ndf.yaml").write_text(
-        f'format_version: "0.2"\nproject: {project}\nroots:\n  - documents/*.md\n'
-        "  - documents/*.json\nid_prefixes: [SRC, TEST]\ndomains: []\npolicies: {}\n"
+        f'format_version: "0.2"\nproject: {project}\nroots: '
+        + json.dumps(paths + [bindings_path])
+        + "\nid_prefixes: [SRC, TEST]\ndomains: []\npolicies: {}\n"
     )
     (stage / "ndf.lock").write_text('format_version: "0.1"\ndependencies: {}\n')
     text = (
         "---\ndoc_id: SRC-DOC-BINDINGS\nstatus: draft\nauthority: generated\n"
         f"owner: {project}\n---\n\n# Source and verification bindings\n\n"
     )
+    references = {n["id"] for n in requirements if n["refinement"] == "L0"}
+    if not references:
+        references = {n["id"] for n in requirements if n["refinement"] == "L1"}
     for binding in bindings:
         kind = "source" if binding["role"] == "implements" else "test"
         key = f"{binding['path']}\0{binding['symbol']}\0{binding['role']}"
@@ -221,25 +268,91 @@ def check_spec(source: str, executable: str, output: str) -> dict:
             + hashlib.sha256(key.encode()).hexdigest()[:16].upper()
         )
         targets = ",".join(binding["targets"])
+        binding["node"] = f"ndf://{project}/{identity}"
+        references.add(f"ndf://{project}/{identity}")
         text += (
             f"## {binding['path']}:{binding['symbol']} {{#{identity}}}\n"
             f"<!-- ndf: kind={kind} status=draft {binding['role']}={targets} -->\n\n"
             f"Source: `{binding['path']}:{binding['line']}`, symbol `{binding['symbol']}`.\n"
             f"Content SHA256: `{binding['sha256']}`. This records a binding, not a proof.\n\n"
         )
-    (documents / "bindings.md").write_text(text)
-    _ndf(executable, ["check", "--root", str(stage)], destination / "bound-check.json")
+    text += (
+        "## Design trace entry {#SRC-TRACE-ENTRY}\n"
+        "<!-- ndf: kind=information status=draft references="
+        + ",".join(sorted(references))
+        + " -->\n\nNavigation over the actual intent and bound definitions; not a conformance claim.\n"
+    )
+    generated = stage / bindings_path
+    generated.parent.mkdir(parents=True)
+    generated.write_text(text)
+    bound_index = destination / "bound.sqlite"
     _ndf(
         executable,
-        ["build", "--root", str(stage), "--output", str(destination / "bound.sqlite")],
+        ["build", "--root", str(stage), "--output", str(bound_index)],
         destination / "bound-build.json",
     )
+    _ndf(executable, ["check", "--root", str(stage)], destination / "bound-check.json")
+    gate = {
+        "binding_diff_origin": "Authored Spec/evidence versus the same inputs plus Python bindings/navigation; not a version or approved-baseline comparison",
+        "binding_diff": _ndf(
+            executable,
+            ["diff", str(index), str(bound_index)],
+            destination / "binding-diff.json",
+        )["data"],
+        "coverage_input": _coverage(executable, index, destination / "coverage-input"),
+        "coverage_bound": _coverage(
+            executable, bound_index, destination / "coverage-bound"
+        ),
+        "trace": _ndf(
+            executable,
+            [
+                "trace",
+                f"ndf://{project}/SRC-TRACE-ENTRY",
+                "--index",
+                str(bound_index),
+                "--edge",
+                "references",
+                "--edge",
+                "implements",
+                "--edge",
+                "verifies",
+                "--edge",
+                "refines",
+                "--edge",
+                "evidenced-by",
+            ],
+            destination / "trace.json",
+        )["data"],
+    }
+    if before is not None:
+        previous = check_spec(before, executable, str(destination / "before"))
+        if previous["project"] != project:
+            raise ValueError("--before must belong to the same NDF project")
+        gate["version_comparison"] = {
+            "before_source": str(Path(before).resolve()),
+            "after_source": str(root),
+            "authority": "Caller-selected source snapshots; no approved baseline is inferred",
+            "spec_diff": _ndf(
+                executable,
+                ["diff", str(destination / "before/spec.sqlite"), str(index)],
+                destination / "version-diff.json",
+            )["data"],
+            "bound_diff": _ndf(
+                executable,
+                ["diff", str(destination / "before/bound.sqlite"), str(bound_index)],
+                destination / "bound-version-diff.json",
+            )["data"],
+            "coverage_before": previous["agent_gate"]["coverage_bound"],
+            "coverage_after": gate["coverage_bound"],
+        }
     report.update(
         status="PASS",
         scope="NDF syntax, clause identity and Python definition binding; not behavioral conformance",
         spec_statuses=sorted({n["status"] for n in nodes.values()}),
         clauses=len(nodes),
+        project=project,
         bindings=bindings,
+        agent_gate=gate,
     )
     receipt.write_text(json.dumps(report, indent=2) + "\n")
     return report
