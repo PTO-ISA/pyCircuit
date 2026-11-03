@@ -6,11 +6,11 @@ module tb;
   logic pyc_root_commit_ok=0;
   wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   task automatic host_reset;
-    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    #1;pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
     pyc_phase=0;pyc_root_commit_ok=0;#1;
   endtask
   task automatic managed_commit;
-    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    #1;pyc_root_commit_ok=0;pyc_phase=1;#1;
     pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
     if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared frontend row failed completion/check validation");end
     pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
