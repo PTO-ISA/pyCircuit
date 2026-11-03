@@ -1977,7 +1977,8 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
                        : boundary->second;
     auto converted =
         applyBindingBoundary(*hidden, binding, syntax->target, inside, symbol);
-    TypedAccessPath inductionPath{syntax->target, (*hidden).getType(), {}};
+    TypedAccessPath inductionPath{syntax->target, syntax->target.value,
+                                 syntax->target.path.size(), (*hidden).getType(), {}};
     if (failed(converted) ||
         failed(updateAssignment(inductionPath, *converted, statement, inside,
                                 symbol, staged.values))) {

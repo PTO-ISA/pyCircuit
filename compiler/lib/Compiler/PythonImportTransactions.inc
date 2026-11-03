@@ -1985,7 +1985,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               return error() << "selected field write requires a named Table root";
             if (!isa<ac::TableType>(index->parentType))
               return error() << "indexed assignment requires a Table payload";
-            if (failed(bindAccessIndex(*index, inside, decl.symbol, values, instances)))
+            if (failed(bindAccessIndex(*access, *index, inside, decl.symbol, values, instances)))
               return failure();
             auto container = readAccessPath(*access, inside, decl.symbol, values,
                                              instances, nullptr,

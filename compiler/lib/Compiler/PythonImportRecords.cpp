@@ -280,17 +280,21 @@ struct LocalAssignmentBinding {
 // an index. Its SSA and parent snapshot are filled only at the caller's original
 // evaluation point, and then reused for reconstruction and write selectors.
 struct TypedAccessStep {
-  AstNode site;
+  DictionaryAttr node;
+  size_t depth;
   Type parentType, type;
   DictionaryAttr field;
   Value index, parent;
 };
 struct TypedAccessPath {
-  AstNode root;
+  // All sites share the target path followed by zero or more `value` steps.
+  // Keep one reserved source cursor; accessSite references are transient.
+  AstNode cursor;
+  DictionaryAttr root;
+  size_t baseDepth;
   Type rootType;
   SmallVector<TypedAccessStep, 2> steps;
-  StringRef name() const { return root.string("id"); }
-  const AstNode &target() const { return steps.empty() ? root : steps.back().site; }
+  StringRef name() const { return AstNode{root, {}}.string("id"); }
 };
 // Borrowed only while lowering an ordinary Module statement. Declarations and
 // callable registration remain owned by the surrounding Module dispatcher.
@@ -577,6 +581,7 @@ private:
   FailureOr<TypedAccessPath> resolveAccessPath(const AstNode &target,
                                              Type rootType,
                                              FlatSymbolRefAttr symbol);
+  FailureOr<const AstNode *> accessSite(TypedAccessPath &path, size_t depth);
   FailureOr<Value> readAccessField(Value base, DictionaryAttr field,
                                    const AstNode &site, OpBuilder &at);
   FailureOr<Value> readAccessIndex(Value base, Value index, const AstNode &site,
@@ -587,7 +592,7 @@ private:
       llvm::StringMap<SmallVector<Value>> *captures = nullptr,
       size_t length = std::numeric_limits<size_t>::max());
   LogicalResult bindAccessIndex(
-      TypedAccessStep &step, OpBuilder &at, FlatSymbolRefAttr symbol,
+      TypedAccessPath &path, TypedAccessStep &step, OpBuilder &at, FlatSymbolRefAttr symbol,
       llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
       llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   FailureOr<ArrayAttr> accessSelectors(const TypedAccessPath &path, OpBuilder &at);
