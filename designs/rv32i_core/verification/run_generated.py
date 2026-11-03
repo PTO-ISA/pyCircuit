@@ -77,11 +77,22 @@ class Driver:
         return line
 
     def close(self):
-        self.process.stdin.close()
-        result = self.process.wait(timeout=30)
-        self.log.close()
-        if result:
-            raise RuntimeError(f"generated DUT exited with {result}")
+        try:
+            try:
+                self.process.stdin.close()
+            except BrokenPipeError:
+                pass
+            try:
+                result = self.process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+                raise
+            if result:
+                raise RuntimeError(f"generated DUT exited with {result}")
+        finally:
+            self.process.stdout.close()
+            self.log.close()
 
 
 class MemoryChannel:
@@ -352,11 +363,24 @@ def main():
         assert (
             args.output / f"{row['execution']}-{row['target']}/state.bits"
         ).read_bytes() == reference
+    cycle_comparisons = 0
+    for strategy in ("timing", "functional"):
+        traces = []
+        for target in ("cpp", "verilog"):
+            path = args.output / f"{strategy}-{target}" / "cycles.jsonl"
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            traces.append(
+                [(row["cycle"], row["reset"], row["outputs"]) for row in rows]
+            )
+        if not traces[0] or traces[0] != traces[1]:
+            raise ValueError(f"native/RTL cycle divergence: {strategy}")
+        cycle_comparisons += 1
     (args.output / "verification.json").write_text(
         json.dumps(
             {
                 "status": "PASS",
                 "scope": "Checked-in generated payloads, fast memory EEI, fresh independent program reference",
+                "native_rtl_cycle_comparisons": cycle_comparisons,
                 "views": reports,
             },
             indent=2,

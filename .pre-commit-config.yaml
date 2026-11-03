@@ -8,7 +8,7 @@ repos:
       - id: end-of-file-fixer
         exclude: ^(docs/gates/logs/|tests/fixtures/historical_examples/|examples/dodgeball_game/reference/)
       - id: trailing-whitespace
-        # These exact emitted files retain their original bytes, checked by manifest.
+        # Preserve emitted netlist bytes and the recorded Yosys log.
         exclude: ^(docs/gates/logs/|tests/fixtures/historical_examples/|examples/dodgeball_game/reference/|designs/rv32i_core/results/synthesis/(mapped\.v|yosys\.txt)$)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
