@@ -206,6 +206,221 @@ AstNode Importer::indexedFieldTarget(const AstNode &target) const {
     return base;
   return {};
 }
+bool Importer::plainAccessPath(const AstNode &node) const {
+  // This syntax predicate needs no source-location path copies.
+  AstNode current{node.value, {}};
+  while (current.kind() == "Attribute" || current.kind() == "Subscript") {
+    AstNode index{dyn_cast_or_null<DictionaryAttr>(current.get("slice")), {}};
+    if (current.kind() == "Subscript" && index.kind() == "Slice")
+      return false;
+    current.value = dyn_cast_or_null<DictionaryAttr>(current.get("value"));
+  }
+  return current.kind() == "Name";
+}
+
+FailureOr<DictionaryAttr> Importer::accessField(Type type, StringRef name) {
+  auto record = dyn_cast<ac::StructType>(type);
+  auto declaration = record ? ac::HardwareAnalysis(*body).lookupStruct(record)
+                            : ac::StructOp();
+  if (!declaration)
+    return error() << "field projection requires a struct";
+  for (Attribute raw : declaration.getFields()) {
+    auto field = cast<DictionaryAttr>(raw);
+    if (field.getAs<StringAttr>("name").getValue() == name)
+      return field;
+  }
+  return error() << "unknown struct field";
+}
+
+FailureOr<TypedAccessPath> Importer::resolveAccessPath(
+    const AstNode &target, Type rootType, FlatSymbolRefAttr symbol) {
+  TypedAccessPath path;
+  path.rootType = rootType;
+  TableQueryCharge entry;
+  std::string entryReason;
+  bool entryFits = TableQueryBudget::add(entry, TableQueryResource::Work,
+                                         target.path.size() + 1) &&
+                   TableQueryBudget::addProduct(
+                       entry, TableQueryResource::Slots, target.path.size(),
+                       (sizeof(AstStep) + 7) / 8);
+  if (!entryFits || !queryBudget.reserve(entry, entryReason))
+    return error() << "typed access path: "
+                   << (entryFits ? entryReason : "path storage counter exhausted");
+  auto current = target;
+  while (current.kind() == "Attribute" || current.kind() == "Subscript") {
+    if (current.kind() == "Subscript" && current.child("slice").kind() == "Slice")
+      return error() << "assignment path does not admit slices";
+    TableQueryCharge charge;
+    std::string reason;
+    bool fits = TableQueryBudget::add(charge, TableQueryResource::Work,
+                                      current.path.size() + 4) &&
+                TableQueryBudget::add(charge, TableQueryResource::Slots,
+                                      (sizeof(TypedAccessStep) + 7) / 8) &&
+                TableQueryBudget::addProduct(
+                    charge, TableQueryResource::Slots, current.path.size() + 1,
+                    2 * ((sizeof(AstStep) + 7) / 8));
+    for (const AstStep &step : current.path)
+      fits &= TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
+                                    2 * step.field.size());
+    if (!fits || !queryBudget.reserve(charge, reason))
+      return error() << "typed access path: "
+                     << (fits ? reason : "path storage counter exhausted");
+    path.steps.push_back({current, {}, {}, {}, {}, {}});
+    current = current.child("value");
+  }
+  if (current.kind() != "Name" || !rootType)
+    return error() << "access path requires a bound named payload root";
+  path.root = std::move(current);
+  std::reverse(path.steps.begin(), path.steps.end());
+  Type selected = rootType;
+  for (auto &step : path.steps) {
+    step.parentType = selected;
+    if (step.site.kind() == "Attribute") {
+      auto record = dyn_cast<ac::StructType>(selected);
+      auto declaration = record ? ac::HardwareAnalysis(*body).lookupStruct(record)
+                                : ac::StructOp();
+      if (declaration && failed(chargeLoopDescriptorWork(
+              step.site, "typed access fields",
+              declaration.getFields().size() + step.site.string("attr").size())))
+        return failure();
+      auto field = accessField(selected, step.site.string("attr"));
+      if (failed(field)) return failure();
+      step.field = *field;
+      selected = step.field.getAs<TypeAttr>("type").getValue();
+    } else if (auto table = dyn_cast<ac::TableType>(selected)) {
+      selected = table.getElementType();
+    } else if (isa<ac::BitsType>(selected)) {
+      selected = internalBits(1, step.site, symbol);
+    } else {
+      return error() << "subscript requires fixed bits or a table";
+    }
+    step.type = selected;
+  }
+  return path;
+}
+
+FailureOr<Value> Importer::readAccessField(Value base, DictionaryAttr field,
+                                           const AstNode &site, OpBuilder &at) {
+  auto result = createOp(at, site.location(b.getContext(), source.path),
+                         ac::StructGetOp::getOperationName(), {base},
+                         TypeRange{field.getAs<TypeAttr>("type").getValue()},
+                         {at.getNamedAttr("field", field.getAs<StringAttr>("name"))})
+                    ->getResult(0);
+  rememberStructField(result, field, site);
+  return result;
+}
+
+FailureOr<Value> Importer::readAccessIndex(Value base, Value index,
+                                            const AstNode &node, OpBuilder &at,
+                                            FlatSymbolRefAttr ownerSymbol) {
+  if (isa<ac::BitsType>(base.getType())) {
+    if (!fixedValues.contains(base))
+      return error() << "bit index requires authoritative fixed bits, not a "
+                        "Boolean or Integer carrier";
+    ac::HardwareAnalysis analysis(*body);
+    auto width = analysis.getPackedWidth(base.getType(), {},
+                                         at.getInsertionBlock()->getParentOp());
+    if (failed(width) || failed(proveIndexExtent(index, *width, node, "bit")))
+      return failure();
+    // Keep the complete index carrier, including high X/Z bits. A logical
+    // Boolean/Integer index crosses an explicit fresh fixed-Bits boundary;
+    // aliases of the original source value retain their source-kind facts.
+    auto count = unsignedBoundary(index, index.getType(), node.child("slice"),
+                                  at, ownerSymbol);
+    if (failed(count))
+      return failure();
+    auto shifted =
+        fixedUnsignedShift(base, *count, "lshr", node, node.child("value"),
+                           node.child("slice"), at, ownerSymbol);
+    if (failed(shifted))
+      return failure();
+    auto result =
+        createOp(at, node.location(b.getContext(), source.path),
+                 ac::BitsExtractOp::getOperationName(), {*shifted},
+                 TypeRange{internalBits(1, node, ownerSymbol)},
+                 {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
+            ->getResult(0);
+    remember(result, std::nullopt);
+    fixedValues.insert(result);
+    return result;
+  }
+  auto type = dyn_cast<ac::TableType>(base.getType());
+  if (!type)
+    return error() << "subscript requires fixed bits or a table";
+  auto admission = proveIndex(base, index, node);
+  if (failed(admission)) return failure();
+  SmallVector<Type> results{type.getElementType()};
+  bool deferred = *admission == SourceIndexAdmission::Deferred;
+  if (!deferred) results.push_back(internalBits(1, node, ownerSymbol));
+  auto result =
+      createOp(at, node.location(b.getContext(), source.path),
+               deferred ? ac::TableReadOp::getOperationName() : ac::TableGetOp::getOperationName(),
+               {base, index}, results, {})
+          ->getResult(0);
+  if (isa<ac::BitsType>(result.getType()))
+    fixedValues.insert(result);
+  return result;
+}
+
+LogicalResult Importer::bindAccessIndex(
+    TypedAccessStep &step, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    llvm::StringMap<SmallVector<Value>> *captures) {
+  if (step.field || step.index) return success();
+  auto index = expression(step.site.child("slice"), at, symbol, values,
+                          instances, {}, captures);
+  if (failed(index)) return failure();
+  step.index = *index;
+  return success();
+}
+
+FailureOr<Value> Importer::readAccessPath(
+    TypedAccessPath &path, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    llvm::StringMap<SmallVector<Value>> *captures, size_t length) {
+  auto value = expression(path.root, at, symbol, values, instances, {}, captures);
+  if (failed(value)) return failure();
+  length = std::min(length, path.steps.size());
+  for (size_t i = 0; i < length; ++i) {
+    auto &step = path.steps[i];
+    step.parent = *value;
+    if (step.field)
+      value = readAccessField(*value, step.field, step.site, at);
+    else {
+      if (failed(bindAccessIndex(step, at, symbol, values, instances, captures)))
+        return failure();
+      value = readAccessIndex(*value, step.index, step.site, at, symbol);
+    }
+    if (failed(value)) return failure();
+  }
+  return *value;
+}
+
+FailureOr<ArrayAttr> Importer::accessSelectors(const TypedAccessPath &path,
+                                                OpBuilder &at) {
+  SmallVector<Attribute, 2> selectors;
+  bool indexed = false;
+  for (const auto &step : path.steps) {
+    TableQueryCharge charge;
+    std::string reason;
+    if (!TableQueryBudget::add(charge, TableQueryResource::Work, 1) ||
+        !TableQueryBudget::add(charge, TableQueryResource::Slots, 4) ||
+        !queryBudget.reserve(charge, reason))
+      return error() << "selected write footprint: " << reason;
+    if (step.field)
+      selectors.push_back(at.getDictionaryAttr({at.getNamedAttr(
+          "field", step.field.getAs<StringAttr>("name"))}));
+    else {
+      if (indexed)
+        return error() << "selected writes support one Table index per path";
+      indexed = true;
+      selectors.push_back(at.getDictionaryAttr(
+          {at.getNamedAttr("index", at.getI64IntegerAttr(0))}));
+    }
+  }
+  return at.getArrayAttr(selectors);
+}
+
 // A source Struct remains immutable: only exact operands of its complete,
 // nominally matching constructor can replace otherwise-required projections.
 static Value reusableStructFieldOperand(Value value, ac::StructOp declaration,
@@ -287,13 +502,9 @@ FailureOr<Value> Importer::replaceField(Value value, StringRef name,
                                          value, declaration, index, fieldType)) {
       fields.push_back(operand);
     } else {
-      auto projected =
-          createOp(at, node.location(b.getContext(), source.path),
-                   ac::StructGetOp::getOperationName(), {value},
-                   TypeRange{fieldType}, {at.getNamedAttr("field", key)})
-              ->getResult(0);
-      rememberStructField(projected, field, node);
-      fields.push_back(projected);
+      auto projected = readAccessField(value, field, node, at);
+      if (failed(projected)) return failure();
+      fields.push_back(*projected);
     }
   }
   if (!found)
@@ -344,93 +555,72 @@ LogicalResult Importer::validateAssignmentRoot(const AstNode &target,
   return success();
 }
 
-LogicalResult Importer::updateAssignment(const AstNode &target,
-                                         Value replacement, const AstNode &node,
-                                         OpBuilder &at,
-                                         FlatSymbolRefAttr symbol,
-                                         llvm::StringMap<Value> &values,
-                                         SmallVectorImpl<Value> *boundIndices,
-                                         bool preserveProjectionWitnesses) {
-  StringRef root = assignmentRoot(target);
-  if (failed(validateAssignmentRoot(target, node, at)))
+LogicalResult Importer::updateAssignment(
+    TypedAccessPath &path, Value replacement, const AstNode &node, OpBuilder &at,
+    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    SmallVectorImpl<Value> *boundIndices, bool preserveProjectionWitnesses) {
+  if (failed(validateAssignmentRoot(path.target(), node, at)))
     return failure();
-  if (target.kind() == "Name") {
-    values[root] = replacement;
-    noteNestedRuleDataBinding(root);
-    return success();
-  }
   llvm::StringMap<Instance *> noInstances;
-  if (auto element = indexedFieldTarget(target)) {
-    auto container =
-        expression(element.child("value"), at, symbol, values, noInstances);
-    if (failed(container) || !isa<ac::TableType>((*container).getType()))
+  bool selectedField = path.steps.size() > 1 && !path.steps.front().field &&
+      llvm::all_of(ArrayRef<TypedAccessStep>(path.steps).drop_front(),
+                   [](const TypedAccessStep &step) { return bool(step.field); });
+  if (selectedField) {
+    // Preserve the existing masked Table field update. Reading and rebuilding a
+    // whole selected row would change unknown-index behavior and write proofs.
+    auto container = expression(path.root, at, symbol, values, noInstances);
+    if (failed(container) || !isa<ac::TableType>(container->getType()))
       return error() << "indexed assignment requires a Table payload";
-    DictionaryAttr selectedField;
-    auto targetType = expressionType(target, values, noInstances, symbol,
-                                     &selectedField);
-    if (failed(targetType))
-      return failure();
-    if (!selectedField)
-      return error() << "indexed field assignment requires a declared Struct field";
+    auto &index = path.steps.front();
+    index.parent = *container;
     auto converted = applyBindingBoundary(
-        replacement, BindingBoundary(structFieldPort(selectedField, target), true),
+        replacement, BindingBoundary(structFieldPort(path.steps.back().field,
+                                                      path.target()), true),
         node, at, symbol);
-    if (failed(converted))
+    if (failed(converted) ||
+        failed(bindAccessIndex(index, at, symbol, values, noInstances)))
       return failure();
-    auto index =
-        expression(element.child("slice"), at, symbol, values, noInstances);
-    if (failed(index))
+    SmallVector<Attribute, 2> fields;
+    for (const auto &step : ArrayRef<TypedAccessStep>(path.steps).drop_front())
+      fields.push_back(step.field.getAs<StringAttr>("name"));
+    auto slot = addressDomainSlot(path.name(), node, index.site.child("slice"));
+    if (failed(slot)) return failure();
+    auto updated = tableUpdate(*container, index.index, *converted, fields,
+                               node, at, symbol, *slot);
+    if (failed(updated)) return failure();
+    replacement = *updated;
+  } else if (!path.steps.empty()) {
+    auto container = readAccessPath(path, at, symbol, values, noInstances,
+                                    nullptr, path.steps.size() - 1);
+    if (failed(container)) return failure();
+    auto &last = path.steps.back();
+    last.parent = *container;
+    if (failed(bindAccessIndex(last, at, symbol, values, noInstances)))
       return failure();
-    if (boundIndices)
-      boundIndices->push_back(*index);
-    SmallVector<Attribute> fieldPath;
-    for (auto field = target; field.kind() == "Attribute";
-         field = field.child("value"))
-      fieldPath.push_back(at.getStringAttr(field.string("attr")));
-    std::reverse(fieldPath.begin(), fieldPath.end());
-    auto slot = addressDomainSlot(root, node, element.child("slice"));
-    if (failed(slot))
-      return failure();
-    auto updated = tableUpdate(*container, *index, *converted, fieldPath, node,
+    for (auto &step : llvm::reverse(path.steps)) {
+      FailureOr<Value> updated = failure();
+      if (step.field) {
+        updated = replaceField(step.parent,
+                                step.field.getAs<StringAttr>("name").getValue(),
+                                replacement, node, at, symbol,
+                                preserveProjectionWitnesses);
+      } else {
+        if (!isa<ac::TableType>(step.parentType))
+          return error() << "indexed assignment requires a Table payload";
+        auto slot = addressDomainSlot(path.name(), node, step.site.child("slice"));
+        if (failed(slot)) return failure();
+        updated = tableUpdate(step.parent, step.index, replacement, {}, node,
                                at, symbol, *slot);
-    if (failed(updated))
-      return failure();
-    return updateAssignment(element.child("value"), *updated, node, at, symbol,
-                            values, boundIndices, preserveProjectionWitnesses);
+      }
+      if (failed(updated)) return failure();
+      replacement = *updated;
+    }
   }
-  if (target.kind() == "Attribute") {
-    auto base =
-        expression(target.child("value"), at, symbol, values, noInstances);
-    if (failed(base))
-      return failure();
-    auto updated = replaceField(*base, target.string("attr"), replacement, node,
-                                at, symbol, preserveProjectionWitnesses);
-    if (failed(updated))
-      return failure();
-    return updateAssignment(target.child("value"), *updated, node, at, symbol,
-                            values, boundIndices, preserveProjectionWitnesses);
-  }
-  if (target.kind() == "Subscript" && values.contains(root)) {
-    auto container =
-        expression(target.child("value"), at, symbol, values, noInstances);
-    if (failed(container) || !isa<ac::TableType>((*container).getType()))
-      return error() << "indexed assignment requires a Table payload";
-    auto index =
-        expression(target.child("slice"), at, symbol, values, noInstances);
-    if (failed(index))
-      return failure();
-    if (boundIndices)
-      boundIndices->push_back(*index);
-    auto slot = addressDomainSlot(root, node, target.child("slice"));
-    if (failed(slot))
-      return failure();
-    auto updated = tableUpdate(*container, *index, replacement, {}, node, at,
-                               symbol, *slot);
-    if (failed(updated))
-      return failure();
-    return updateAssignment(target.child("value"), *updated, node, at, symbol,
-                            values, boundIndices, preserveProjectionWitnesses);
-  }
-  return error() << "assignment requires a local name, nested field or named "
-                    "table index";
+  if (failed(validateAssignmentRoot(path.root, node, at)))
+    return failure();
+  if (boundIndices)
+    for (const auto &step : path.steps)
+      if (!step.field) boundIndices->push_back(step.index);
+  return bindLocalValues({{path.name(), std::nullopt}}, {replacement}, node,
+                         at, symbol, values);
 }

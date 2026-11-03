@@ -265,7 +265,8 @@ struct BranchEnvironment {
 };
 // These are existing admission policies, not interchangeable source profiles.
 // Ordinary locals retain an inferred boundary and contextualize subsequent
-// RHS expressions; transaction locals acquire a boundary only when declared.
+// RHS expressions; straight-line transaction assignments only declare boundaries
+// for annotations (branch entry separately seeds inferred capture boundaries).
 enum class LocalBindingPolicy { Ordinary, Transaction };
 struct PreparedLocalBinding {
   StringRef name;
@@ -274,6 +275,22 @@ struct PreparedLocalBinding {
 struct LocalAssignmentBinding {
   PreparedLocalBinding destination;
   std::optional<Type> expected;
+};
+// A typed source access, not a second expression IR. Resolution never evaluates
+// an index. Its SSA and parent snapshot are filled only at the caller's original
+// evaluation point, and then reused for reconstruction and write selectors.
+struct TypedAccessStep {
+  AstNode site;
+  Type parentType, type;
+  DictionaryAttr field;
+  Value index, parent;
+};
+struct TypedAccessPath {
+  AstNode root;
+  Type rootType;
+  SmallVector<TypedAccessStep, 2> steps;
+  StringRef name() const { return root.string("id"); }
+  const AstNode &target() const { return steps.empty() ? root : steps.back().site; }
 };
 // Borrowed only while lowering an ordinary Module statement. Declarations and
 // callable registration remain owned by the surrounding Module dispatcher.
@@ -555,6 +572,25 @@ private:
                                 FlatSymbolRefAttr symbol, bool preserveProjectionWitnesses);
   StringRef assignmentRoot(const AstNode &target) const;
   AstNode indexedFieldTarget(const AstNode &target) const;
+  bool plainAccessPath(const AstNode &node) const;
+  FailureOr<DictionaryAttr> accessField(Type type, StringRef name);
+  FailureOr<TypedAccessPath> resolveAccessPath(const AstNode &target,
+                                             Type rootType,
+                                             FlatSymbolRefAttr symbol);
+  FailureOr<Value> readAccessField(Value base, DictionaryAttr field,
+                                   const AstNode &site, OpBuilder &at);
+  FailureOr<Value> readAccessIndex(Value base, Value index, const AstNode &site,
+                                   OpBuilder &at, FlatSymbolRefAttr symbol);
+  FailureOr<Value> readAccessPath(
+      TypedAccessPath &path, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      llvm::StringMap<SmallVector<Value>> *captures = nullptr,
+      size_t length = std::numeric_limits<size_t>::max());
+  LogicalResult bindAccessIndex(
+      TypedAccessStep &step, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      llvm::StringMap<SmallVector<Value>> *captures = nullptr);
+  FailureOr<ArrayAttr> accessSelectors(const TypedAccessPath &path, OpBuilder &at);
   LogicalResult validateAssignmentRoot(const AstNode &target,
                                        const AstNode &node, OpBuilder &at);
   FailureOr<LocalAssignmentBinding> prepareLocalAssignment(
@@ -571,7 +607,7 @@ private:
       BranchEnvironment &environment,
       llvm::StringMap<Instance *> &instances, LocalBindingPolicy policy);
   LogicalResult
-  updateAssignment(const AstNode &target, Value value, const AstNode &node,
+  updateAssignment(TypedAccessPath &path, Value value, const AstNode &node,
                    OpBuilder &at, FlatSymbolRefAttr symbol,
                    llvm::StringMap<Value> &values,
                    SmallVectorImpl<Value> *boundIndices = nullptr,
@@ -4236,20 +4272,10 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
         expressionType(node.child("value"), values, instances, ownerSymbol);
     if (failed(base))
       return failure();
-    auto record = dyn_cast<ac::StructType>(*base);
-    ac::HardwareAnalysis analysis(*body);
-    auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
-    if (!declaration)
-      return error() << "field projection requires a struct";
-    for (Attribute raw : declaration.getFields()) {
-      auto field = cast<DictionaryAttr>(raw);
-      if (field.getAs<StringAttr>("name").getValue() == node.string("attr")) {
-        if (projectedField)
-          *projectedField = field;
-        return field.getAs<TypeAttr>("type").getValue();
-      }
-    }
-    return error() << "unknown struct field";
+    auto field = accessField(*base, node.string("attr"));
+    if (failed(field)) return failure();
+    if (projectedField) *projectedField = *field;
+    return field->getAs<TypeAttr>("type").getValue();
   }
   if (node.kind() == "Compare")
     return literalWidth(1);

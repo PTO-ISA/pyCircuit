@@ -1977,8 +1977,9 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
                        : boundary->second;
     auto converted =
         applyBindingBoundary(*hidden, binding, syntax->target, inside, symbol);
+    TypedAccessPath inductionPath{syntax->target, (*hidden).getType(), {}};
     if (failed(converted) ||
-        failed(updateAssignment(syntax->target, *converted, statement, inside,
+        failed(updateAssignment(inductionPath, *converted, statement, inside,
                                 symbol, staged.values))) {
       diagnostic() << "bounded for reachable iteration " << ordinal
                    << " binder failed";
@@ -2598,31 +2599,18 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
                                    annotationKind(annotation),
                                    fixedAnnotation(annotation)}, true};
       }
-      if (target.kind() == "Attribute") {
-        DictionaryAttr selectedField;
-        auto targetType = expressionType(target, values, instances, symbol,
-                                         &selectedField);
-        if (failed(targetType))
-          return failure();
-        if (!selectedField)
-          return error() << "field assignment requires a declared Struct field";
-        binding = BindingBoundary{structFieldPort(selectedField, target), true};
-      }
-      if (target.kind() == "Subscript") {
-        auto container =
-            expressionType(target.child("value"), values, instances, symbol);
-        if (failed(container))
-          return failure();
-        auto table = dyn_cast<ac::TableType>(*container);
-        if (!table)
+      Value rootValue = values.lookup(name);
+      auto path = resolveAccessPath(target, rootValue ? rootValue.getType() : Type(),
+                                     symbol);
+      if (failed(path)) return failure();
+      for (const auto &step : path->steps)
+        if (!step.field && !isa<ac::TableType>(step.parentType))
           return error() << "indexed assignment requires a table";
-        binding = BindingBoundary{{assignmentRoot(target).str(),
-                                   table.getElementType(),
-                                   target,
-                                   {},
-                                   isa<ac::BitsType>(table.getElementType())},
-                                  true};
-      }
+      const auto &selected = path->steps.back();
+      binding = selected.field
+          ? BindingBoundary{structFieldPort(selected.field, target), true}
+          : BindingBoundary{{name.str(), selected.type, target, {},
+                              isa<ac::BitsType>(selected.type)}, true};
       std::optional<Type> expected;
       if (binding && binding->contract().type)
         expected = binding->contract().type;
@@ -2638,7 +2626,7 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
         return failure();
       value = *converted;
       if (name.empty() ||
-          failed(updateAssignment(target, *value, stmt, at, symbol, values)))
+          failed(updateAssignment(*path, *value, stmt, at, symbol, values)))
         return failure();
     }
     if (owners.contains(name)) {

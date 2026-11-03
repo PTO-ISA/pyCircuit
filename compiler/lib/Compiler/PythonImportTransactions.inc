@@ -1040,36 +1040,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     bool formalProposals = isa<ac::SourceMethodOp>(inside.getBlock()->getParentOp()) &&
                            callable.syntax.marker == MarkerKind::Rule;
     auto intentName = [](StringRef formal) { return ("$intent." + formal).str(); };
-    auto writeSelectors = [&](const AstNode &target,
-                              OpBuilder &at) -> FailureOr<ArrayAttr> {
-      SmallVector<Attribute> selectors;
-      AstNode current = target;
-      while (current.kind() == "Attribute" || current.kind() == "Subscript") {
-        TableQueryCharge charge;
-        std::string reason;
-        if (!TableQueryBudget::add(charge, TableQueryResource::Work, 1) ||
-            !TableQueryBudget::add(charge, TableQueryResource::Slots, 4) ||
-            !queryBudget.reserve(charge, reason))
-          return error() << "selected write footprint: " << reason;
-        if (current.kind() == "Attribute")
-          selectors.push_back(at.getDictionaryAttr({at.getNamedAttr(
-              "field", at.getStringAttr(current.string("attr")))}));
-        else {
-          if (llvm::any_of(selectors, [](Attribute raw) {
-                return cast<DictionaryAttr>(raw).get("index");
-              }))
-            return error()
-                   << "selected writes support one Table index per path";
-          selectors.push_back(at.getDictionaryAttr(
-              {at.getNamedAttr("index", at.getI64IntegerAttr(0))}));
-        }
-        current = current.child("value");
-      }
-      if (current.kind() != "Name")
-        return error() << "selected write requires a named payload root";
-      std::reverse(selectors.begin(), selectors.end());
-      return at.getArrayAttr(selectors);
-    };
     auto emitFormalWrite = [&](StringRef name, Value payload,
                                const AstNode &site, OpBuilder &at,
                                BranchEnvironment &environment,
@@ -1982,24 +1952,23 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (statement.kind() == "Assign" && target.kind() != "Name" && rhs &&
             states.contains(ownerRoot)) {
           const StateOwner &owner = states[ownerRoot];
-          llvm::StringMap<Value> typeValues(values);
-          typeValues[ownerRoot] = owner.op->getResult(0);
-          DictionaryAttr selectedField;
-          auto selectedType = expressionType(target, typeValues, instances,
-                                             decl.symbol, &selectedField);
-          if (failed(selectedType)) return failure();
+          auto access = resolveAccessPath(target, owner.type, decl.symbol);
+          if (failed(access)) return failure();
+          const auto &selected = access->steps.back();
+          DictionaryAttr selectedField = selected.field;
+          Type selectedType = selected.type;
           auto replacement = expression(rhs, inside, decl.symbol, values,
-                                          instances, *selectedType);
+                                          instances, selectedType);
           if (failed(replacement)) return failure();
           auto converted = selectedField
               ? applyBindingBoundary(
                     *replacement,
                     BindingBoundary(structFieldPort(selectedField, target), true),
                     rhs, inside, decl.symbol)
-              : unsignedBoundary(*replacement, *selectedType, rhs, inside,
+              : unsignedBoundary(*replacement, selectedType, rhs, inside,
                                    decl.symbol);
           if (failed(converted)) return failure();
-          auto selectors = writeSelectors(target, inside);
+          auto selectors = accessSelectors(*access, inside);
           if (failed(selectors))
             return failure();
           SmallVector<Value> operands;
@@ -2009,18 +1978,25 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           operands.append({*path, *converted});
           // Bind the target index once after the RHS. Native state lowering
           // reconstructs this selected write against the current candidate.
-          AstNode element = target.kind() == "Subscript"
-                                ? target
-                                : indexedFieldTarget(target);
-          if (element) {
-            auto index = expression(element.child("slice"), inside, decl.symbol,
-                                    values, instances);
-            auto container = expression(element.child("value"), inside,
-                                        decl.symbol, values, instances);
-            if (failed(index) || failed(container) ||
-                failed(proveIndex(*container, *index, statement)))
+          auto index = llvm::find_if(access->steps,
+              [](const TypedAccessStep &step) { return !step.field; });
+          if (index != access->steps.end()) {
+            // Preserve the old selected-write grammar: a terminal Table index,
+            // or a root Table index followed only by declared Struct fields.
+            if (target.kind() != "Subscript" && index != access->steps.begin())
+              return error() << "selected field write requires a named Table root";
+            if (!isa<ac::TableType>(index->parentType))
+              return error() << "indexed assignment requires a Table payload";
+            if (failed(bindAccessIndex(*index, inside, decl.symbol, values, instances)))
               return failure();
-            operands.push_back(*index);
+            auto container = readAccessPath(*access, inside, decl.symbol, values,
+                                             instances, nullptr,
+                                             std::distance(access->steps.begin(), index));
+            if (failed(container) ||
+                failed(proveIndex(*container, index->index, statement)))
+              return failure();
+            index->parent = *container;
+            operands.push_back(index->index);
           }
           createOp(
               inside, statement.location(b.getContext(), source.path),
@@ -2041,23 +2017,25 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               isa<ac::StructType>(values.lookup(ownerRoot).getType())))) {
           if (failed(chargeLoopDescriptorWork(statement, "local Table reconstruction")))
             return failure();
-          DictionaryAttr selectedField;
-          auto selectedType = expressionType(target, values, instances,
-                                             decl.symbol, &selectedField);
-          if (failed(selectedType)) return failure();
+          auto access = resolveAccessPath(target, values.lookup(ownerRoot).getType(),
+                                           decl.symbol);
+          if (failed(access)) return failure();
+          const auto &selected = access->steps.back();
+          DictionaryAttr selectedField = selected.field;
+          Type selectedType = selected.type;
           auto replacement = expression(rhs, inside, decl.symbol, values,
-                                          instances, *selectedType);
+                                          instances, selectedType);
           if (failed(replacement)) return failure();
           auto converted = selectedField
               ? applyBindingBoundary(
                     *replacement,
                     BindingBoundary(structFieldPort(selectedField, target), true),
                     rhs, inside, decl.symbol)
-              : unsignedBoundary(*replacement, *selectedType, rhs, inside,
+              : unsignedBoundary(*replacement, selectedType, rhs, inside,
                                    decl.symbol);
           SmallVector<Value> indices;
           if (failed(converted) ||
-              failed(updateAssignment(target, *converted, statement, inside,
+              failed(updateAssignment(*access, *converted, statement, inside,
                                       decl.symbol, values, &indices)))
             return failure();
           if (auto boundary = environment.boundaries.find(ownerRoot);
@@ -2067,7 +2045,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             if (failed(bounded)) return failure();
             values[ownerRoot] = *bounded;
           }
-          auto selectors = writeSelectors(target, inside);
+          auto selectors = accessSelectors(*access, inside);
           if (failed(selectors) ||
               failed(emitFormalWrite(ownerRoot, *converted, statement, inside,
                                      environment, {}, *selectors, indices)))
@@ -2075,38 +2053,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         }
         if (statement.kind() == "Assign" && target.kind() == "Attribute" && rhs) {
-          auto reserveLocal = [&](uint64_t work, uint64_t slots,
-                                  uint64_t operations = 0) -> LogicalResult {
-            TableQueryCharge charge;
-            std::string reason;
-            bool fits = TableQueryBudget::add(charge, TableQueryResource::Work, work) &&
-                        TableQueryBudget::add(charge, TableQueryResource::Slots, slots) &&
-                        TableQueryBudget::add(charge, TableQueryResource::Operations, operations);
-            if (!fits || !queryBudget.reserve(charge, reason))
-              return error() << "local Struct field reconstruction: "
-                             << (fits ? reason : "cost counter exhausted");
-            return success();
-          };
-          if (failed(reserveLocal(target.path.size() + 1,
-                  (target.path.size() + 1) * ((sizeof(AstStep) + 7) / 8))))
-            return failure();
-          AstNode rootTarget = target;
-          SmallVector<StringRef, 0> fieldNames;
-          while (rootTarget.kind() == "Attribute") {
-            if (fieldNames.size() >= 128)
-              return error() << "local Struct field target depth exceeded";
-            uint64_t pathSlots =
-                3 * (rootTarget.path.size() + 2) * ((sizeof(AstStep) + 7) / 8);
-            if (failed(reserveLocal(rootTarget.path.size() + fieldNames.size() + 3,
-                                    pathSlots + fieldNames.size() + 1)))
-              return failure();
-            fieldNames.reserve(fieldNames.size() + 1);
-            fieldNames.push_back(rootTarget.string("attr"));
-            rootTarget = rootTarget.child("value");
-          }
-          if (rootTarget.kind() != "Name")
-            return error() << "local Struct field target requires an Attribute-only Name path";
-          StringRef root = rootTarget.string("id");
+          StringRef root = ownerRoot;
           bool formal = llvm::any_of(callable.inputs, [&](const Port &port) {
             return port.name == root;
           });
@@ -2119,48 +2066,15 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             return error() << "local field assignment requires a nominal Struct payload";
           auto admitted = resolveBranchPayloadType(original.getType(), inside, statement);
           if (failed(admitted)) return failure();
-          std::reverse(fieldNames.begin(), fieldNames.end());
-          Type selectedType = *admitted;
-          DictionaryAttr selectedField;
-          ac::HardwareAnalysis analysis(*body);
-          for (StringRef fieldName : fieldNames) {
-            auto record = dyn_cast<ac::StructType>(selectedType);
-            auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
-            if (!declaration)
-              return error() << "local field path intermediates require Struct payloads";
-            auto fields = declaration.getFields();
-            if (failed(reserveLocal(fields.size() + fieldName.size(), 0)))
-              return failure();
-            Type next;
-            for (Attribute raw : fields) {
-              auto field = cast<DictionaryAttr>(raw);
-              StringRef name = field.getAs<StringAttr>("name").getValue();
-              if (failed(reserveLocal(1 + (name.size() == fieldName.size()
-                                               ? name.size() : 0), 0)))
-                return failure();
-              if (name == fieldName) {
-                next = field.getAs<TypeAttr>("type").getValue();
-                selectedField = field;
-              }
-            }
-            if (!next) return error() << "unknown local Struct assignment field";
-            selectedType = next;
-          }
-          // Each actual replaceField call pays its own concrete reconstruction.
-          // Repeated recursive target evaluation still copies AST paths and
-          // projects ancestors; no constructor reuse is assumed for those
-          // intermediate projection results.
-          uint64_t depth = fieldNames.size();
-          for (uint64_t level = 0; level < depth; ++level) {
-            uint64_t ancestors = depth - level - 1;
-            uint64_t path = target.path.size() + depth + 1;
-            if (failed(reserveLocal(
-                    (ancestors + 1) * (path + 1),
-                    (ancestors + 1) * path * ((sizeof(AstStep) + 7) / 8) +
-                        ancestors * 32 + 32,
-                    ancestors + 1)))
-              return failure();
-          }
+          auto access = resolveAccessPath(target, *admitted, decl.symbol);
+          if (failed(access)) return failure();
+          if (access->steps.size() > 128)
+            return error() << "local Struct field target depth exceeded";
+          if (!llvm::all_of(access->steps,
+                            [](const TypedAccessStep &step) { return bool(step.field); }))
+            return error() << "local Struct field target requires an Attribute-only Name path";
+          Type selectedType = access->steps.back().type;
+          DictionaryAttr selectedField = access->steps.back().field;
           BindingBoundary rootBoundary = environment.boundaries.contains(root)
               ? environment.boundaries.lookup(root)
               : inferredBoundary(root, original, statement);
@@ -2174,14 +2088,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           bool preserveProjectionWitnesses =
               formalProposals && callable.assignedFormals.contains(root) &&
               !callable.stateFormals.contains(root);
-          if (failed(converted) || failed(updateAssignment(target, *converted,
+          if (failed(converted) || failed(updateAssignment(*access, *converted,
                   statement, inside, decl.symbol, values, nullptr,
                   preserveProjectionWitnesses)))
             return failure();
           if (values.lookup(root).getType() != original.getType())
             return error() << "local field reconstruction changed root nominal type";
           environment.boundaries[root] = std::move(rootBoundary);
-          auto selectors = writeSelectors(target, inside);
+          auto selectors = accessSelectors(*access, inside);
           if (failed(selectors) ||
               failed(emitFormalWrite(root, *converted, statement, inside,
                                      environment, {}, *selectors)))
