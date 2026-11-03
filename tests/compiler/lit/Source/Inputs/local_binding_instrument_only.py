@@ -13,7 +13,7 @@ def Instrument(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annota
     @rule
     def observe():
         log("info", "exact", raw >> 0, negative & 255,
-            raw if condition else 256)
+            raw if condition else 256, integer == 0)
         report("integer_kind", integer + 0)
 
     return {"result": a}

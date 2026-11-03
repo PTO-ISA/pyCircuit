@@ -259,6 +259,11 @@ def retired_collision_cases():
 
 def positive_cases():
     cases = {
+        "ordinary_rule_local": structural("""    @ac.rule
+    def update():
+        value = a
+    return {"result": a}
+"""),
         "scalar_alias": structural("""    check = a
     saved = check
     @ac.rule
