@@ -472,11 +472,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   }
   for (const auto &capture : helper.captures) {
     auto argument = block->getArgument(ordinal++);
-    auto info = valueInfo(capture.second);
-    info.value = argument;
-    numericValues[argument] = info;
-    if (fixedValues.contains(capture.second)) fixedValues.insert(argument);
-    if (arithmeticValues.contains(capture.second)) arithmeticValues.insert(argument);
+    mapValueFacts(capture.second, argument);
     if (!capture.first.empty()) {
       environment.values[capture.first] = argument;
       environment.boundaries[capture.first] = inferredBoundary(capture.first, argument, helper.node);
@@ -532,9 +528,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     Value replacement = literalPayloadReplacement(extract, *block);
     if (!replacement) continue;
     Value result = extract.getResult();
-    numericValues.erase(result);
-    fixedValues.erase(result);
-    arithmeticValues.erase(result);
+    forgetValueFacts(result);
     result.replaceAllUsesWith(replacement);
     extract.erase();
   }
@@ -551,9 +545,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   if (failed(literalPlan)) return failure();
   for (auto [constant, representative] : *literalPlan) {
     Value result = constant.getResult();
-    numericValues.erase(result);
-    fixedValues.erase(result);
-    arithmeticValues.erase(result);
+    forgetValueFacts(result);
     result.replaceAllUsesWith(representative);
     constant.erase();
   }
@@ -686,17 +678,17 @@ FailureOr<TableQueryCharge> Importer::valueHelperCost(func::FuncOp root,
     auto chargeValue = [&](Value value, uint64_t copies = 2,
                            bool cloneFacts = true) {
       fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 3);
-      auto facts = numericValues.find(value);
+      const auto *facts = findValueInfo(value);
       // A missing/empty fact row has exactly valueInfo's default meaning. The
       // clone need not allocate a second empty row for an aggregate SSA handle.
-      if (facts != numericValues.end()) {
-        bool meaningful = facts->second.sourceKind || facts->second.interval ||
-                          facts->second.closedSourceConstant;
+      if (facts) {
+        bool meaningful = facts->sourceKind || facts->interval ||
+                          facts->closedSourceConstant;
         fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
             meaningful ? copies : 1, (sizeof(NumericValue) + 7) / 8 + 4);
-        if (facts->second.interval)
-          for (const auto *endpoint : {&facts->second.interval->lower,
-                                       &facts->second.interval->upper})
+        if (facts->interval)
+          for (const auto *endpoint : {&facts->interval->lower,
+                                       &facts->interval->upper})
             fits &= TableQueryBudget::addProduct(cost, TableQueryResource::PayloadWords,
                 (endpoint->getBitWidth() + 63) / 64, cloneFacts ? 3 : 1);
       }
@@ -889,16 +881,6 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
   size_t frameDepth = activeSourceExpansion.size();
   if (failed(pushHelperFrame(call, helper.node, symbol, helper.symbol))) return failure();
   auto restoreFrame = llvm::scope_exit([&] { activeSourceExpansion.resize(frameDepth); });
-  auto copyFacts = [&](Value original, Value copied) {
-    auto facts = numericValues.find(original);
-    if (facts != numericValues.end() &&
-        (facts->second.sourceKind || facts->second.interval || facts->second.closedSourceConstant)) {
-      auto info = facts->second; info.value = copied;
-      numericValues[copied] = std::move(info);
-    }
-    if (fixedValues.contains(original)) fixedValues.insert(copied);
-    if (arithmeticValues.contains(original)) arithmeticValues.insert(copied);
-  };
   auto inlineBody = [&](auto &&self, func::FuncOp function, ValueRange actuals,
                         OpBuilder &target) -> FailureOr<SmallVector<Value>> {
     auto returned = cast<func::ReturnOp>(function.getBody().front().getTerminator());
@@ -998,7 +980,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
         auto *copy = builder.cloneWithoutRegions(operation, map);
         if (activeLoop) activeLoop->helperOwned.insert(copy);
         for (auto [original, result] : llvm::zip(operation.getResults(), copy->getResults()))
-          if (retainsFacts(original)) copyFacts(original, result);
+          if (retainsFacts(original)) mapValueFacts(original, result, /*sparse=*/true);
         copy->setAttrs(cast<DictionaryAttr>(expandAttribute(expandAttribute, copy->getAttrDictionary(), false)));
         for (auto [sourceRegion, copiedRegion] : llvm::zip(operation.getRegions(), copy->getRegions()))
           for (Block &regionBlock : sourceRegion) {
@@ -1008,7 +990,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
             for (Value argument : regionBlock.getArguments()) {
               auto result = newBlock->addArgument(argument.getType(), argument.getLoc());
               map.map(argument, result);
-              if (retainsFacts(argument)) copyFacts(argument, result);
+              if (retainsFacts(argument)) mapValueFacts(argument, result, /*sparse=*/true);
             }
             auto inside = OpBuilder::atBlockEnd(newBlock);
             if (failed(expand(expand, regionBlock, *newBlock, map, inside))) return failure();

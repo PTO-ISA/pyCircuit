@@ -2361,7 +2361,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (callable.privateSpecialization && index < callable.actualFacts.size()) {
           auto facts = valueInfo(callable.actualFacts[index]);
           facts.value = argument;
-          if (!isa<ac::EnumType>(argument.getType())) numericValues[argument] = facts;
+          recordValueInfo(std::move(facts));
           if (arithmeticValues.contains(callable.actualFacts[index]))
             arithmeticValues.insert(argument);
         } else remember(argument, port.sourceKind);

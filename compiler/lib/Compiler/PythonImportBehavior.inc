@@ -749,10 +749,10 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
     if (found == environment.values.end())
       return diagnostic() << "bounded for cannot reserve unbound value '"
                           << node.string("id") << "'";
-    auto fact = numericValues.find(found->second);
-    if (fact != numericValues.end() && fact->second.interval)
+    const auto *fact = findValueInfo(found->second);
+    if (fact && fact->interval)
       for (const auto *endpoint :
-           {&fact->second.interval->lower, &fact->second.interval->upper})
+           {&fact->interval->lower, &fact->interval->upper})
         envelope.factWords = std::max(
             envelope.factWords, uint64_t(endpoint->getBitWidth() / 64 +
                                          (endpoint->getBitWidth() % 64 != 0)));
@@ -1351,10 +1351,10 @@ FailureOr<LoopStatementEnvelope> Importer::reserveLoopJoin(
       uint64_t selectionPrecision = shape->precision;
       bool negativePeer = false;
       for (Value arm : {item.second, other->second}) {
-        auto fact = numericValues.find(arm);
-        if (fact == numericValues.end() || !fact->second.interval)
+        const auto *fact = findValueInfo(arm);
+        if (!fact || !fact->interval)
           continue;
-        const auto &interval = *fact->second.interval;
+        const auto &interval = *fact->interval;
         negativePeer |= interval.lower.isNegative();
         for (const auto *endpoint : {&interval.lower, &interval.upper})
           envelope.factWords =
@@ -1419,11 +1419,11 @@ Importer::auditLoopStatement(Block &block, Operation *previous,
     if (failed(schema) ||
         !within(schema->precision, envelope.precision, "value precision"))
       return failure();
-    auto fact = numericValues.find(value);
-    if (fact != numericValues.end()) {
+    const auto *fact = findValueInfo(value);
+    if (fact) {
       if (!TableQueryBudget::add(measured, TableQueryResource::Slots, 3))
         return failure();
-      const auto &info = fact->second;
+      const auto &info = *fact;
       if (info.interval)
         for (const llvm::APSInt *endpoint :
              {&info.interval->lower, &info.interval->upper}) {
@@ -1746,9 +1746,8 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     fits &=
         TableQueryBudget::addProduct(charge, TableQueryResource::PayloadWords,
                                      shape->words, capture ? 3 : 1);
-    auto info = numericValues.find(item);
-    if (info != numericValues.end())
-      fact(info->second);
+    if (const auto *info = findValueInfo(item))
+      fact(*info);
   };
   for (const auto &item : environment.values) {
     text(item.first());
@@ -1916,9 +1915,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
         *entry.first = std::move(entry.second);
     } else {
       for (Value argument : block->getArguments()) {
-        numericValues.erase(argument);
-        fixedValues.erase(argument);
-        arithmeticValues.erase(argument);
+        forgetValueFacts(argument);
       }
     }
     for (Value argument : block->getArguments()) originalCaptures.erase(argument);

@@ -924,6 +924,11 @@ private:
                                        const AstNode &statement, OpBuilder &at,
                                        FlatSymbolRefAttr owner,
                                        BranchEnvironment &environment);
+  FailureOr<Value> lowerObservationValue(
+      const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances,
+      llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   LogicalResult publishSourceChecks(Operation *rule, RuleEvaluation &evaluation,
                                     OpBuilder &at, FlatSymbolRefAttr owner);
   LogicalResult structuralBinding(const AstNode &call, OpBuilder &at,
@@ -1018,7 +1023,12 @@ private:
   NumericLoweringSite numericSite(const AstNode &node,
                                   FlatSymbolRefAttr ownerSymbol);
   std::optional<ac::detail::ValueKind> annotationKind(const AstNode &node);
-  NumericValue valueInfo(Value value);
+  const NumericValue *findValueInfo(Value value) const;
+  NumericValue valueInfo(Value value) const;
+  void recordValueInfo(NumericValue info);
+  void forgetValueInfo(Value value);
+  void mapValueFacts(Value original, Value mapped, bool sparse = false);
+  void forgetValueFacts(Value value);
   void remember(Value value, std::optional<ac::detail::ValueKind> kind,
                 std::optional<IntegerInterval> interval = std::nullopt,
                 Attribute closed = {});
@@ -1142,16 +1152,47 @@ NumericLoweringSite Importer::numericSite(const AstNode &node,
           sourceOccurrence(b, ownerSymbol, node),
           sourceSpan(b, source.path, node)};
 }
-NumericValue Importer::valueInfo(Value value) {
+const NumericValue *Importer::findValueInfo(Value value) const {
   auto found = numericValues.find(value);
-  return found == numericValues.end() ? NumericValue{value, {}, {}}
-                                      : found->second;
+  return found == numericValues.end() ? nullptr : &found->second;
+}
+NumericValue Importer::valueInfo(Value value) const {
+  auto *info = findValueInfo(value);
+  return info ? *info : NumericValue{value, {}, {}};
+}
+void Importer::recordValueInfo(NumericValue info) {
+  assert(info.value && "numeric facts require their SSA identity");
+  if (isa<ac::EnumType>(info.value.getType())) {
+    forgetValueInfo(info.value);
+    return;
+  }
+  numericValues[info.value] = std::move(info);
+}
+void Importer::forgetValueInfo(Value value) { numericValues.erase(value); }
+void Importer::mapValueFacts(Value original, Value mapped, bool sparse) {
+  // Equivalent SSA identities inherit facts exactly. In particular, a missing
+  // interval is not reconstructed from the mapped value's physical width.
+  auto info = valueInfo(original);
+  bool meaningful = info.sourceKind || info.interval || info.closedSourceConstant;
+  if (!sparse || meaningful) {
+    info.value = mapped;
+    recordValueInfo(std::move(info));
+  }
+  if (fixedValues.contains(original))
+    fixedValues.insert(mapped);
+  if (arithmeticValues.contains(original))
+    arithmeticValues.insert(mapped);
+}
+void Importer::forgetValueFacts(Value value) {
+  forgetValueInfo(value);
+  fixedValues.erase(value);
+  arithmeticValues.erase(value);
 }
 void Importer::remember(Value value, std::optional<ac::detail::ValueKind> kind,
                         std::optional<IntegerInterval> interval,
                         Attribute closed) {
   if (isa<ac::EnumType>(value.getType())) {
-    numericValues.erase(value);
+    forgetValueInfo(value);
     return;
   }
   if (!interval && kind == ac::detail::ValueKind::Integer) {
@@ -1178,7 +1219,7 @@ void Importer::remember(Value value, std::optional<ac::detail::ValueKind> kind,
       }
     }
   }
-  numericValues[value] = {value, kind, std::move(interval), closed};
+  recordValueInfo({value, kind, std::move(interval), closed});
 }
 Value Importer::captureValue(Block *block, Value original, Location location) {
   Value argument = block->addArgument(original.getType(), location);
@@ -1186,16 +1227,7 @@ Value Importer::captureValue(Block *block, Value original, Location location) {
   if (!root) root = original;
   originalCaptures[argument] = root;
   helperCaptureBindings[block][root] = argument;
-  // A capture preserves the producer's facts; its physical type alone does
-  // not establish a new interval, source kind or mathematical interpretation.
-  NumericValue info = valueInfo(original);
-  info.value = argument;
-  if (!isa<ac::EnumType>(original.getType()))
-    numericValues[argument] = std::move(info);
-  if (fixedValues.contains(original))
-    fixedValues.insert(argument);
-  if (arithmeticValues.contains(original))
-    arithmeticValues.insert(argument);
+  mapValueFacts(original, argument);
   return argument;
 }
 FailureOr<bool> Importer::equivalentBoundaryTypes(Type actual, Type declared,
@@ -1220,13 +1252,7 @@ Value Importer::boundaryBitsIdentity(Value value, Type target,
                TypeRange{target},
                {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
           ->getResult(0);
-  auto info = valueInfo(value);
-  info.value = result;
-  numericValues[result] = std::move(info);
-  if (fixedValues.contains(value))
-    fixedValues.insert(result);
-  if (arithmeticValues.contains(value))
-    arithmeticValues.insert(result);
+  mapValueFacts(value, result);
   return result;
 }
 FailureOr<Value> Importer::boundary(Value value, const Port &destination,
@@ -1369,7 +1395,7 @@ LogicalResult Importer::propagateClosed(Value result,
 
 LogicalResult Importer::recordClosed(Value result, Attribute constant,
                                      const AstNode &node) {
-  auto &info = numericValues[result];
+  auto info = valueInfo(result);
   info.closedSourceConstant = constant;
   if (auto integer = dyn_cast<ac::MathIntAttr>(constant)) {
     auto upper = ac::detail::evaluateValue(
@@ -1385,6 +1411,7 @@ LogicalResult Importer::recordClosed(Value result, Attribute constant,
         llvm::APSInt(integer.getCanonicalValue()),
         llvm::APSInt(cast<ac::MathIntAttr>(*upper).getCanonicalValue())};
   }
+  recordValueInfo(std::move(info));
   return success();
 }
 
@@ -1435,8 +1462,8 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
       return std::nullopt;
     const NumericValue empty{};
     auto facts = [&](Value value) -> const NumericValue & {
-      auto found = numericValues.find(value);
-      return found == numericValues.end() ? empty : found->second;
+      auto *found = findValueInfo(value);
+      return found ? *found : empty;
     };
     const auto &selectedInfo = facts(selected), &constantInfo = facts(constant),
                &fallbackInfo = facts(fallback);
@@ -1466,7 +1493,7 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
   // bit.
   auto info = valueInfo(result);
   info.interval = std::move(interval);
-  numericValues[result] = std::move(info);
+  recordValueInfo(std::move(info));
 }
 
 FailureOr<PreparedScalarJoin> Importer::prepareScalarJoin(
@@ -1572,6 +1599,8 @@ FailureOr<Value> Importer::finishScalarJoin(
   if (!selected || !ac::areEquivalentHardwareTypes(selected.getType(),
                                                   prepared.resultType))
     return error() << "scalar join result type disagrees with prepared arms";
+  // A join records the facts proved across its arms. It is not an exact SSA
+  // mapping and must never inherit one arm's constant or interval wholesale.
   if (prepared.fixedBits)
     fixedValues.insert(selected);
   else {
@@ -3539,7 +3568,7 @@ FailureOr<Value> Importer::expression(
           llvm::APSInt(cast<ac::MathIntAttr>(*upper).getCanonicalValue())};
     }
     if (!known) {
-      numericValues[value] = {value, ValueKind::Integer, std::nullopt};
+      recordValueInfo({value, ValueKind::Integer, std::nullopt});
       return value;
     }
     remember(value, ValueKind::Integer, interval,
@@ -3722,7 +3751,7 @@ FailureOr<Value> Importer::expression(
           at, numericSite(node, ownerSymbol), valueInfo(*input), *count);
       if (failed(result))
         return failure();
-      numericValues[result->value] = *result;
+      recordValueInfo(*result);
       arithmeticValues.insert(result->value);
       // The count has its own existing static proof; do not give aliases new
       // admission in the count position.
@@ -3804,7 +3833,7 @@ FailureOr<Value> Importer::expression(
                                             valueInfo(*rhs));
       if (failed(result))
         return failure();
-      numericValues[result->value] = *result;
+      recordValueInfo(*result);
       arithmeticValues.insert(result->value);
       if (failed(
               propagateClosed(result->value, *arithmetic, {*lhs, *rhs}, node)))
@@ -3876,7 +3905,7 @@ FailureOr<Value> Importer::expression(
                                   ValueOpcode::AndBits, leftInfo, rightInfo);
       if (failed(result))
         return failure();
-      numericValues[result->value] = *result;
+      recordValueInfo(*result);
       if (mathematical)
         arithmeticValues.insert(result->value);
       if (failed(propagateClosed(result->value, ValueOpcode::AndBits,
@@ -3903,7 +3932,7 @@ FailureOr<Value> Importer::expression(
     if (mixedOneBit ||
         (fixedValues.contains(*lhs) && fixedValues.contains(*rhs))) {
       fixedValues.insert(result);
-      numericValues.erase(result);
+      forgetValueInfo(result);
     }
     bool boolean = valueInfo(result).sourceKind == ValueKind::Boolean;
     auto sourceOpcode =
@@ -4435,6 +4464,19 @@ Importer::sourceAssertMessage(const AstNode &statement) {
   return message;
 }
 
+FailureOr<Value> Importer::lowerObservationValue(
+    const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    llvm::StringMap<SmallVector<Value>> *captures) {
+  // The prequery preserves contextual literal typing and the existing
+  // observation admission boundary. The actual lowering remains authoritative
+  // for the published SSA type, and the expression is evaluated only once.
+  auto expected = expressionType(node, values, instances, symbol);
+  if (failed(expected))
+    return failure();
+  return expression(node, at, symbol, values, instances, *expected, captures);
+}
+
 LogicalResult Importer::captureRuleObservation(const AstNode &rule,
                                                const AstNode &statement,
                                                OpBuilder &at,
@@ -4457,14 +4499,8 @@ LogicalResult Importer::captureRuleObservation(const AstNode &rule,
   auto &checks = activeRule->checks;
   SmallVector<Value> values;
   for (const AstNode &item : valueItems) {
-    // Resolve the declared type first so a value this path cannot type is
-    // rejected with the same diagnostic the pure-module instrumentation pass
-    // gives for the identical statement.
-    auto type = expressionType(item, environment.values, instances, symbol);
-    if (failed(type))
-      return failure();
-    auto value =
-        expression(item, at, symbol, environment.values, instances, *type);
+    auto value = lowerObservationValue(item, at, symbol, environment.values,
+                                        instances);
     if (failed(value))
       return failure();
     values.push_back(*value);
@@ -4736,20 +4772,11 @@ LogicalResult Importer::emitInstrumentation(
     for (Value output : entry.second->op->getResults())
       captures.push_back(output);
 
-  SmallVector<Type> resultTypes;
-  auto oneBit =
-      expressionType(statement, moduleValues, instances, module.symbol);
-  if (failed(oneBit))
-    return failure();
-  {
-    resultTypes.push_back(*oneBit);
-    for (const AstNode &value : dynamicValues) {
-      auto type = expressionType(value, moduleValues, instances, module.symbol);
-      if (failed(type))
-        return failure();
-      resultTypes.push_back(*type);
-    }
-  }
+  // Reserve the known result arity while building this private Rule. Payload
+  // result types are published from the actual yielded SSA below, never from
+  // the contextual observation prequery.
+  SmallVector<Type> resultTypes(dynamicValues.size() + 1,
+                                internalBits(1, statement, module.symbol));
 
   std::string name =
       (Twine(rule.string("name")) + "." + "observe." + Twine(ordinal)).str();
@@ -4782,10 +4809,9 @@ LogicalResult Importer::emitInstrumentation(
     if (failed(path))
       return failure();
     yields.push_back(*path);
-    for (auto [index, valueNode] : llvm::enumerate(dynamicValues)) {
-      auto value =
-          expression(valueNode, inside, module.symbol, values, instances,
-                     resultTypes[index + 1], &capturedOutputs);
+    for (const AstNode &valueNode : dynamicValues) {
+      auto value = lowerObservationValue(valueNode, inside, module.symbol,
+                                          values, instances, &capturedOutputs);
       if (failed(value))
         return failure();
       yields.push_back(*value);
@@ -5896,18 +5922,10 @@ FailureOr<Value> Importer::tableValueCall(
         return boundaryBitsIdentity(value, type, call, inside, symbol);
       },
       [&](Value original, Value mapped) {
-        auto info = valueInfo(original);
-        remember(mapped, info.sourceKind, info.interval,
-                 info.closedSourceConstant);
-        if (fixedValues.contains(original))
-          fixedValues.insert(mapped);
-        if (arithmeticValues.contains(original))
-          arithmeticValues.insert(mapped);
+        mapValueFacts(original, mapped);
       },
       [&](Value value) {
-        numericValues.erase(value);
-        fixedValues.erase(value);
-        arithmeticValues.erase(value);
+        forgetValueFacts(value);
       }};
   TableQueryLowering lowering(at, call.location(b.getContext(), source.path),
                               *body, queryBudget, hooks);
@@ -6102,18 +6120,10 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
         return boundaryBitsIdentity(value, type, call, inside, symbol);
       },
       [&](Value original, Value mapped) {
-        auto info = valueInfo(original);
-        remember(mapped, info.sourceKind, info.interval,
-                 info.closedSourceConstant);
-        if (fixedValues.contains(original))
-          fixedValues.insert(mapped);
-        if (arithmeticValues.contains(original))
-          arithmeticValues.insert(mapped);
+        mapValueFacts(original, mapped);
       },
       [&](Value value) {
-        numericValues.erase(value);
-        fixedValues.erase(value);
-        arithmeticValues.erase(value);
+        forgetValueFacts(value);
       }};
   TableQueryLowering lowering(at, call.location(b.getContext(), source.path),
                               *body, queryBudget, hooks);
@@ -6165,15 +6175,11 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
       fixedValues.insert(row);
     auto cleanup = llvm::scope_exit([&] {
       for (Value value : block->getArguments()) {
-        numericValues.erase(value);
-        fixedValues.erase(value);
-        arithmeticValues.erase(value);
+        forgetValueFacts(value);
       }
       for (Operation &operation : *block)
         for (Value value : operation.getResults()) {
-          numericValues.erase(value);
-          fixedValues.erase(value);
-          arithmeticValues.erase(value);
+          forgetValueFacts(value);
         }
       temporary->erase();
     });
