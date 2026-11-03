@@ -109,7 +109,7 @@ LogicalResult verifyNamespaceTargetCategory(Operation *declaration,
   if (!declaration || !target)
     return emitError() << "namespace target has no declaration: " << target;
   if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp, ac::EnumOp,
-          ac::ModuleOp, ac::ModuleImportOp>(declaration))
+          ac::ModuleOp, ac::ModuleImportOp, ac::SourceTemplateOp>(declaration))
     return success();
   if (auto helper = dyn_cast<func::FuncOp>(declaration)) {
     auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");

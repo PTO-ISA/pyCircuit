@@ -14,6 +14,16 @@ FailureOr<SmallVector<FinalSourceUnitView>>
 collectFinalSourceUnits(mlir::ModuleOp package, detail::EmitError emitError) {
   if (!package)
     return emitError() << "final source-unit collection requires a package";
+  auto deferred = package.walk([&](Operation *operation) {
+    auto imported = dyn_cast<ModuleImportOp>(operation);
+    if (isa<SourceTemplateOp>(operation) || operation->hasAttr("ac.source_templates") ||
+        (imported && imported.getSemanticKind() == "source_template")) {
+      operation->emitOpError("executable packages cannot retain source templates");
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (deferred.wasInterrupted()) return failure();
 
   Attribute rawInventory = package->getAttr("ac.source_units");
   ArrayAttr inventory;

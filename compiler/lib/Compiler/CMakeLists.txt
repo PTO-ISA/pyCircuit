@@ -15,6 +15,7 @@ add_acir_library(ACIRSourceCompiler SOURCES
   SourceDeclarationContext.cpp
   SourceEntryBoundary.cpp
   SourceLink.cpp
+  SourceTemplateSpecialization.cpp
   SourceNamespace.cpp
   SourceMemoryBindings.cpp
   SourceRuleWrites.cpp

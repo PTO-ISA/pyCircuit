@@ -31,6 +31,29 @@ public:
       return;
     }
 
+    if (!input.getOps<ac::SourceTemplateOp>().empty()) {
+      OwningOpRef<mlir::ModuleOp> staged(input.clone());
+      Builder builder(input.getContext());
+      (*staged)->setAttr("ac.unit_kind", builder.getStringAttr("interface"));
+      (*staged)->removeAttr("ac.source_templates");
+      for (auto definition : llvm::make_early_inc_range(staged->getOps<ac::SourceTemplateOp>())) {
+        NamedAttrList attrs(definition->getAttrs());
+        for (StringRef field : {"capture_owner", "target", "ast_path"}) attrs.erase(field);
+        attrs.set("semantic_kind", builder.getStringAttr("source_template"));
+        OperationState state(definition.getLoc(), ac::ModuleImportOp::getOperationName());
+        state.addAttributes(attrs);
+        Operation *declaration = Operation::create(state);
+        definition->getBlock()->getOperations().insert(definition->getIterator(), declaration);
+        definition.erase();
+      }
+      if (failed(ac::verifySourceInterfaceStructure(*staged, [&] { return staged->emitError(); }))) {
+        signalPassFailure(); return;
+      }
+      input->setAttrs((*staged)->getAttrs());
+      input->getRegion(0).takeBody((*staged)->getRegion(0));
+      return;
+    }
+
     // All analysis resolves the intact definitions. Replacing even one early
     // would turn a same-source callee into an import and change later results.
     auto &analysis = getAnalysis<ac::HardwareAnalysis>();

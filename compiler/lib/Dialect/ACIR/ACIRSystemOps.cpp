@@ -60,7 +60,7 @@ getSystemSamples(mlir::Operation *declaration) {
   auto metadata = mlir::dyn_cast<mlir::DictionaryAttr>(raw);
   auto rows =
       metadata ? metadata.getAs<mlir::ArrayAttr>("rows") : mlir::ArrayAttr();
-  if (!mlir::isa<ModuleOp, ModuleImportOp>(declaration) ||
+  if (!mlir::isa<ModuleOp, ModuleImportOp, SourceTemplateOp>(declaration) ||
       !mlir::isa_and_nonnull<mlir::ModuleOp>(declaration->getParentOp()) ||
       !kind || kind.getValue() != "system" || !metadata ||
       metadata.size() != 3 || !rows || rows.empty() ||

@@ -1,4 +1,5 @@
 #include "SourceLink.h"
+#include "SourceTemplateSpecialization.h"
 #include "ExecutionProjection.h"
 #include "SourceEntryBoundary.h"
 #include "LiteralPayloadWires.h"
@@ -347,6 +348,11 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     return ac::detail::compareClosedSourceStructure(left, right) < 0;
   });
   (*linked)->setAttr("ac.source_units", builder.getArrayAttr(owners));
+  SmallVector<Attribute> templateCaptures;
+  for (SourceLinkUnit unit : units)
+    if (auto payloads = unit.body->getAttrOfType<ArrayAttr>("ac.source_templates"))
+      llvm::append_range(templateCaptures, payloads);
+  if (!templateCaptures.empty()) (*linked)->setAttr("ac.source_templates", builder.getArrayAttr(templateCaptures));
   llvm::StringMap<Operation *> symbols;
   for (SourceLinkUnit unit : units) {
     for (Operation &operation : unit.body.getBody()->getOperations()) {
@@ -356,8 +362,8 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
             "source-unit top-level operation must be a declaration");
       auto prior = symbols.find(name.getValue());
       if (prior != symbols.end()) {
-        bool oldDefinition = isa<ac::ModuleOp>(prior->second);
-        bool newDefinition = isa<ac::ModuleOp>(operation);
+        bool oldDefinition = isa<ac::ModuleOp, ac::SourceTemplateOp>(prior->second);
+        bool newDefinition = isa<ac::ModuleOp, ac::SourceTemplateOp>(operation);
         if (oldDefinition && isa<ac::ModuleImportOp>(operation))
           continue;
         if (newDefinition && isa<ac::ModuleImportOp>(prior->second)) {
@@ -390,6 +396,14 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
       symbols[name.getValue()] = copy;
     }
   }
+  bool selectedTemplate = isa_and_nonnull<ac::SourceTemplateOp>(symbols.lookup(top));
+  auto specializedTop = specializeSourceTemplates(*linked, *admitted, top, parameters, emitError);
+  if (failed(specializedTop)) return failure();
+  if (selectedTemplate) parameters = {};
+  symbols.clear();
+  for (Operation &operation : linked->getBody()->getOperations())
+    if (auto name = SymbolTable::getSymbolName(&operation)) symbols[name.getValue()] = &operation;
+  top = *specializedTop;
   auto selected = symbols.find(top);
   auto root = selected == symbols.end()
                   ? ac::ModuleOp()

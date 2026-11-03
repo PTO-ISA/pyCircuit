@@ -18,7 +18,7 @@ LogicalResult Importer::inferModuleGraph() {
           if (auto found = local.find(statement.child("value").child("func").string("id")); found != local.end())
             direct = modules[found->second].returnShape != ReturnShape::Mapping || modules[found->second].sourceInputCount;
           else {
-            auto view = headers.lookupModule(binding->symbol);
+            auto view = lookupModule(binding->symbol);
             direct = view && view.hasSourceCallContract();
           }
           if (!direct) structuralInstances.insert(statement.item("targets", 0).string("id"));
@@ -74,11 +74,11 @@ LogicalResult Importer::inferModuleGraph() {
         }
         if (!local.contains(name) && binding &&
             binding->category == BindingCategory::Module) {
-          auto view = headers.lookupModule(binding->symbol);
+          auto view = lookupModule(binding->symbol);
           if (view && view.domainInputs)
             decl.queueDomain |= !view.domainInputs.empty();
           if (view && view.semanticKind &&
-              view.semanticKind.getValue() == "transactions") {
+              (view.semanticKind.getValue() == "transactions" || view.semanticKind.getValue() == "source_template")) {
             decl.transactionEffects = true;
             decl.behavioral = true;
             if (methodOwner(function) && controlled)

@@ -221,6 +221,24 @@ LogicalResult ModuleOp::verify() {
            << "primitive_kind belongs only to trusted leaf imports";
   return detail::verifyModuleSignature(*this);
 }
+LogicalResult SourceTemplateOp::verify() {
+  if (failed(detail::verifyModuleSignature(*this)) ||
+      failed(detail::verifySourceTemplateContract(*this)))
+    return failure();
+  if (getCaptureOwner() != getSourceOwner() ||
+      getTargetAttr().getValue() != getSymName())
+    return emitOpError("template capture and target must belong to its declaration");
+  auto origin = (*this)->getAttrOfType<DictionaryAttr>("ac.origin");
+  auto site = origin ? origin.getAs<DictionaryAttr>("site") : DictionaryAttr();
+  if (!site || getAstPath() != site.getAs<ArrayAttr>("ast_path"))
+    return emitOpError("template AST path must match its declaration occurrence");
+  for (Attribute component : getAstPath()) {
+    auto field = dyn_cast<DictionaryAttr>(component);
+    if (!field || failed(detail::verifyPathComponent(field, [&] { return emitOpError(); })))
+      return failure();
+  }
+  return success();
+}
 LogicalResult ModuleOp::verifyRegions() {
   if (isTransactionalPackage(*this)) return verifyTransactionalRegions(*this);
   if (failed(body(*this, getFunctionType().getInputs(),
@@ -318,6 +336,8 @@ LogicalResult ModuleImportOp::verify() {
     return emitOpError() << "unknown trusted primitive kind";
   if (getSemanticKind() == "transactions")
     return verifySourceTransactionSummary(*this, getTransactionSummaryAttr());
+  if (getSemanticKind() == "source_template")
+    return success(); // Declaration authority is checked before native replay.
   return HardwareAnalysis((*this)->getParentOfType<mlir::ModuleOp>())
       .verifyImport(*this);
 }

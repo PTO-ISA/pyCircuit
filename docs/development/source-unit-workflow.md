@@ -44,6 +44,7 @@ existing publication, link, saved-anchor and emit boundaries reject them.
 | --- | --- | --- |
 | Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
+| Bind source templates | `SourceTemplateSpecialization`, existing native Python importer | Authenticate retained captures and declarations, bind actual Module parameters, close callee interfaces and lower each concrete variant before transaction analysis. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Normalize reused entries with parameterized state | `SourceEntryBoundary`, `EntryBoundary` | Establish one stateless bound root instance and independently prove its public interface, actuals and provenance before transaction planning. Preserve ordinary retained-definition checks and logical top identity. |
@@ -62,6 +63,26 @@ four-state value/known/Z information and clock/commit behavior must agree. For
 example, admitting a Table-valued Struct field requires a matching declaration,
 shared packed-layout analysis, source construction and projection, and transport
 through both emitters. A verifier change alone does not establish support.
+
+Module-static Rule/Method loops can require binding before their bodies acquire
+concrete types and loop counts. Such source units publish `ac.source_template`
+definitions and `ac.module.import` declarations with
+`semantic_kind = "source_template"`. The body retains the original captured AST;
+the interface contains declaration contracts and a capture digest, without
+claiming a completed dependency or transaction summary. Native admission
+rederives those declarations from the retained capture and checks the owning
+body/interface pair. Consumers importing these declarations also retain their
+Module bodies until linking.
+
+Link specializes callees before their callers through the same native importer,
+without executing Python or reopening source files. The specialization key
+contains the original declaration and its ordered actual Integer bindings.
+Equivalent keys reuse code while ordinary instances retain distinct storage.
+Concrete source operations then pass through the existing control-flow,
+transaction and hardware verification stages. Executable final artifacts cannot
+contain deferred templates or capture payloads. Older source units continue
+through the ordinary path; tools without this source-template capability reject
+the new operations.
 
 Verilog emission preserves the native root module name in
 `generated.json` as `root_rtl_name`. External tools may use this identity instead
