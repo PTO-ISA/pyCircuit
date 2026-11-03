@@ -856,6 +856,10 @@ private:
                                         const BindingBoundary &binding,
                                         const AstNode &node, OpBuilder &at,
                                         FlatSymbolRefAttr owner);
+  FailureOr<Value> lowerBoundExpression(
+      const AstNode &node, const BindingBoundary &binding, OpBuilder &at,
+      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances);
   FailureOr<Value> tableUpdate(Value table, Value index, Value replacement,
                                ArrayRef<Attribute> fieldPath,
                                const AstNode &node, OpBuilder &at,

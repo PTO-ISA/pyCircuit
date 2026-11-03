@@ -490,9 +490,9 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     if (!none) return error() << "None pure helper cannot return a value";
   } else {
     if (none) return error() << "valued pure helper must return a value";
-    auto value = expression(valueNode, inside, helper.symbol, environment.values, noInstances, helper.results[0].type);
-    if (failed(value)) return failure();
-    auto converted = applyBindingBoundary(*value, BindingBoundary{helper.results[0], true}, valueNode, inside, helper.symbol);
+    auto converted = lowerBoundExpression(valueNode,
+        BindingBoundary{helper.results[0], true}, inside, helper.symbol,
+        environment.values, noInstances);
     if (failed(converted)) return failure();
     auto exact = exactHelperValue(*converted, helper.results[0].type, valueNode, inside, helper.symbol);
     if (failed(exact)) return failure();
@@ -1032,6 +1032,8 @@ FailureOr<SmallVector<Value>> Importer::valueHelperCall(
   // helper's isolated body frame; no declaration capture is looked up by name.
   for (size_t i = 0; i < call.array("args").size(); ++i) {
     auto actualNode = call.item("args", i);
+    // Helper actuals intentionally have no destination context. Their existing
+    // exact-carrier and loop-ownership work surrounds the common conversion.
     auto actual = expression(actualNode, at, symbol, values, instances);
     if (failed(actual)) return failure();
     Operation *previous = at.getBlock()->empty() ? nullptr : &at.getBlock()->back();

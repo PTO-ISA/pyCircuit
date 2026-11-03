@@ -385,6 +385,74 @@ code measurements must include first-use initialization and resident memory,
 as well as repeated simulation time. This representation adds no hardware state
 or source API.
 
+## Common Python statement lowering
+
+`LowerPythonSource` shares local binding and branch semantics across ordinary
+Module/helper statements and Rule/Method transactions. The surrounding dispatcher
+still owns declarations, persistent state, instance construction, registration,
+call eligibility and transaction effects. Capture remains syntax transport;
+neither capture nor a backend supplies an alternate interpretation.
+
+`prepareLocalAssignment` resolves the destination contract before
+`lowerLocalAssignment` lowers the RHS with its existing contextual type.
+`bindLocalValues` converts all results before publishing any destination.
+Producer-specific wrappers retain their argument, result-shape and protected-name
+checks; sharing a binder does not admit general
+tuple expressions or multi-result helpers.
+
+Typed callable arguments use the callee's declared boundary and preserve source
+evaluation order, including deferred owner references. Helper arguments retain
+their existing context-free expression evaluation followed by boundary and exact
+representation checks. Instance allocation and callable invocation remain
+separate operations; sharing conversion or result publication does not create a
+new instance or change the callee's state identity.
+
+The existing context differences are deliberate preservation boundaries for this
+refactor. Ordinary locals retain an inferred binding boundary and use it to
+contextualize later assignments. A straight-line transaction assignment does not
+infer a new boundary for an unannotated local; a later unannotated right-hand
+expression is converted to an existing boundary after lowering. Transaction
+branch entry seeds boundaries for its incoming values. Ordinary repeated
+annotations must agree with an existing declared boundary, while transaction
+annotations cannot redeclare a bound local. Module annotations still declare
+persistent storage at their owning entry.
+
+`ifStatement` coordinates branch environments; `joinBranches` owns declaration,
+definite-assignment and value-join checks. Ordinary branches retain four-state
+value selection. Transaction branches retain `SourceBranchOp` regions, ordered
+effects, unknown-selector checks and
+write intent. A missing assignment inherits the incoming value; saved aliases
+remain statement-time snapshots. Returns, loop admission and specialized effects
+remain the responsibility of their enclosing statement dispatcher. `HelperScope`
+restores helper lexical, control and effect contexts on every exit.
+
+Numeric facts share query/record operations and `mapValueFacts`. Equivalent SSA
+copies and captures inherit existing source kind, interval, closed constant and
+fixed/mathematical classification; they do not infer a missing interval from the
+carrier width. A join computes its facts from the prepared arms. Declaration
+typing remains a separate source of range authority, and nominal Enum values do
+not acquire numeric facts. Helper expansion retains its existing fact-pruning
+policy and source provenance. Observation lowering keeps the contextual type
+query needed for current admission, lowers each expression once and publishes
+the actual yielded SSA type.
+
+`TypedAccessPath` contains the named root, ordered field/index steps, declaration
+types and source sites. Resolving the path does
+not evaluate its indices. Reads and assignments bind index SSA at their existing
+evaluation point; assignment evaluates the RHS before its target indices. Local
+updates reconstruct immutable aggregates, while state and formal writes emit
+their existing effects and derive selectors from the same path. Table indexed
+field writes retain the masked update operation, and formal proposals retain
+projection witnesses. General expression roots and slices keep their specialized
+read admission; selected writes still permit only the existing single Table
+index forms.
+
+These internal facilities do not extend callback helper calls, helper result
+shapes, aggregate indexing, early returns or loop forms. Admission changes remain
+separate follow-up work under issue #375; analysis capacity work under #374 is
+also separate. The [language reference](../reference/language.md) remains the
+authority for supported source forms.
+
 ## Compile and link
 
 Compile each source independently. Consumers use published interfaces through

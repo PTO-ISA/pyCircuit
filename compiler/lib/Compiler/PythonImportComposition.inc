@@ -448,7 +448,7 @@ LogicalResult Importer::bindCallableResults(
     llvm::StringMap<BindingBoundary> *boundaries) {
   auto targets = moduleResultTargets(assignment, results.size());
   if (failed(targets)) return failure();
-  SmallVector<Value> converted;
+  SmallVector<PreparedLocalBinding, 2> destinations;
   for (auto [index, name] : llvm::enumerate(*targets)) {
     if (forbidden.contains(name) || instances.contains(name) ||
         queueResultNames.contains(name) || memoryResultNames.contains(name))
@@ -457,16 +457,12 @@ LogicalResult Importer::bindCallableResults(
     auto boundary = boundaries && boundaries->contains(name)
         ? boundaries->lookup(name)
         : inferredBoundary(name, results[index], assignment);
-    auto value = applyBindingBoundary(results[index], boundary,
-                                       assignment.child("value"), at, symbol);
-    if (failed(value)) return failure();
-    converted.push_back(*value);
+    destinations.push_back({name, std::move(boundary)});
   }
-  for (auto [index, name] : llvm::enumerate(*targets)) {
-    values[name] = converted[index];
-    noteNestedRuleDataBinding(name);
-  }
-  return success();
+  // Callable tuples use existing declaration boundaries, but do not introduce
+  // inferred boundaries into the caller environment.
+  return bindLocalValues(destinations, results, assignment.child("value"), at,
+                         symbol, values);
 }
 
 FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
@@ -486,17 +482,12 @@ FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
   auto bind = [&](size_t index) -> LogicalResult {
     const auto &actual = (*actuals)[index];
     const auto &port = inputs[index];
-    auto value = expression(actual, at, symbol, values, instances,
-                            port.type ? std::optional<Type>(port.type) : std::nullopt);
+    auto value = port.type
+        ? lowerBoundExpression(actual, BindingBoundary{port, true}, at, symbol,
+                                values, instances)
+        : expression(actual, at, symbol, values, instances);
     if (failed(value)) return failure();
-    if (!port.type) {
-      arguments[index] = *value;
-      return success();
-    }
-    auto converted = applyBindingBoundary(*value, BindingBoundary{port, true},
-                                           actual, at, symbol);
-    if (failed(converted)) return failure();
-    arguments[index] = *converted;
+    arguments[index] = *value;
     return success();
   };
   for (size_t index : evaluationOrder)
@@ -533,19 +524,12 @@ FailureOr<bool> Importer::bindModuleResults(
   auto results = directModuleResults(call, at, symbol, values, instances);
   if (failed(results))
     return failure();
-  SmallVector<Value> converted;
-  for (auto [index, name] : llvm::enumerate(*targets)) {
-    auto binding = inferredBoundary(name, (*results)[index], assignment);
-    auto value = applyBindingBoundary((*results)[index], binding, call, at, symbol);
-    if (failed(value))
-      return failure();
-    converted.push_back(*value);
-  }
-  // Publish the names only after all targets and conversions have succeeded.
-  for (auto [index, name] : llvm::enumerate(*targets)) {
-    values[name] = converted[index];
-    noteNestedRuleDataBinding(name);
-  }
+  SmallVector<PreparedLocalBinding, 2> destinations;
+  for (auto [index, name] : llvm::enumerate(*targets))
+    destinations.push_back(
+        {name, inferredBoundary(name, (*results)[index], assignment)});
+  if (failed(bindLocalValues(destinations, *results, call, at, symbol, values)))
+    return failure();
   return true;
 }
 LogicalResult Importer::registerDirectModuleHandle(
@@ -624,16 +608,10 @@ FailureOr<SmallVector<Value>> Importer::directModuleResults(
     found->second.op->setAttr("ac.reference_bindings", *references);
   SmallVector<Value> inputs(callee.inputs.size());
   for (size_t i : lexicalOrder) {
-    auto value = expression(actuals[i], at, symbol, values, instances,
-                            callee.inputs[i].type);
-    if (failed(value))
-      return failure();
-    auto converted =
-        applyBindingBoundary(*value, BindingBoundary{callee.inputs[i], true},
-                             actuals[i], at, symbol);
-    if (failed(converted))
-      return failure();
-    inputs[i] = *converted;
+    auto value = lowerBoundExpression(actuals[i],
+        BindingBoundary{callee.inputs[i], true}, at, symbol, values, instances);
+    if (failed(value)) return failure();
+    inputs[i] = *value;
   }
   if (callee.needsDomain) {
     if (!values.contains("pyc_clk") || !values.contains("pyc_rst"))

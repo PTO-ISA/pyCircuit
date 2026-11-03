@@ -46,9 +46,8 @@ LogicalResult Importer::bindLocalValues(
     llvm::StringMap<BindingBoundary> *boundaries, bool noteDataBindings) {
   assert(destinations.size() == results.size());
   SmallVector<Value, 1> converted;
-  SmallVector<std::optional<BindingBoundary>, 1> contracts;
   for (auto [destination, result] : llvm::zip(destinations, results)) {
-    auto binding = destination.boundary;
+    const auto &binding = destination.boundary;
     if (binding) {
       auto value = applyBindingBoundary(result, *binding, node, at, symbol);
       if (failed(value))
@@ -56,16 +55,25 @@ LogicalResult Importer::bindLocalValues(
       result = *value;
     }
     converted.push_back(result);
-    contracts.push_back(std::move(binding));
   }
   for (auto [index, destination] : llvm::enumerate(destinations)) {
     values[destination.name] = converted[index];
-    if (boundaries && contracts[index])
-      (*boundaries)[destination.name] = std::move(*contracts[index]);
+    if (boundaries && destination.boundary)
+      (*boundaries)[destination.name] = *destination.boundary;
     if (noteDataBindings)
       noteNestedRuleDataBinding(destination.name);
   }
   return success();
+}
+
+FailureOr<Value> Importer::lowerBoundExpression(
+    const AstNode &node, const BindingBoundary &binding, OpBuilder &at,
+    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    llvm::StringMap<Instance *> &instances) {
+  auto value = expression(node, at, symbol, values, instances,
+                          binding.contract().type);
+  if (failed(value)) return failure();
+  return applyBindingBoundary(*value, binding, node, at, symbol);
 }
 
 LogicalResult Importer::lowerLocalAssignment(
@@ -590,6 +598,23 @@ LogicalResult Importer::updateAssignment(
     if (failed(updated)) return failure();
     replacement = *updated;
   } else if (!path.steps.empty()) {
+    // The old recursive updater prepaid its ancestor projections separately
+    // from replaceField. The typed path emits each prefix Field only once;
+    // reserve those actual reads before materializing any parent snapshot.
+    uint64_t projections = llvm::count_if(
+        ArrayRef<TypedAccessStep>(path.steps).drop_back(),
+        [](const TypedAccessStep &step) { return bool(step.field); });
+    TableQueryCharge reads;
+    std::string reason;
+    bool fits = TableQueryBudget::addProduct(
+                    reads, TableQueryResource::Work, projections, 16) &&
+                TableQueryBudget::addProduct(
+                    reads, TableQueryResource::Slots, projections, 32) &&
+                TableQueryBudget::add(
+                    reads, TableQueryResource::Operations, projections);
+    if (!fits || !queryBudget.reserve(reads, reason))
+      return error() << "assignment parent projections: "
+                     << (fits ? reason : "projection counter exhausted");
     auto container = readAccessPath(path, at, symbol, values, noInstances,
                                     nullptr, path.steps.size() - 1);
     if (failed(container)) return failure();

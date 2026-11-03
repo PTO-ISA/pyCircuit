@@ -1797,11 +1797,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 if (!key || key.getValue() != contract.name)
                   return error() << "named Rule return key disagrees with its result contract";
               }
-              auto value = expression(element, inside, decl.symbol, values,
-                                      instances, contract.type);
-              if (failed(value)) return failure();
-              auto converted = applyBindingBoundary(*value,
-                  BindingBoundary{contract, true}, element, inside, decl.symbol);
+              auto converted = lowerBoundExpression(element,
+                  BindingBoundary{contract, true}, inside, decl.symbol,
+                  values, instances);
               if (failed(converted)) return failure();
               if (converted->getType() != contract.type &&
                   isa<ac::BitsType>(converted->getType()) &&
@@ -2073,18 +2071,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (!llvm::all_of(access->steps,
                             [](const TypedAccessStep &step) { return bool(step.field); }))
             return error() << "local Struct field target requires an Attribute-only Name path";
-          Type selectedType = access->steps.back().type;
           DictionaryAttr selectedField = access->steps.back().field;
           BindingBoundary rootBoundary = environment.boundaries.contains(root)
               ? environment.boundaries.lookup(root)
               : inferredBoundary(root, original, statement);
           BindingBoundary fieldBoundary{
               structFieldPort(selectedField, target), true};
-          auto value = expression(rhs, inside, decl.symbol, values, instances,
-                                  selectedType);
-          if (failed(value)) return failure();
-          auto converted = applyBindingBoundary(*value, fieldBoundary, rhs,
-                                                inside, decl.symbol);
+          auto converted = lowerBoundExpression(rhs, fieldBoundary, inside,
+                                                  decl.symbol, values, instances);
           bool preserveProjectionWitnesses =
               formalProposals && callable.assignedFormals.contains(root) &&
               !callable.stateFormals.contains(root);
@@ -2125,12 +2119,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (states.contains(name)) {
           if (statement.kind() == "AnnAssign")
             return error() << "owner shadow declaration is unsupported";
-          auto value = expression(rhs, inside, decl.symbol, values, instances,
-                                  states[name].type);
-          if (failed(value))
-            return failure();
-          auto converted = applyBindingBoundary(
-              *value, ownerBoundary(states[name]), rhs, inside, decl.symbol);
+          auto converted = lowerBoundExpression(rhs, ownerBoundary(states[name]),
+                                                  inside, decl.symbol, values,
+                                                  instances);
           if (failed(converted))
             return failure();
           auto path = trueValue(statement, inside, decl.symbol);
