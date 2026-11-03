@@ -805,15 +805,41 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
         if (argument.getOwner()->getNumArguments() != signature.getNumInputs() + method.getCaptures().size()) return failure();
         if (ordinal >= signature.getNumInputs()) next = method.getCaptures()[ordinal - signature.getNumInputs()];
         else {
+          auto visibility = method->getAttrOfType<StringAttr>("sym_visibility");
+          if (!visibility || visibility.getValue() != "private")
+            return std::optional<Node>();
           auto module = method->getParentOfType<ModuleOp>();
+          SourceMethodCallOp registrationCall;
           for (auto transaction : module.getBody().front().getOps<SourceTransactionOp>()) {
             if (failed(budget.debit(1, site))) return failure();
-            if (transaction.getOccurrence() != transaction.getDeclaration() || transaction.getDeclaration() != method.getOccurrence()) continue;
+            if (transaction.getDeclaration() != method.getOccurrence()) continue;
             auto entry = getSourceRegistrationEntry(transaction);
-            if (failed(entry) || !*entry || (**entry).method != method || ordinal >= (**entry).argumentCaptureOrdinals.size()) return failure();
+            if (failed(entry)) return failure();
+            if (!*entry || (**entry).method != method) continue;
+            if (ordinal >= (**entry).argumentCaptureOrdinals.size()) return failure();
             unsigned capture = (**entry).argumentCaptureOrdinals[ordinal];
             if (next || capture >= transaction.getCaptures().size()) return failure();
             next = transaction.getCaptures()[capture];
+            registrationCall = (**entry).call;
+          }
+          if (next) {
+            // A template specialization can also be called by another Rule.
+            // Its registration actual is an identity only when that exact
+            // authenticated entry is the private body's sole call site.
+            bool exclusive = true;
+            auto walked = module.walk([&](Operation *operation) {
+              if (failed(budget.debit(1, site))) return WalkResult::interrupt();
+              auto call = dyn_cast<SourceMethodCallOp>(operation);
+              auto callee = operation->getAttrOfType<SymbolRefAttr>("callee");
+              if (call && callee && callee.getRootReference() == module.getSymNameAttr() &&
+                  callee.getNestedReferences().size() == 1 &&
+                  callee.getNestedReferences().front().getValue() == method.getSymName() &&
+                  call != registrationCall)
+                exclusive = false;
+              return WalkResult::advance();
+            });
+            if (walked.wasInterrupted()) return failure();
+            if (!exclusive) return std::optional<Node>();
           }
         }
       }
