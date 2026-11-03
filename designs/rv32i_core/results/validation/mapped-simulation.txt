@@ -1,0 +1,11 @@
+MAPPED_PROGRESS cycle=0
+MAPPED_PROGRESS cycle=64
+MAPPED_PROGRESS cycle=128
+MAPPED_PROGRESS cycle=192
+MAPPED_PROGRESS cycle=256
+MAPPED_PROGRESS cycle=320
+MAPPED_PROGRESS cycle=384
+MAPPED_PROGRESS cycle=448
+MAPPED_PROGRESS cycle=512
+MAPPED_PASS cycles=567 retired=434 independent_reference=Spike
+$OUT/frozen-mapped/simulation/mapped_test.sv:25: $finish called at 1707000000 (1ps)

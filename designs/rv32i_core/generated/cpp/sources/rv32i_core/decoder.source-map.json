@@ -1,0 +1,11 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/decoder.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [],
+  "source": {
+    "package": "rv32i_core",
+    "path": "decoder.py"
+  }
+}

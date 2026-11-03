@@ -1,0 +1,8 @@
+[1/8] Building CXX object generated/CMakeFiles/pycircuit_modules.dir/sources/rv32i_core/execute.cpp.o
+[2/8] Building CXX object generated/CMakeFiles/pycircuit_modules.dir/sources/rv32i_core/frontend.cpp.o
+[3/8] Building CXX object generated/CMakeFiles/pycircuit_modules.dir/sources/rv32i_core/core.cpp.o
+[4/8] Building CXX object generated/CMakeFiles/pycircuit_modules.dir/sources/rv32i_core/memory.cpp.o
+[5/8] Building CXX object generated/CMakeFiles/pycircuit_modules.dir/sources/rv32i_core/writeback.cpp.o
+[6/8] Linking CXX static library generated/libpycircuit_modules.a
+[7/8] Building CXX object CMakeFiles/rv32i_artifact.dir/clocked.cpp.o
+[8/8] Linking CXX executable rv32i_artifact

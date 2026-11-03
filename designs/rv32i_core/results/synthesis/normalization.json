@@ -1,0 +1,5 @@
+{
+  "status": "GRAPH_IDENTICAL",
+  "cells": 13860,
+  "scope": "exact cell/type/parameter and logical-port/pin connectivity; scalar physical port serialization"
+}

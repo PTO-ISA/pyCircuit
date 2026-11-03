@@ -1,0 +1,40 @@
+{
+  "schema": "pycircuit-rv32i-generation-v1",
+  "source_revision": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "sdk_revision": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "model": "rv32i_core.core.Core",
+  "source_path": "designs/rv32i_core",
+  "profile": "clocked_fixedpoint_v1",
+  "outputs": {
+    "cpp": "generated/cpp",
+    "physical_rtl": "generated/rtl"
+  },
+  "execution_descriptors": {
+    "timing": [
+      "generated/cpp/generated.json",
+      "generated/rtl/generated.json"
+    ],
+    "functional": [
+      "generated/profiles/functional-cpp.json",
+      "generated/profiles/functional-verilog.json"
+    ]
+  },
+  "sharing": "Timing and functional use the same emitted computation/state files; their original execution descriptors select the policy.",
+  "synthesis": {
+    "yosys": "0.33 (2584903a060) + ABC",
+    "sv2v": "0.0.12",
+    "library_distribution": "open_pdks/Volare sky130A c6d73a35f524070e85faff4a6a9eef49553ebc2b",
+    "public_source": "https://github.com/chipfoundry/volare/releases/tag/sky130-c6d73a35f524070e85faff4a6a9eef49553ebc2b",
+    "corner": "sky130_fd_sc_hd__tt_025C_1v80",
+    "license": "Apache-2.0 standard-cell views",
+    "upstream_hd_producing_commit": "UNKNOWN"
+  },
+  "cell_views": {
+    "liberty": "sky130_fd_sc_hd__tt_025C_1v80.lib",
+    "lef": "sky130_fd_sc_hd.lef",
+    "cell_models": "sky130_fd_sc_hd.v",
+    "primitives": "primitives.v"
+  },
+  "reports": "results/reproduction.json and results/synthesis/",
+  "reproduce": "EXPERIMENT.md"
+}

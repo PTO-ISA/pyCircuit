@@ -1,0 +1,28 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/frontend.cpp",
+    "sources/rv32i_core/frontend.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [
+    {
+      "location": "loc(\"frontend.py\":123:1)",
+      "operation": "ac.module",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 5 : i64}], definition = @rv32i_core.frontend.Frontend}}"
+    },
+    {
+      "location": "loc(\"frontend.py\":151:1)",
+      "operation": "ac.module",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}], definition = @rv32i_core.frontend.Finalize}}"
+    },
+    {
+      "location": "loc(\"frontend.py\":16:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 3 : i64}], definition = @rv32i_core.frontend.ResultFrontend}}"
+    }
+  ],
+  "source": {
+    "package": "rv32i_core",
+    "path": "frontend.py"
+  }
+}

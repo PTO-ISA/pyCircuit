@@ -1,0 +1,23 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/writeback.cpp",
+    "sources/rv32i_core/writeback.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [
+    {
+      "location": "loc(\"writeback.py\":105:1)",
+      "operation": "ac.module",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 5 : i64}], definition = @rv32i_core.writeback.Writeback}}"
+    },
+    {
+      "location": "loc(\"writeback.py\":15:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 3 : i64}], definition = @rv32i_core.writeback.ResultWriteback}}"
+    }
+  ],
+  "source": {
+    "package": "rv32i_core",
+    "path": "writeback.py"
+  }
+}

@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.25)
+project(RV32IArtifactConsumer LANGUAGES CXX)
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../generated/cpp" generated)
+add_executable(rv32i_artifact clocked.cpp)
+target_compile_features(rv32i_artifact PRIVATE cxx_std_20)
+target_link_libraries(rv32i_artifact PRIVATE pycircuit_modules)
