@@ -1,3 +1,101 @@
+// Preparation owns the destination contract; evaluation still receives its
+// contextual type before any conversion. No environment entry changes until
+// every result has passed its boundary.
+FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
+    const AstNode &statement, const BranchEnvironment &environment,
+    FlatSymbolRefAttr symbol, LocalBindingPolicy policy) {
+  bool annotated = statement.kind() == "AnnAssign";
+  auto target = annotated ? statement.child("target")
+                          : statement.item("targets", 0);
+  StringRef name = target.string("id");
+  LocalAssignmentBinding prepared;
+  prepared.destination.name = name;
+  prepared.destination.inferBoundary = policy == LocalBindingPolicy::Ordinary;
+  auto existing = environment.boundaries.find(name);
+  if (existing != environment.boundaries.end())
+    prepared.destination.boundary = existing->second;
+  if (annotated) {
+    if (policy == LocalBindingPolicy::Transaction &&
+        environment.values.contains(name))
+      return error() << "Method/Rule local annotation cannot redeclare a binding";
+    auto annotation = statement.child("annotation");
+    auto type = portType(annotation, symbol);
+    if (failed(type))
+      return failure();
+    BindingBoundary declared{{name.str(), *type, annotation,
+                              annotationKind(annotation),
+                              fixedAnnotation(annotation)}, true};
+    auto &binding = prepared.destination.boundary;
+    if (policy == LocalBindingPolicy::Ordinary && binding && binding->declared &&
+        !sameBindingBoundary(*binding, declared))
+      return mlir::emitError(statement.location(b.getContext(), source.path))
+             << "annotation cannot replace a declared binding boundary";
+    if (policy == LocalBindingPolicy::Transaction || !binding || !binding->declared)
+      binding = std::move(declared);
+  }
+  if ((annotated || policy == LocalBindingPolicy::Ordinary) &&
+      prepared.destination.boundary &&
+      prepared.destination.boundary->contract().type)
+    prepared.expected = prepared.destination.boundary->contract().type;
+  return prepared;
+}
+
+LogicalResult Importer::bindLocalValues(
+    ArrayRef<PreparedLocalBinding> destinations, ValueRange results,
+    const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values,
+    llvm::StringMap<BindingBoundary> *boundaries, bool noteDataBindings) {
+  assert(destinations.size() == results.size());
+  SmallVector<Value> converted;
+  SmallVector<std::optional<BindingBoundary>> contracts;
+  for (auto [destination, result] : llvm::zip(destinations, results)) {
+    auto binding = destination.boundary;
+    if (!binding && destination.inferBoundary)
+      binding = inferredBoundary(destination.name, result, node);
+    if (binding) {
+      auto value = applyBindingBoundary(result, *binding, node, at, symbol);
+      if (failed(value))
+        return failure();
+      result = *value;
+    }
+    converted.push_back(result);
+    contracts.push_back(std::move(binding));
+  }
+  for (auto [index, destination] : llvm::enumerate(destinations)) {
+    values[destination.name] = converted[index];
+    if (boundaries && contracts[index])
+      (*boundaries)[destination.name] = std::move(*contracts[index]);
+    if (noteDataBindings)
+      noteNestedRuleDataBinding(destination.name);
+  }
+  return success();
+}
+
+LogicalResult Importer::lowerLocalAssignment(
+    const AstNode &statement, OpBuilder &at, FlatSymbolRefAttr symbol,
+    BranchEnvironment &environment, llvm::StringMap<Instance *> &instances,
+    LocalBindingPolicy policy) {
+  auto target = statement.kind() == "AnnAssign" ? statement.child("target")
+                                               : statement.item("targets", 0);
+  if (policy == LocalBindingPolicy::Ordinary &&
+      failed(validateAssignmentRoot(target, statement, at)))
+    return failure();
+  auto prepared = prepareLocalAssignment(statement, environment, symbol, policy);
+  if (failed(prepared))
+    return failure();
+  auto rhs = statement.child("value");
+  auto value = expression(rhs, at, symbol, environment.values, instances,
+                          prepared->expected);
+  if (failed(value))
+    return failure();
+  if (!prepared->destination.boundary && prepared->destination.inferBoundary)
+    prepared->destination.boundary =
+        inferredBoundary(prepared->destination.name, *value, statement);
+  return bindLocalValues({prepared->destination}, {*value}, rhs, at, symbol,
+                         environment.values, &environment.boundaries,
+                         policy == LocalBindingPolicy::Ordinary);
+}
+
 // This is a fixed-result producer contract, not general tuple unpacking.
 FailureOr<std::optional<SmallVector<StringRef, 2>>>
 Importer::fixedResultTargets(const AstNode &assignment) {
@@ -74,29 +172,22 @@ FailureOr<bool> Importer::bindFixedResults(
                      : fixedEncodingResults(call, at, symbol, values, instances);
   if (failed(results))
     return failure();
-  SmallVector<Value, 2> converted;
-  SmallVector<BindingBoundary, 2> contracts;
-  for (auto [index, name] : llvm::enumerate(**targets)) {
-    BindingBoundary binding =
-        inferredBoundary(name, (*results)[index], assignment);
+  SmallVector<PreparedLocalBinding, 2> destinations;
+  for (StringRef name : **targets) {
+    std::optional<BindingBoundary> binding;
     if (boundaries && boundaries->contains(name))
       binding = boundaries->lookup(name);
     else if (values.contains(name))
       binding = inferredBoundary(name, values.lookup(name), assignment);
-    auto value = applyBindingBoundary((*results)[index], binding,
-                                      assignment.child("value"), at, symbol);
-    if (failed(value))
-      return failure();
-    converted.push_back(*value);
-    contracts.push_back(binding);
+    // The producer's result supplies the fresh boundary, while an existing
+    // local retains its own contract.
+    if (!binding)
+      binding = inferredBoundary(name, (*results)[destinations.size()], assignment);
+    destinations.push_back({name, std::move(binding)});
   }
-  // No local is visible until every destination contract has succeeded.
-  for (auto [index, name] : llvm::enumerate(**targets)) {
-    values[name] = converted[index];
-    noteNestedRuleDataBinding(name);
-    if (boundaries)
-      (*boundaries)[name] = contracts[index];
-  }
+  if (failed(bindLocalValues(destinations, *results, call, at, symbol, values,
+                             boundaries)))
+    return failure();
   committed = true;
   return true;
 }
@@ -234,13 +325,9 @@ FailureOr<std::optional<size_t>> Importer::addressDomainSlot(
   return slot;
 }
 
-LogicalResult Importer::updateAssignment(const AstNode &target,
-                                         Value replacement, const AstNode &node,
-                                         OpBuilder &at,
-                                         FlatSymbolRefAttr symbol,
-                                         llvm::StringMap<Value> &values,
-                                         SmallVectorImpl<Value> *boundIndices,
-                                         bool preserveProjectionWitnesses) {
+LogicalResult Importer::validateAssignmentRoot(const AstNode &target,
+                                                const AstNode &node,
+                                                OpBuilder &at) {
   StringRef root = assignmentRoot(target);
   if (failed(requireNestedRuleDataTarget(root, node))) return failure();
   if (isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()) &&
@@ -256,8 +343,23 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
     if (!helperLocal && (names.contains(name) || structs.contains(name) ||
                          (behavioralRules.contains(name) && !nestedRuleBinding(name))))
       return error() << "assignment shadows a source declaration";
-    values[name] = replacement;
-    noteNestedRuleDataBinding(name);
+  }
+  return success();
+}
+
+LogicalResult Importer::updateAssignment(const AstNode &target,
+                                         Value replacement, const AstNode &node,
+                                         OpBuilder &at,
+                                         FlatSymbolRefAttr symbol,
+                                         llvm::StringMap<Value> &values,
+                                         SmallVectorImpl<Value> *boundIndices,
+                                         bool preserveProjectionWitnesses) {
+  StringRef root = assignmentRoot(target);
+  if (failed(validateAssignmentRoot(target, node, at)))
+    return failure();
+  if (target.kind() == "Name") {
+    values[root] = replacement;
+    noteNestedRuleDataBinding(root);
     return success();
   }
   llvm::StringMap<Instance *> noInstances;

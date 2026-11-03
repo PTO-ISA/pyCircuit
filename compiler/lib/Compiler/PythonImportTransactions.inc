@@ -2322,43 +2322,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           return error()
                  << "Method/Rule local shadows a bound callable, instance, "
                     "import or type declaration";
-        if (statement.kind() == "AnnAssign" && values.contains(name))
-          return error()
-                 << "Method/Rule local annotation cannot redeclare a binding";
-        std::optional<Type> expected;
-        Port localContract;
-        if (statement.kind() == "AnnAssign") {
-          auto type = portType(statement.child("annotation"), decl.symbol);
-          if (failed(type))
-            return failure();
-          expected = *type;
-          localContract = {name.str(), *type, statement.child("annotation"),
-                           annotationKind(statement.child("annotation")),
-                           fixedAnnotation(statement.child("annotation"))};
-        }
-        auto value =
-            expression(rhs, inside, decl.symbol, values, instances, expected);
-        if (failed(value))
+        if (failed(lowerLocalAssignment(statement, inside, decl.symbol,
+                                         environment, instances,
+                                         LocalBindingPolicy::Transaction)))
           return failure();
-        if (expected) {
-          auto converted = applyBindingBoundary(
-              *value, BindingBoundary{localContract, true}, rhs, inside, decl.symbol);
-          if (failed(converted))
-            return failure();
-          values[name] = *converted;
-          environment.boundaries[name] = BindingBoundary{localContract, true};
-        } else {
-          auto binding = environment.boundaries.find(name);
-          if (binding != environment.boundaries.end()) {
-            auto converted = applyBindingBoundary(*value, binding->second, rhs,
-                                                   inside, decl.symbol);
-            if (failed(converted))
-              return failure();
-            values[name] = *converted;
-          } else {
-            values[name] = *value;
-          }
-        }
         if (failed(emitFormalWrite(name, values.lookup(name), statement, inside, environment))) return failure();
       }
       return success();

@@ -263,6 +263,19 @@ struct BranchEnvironment {
   llvm::StringMap<BindingBoundary> boundaries;
   Value ambient, continuation;
 };
+// These are existing admission policies, not interchangeable source profiles.
+// Ordinary locals retain an inferred boundary and contextualize subsequent
+// RHS expressions; transaction locals acquire a boundary only when declared.
+enum class LocalBindingPolicy { Ordinary, Transaction };
+struct PreparedLocalBinding {
+  StringRef name;
+  std::optional<BindingBoundary> boundary;
+  bool inferBoundary = true;
+};
+struct LocalAssignmentBinding {
+  PreparedLocalBinding destination;
+  std::optional<Type> expected;
+};
 // Borrowed only while lowering an ordinary Module statement. Declarations and
 // callable registration remain owned by the surrounding Module dispatcher.
 struct ModuleStatementContext {
@@ -536,6 +549,21 @@ private:
                                 FlatSymbolRefAttr symbol, bool preserveProjectionWitnesses);
   StringRef assignmentRoot(const AstNode &target) const;
   AstNode indexedFieldTarget(const AstNode &target) const;
+  LogicalResult validateAssignmentRoot(const AstNode &target,
+                                       const AstNode &node, OpBuilder &at);
+  FailureOr<LocalAssignmentBinding> prepareLocalAssignment(
+      const AstNode &statement, const BranchEnvironment &environment,
+      FlatSymbolRefAttr symbol, LocalBindingPolicy policy);
+  LogicalResult bindLocalValues(
+      ArrayRef<PreparedLocalBinding> destinations, ValueRange results,
+      const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values,
+      llvm::StringMap<BindingBoundary> *boundaries = nullptr,
+      bool noteDataBindings = true);
+  LogicalResult lowerLocalAssignment(
+      const AstNode &statement, OpBuilder &at, FlatSymbolRefAttr symbol,
+      BranchEnvironment &environment,
+      llvm::StringMap<Instance *> &instances, LocalBindingPolicy policy);
   LogicalResult
   updateAssignment(const AstNode &target, Value value, const AstNode &node,
                    OpBuilder &at, FlatSymbolRefAttr symbol,

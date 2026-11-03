@@ -2484,73 +2484,65 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
         root == "pyc_clk" || root == "pyc_rst")
       return error() << "reserved physical domain pin '" << root
                      << "' cannot be assigned in source";
-    std::optional<BindingBoundary> binding;
-    if (target.kind() == "Name") {
-      auto found = environment.boundaries.find(target.string("id"));
-      if (found != environment.boundaries.end())
-        binding = found->second;
-    }
-    if (stmt.kind() == "AnnAssign") {
-      auto annotation = stmt.child("annotation");
-      auto type = portType(annotation, symbol);
-      if (failed(type))
-        return failure();
-      BindingBoundary declared{{assignmentRoot(target).str(), *type, annotation,
-                                annotationKind(annotation),
-                                fixedAnnotation(annotation)},
-                               true};
-      if (binding && binding->declared &&
-          !sameBindingBoundary(*binding, declared))
-        return mlir::emitError(loc)
-               << "annotation cannot replace a declared binding boundary";
-      if (!binding || !binding->declared)
-        binding = declared;
-    }
-    if (target.kind() == "Attribute") {
-      DictionaryAttr selectedField;
-      auto targetType = expressionType(target, values, instances, symbol,
-                                       &selectedField);
-      if (failed(targetType))
-        return failure();
-      if (!selectedField)
-        return error() << "field assignment requires a declared Struct field";
-      binding = BindingBoundary{structFieldPort(selectedField, target), true};
-    }
-    if (target.kind() == "Subscript") {
-      auto container =
-          expressionType(target.child("value"), values, instances, symbol);
-      if (failed(container))
-        return failure();
-      auto table = dyn_cast<ac::TableType>(*container);
-      if (!table)
-        return error() << "indexed assignment requires a table";
-      binding = BindingBoundary{{assignmentRoot(target).str(),
-                                 table.getElementType(),
-                                 target,
-                                 {},
-                                 isa<ac::BitsType>(table.getElementType())},
-                                true};
-    }
-    std::optional<Type> expected;
-    if (binding && binding->contract().type)
-      expected = binding->contract().type;
-    auto value = expression(stmt.child("value"), at, symbol, values, instances,
-                            expected);
-    if (failed(value))
-      return failure();
-    if (!binding)
-      binding = inferredBoundary(assignmentRoot(target), *value, stmt);
-    auto converted =
-        applyBindingBoundary(*value, *binding, stmt.child("value"), at, symbol);
-    if (failed(converted))
-      return failure();
-    value = *converted;
     StringRef name = assignmentRoot(target);
-    if (name.empty() ||
-        failed(updateAssignment(target, *value, stmt, at, symbol, values)))
-      return failure();
-    if (target.kind() == "Name")
-      environment.boundaries[name] = *binding;
+    if (target.kind() == "Name") {
+      if (failed(lowerLocalAssignment(stmt, at, symbol, environment, instances,
+                                       LocalBindingPolicy::Ordinary)))
+        return failure();
+    } else {
+      std::optional<BindingBoundary> binding;
+      if (stmt.kind() == "AnnAssign") {
+        auto annotation = stmt.child("annotation");
+        auto type = portType(annotation, symbol);
+        if (failed(type))
+          return failure();
+        binding = BindingBoundary{{assignmentRoot(target).str(), *type, annotation,
+                                   annotationKind(annotation),
+                                   fixedAnnotation(annotation)}, true};
+      }
+      if (target.kind() == "Attribute") {
+        DictionaryAttr selectedField;
+        auto targetType = expressionType(target, values, instances, symbol,
+                                         &selectedField);
+        if (failed(targetType))
+          return failure();
+        if (!selectedField)
+          return error() << "field assignment requires a declared Struct field";
+        binding = BindingBoundary{structFieldPort(selectedField, target), true};
+      }
+      if (target.kind() == "Subscript") {
+        auto container =
+            expressionType(target.child("value"), values, instances, symbol);
+        if (failed(container))
+          return failure();
+        auto table = dyn_cast<ac::TableType>(*container);
+        if (!table)
+          return error() << "indexed assignment requires a table";
+        binding = BindingBoundary{{assignmentRoot(target).str(),
+                                   table.getElementType(),
+                                   target,
+                                   {},
+                                   isa<ac::BitsType>(table.getElementType())},
+                                  true};
+      }
+      std::optional<Type> expected;
+      if (binding && binding->contract().type)
+        expected = binding->contract().type;
+      auto value = expression(stmt.child("value"), at, symbol, values, instances,
+                              expected);
+      if (failed(value))
+        return failure();
+      if (!binding)
+        binding = inferredBoundary(assignmentRoot(target), *value, stmt);
+      auto converted =
+          applyBindingBoundary(*value, *binding, stmt.child("value"), at, symbol);
+      if (failed(converted))
+        return failure();
+      value = *converted;
+      if (name.empty() ||
+          failed(updateAssignment(target, *value, stmt, at, symbol, values)))
+        return failure();
+    }
     if (owners.contains(name)) {
       auto enabled = constant(bits(1, stmt, symbol), 1, stmt, at, symbol);
       if (failed(enabled))
