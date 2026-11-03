@@ -1256,103 +1256,17 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         }
         if (statement.kind() == "If") {
-          std::string reason;
-          if (!queryBudget.enter(reason))
-            return mlir::emitError(statement.location(b.getContext(), source.path))
-                   << "source branch: " << reason;
-          auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
-          if (failed(chargeLoopDescriptorWork(statement,
-                                              "source branch statement")))
+          BranchStatementContext branchContext{decl.symbol, instances, nullptr,
+                                                &context};
+          auto emitArm = [&](const AstNode &branch, StringRef arm,
+                              OpBuilder &armAt, BranchEnvironment &branchEnvironment) {
+            // The enclosing continuation is already established; only the
+            // authored selector controls these effect regions.
+            return emitRange(branch, arm, armAt, branchEnvironment, true, 0, true);
+          };
+          if (failed(ifStatement(statement, inside, environment, branchContext,
+                                  emitArm)))
             return failure();
-          // Statement arms admit effects; evaluating their selector remains
-          // pure, independently of whether this statement is in another arm.
-          auto test = [&]() {
-            bool savedPureExpression =
-                std::exchange(context.pureExpression, true);
-            auto restorePureExpression = llvm::scope_exit([&] {
-              context.pureExpression = savedPureExpression;
-            });
-            return expression(statement.child("test"), inside, decl.symbol,
-                              values, instances);
-          }();
-          if (failed(test))
-            return failure();
-          auto predicate = predicateView(*test, statement.child("test"), decl.symbol);
-          if (failed(predicate))
-            return failure();
-          // Seed capture boundaries before any environment copies. Captures
-          // retain their original authority, including unchanged aggregates.
-          for (const auto &binding : values) {
-            if (environment.boundaries.contains(binding.first()))
-              continue;
-            TableQueryCharge charge;
-            bool fits = TableQueryBudget::add(charge, TableQueryResource::Slots, 16) &&
-                        TableQueryBudget::add(charge, TableQueryResource::Work, 2) &&
-                        TableQueryBudget::addProduct(
-                            charge, TableQueryResource::ConstantBytes, 2,
-                            binding.first().size());
-            for (const AstStep &step : statement.path)
-              fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 8) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Work, 1) &&
-                      TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
-                                            step.field.size());
-            if (!fits || !queryBudget.reserve(charge, reason))
-              return mlir::emitError(statement.location(b.getContext(), source.path))
-                     << "source branch capture binding: "
-                     << (fits ? reason : "binding storage counter exhausted");
-            environment.boundaries[binding.first()] =
-                inferredBoundary(binding.first(), binding.second, statement);
-          }
-          bool unchangedElse = statement.array("orelse").empty();
-          if (failed(reserveSourceEnvironmentCopies(statement, environment,
-                                                    nullptr, nullptr,
-                                                    unchangedElse ? 1 : 2)))
-            return failure();
-          BranchEnvironment yes = environment;
-          std::optional<BranchEnvironment> materializedElse;
-          if (!unchangedElse)
-            materializedElse.emplace(environment);
-          // An empty else is the unchanged incoming environment, not another
-          // full map/descriptor copy. Both references remain immutable at join.
-          const BranchEnvironment &no =
-              unchangedElse ? environment : *materializedElse;
-          TableQueryCharge charge;
-          bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Work, 4);
-          if (!fits || !queryBudget.reserve(charge, reason))
-            return mlir::emitError(statement.location(b.getContext(), source.path))
-                   << "source branch construction: "
-                   << (fits ? reason : "operation storage counter exhausted");
-          auto branch = cast<ac::SourceBranchOp>(createOp(
-              inside, statement.location(b.getContext(), source.path),
-              ac::SourceBranchOp::getOperationName(), {predicate->value}, {},
-              {inside.getNamedAttr("occurrence",
-                                   sourceOccurrence(inside, decl.symbol, statement)),
-               inside.getNamedAttr("ac.condition_location",
-                                   sourceSpan(inside, source.path,
-                                              statement.child("test")))}, 2));
-          branch.getThenRegion().push_back(new Block());
-          branch.getElseRegion().push_back(new Block());
-          OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
-          OpBuilder elseAt = OpBuilder::atBlockEnd(&branch.getElseRegion().front());
-          // Reaching this statement already establishes the enclosing loop's
-          // continuation. The authored selector controls its two arms; adding
-          // the same continuation guard inside each arm duplicates proof IR.
-          if (failed(
-                  emitRange(statement, "body", thenAt, yes, true, 0, true)) ||
-              (!unchangedElse &&
-               failed(emitRange(statement, "orelse", elseAt, *materializedElse,
-                                true, 0, true))) ||
-              failed(reserveSourceEnvironmentCopies(statement, environment,
-                                                    &yes, &no)))
-            return failure();
-          auto joined = joinBranches(*predicate, environment, yes, no, statement,
-                                      inside, decl.symbol, branch);
-          if (failed(joined))
-            return failure();
-          environment = std::move(*joined);
           continue;
         }
         if (statement.kind() == "For") {

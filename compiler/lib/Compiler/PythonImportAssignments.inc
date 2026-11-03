@@ -10,7 +10,6 @@ FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
   StringRef name = target.string("id");
   LocalAssignmentBinding prepared;
   prepared.destination.name = name;
-  prepared.destination.inferBoundary = policy == LocalBindingPolicy::Ordinary;
   auto existing = environment.boundaries.find(name);
   if (existing != environment.boundaries.end())
     prepared.destination.boundary = existing->second;
@@ -46,12 +45,10 @@ LogicalResult Importer::bindLocalValues(
     llvm::StringMap<Value> &values,
     llvm::StringMap<BindingBoundary> *boundaries, bool noteDataBindings) {
   assert(destinations.size() == results.size());
-  SmallVector<Value> converted;
-  SmallVector<std::optional<BindingBoundary>> contracts;
+  SmallVector<Value, 1> converted;
+  SmallVector<std::optional<BindingBoundary>, 1> contracts;
   for (auto [destination, result] : llvm::zip(destinations, results)) {
     auto binding = destination.boundary;
-    if (!binding && destination.inferBoundary)
-      binding = inferredBoundary(destination.name, result, node);
     if (binding) {
       auto value = applyBindingBoundary(result, *binding, node, at, symbol);
       if (failed(value))
@@ -88,7 +85,7 @@ LogicalResult Importer::lowerLocalAssignment(
                           prepared->expected);
   if (failed(value))
     return failure();
-  if (!prepared->destination.boundary && prepared->destination.inferBoundary)
+  if (!prepared->destination.boundary && policy == LocalBindingPolicy::Ordinary)
     prepared->destination.boundary =
         inferredBoundary(prepared->destination.name, *value, statement);
   return bindLocalValues({prepared->destination}, {*value}, rhs, at, symbol,

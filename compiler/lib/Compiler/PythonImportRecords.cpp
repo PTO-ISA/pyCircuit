@@ -270,7 +270,6 @@ enum class LocalBindingPolicy { Ordinary, Transaction };
 struct PreparedLocalBinding {
   StringRef name;
   std::optional<BindingBoundary> boundary;
-  bool inferBoundary = true;
 };
 struct LocalAssignmentBinding {
   PreparedLocalBinding destination;
@@ -283,6 +282,12 @@ struct ModuleStatementContext {
   const llvm::StringMap<Value> &values;
   const llvm::StringSet<> &protectedNames;
   llvm::StringSet<> &assignedNames;
+};
+struct BranchStatementContext {
+  FlatSymbolRefAttr symbol;
+  llvm::StringMap<Instance *> &instances;
+  ModuleStatementContext *module = nullptr;
+  SourceEffectContext *effects = nullptr;
 };
 
 // One entry of the rule result suffix that a source instrumentation site
@@ -460,6 +465,7 @@ public:
   }
 
 private:
+  struct HelperScope;
   DictionaryAttr sourceOccurrence(OpBuilder &at, FlatSymbolRefAttr symbol,
                                   const AstNode &node) {
     return occurrence(at, symbol, node, activeSourceExpansion);
@@ -857,6 +863,11 @@ private:
                                llvm::StringSet<> &owners,
       llvm::function_ref<LogicalResult(const AstNode &, OpBuilder &, BranchEnvironment &)> emitArm = {},
       llvm::StringMap<Instance *> *sourceInstances = nullptr);
+  LogicalResult ifStatement(
+      const AstNode &statement, OpBuilder &at, BranchEnvironment &environment,
+      const BranchStatementContext &context,
+      llvm::function_ref<LogicalResult(const AstNode &, StringRef, OpBuilder &,
+                                       BranchEnvironment &)> emitArm);
   LogicalResult statements(const AstNode &parent, StringRef field,
                            OpBuilder &at, FlatSymbolRefAttr owner,
                            BranchEnvironment &environment,

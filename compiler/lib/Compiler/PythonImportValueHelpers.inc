@@ -364,36 +364,64 @@ FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &functio
   return result;
 }
 
+// A helper body has its own lexical, control and effect frame. Keep the saved
+// fields together so every exit, including a failed nested helper, restores the
+// caller completely. This scope does not own declarations or numeric facts.
+struct Importer::HelperScope {
+  Importer &importer;
+  NestedRuleScope *nestedRules;
+  ValueHelperDecl *frame;
+  bool pure;
+  FlatSymbolRefAttr lexicalOwner;
+  RuleEvaluation *rule;
+  ModuleStatementContext *moduleStatements;
+  ModuleDecl *declaration;
+  SmallVector<StateOwner> *states;
+  SourceEffectContext *effects;
+  LoopLoweringContext *loop;
+  SmallVector<DictionaryAttr> expansion;
+
+  HelperScope(Importer &importer, ValueHelperDecl &helper)
+      : importer(importer),
+        nestedRules(std::exchange(importer.activeNestedRuleScope, nullptr)),
+        frame(std::exchange(importer.activeHelperFrame, &helper)),
+        pure(std::exchange(importer.activeValueHelper, true)),
+        lexicalOwner(std::exchange(importer.activeHelperLexicalOwner,
+                                   helper.lexicalOwner)),
+        rule(std::exchange(importer.activeRule, nullptr)),
+        moduleStatements(std::exchange(importer.activeModuleStatements, nullptr)),
+        declaration(std::exchange(importer.activeBehavioralDecl, nullptr)),
+        states(std::exchange(importer.activeStates, nullptr)),
+        effects(std::exchange(importer.activeSourceEffects, nullptr)),
+        loop(std::exchange(importer.activeLoop, nullptr)),
+        expansion(std::move(importer.activeSourceExpansion)) {
+    importer.activeSourceExpansion.clear();
+  }
+  ~HelperScope() {
+    importer.activeNestedRuleScope = nestedRules;
+    importer.activeHelperFrame = frame;
+    importer.activeValueHelper = pure;
+    importer.activeHelperLexicalOwner = lexicalOwner;
+    importer.activeRule = rule;
+    importer.activeModuleStatements = moduleStatements;
+    importer.activeBehavioralDecl = declaration;
+    importer.activeStates = states;
+    importer.activeSourceEffects = effects;
+    importer.activeLoop = loop;
+    importer.activeSourceExpansion = std::move(expansion);
+  }
+  HelperScope(const HelperScope &) = delete;
+  HelperScope &operator=(const HelperScope &) = delete;
+};
+
 LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
-  auto *previousNestedRules = std::exchange(activeNestedRuleScope, nullptr);
-  auto restoreNestedRules = llvm::scope_exit([&] { activeNestedRuleScope = previousNestedRules; });
   if (helper.state == 2) return success();
   if (helper.state == 1) return error() << "recursive pure helper call closure is unsupported";
   std::string reason;
   if (!queryBudget.enter(reason)) return error() << reason;
   auto leaveHelper = llvm::scope_exit([&] { queryBudget.leave(); });
   helper.state = 1;
-  auto savedFrame = std::exchange(activeHelperFrame, &helper);
-  auto savedPure = std::exchange(activeValueHelper, true);
-  auto savedLexical = std::exchange(activeHelperLexicalOwner, helper.lexicalOwner);
-  auto savedRule = std::exchange(activeRule, nullptr);
-  auto savedModuleStatements = std::exchange(activeModuleStatements, nullptr);
-  auto savedDecl = std::exchange(activeBehavioralDecl, nullptr);
-  auto savedStates = std::exchange(activeStates, nullptr);
-  auto savedEffects = std::exchange(activeSourceEffects, nullptr);
-  auto savedLoop = std::exchange(activeLoop, nullptr);
-  auto savedExpansion = std::move(activeSourceExpansion);
-  activeSourceExpansion.clear();
-  auto restore = llvm::scope_exit([&] {
-    activeHelperFrame = savedFrame;
-    activeValueHelper = savedPure; activeHelperLexicalOwner = savedLexical;
-    activeRule = savedRule;
-    activeModuleStatements = savedModuleStatements;
-    activeBehavioralDecl = savedDecl;
-    activeStates = savedStates;
-    activeSourceEffects = savedEffects; activeLoop = savedLoop;
-    activeSourceExpansion = std::move(savedExpansion);
-  });
+  HelperScope scope(*this, helper);
   // All lexical declarations have names and their own declaration snapshots
   // before any body is demanded. Seal transitive capture inputs from callee
   // snapshots, without consulting a dynamic Module or caller value frame.

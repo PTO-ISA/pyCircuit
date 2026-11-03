@@ -2319,6 +2319,123 @@ Importer::moduleStatement(const ModuleDecl &decl, size_t ordinal, OpBuilder &at,
   return success();
 }
 
+LogicalResult Importer::ifStatement(
+    const AstNode &statement, OpBuilder &at, BranchEnvironment &environment,
+    const BranchStatementContext &context,
+    llvm::function_ref<LogicalResult(const AstNode &, StringRef, OpBuilder &,
+                                     BranchEnvironment &)> emitArm) {
+  bool transactional = context.effects != nullptr;
+  std::string reason;
+  if (transactional && !queryBudget.enter(reason))
+    return mlir::emitError(statement.location(b.getContext(), source.path))
+           << "source branch: " << reason;
+  auto leave = llvm::scope_exit([&] {
+    if (transactional)
+      queryBudget.leave();
+  });
+  if (transactional &&
+      failed(chargeLoopDescriptorWork(statement, "source branch statement")))
+    return failure();
+  auto guard = [&]() {
+    bool wasPure = context.effects && context.effects->pureExpression;
+    if (context.effects)
+      context.effects->pureExpression = true;
+    auto restore = llvm::scope_exit([&] {
+      if (context.effects)
+        context.effects->pureExpression = wasPure;
+    });
+    return expression(statement.child("test"), at, context.symbol,
+                      environment.values, context.instances);
+  }();
+  if (failed(guard))
+    return failure();
+  auto predicate = predicateView(*guard, statement.child("test"), context.symbol);
+  if (failed(predicate))
+    return failure();
+  if (transactional) {
+    // Source captures retain their declaration authority before any arm copies.
+    // Ordinary Module entries seed their boundaries in moduleStatement instead.
+    for (const auto &binding : environment.values) {
+      if (environment.boundaries.contains(binding.first()))
+        continue;
+      TableQueryCharge charge;
+      bool fits = TableQueryBudget::add(charge, TableQueryResource::Slots, 16) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Work, 2) &&
+                  TableQueryBudget::addProduct(
+                      charge, TableQueryResource::ConstantBytes, 2,
+                      binding.first().size());
+      for (const AstStep &step : statement.path)
+        fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 8) &&
+                TableQueryBudget::add(charge, TableQueryResource::Work, 1) &&
+                TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
+                                      step.field.size());
+      if (!fits || !queryBudget.reserve(charge, reason))
+        return mlir::emitError(statement.location(b.getContext(), source.path))
+               << "source branch capture binding: "
+               << (fits ? reason : "binding storage counter exhausted");
+      environment.boundaries[binding.first()] =
+          inferredBoundary(binding.first(), binding.second, statement);
+    }
+  }
+  // Keep the existing transaction empty-else optimization and ordinary copy
+  // policy. Both paths hand immutable entry/arm environments to one join.
+  bool unchangedElse = transactional && statement.array("orelse").empty();
+  if ((transactional || context.module) &&
+      failed(reserveSourceEnvironmentCopies(statement, environment, nullptr,
+                                             nullptr, unchangedElse ? 1 : 2)))
+    return failure();
+  BranchEnvironment yes = environment;
+  std::optional<BranchEnvironment> materializedElse;
+  if (!unchangedElse)
+    materializedElse.emplace(environment);
+  const BranchEnvironment &no = unchangedElse ? environment : *materializedElse;
+  ac::SourceBranchOp branch;
+  OpBuilder thenAt = at, elseAt = at;
+  if (transactional) {
+    TableQueryCharge charge;
+    bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
+                TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
+                TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
+                TableQueryBudget::add(charge, TableQueryResource::Work, 4);
+    if (!fits || !queryBudget.reserve(charge, reason))
+      return mlir::emitError(statement.location(b.getContext(), source.path))
+             << "source branch construction: "
+             << (fits ? reason : "operation storage counter exhausted");
+    branch = cast<ac::SourceBranchOp>(createOp(
+        at, statement.location(b.getContext(), source.path),
+        ac::SourceBranchOp::getOperationName(), {predicate->value}, {},
+        {at.getNamedAttr("occurrence", sourceOccurrence(at, context.symbol, statement)),
+         at.getNamedAttr("ac.condition_location",
+                         sourceSpan(at, source.path, statement.child("test")))}, 2));
+    branch.getThenRegion().push_back(new Block());
+    branch.getElseRegion().push_back(new Block());
+    thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
+    elseAt = OpBuilder::atBlockEnd(&branch.getElseRegion().front());
+  } else if (environment.continuation) {
+    auto opposite = checkNot(*guard, statement, at, context.symbol);
+    if (failed(opposite) ||
+        failed(enterCheckBranch(yes, *guard, statement, at, context.symbol)) ||
+        failed(enterCheckBranch(*materializedElse, *opposite, statement, at,
+                                context.symbol)))
+      return failure();
+    thenAt = at;
+    elseAt = at;
+  }
+  if (failed(emitArm(statement, "body", thenAt, yes)) ||
+      (!unchangedElse &&
+       failed(emitArm(statement, "orelse", elseAt, *materializedElse))))
+    return failure();
+  if (transactional &&
+      failed(reserveSourceEnvironmentCopies(statement, environment, &yes, &no)))
+    return failure();
+  auto joined = joinBranches(*predicate, environment, yes, no, statement, at,
+                              context.symbol, branch);
+  if (failed(joined))
+    return failure();
+  environment = std::move(*joined);
+  return success();
+}
+
 LogicalResult Importer::statements(const AstNode &parent, StringRef field,
                                    OpBuilder &at, FlatSymbolRefAttr symbol,
                                    BranchEnvironment &environment,
@@ -2433,35 +2550,19 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
       continue;
     }
     if (stmt.kind() == "If") {
-      auto guard =
-          expression(stmt.child("test"), at, symbol, values, instances);
-      if (failed(guard))
-        return failure();
-      auto condition = predicateView(*guard, stmt.child("test"), symbol);
-      if (failed(condition))
-        return failure();
-      if (activeModuleStatements &&
-          failed(reserveSourceEnvironmentCopies(stmt, environment)))
-        return failure();
-      auto yes = environment, no = environment;
-      if (environment.continuation) {
-        auto opposite = checkNot(*guard, stmt, at, symbol);
-        if (failed(opposite) ||
-            failed(enterCheckBranch(yes, *guard, stmt, at, symbol)) ||
-            failed(enterCheckBranch(no, *opposite, stmt, at, symbol)))
+      BranchStatementContext context{symbol, instances, activeModuleStatements};
+      auto emitArm = [&](const AstNode &branch, StringRef arm, OpBuilder &armAt,
+                          BranchEnvironment &branchEnvironment) -> LogicalResult {
+        AstNode returned;
+        if (failed(statements(branch, arm, armAt, symbol, branchEnvironment,
+                               owners, returned)))
           return failure();
-      }
-      AstNode yr, nr;
-      if (failed(statements(stmt, "body", at, symbol, yes, owners, yr)) ||
-          failed(statements(stmt, "orelse", at, symbol, no, owners, nr)))
+        if (returned)
+          return error() << "rule return inside a branch is unsupported";
+        return success();
+      };
+      if (failed(ifStatement(stmt, at, environment, context, emitArm)))
         return failure();
-      if (yr || nr)
-        return error() << "rule return inside a branch is unsupported";
-      auto joined =
-          joinBranches(*condition, environment, yes, no, stmt, at, symbol);
-      if (failed(joined))
-        return failure();
-      environment = std::move(*joined);
       continue;
     }
     if (stmt.kind() != "Assign" && stmt.kind() != "AnnAssign")
