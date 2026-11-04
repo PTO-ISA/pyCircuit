@@ -1,15 +1,14 @@
 from typing import Annotated
 
-from pycircuit import dff, log, module, rule
+from pycircuit import log, module, rule
 
 
 @module
-def Bad(a: Annotated[int, range(1 << 8)], flag: bool, *, COUNT: int = 1) -> {"result": Annotated[int, range(1 << 8)]}:
+def Bad(a: Annotated[int, range(1 << 8)]) -> {"result": Annotated[int, range(1 << 8)]}:
+    state: Annotated[int, range(1 << 8)] = 0
     negative = a - 1
-    condition = flag
-    state = dff(T=Annotated[int, range(1 << 8)])
     @rule
     def observe():
-        state(clk=flag, rst=False, d=a, init=0)
+        state = a
         log("info", "invalid", negative | 1)
     return {"result": a}

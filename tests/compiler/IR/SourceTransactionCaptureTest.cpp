@@ -4876,6 +4876,74 @@ def Owner() -> ac.u8:
 }
 
 TEST_F(SourceTransactionCaptureTest,
+       SharedPrivateRuleCannotBorrowItsRegistrationIndexRange) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.rule
+def put(entries, index) -> None:
+    entries[index] = 7
+@ac.module
+def Owner(raw: ac.u8) -> ac.table[3, ac.u8]:
+    entries: ac.table[3, ac.u8] = 0
+    put(entries, raw % 3)
+    @ac.method
+    def probe(values: ac.table[3, ac.u8], index: ac.u8) -> None:
+        pass
+    return entries
+)py", "private_rule_index.py");
+  ASSERT_TRUE(file) << diagnostics;
+  auto registrations = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(registrations.size(), 1u);
+  auto registration = registrations.front();
+  ASSERT_NE(registration.getOccurrence(), registration.getDeclaration());
+  auto entry = ac::getSourceRegistrationEntry(registration);
+  ASSERT_TRUE(succeeded(entry));
+  ASSERT_TRUE(entry->has_value());
+  SmallVector<ac::SourceStateWriteOp> writes;
+  (**entry).method.walk(
+      [&](ac::SourceStateWriteOp write) { writes.push_back(write); });
+  ASSERT_EQ(writes.size(), 1u);
+  auto write = writes.front();
+  ASSERT_EQ(write.getIndices().size(), 1u);
+  auto states = operations<ac::SourceStateOp>(*file);
+  ASSERT_EQ(states.size(), 1u);
+  auto table = cast<ac::TableType>(states.front().getQ().getType());
+  ac::HardwareBindings bindings;
+  bindings.owner = write->getParentOfType<ac::ModuleOp>();
+  ASSERT_TRUE(succeeded(ac::HardwareAnalysis(*file).verifySourceIndex(
+      write.getIndices().front(), table, bindings, write))) << diagnostics;
+
+  auto probe = namedMethod(*file, "probe");
+  ASSERT_TRUE(probe);
+  auto &body = probe.getBody().front();
+  auto authenticCall = (**entry).call;
+  auto explicitCount = probe.getFunctionType().getNumInputs();
+  ASSERT_EQ(explicitCount, authenticCall.getArguments().size());
+  auto entryType = (**entry).method.getFunctionType();
+  ASSERT_EQ(explicitCount, entryType.getNumInputs());
+  for (auto [actual, formal] :
+       llvm::zip(probe.getFunctionType().getInputs(), entryType.getInputs()))
+    ASSERT_TRUE(ac::areEquivalentHardwareTypes(actual, formal));
+  ASSERT_EQ(probe.getFunctionType().getNumResults(), 0u);
+  ASSERT_EQ(entryType.getNumResults(), 0u);
+  auto path = authenticCall.getPath().getDefiningOp<ac::BitsConstantOp>();
+  ASSERT_TRUE(path);
+  auto *copiedPath = path->clone();
+  body.getOperations().insert(body.getTerminator()->getIterator(), copiedPath);
+  auto *copied = authenticCall->clone();
+  copied->setOperand(0, copiedPath->getResult(0));
+  for (auto [ordinal, argument] :
+       llvm::enumerate(body.getArguments().take_front(explicitCount)))
+    copied->setOperand(ordinal + 1, argument);
+  body.getOperations().insert(body.getTerminator()->getIterator(), copied);
+  body.getTerminator()->setOperands(copied->getResults());
+  // This second invocation targets the same private body with an unrestricted
+  // index. Its formal must no longer inherit the first registration's %3 range.
+  diagnostics.clear();
+  EXPECT_TRUE(failed(ac::HardwareAnalysis(*file).verifySourceIndex(
+      write.getIndices().front(), table, bindings, write)));
+}
+
+TEST_F(SourceTransactionCaptureTest,
        LexicalScopeRejectsAncestorAndPrivateDescendantBypass) {
   const std::string prefix = R"py(import pycircuit as ac
 @ac.module
