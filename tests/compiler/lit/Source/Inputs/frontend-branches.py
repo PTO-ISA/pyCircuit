@@ -1056,7 +1056,7 @@ cases["explicit-range-local-overflow"] = (
 )
 cases["explicit-local-reannotation"] = (
     rule_local.replace("BODY", "local: ac.u1 = 0\n    local: ac.u8 = 1"),
-    "Method/Rule local annotation cannot redeclare a binding",
+    "declared binding boundary",
 )
 cases["branch-declaration-conflict"] = (
     rule_local.replace(
@@ -1114,7 +1114,7 @@ cases["representation-range-reannotation"] = (
     formal_capture.replace("BODY", "value: Annotated[int, range(1 << 1)] = 0").replace(
         "ACTUAL", "0 - 1"
     ),
-    "Method/Rule local annotation cannot redeclare a binding",
+    "declared binding boundary",
 )
 
 protected = {p: snapshot(p) if p.is_dir() else p.read_bytes() for p in protected_paths}

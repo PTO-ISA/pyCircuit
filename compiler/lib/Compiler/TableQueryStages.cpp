@@ -46,6 +46,17 @@ bool observeStageMapping(TableQueryStageEnvelope *envelope,
 }
 } // namespace
 
+bool isTableQueryScalarOperation(Operation *operation, bool mapAggregates) {
+  return (mapAggregates &&
+          isa<ac::TableCreateOp, ac::TableSplatOp>(operation)) ||
+        isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsConstant4Op,
+             ac::BitsUnaryOp, ac::BitsBinaryOp, ac::BitsCompareOp,
+             ac::BitsSelectOp, ac::BitsConcatOp, ac::BitsExtractOp,
+             ac::BitsResizeOp, ac::StructCreateOp, ac::StructGetOp,
+             ac::EnumCreateOp, ac::EnumToBitsOp, ac::EnumFromBitsOp,
+             ac::ValueMergeOp>(operation);
+}
+
 FailureOr<SmallVector<Value>> TableQueryLowering::map(
     ValueRange tables, ValueRange captures, ArrayRef<uint64_t> sizes,
     TypeRange elements,
@@ -199,14 +210,7 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
          operation.getNumSuccessors() || operation.getNumOperands() > 3 ||
          !observeStageValues(envelope, 1)))
       return emitError(loc) << "named callback scalar exceeds its envelope";
-    if (!(mapAggregates &&
-          isa<ac::TableCreateOp, ac::TableSplatOp>(operation)) &&
-        !isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsConstant4Op,
-             ac::BitsUnaryOp, ac::BitsBinaryOp, ac::BitsCompareOp,
-             ac::BitsSelectOp, ac::BitsConcatOp, ac::BitsExtractOp,
-             ac::BitsResizeOp, ac::StructCreateOp, ac::StructGetOp,
-             ac::EnumCreateOp, ac::EnumToBitsOp, ac::EnumFromBitsOp,
-             ac::ValueMergeOp>(operation))
+    if (!isTableQueryScalarOperation(&operation, mapAggregates))
       return operation.emitError()
              << "Table query scalar template is unsupported";
   }

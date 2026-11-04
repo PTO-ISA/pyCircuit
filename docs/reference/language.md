@@ -668,9 +668,24 @@ named callbacks may call other verified pure helpers within the callback operati
 Captures are immutable call-time Bits/Enum/Struct snapshots. A captured Struct
 may contain Tables; explicitly indexed reads of captured Tables use the existing
 index proofs and query staging. A bare Table cannot become an implicit scalar
-capture or a callback result. Calls to helpers inside expression lambdas,
-nested method/lambda callbacks, allocation, effects and general tuple/list
-results remain unsupported, including in dead branches. Named callbacks have
+capture or a callback result. Expression lambdas may call ordinary pure helpers
+in `map`, `first(where=...)` and `argmin(where=..., key=...)`. Actuals are evaluated
+once in source order and checked against the helper's declared contracts using
+generic row types, never individual lane constants. Lambda captures use the
+query call-time snapshot; helper captures, including transitive captures, retain
+the helper's definition-time snapshot. For example, a helper that captured
+`offset = 1` before rebinding it to `7` makes
+`rows.map(lambda row: adjust(row) + offset)` compute `row + 1 + 7` when
+`adjust(row)` returns `row + offset`.
+
+The complete verified helper IR closure must fit the existing callback operation
+boundary before inlining and staging. Local and imported helpers follow the same
+rule; consumers do not need provider Python. Bare Table helper parameters,
+results or captures cannot cross this callback boundary, even through identity
+calls. Tuple helper results still require direct unpacking and cannot be a
+lambda's single result. Direct nested method/lambda callbacks, allocation,
+effects and general tuple/list results remain unsupported, including in dead
+branches. Named callbacks have
 no free-value captures. Capture validates ordinary lambda syntax; each method
 checks its own parameter count during source lowering.
 
@@ -692,8 +707,7 @@ These methods lower to existing TableMap/Fold and scalar operations. The
 source-wide budget includes replicated capture planes, Table-valued scalar
 temporaries and fold-tree storage before publishing IR. Ordered prefix computations
 can use the bounded source loops below; no Table `scan` method is introduced.
-Named helper calls inside expression lambdas remain unsupported. A balanced
-reduction does not implement a nonassociative prefix scan.
+A balanced reduction does not implement a nonassociative prefix scan.
 
 ## Bounded source loops
 
@@ -743,8 +757,11 @@ loops. The body supports ordinary assignments, annotations, `pass`, existing
 `if`/conditional expressions, projections, proven Table indexing, fixed slices,
 `+`, `-`, `*`, `&`, `|`, `^`, fixed shifts, unsigned division/remainder,
 supported unary/comparison/Boolean expressions,
-nominal Struct construction and contextual Table literals. Calls are limited to
-`concat`, `enum_to_bits` and verified pure value helpers. This does not broaden
+nominal Struct construction and contextual Table literals. Calls use the same
+resolved pure intrinsic classification as ordinary expressions, including
+`concat`, `enum_to_bits`, `popcount`, `count_leading_zeros`,
+`count_trailing_zeros`, and four-state values and observers, as well as verified
+pure value helpers. This does not broaden
 the loop grammar or named Table callback restrictions; helper expansion is
 charged to the existing loop and source-wide budgets.
 Unary `not` and fixed-bit `~` retain their existing rules. Unary `+` and `-`
@@ -827,7 +844,8 @@ without defaults or variadic arguments. The same tuple binding is admitted at
 module scope over an existing closed Table; both results become ordinary module
 values that later Rules may capture. Module-scope queries cannot target a
 persistent owner, input, Method or Rule registration. Existing scalar expressions and pure
-intrinsics retain their ordinary type rules. Captures are immutable SSA snapshots;
+intrinsics and pure helper calls retain their ordinary type rules and the
+[callback helper boundary](#table-transformations-and-reductions). Captures are immutable SSA snapshots;
 an owner-bound state name is read once at the query statement, after earlier
 proposals in that Rule. A saved local retains its earlier value. Lambda parameters
 shadow outer bindings. These reads occur outside the pure per-row template;
@@ -1045,13 +1063,18 @@ bind it for subsequent use. An explicit annotation on a partial binding still
 constrains that later assignment; it does not create an initial value. Returns
 inside branches remain unsupported.
 
-An ordinary inferred Integer local keeps its Integer kind but may grow or change
-its representation: `n = 1; n = n + 1` and branches assigning `n = 0` or `n = 2`
-retain exact values. Inferred Boolean and fixed-width locals retain their kind
-and type. Persistent owners and explicitly annotated locals keep their original
-logical type and range/width boundary through initialization, assignment and
-joins. Boolean bindings require Boolean values; Integer `0/1` and fixed `u1` do
-not become Boolean merely because they fit one bit.
+An unannotated ordinary local binds the current right-hand side SSA value on
+each assignment. Its type and facts may change: `value = small; value = large`
+can replace a `u8` local with a `u16` value. A saved alias still denotes the
+earlier value. This rule applies to helper, Module, Rule and Method locals;
+the first assignment does not declare a permanent boundary. Branches join the
+new values using the rules below, without imposing the old inferred type.
+
+Persistent owners, formals and explicitly annotated locals retain their
+contracts through assignment and joins. A declared Boolean requires Boolean
+values; Integer `0/1` and fixed `u1` do not become Boolean merely because they
+fit one bit. An explicit `u8` boundary still rejects implicit narrowing from
+`u16`.
 
 An unannotated non-owner Integer rule formal keeps the call's original physical
 representation, source interval and constant facts. Its representation is not an
@@ -1065,7 +1088,17 @@ Reannotation cannot replace an owner, formal or earlier explicit local contract.
 If a new local has an explicit annotation in one branch and an inferred binding
 in the other, that declaration constrains both values before joining. Explicit
 declarations in both branches must agree. Adding an annotation to an inferred
-local constrains subsequent assignments without changing earlier SSA aliases.
+local constrains that assignment and subsequent assignments without changing
+earlier SSA aliases. Repeating the same annotation is allowed; a conflicting
+annotation rejects. A fresh top-level Module annotation declares persistent
+state, while an annotation of an already bound ordinary local remains a wire.
+Annotations inside ordinary Module control flow establish local boundaries;
+they do not allocate conditional state.
+
+Migration: code that relied on its first ordinary assignment fixing the type
+must add an explicit annotation at the intended boundary. There is no
+compatibility mode. Instance handles and writable owners cannot acquire a new
+identity through ordinary local rebinding.
 
 Integer/Integer joins retain exact source kind and the interval hull, using a
 complete common representation before selection, including negative and wide
@@ -1296,9 +1329,15 @@ def bump(value: u8) -> u8:
     return result
 ```
 
-Helpers require typed ordinary positional parameters and an explicit zero/one
-result contract (`-> None` for no result). They reuse the existing hardware
-binding boundaries and logical types; physical width alone does not permit an
+Helpers require typed ordinary positional parameters and an explicit result
+contract: `-> None`, one scalar or structured result, or a fixed nonempty
+`tuple[T0, T1, ...]` for independent results. Tuple helpers use an explicit
+ordered return and direct ordinary-name unpacking at the call site. Each result
+is checked against its destination boundary before any target name is updated;
+there is no general hardware tuple value. These contracts travel with published
+source units and remain distinct even for a one-element tuple.
+
+Helpers reuse the existing hardware binding boundaries and logical types; physical width alone does not permit an
 Integer/Boolean/fixed-Bits conversion. Actual arguments are evaluated and bound
 once, in source order. Defaults, keywords, variadic and positional-only
 parameters are not admitted.
@@ -1334,8 +1373,9 @@ hardware IR, and neither backend interprets Python helpers.
 
 Ordinary expressions, registered Rule/Method bodies, named Table callbacks and
 the existing bounded-loop caller share this helper implementation. Named Table
-callbacks retain their fixed-Bits and zero-capture restrictions; calls inside
-Table expression lambdas remain unsupported. Helper purity is separate from the
+callbacks retain their fixed-Bits and zero-capture restrictions. Expression
+lambdas can call pure helpers within the existing callback operation and type
+boundaries described above. Helper purity is separate from the
 transaction execution and resource boundaries described below.
 
 Defining a Rule does not execute it. Each Module/System-scope Rule call creates
@@ -1346,7 +1386,7 @@ selectors, guards and pure helpers remain rejected. A pure autonomous Rule
 remains a Rule; its return type or absence of writes does not silently convert
 it into a helper. Use a typed `def` for a pure expression helper.
 
-## Immutable local wires
+## Ordinary local wires
 
 A structural module body may name an existing pure expression with a single
 assignment, such as `next_value = (x + 1) & 255`, then reuse it in an output mapping and registered
@@ -1356,19 +1396,28 @@ from current inputs and old Q; existing output/input boundaries perform their
 usual type and range checks. Alias chains retain source kind, interval and
 mathematical provenance, including when captured by a rule.
 
-Local names are immutable in this structural slice. They cannot shadow inputs,
-static formals, instances, definitions, imports or active intrinsic grammar names.
-A local Rule name is reserved for its autonomous declaration and computed results;
-ordinary data cannot reuse that name before or after the declaration. Use distinct
-names for saved values and callbacks. Output mapping keys do not declare variables,
-so an ordinary local and its output key may share a name.
+Observation expressions use the same SSA type and value rules as expressions
+saved in a local first. Each expression is lowered once; arithmetic and both
+conditional arms determine its result. Copying or capturing a value preserves
+its existing facts. A hardware carrier width alone does not establish an
+Integer range or a static constant; declared input/result domains and actual
+operations supply those facts.
+
+Ordinary local reassignment binds a new SSA value; existing aliases keep their
+snapshots. Names cannot shadow inputs, static formals, instances, definitions,
+imports or active intrinsic grammar. In an ordinary Module body, data may precede
+a directly nested Rule with the same name. From that declaration onward, the name
+denotes the Rule result; save an alias beforehand to retain the earlier data.
+Output mapping keys do not declare variables, so a local and its output key may
+share a name.
 
 Ordinary wires captured by a Rule must be available in its lexical binding
 snapshot. Rule results are connected at Module wiring sites, not captured by a
 second local Rule. Previously saved ordinary aliases retain their SSA values.
 General forward reads of ordinary locals and bindings after the Module's return
 remain rejected; explicit child connections retain their documented forward-wiring
-support. Fixed-result bindings retain their shape and freshness restrictions.
+support. Fixed-result bindings retain their required unpacking shape and apply
+any explicit destination boundaries.
 
 Only a Call resolved to an existing module or trusted leaf declares an instance;
 a lexical shadow cannot redirect constructor lookup to an outer definition.

@@ -41,6 +41,7 @@ nightly_python_tests=(
   tests/system/test_four_state_frontend_system.py
   tests/system/test_four_state_runtime_unknown.py
   tests/system/test_module_statement_parity.py
+  tests/system/test_frontend_generality.py
   tests/system/test_dynamic_bits_index.py
   tests/system/test_memory_rule_calls.py
   tests/system/test_rule_formal_proposals.py

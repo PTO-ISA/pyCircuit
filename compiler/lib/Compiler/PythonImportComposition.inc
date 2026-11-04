@@ -321,7 +321,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
                                     at.getArrayAttr(callee->typeArguments)),
                     at.getNamedAttr("occurrence", site)});
       for (auto [value, contract] : llvm::zip(op->getResults(), callee->results)) {
-        remember(value, contract.sourceKind);
+        rememberContract(value, contract);
         if (contract.fixedBits)
           fixedValues.insert(value);
       }
@@ -454,15 +454,15 @@ LogicalResult Importer::bindCallableResults(
         queueResultNames.contains(name) || memoryResultNames.contains(name))
       return error() << "tuple callable result cannot write a protected owner: '"
                      << name << "'";
-    auto boundary = boundaries && boundaries->contains(name)
-        ? boundaries->lookup(name)
-        : inferredBoundary(name, results[index], assignment);
+    std::optional<BindingBoundary> boundary;
+    if (boundaries && boundaries->contains(name) && boundaries->lookup(name).declared)
+      boundary = boundaries->lookup(name);
     destinations.push_back({name, std::move(boundary)});
   }
   // Callable tuples use existing declaration boundaries, but do not introduce
   // inferred boundaries into the caller environment.
   return bindLocalValues(destinations, results, assignment.child("value"), at,
-                         symbol, values);
+                         symbol, values, boundaries);
 }
 
 FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
@@ -504,7 +504,8 @@ FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
 FailureOr<bool> Importer::bindModuleResults(
     const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
-    const llvm::StringSet<> &forbidden) {
+    const llvm::StringSet<> &forbidden,
+    llvm::StringMap<BindingBoundary> *boundaries) {
   auto call = assignment.child("value");
   if (!moduleCall(call) || methodOwner(call.child("func")))
     return false;
@@ -524,11 +525,8 @@ FailureOr<bool> Importer::bindModuleResults(
   auto results = directModuleResults(call, at, symbol, values, instances);
   if (failed(results))
     return failure();
-  SmallVector<PreparedLocalBinding, 2> destinations;
-  for (auto [index, name] : llvm::enumerate(*targets))
-    destinations.push_back(
-        {name, inferredBoundary(name, (*results)[index], assignment)});
-  if (failed(bindLocalValues(destinations, *results, call, at, symbol, values)))
+  if (failed(bindCallableResults(assignment, *results, at, symbol, values,
+                                  instances, forbidden, boundaries)))
     return failure();
   return true;
 }

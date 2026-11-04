@@ -68,9 +68,11 @@ FailureOr<Value> Importer::materializeMatchKey(const MatchPatternKey &key,
                    ->getResult(0);
   if (fixedBits)
     fixedValues.insert(value);
-  else
-    remember(value, boolean ? ValueKind::Boolean : ValueKind::Integer, {},
-             key.value);
+  else {
+    remember(value, boolean ? ValueKind::Boolean : ValueKind::Integer);
+    if (failed(recordClosed(value, key.value, key.site)))
+      return failure();
+  }
   return value;
 }
 
@@ -417,6 +419,15 @@ Importer::preflightForCapabilities(const AstNode &statement,
         return diagnostic() << "bounded for assignment requires one target";
       auto destination =
           kind == "Assign" ? node.item("targets", 0) : node.child("target");
+      if (destination.kind() == "Tuple" && node.child("value").kind() == "Call") {
+        auto helper = resolveValueHelper(node.child("value").child("func"),
+            activeBehavioralDecl ? activeBehavioralDecl->symbol : FlatSymbolRefAttr());
+        if (failed(helper) || !*helper || (*helper)->returnShape != ReturnShape::Tuple)
+          return diagnostic() << "bounded for tuple assignment requires a tuple helper";
+        auto targets = moduleResultTargets(node, (*helper)->results.size());
+        if (failed(targets)) return failure();
+        return child("value");
+      }
       if (destination.kind() != "Name" && destination.kind() != "Attribute" &&
           destination.kind() != "Subscript")
         return diagnostic() << "bounded for assignment target is unsupported";
@@ -547,12 +558,17 @@ Importer::preflightForCapabilities(const AstNode &statement,
         auto pattern = fourStatePattern(node);
         return success(succeeded(pattern));
       }
-      auto binding = lookupBinding(function);
-      bool constructor =
-          binding && binding->category == BindingCategory::Struct;
-      if (!constructor && !concatCall(node) &&
-          !intrinsic(function, "enum_to_bits") &&
-          !intrinsic(function, "case_eq") && !intrinsic(function, "is_known")) {
+      auto classification = classifyCall(function);
+      const auto &binding = classification.binding;
+      bool constructor = classification.constructor();
+      // Capability preflight also covers zero-trip loops. Check intrinsic
+      // syntax here without evaluating an operand or relying on expansion.
+      if (auto count = fixedCountCall(node); !count.empty()) {
+        if (failed(validateFixedCountCall(node, count)))
+          return failure();
+      } else if (concatCall(node) && failed(validateConcatCall(node)))
+        return failure();
+      if (!constructor && !classification.scalarIntrinsic()) {
         auto helper = resolveValueHelper(function, activeBehavioralDecl ?
             activeBehavioralDecl->symbol : FlatSymbolRefAttr());
         if (failed(helper) || !*helper)
@@ -944,6 +960,27 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
   }
   if (node.kind() == "Call") {
     auto function = node.child("func");
+    if (auto name = fixedCountCall(node); !name.empty()) {
+      if (failed(validateFixedCountCall(node, name)))
+        return failure();
+      auto input = visit(node.item("args", 0));
+      if (failed(input))
+        return failure();
+      // The count lowering works at input precision. Its mask/population
+      // networks use at most eight operations per halving stage; zero counts
+      // add two fill networks and a fixed endpoint/select tail. Prepay a
+      // conservative bound for both, including when a scratch shape only
+      // supplies an upper bound on the actual input width.
+      uint64_t stages = input->precision > 1
+                            ? llvm::Log2_64(input->precision - 1) + 1
+                            : 0;
+      uint64_t count = 0;
+      if (!pureCheckedProduct(20, stages, count) ||
+          !pureCheckedAdd(count, 32) || !operation(count))
+        return failure();
+      envelope.operands = std::max(envelope.operands, uint64_t(3));
+      return scalar(llvm::Log2_64(input->precision) + 1);
+    }
     if (intrinsic(function, "four_state")) {
       auto pattern = fourStatePattern(node);
       if (failed(pattern) || !operation(1) ||
@@ -1244,7 +1281,10 @@ LogicalResult Importer::payLoopEnvelope(LoopStatementEnvelope &e,
   if (!fits || !queryBudget.reserve(e.reservation, reason))
     return mlir::emitError(site.location(b.getContext(), source.path))
            << "bounded for iteration " << activeLoop->iteration << " " << phase
-           << ": " << (fits ? reason : "resource envelope counter exhausted");
+           << ": " << (fits ? reason : "resource envelope counter exhausted")
+           << " (operations=" << e.operations << ", slots=" << slots
+           << ", payload_words=" << storage << ", constant_bytes=" << constants
+           << ", work=" << work << ")";
   e.arguments = B;
   e.values = L;
   e.words = P;
@@ -1272,10 +1312,40 @@ Importer::reserveLoopStatement(const AstNode &statement,
     auto target = statement.kind() == "AnnAssign"
                       ? statement.child("target")
                       : statement.item("targets", 0);
+    if (target.kind() == "Tuple" && statement.child("value").kind() == "Call") {
+      auto call = statement.child("value");
+      auto helper = resolveValueHelper(call.child("func"), symbol, &environment.values);
+      if (failed(helper) || !*helper || (*helper)->returnShape != ReturnShape::Tuple)
+        return error() << "bounded for tuple assignment requires a tuple helper";
+      auto targets = moduleResultTargets(statement, (*helper)->results.size());
+      if (failed(targets)) return failure();
+      for (size_t i = 0; i < call.array("args").size(); ++i)
+        if (failed(describeLoopExpression(call.item("args", i), environment,
+                                          symbol, envelope))) return failure();
+      for (auto [index, name] : llvm::enumerate(*targets)) {
+        auto include = [&](Type type) -> LogicalResult {
+          auto shape = loopTypeShape(type, statement);
+          if (failed(shape)) return failure();
+          envelope.precision = std::max(envelope.precision, shape->precision);
+          envelope.words = std::max(envelope.words, shape->words);
+          envelope.operands = std::max(envelope.operands, shape->fields);
+          return success(pureCheckedAdd(envelope.declarations, shape->declarations));
+        };
+        if (failed(include((*helper)->results[index].type))) return failure();
+        auto boundary = environment.boundaries.find(name);
+        if (boundary != environment.boundaries.end() && boundary->second.declared &&
+            boundary->second.contract().type &&
+            failed(include(boundary->second.contract().type))) return failure();
+        if (!pureCheckedAdd(envelope.nodes, 1) ||
+            !pureCheckedAdd(envelope.operations, 3)) return failure();
+      }
+      if (failed(payLoopEnvelope(envelope, statement, phase))) return failure();
+      return envelope;
+    }
     std::optional<Type> expected;
     auto boundary = environment.boundaries.find(assignmentRoot(target));
     if (target.kind() == "Name" && boundary != environment.boundaries.end() &&
-        boundary->second.contract().type)
+        boundary->second.declared && boundary->second.contract().type)
       expected = boundary->second.contract().type;
     if (statement.kind() == "AnnAssign") {
       auto type = portType(statement.child("annotation"), symbol);
@@ -1944,7 +2014,8 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     induction.precision =
         std::max(uint64_t(1), uint64_t(llvm::Log2_64_Ceil(ordinal + 1)));
     auto boundary = staged.boundaries.find(syntax->target.string("id"));
-    if (boundary != staged.boundaries.end() && boundary->second.contract().type) {
+    if (boundary != staged.boundaries.end() && boundary->second.declared &&
+        boundary->second.contract().type) {
       auto shape =
           loopTypeShape(boundary->second.contract().type, syntax->target);
       if (failed(shape))
@@ -1971,7 +2042,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
              IntegerInterval{llvm::APSInt::getUnsigned(ordinal),
                              llvm::APSInt::getUnsigned(ordinal + 1)},
              integer);
-    auto binding = boundary == staged.boundaries.end()
+    auto binding = boundary == staged.boundaries.end() || !boundary->second.declared
                        ? inferredBoundary(syntax->target.string("id"), *hidden,
                                           syntax->target)
                        : boundary->second;
@@ -1986,7 +2057,10 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
                    << " binder failed";
       return failure();
     }
-    staged.boundaries[syntax->target.string("id")] = binding;
+    if (binding.declared)
+      staged.boundaries[syntax->target.string("id")] = binding;
+    else
+      staged.boundaries.erase(syntax->target.string("id"));
     context.induction = *converted;
     if (failed(auditLoopStatement(*block, start, induction, syntax->target,
                                   "binder")) ||
@@ -2148,7 +2222,7 @@ Importer::validateModuleStatement(const AstNode &statement,
       return mlir::emitError(node.location(b.getContext(), source.path))
              << message;
     };
-    if (node.kind() == "AnnAssign")
+    if (node.kind() == "AnnAssign" && !ruleWrites.isLocalAnnotation(node))
       return reject("annotated Module variables are persistent declarations; "
                     "declarations under ordinary control flow are unsupported");
     if (node.kind() == "FunctionDef" || node.kind() == "ClassDef" ||
@@ -2196,20 +2270,14 @@ Importer::validateModuleStatement(const AstNode &statement,
       for (size_t i = 0; i < node.array("targets").size(); ++i)
         if (failed(target(node.item("targets", i))))
           return failure();
-    } else if (node.kind() == "AugAssign" || node.kind() == "For") {
+    } else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For") {
       if (failed(target(node.child("target"))))
         return failure();
     }
     if (node.kind() == "Call") {
       auto function = node.child("func");
-      StringRef name =
-          function.kind() == "Name" ? function.string("id") : StringRef();
-      bool allocation = moduleCall(node) || queueCall(node) ||
-                        !memoryKind(node).empty() || methodOwner(function) ||
-                        (function.kind() == "Subscript" &&
-                         intrinsic(function.child("value"), "table"));
-      bool effect = behavioralRules.contains(name) || nestedRuleBinding(name) ||
-                    intrinsic(function, "log") || intrinsic(function, "report");
+      auto classification = classifyCall(function);
+      bool effect = classification.transaction || classification.observation;
       if (function.kind() == "Attribute" &&
           function.child("value").kind() == "Name") {
         auto found =
@@ -2224,13 +2292,14 @@ Importer::validateModuleStatement(const AstNode &statement,
           effect |= !tableValue;
         }
       }
-      if ((allocation && controlled) || effect)
+      if ((classification.allocation && controlled) || effect)
         return reject(
             "Module ordinary control flow cannot allocate hardware or "
             "register/invoke Rule, Method or resource effects");
     }
     for (NamedAttribute field : node.fields()) {
       StringRef key = field.getName().getValue();
+      if (key == "annotation") continue;
       if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
         if (child.getAs<StringAttr>("kind") &&
             failed(self(self, node.child(key), controlled)))
@@ -2271,39 +2340,6 @@ Importer::moduleStatement(const ModuleDecl &decl, size_t ordinal, OpBuilder &at,
     boundaries = std::move(environment.boundaries);
     activeModuleStatements = saved;
   });
-  auto seedBoundary = [&](StringRef name, Value value) -> LogicalResult {
-    if (environment.boundaries.contains(name))
-      return success();
-    TableQueryCharge fee;
-    std::string reason;
-    bool fits = TableQueryBudget::add(fee, TableQueryResource::Slots, 16) &&
-                TableQueryBudget::addProduct(fee, TableQueryResource::Slots,
-                                             statement.path.size(),
-                                             (sizeof(AstStep) + 7) / 8) &&
-                TableQueryBudget::add(fee, TableQueryResource::Work, 1) &&
-                TableQueryBudget::add(fee, TableQueryResource::ConstantBytes,
-                                      name.size());
-    if (!fits || !queryBudget.reserve(fee, reason))
-      return error() << "Module ordinary binding: "
-                     << (fits ? reason : "binding budget exhausted");
-    environment.boundaries[name] = inferredBoundary(name, value, statement);
-    return success();
-  };
-  if (statement.kind() == "If" || statement.kind() == "Match" ||
-      statement.kind() == "For") {
-    // A join examines the complete incoming environment. Give new specialized
-    // call/declaration bindings their facts once before the branch copies.
-    for (const auto &entry : environment.values) {
-      if (failed(chargeLoopDescriptorWork(statement, "Module branch input")) ||
-          failed(seedBoundary(entry.first(), entry.second)))
-        return failure();
-    }
-  } else {
-    for (const auto &name : assignedNames)
-      if (Value prior = environment.values.lookup(name.getKey()))
-        if (failed(seedBoundary(name.getKey(), prior)))
-          return failure();
-  }
   llvm::StringSet<> noWritableOwners;
   AstNode returned;
   if (failed(statements(decl.node, "body", at, decl.symbol, environment,
@@ -2351,31 +2387,6 @@ LogicalResult Importer::ifStatement(
   auto predicate = predicateView(*guard, statement.child("test"), context.symbol);
   if (failed(predicate))
     return failure();
-  if (transactional) {
-    // Source captures retain their declaration authority before any arm copies.
-    // Ordinary Module entries seed their boundaries in moduleStatement instead.
-    for (const auto &binding : environment.values) {
-      if (environment.boundaries.contains(binding.first()))
-        continue;
-      TableQueryCharge charge;
-      bool fits = TableQueryBudget::add(charge, TableQueryResource::Slots, 16) &&
-                  TableQueryBudget::add(charge, TableQueryResource::Work, 2) &&
-                  TableQueryBudget::addProduct(
-                      charge, TableQueryResource::ConstantBytes, 2,
-                      binding.first().size());
-      for (const AstStep &step : statement.path)
-        fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 8) &&
-                TableQueryBudget::add(charge, TableQueryResource::Work, 1) &&
-                TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
-                                      step.field.size());
-      if (!fits || !queryBudget.reserve(charge, reason))
-        return mlir::emitError(statement.location(b.getContext(), source.path))
-               << "source branch capture binding: "
-               << (fits ? reason : "binding storage counter exhausted");
-      environment.boundaries[binding.first()] =
-          inferredBoundary(binding.first(), binding.second, statement);
-    }
-  }
   // Keep the existing transaction empty-else optimization and ordinary copy
   // policy. Both paths hand immutable entry/arm environments to one join.
   bool unchangedElse = transactional && statement.array("orelse").empty();
@@ -2586,19 +2597,14 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
                      << "' cannot be assigned in source";
     StringRef name = assignmentRoot(target);
     if (target.kind() == "Name") {
-      if (failed(lowerLocalAssignment(stmt, at, symbol, environment, instances,
-                                       LocalBindingPolicy::Ordinary)))
+      if (failed(lowerLocalAssignment(stmt, at, symbol, environment, instances)))
         return failure();
     } else {
-      std::optional<BindingBoundary> binding;
       if (stmt.kind() == "AnnAssign") {
         auto annotation = stmt.child("annotation");
         auto type = portType(annotation, symbol);
         if (failed(type))
           return failure();
-        binding = BindingBoundary{{assignmentRoot(target).str(), *type, annotation,
-                                   annotationKind(annotation),
-                                   fixedAnnotation(annotation)}, true};
       }
       Value rootValue = values.lookup(name);
       auto path = resolveAccessPath(target, rootValue ? rootValue.getType() : Type(),
@@ -2607,25 +2613,10 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
       for (const auto &step : path->steps)
         if (!step.field && !isa<ac::TableType>(step.parentType))
           return error() << "indexed assignment requires a table";
-      const auto &selected = path->steps.back();
-      binding = selected.field
-          ? BindingBoundary{structFieldPort(selected.field, target), true}
-          : BindingBoundary{{name.str(), selected.type, target, {},
-                              isa<ac::BitsType>(selected.type)}, true};
-      std::optional<Type> expected;
-      if (binding && binding->contract().type)
-        expected = binding->contract().type;
-      auto value = expression(stmt.child("value"), at, symbol, values, instances,
-                              expected);
-      if (failed(value))
-        return failure();
-      if (!binding)
-        binding = inferredBoundary(assignmentRoot(target), *value, stmt);
-      auto converted =
-          applyBindingBoundary(*value, *binding, stmt.child("value"), at, symbol);
-      if (failed(converted))
-        return failure();
-      value = *converted;
+      auto value = prepareAssignmentLeaf(
+          *path, stmt.child("value"), at, symbol, values, instances,
+          AssignmentIndexPolicy::BindingBoundary);
+      if (failed(value)) return failure();
       if (name.empty() ||
           failed(updateAssignment(*path, *value, stmt, at, symbol, values)))
         return failure();
@@ -2745,13 +2736,15 @@ LogicalResult Importer::predeclareStructuralInstances(
           return failure();
         std::optional<ac::detail::ValueKind> kind;
         bool fixed = false;
+        AstNode contractSite = stmt;
         if (auto formal = dyn_cast<ac::TypeParamType>(formalType)) {
           for (size_t i = 0; i < call.array("keywords").size(); ++i) {
             auto keyword = call.item("keywords", i);
             auto actualName = dyn_cast_or_null<StringAttr>(keyword.get("arg"));
             if (actualName == formal.getName()) {
-              kind = annotationKind(keyword.child("value"));
-              fixed = fixedAnnotation(keyword.child("value"));
+              contractSite = keyword.child("value");
+              kind = annotationKind(contractSite);
+              fixed = fixedAnnotation(contractSite);
             }
           }
         } else if (!decl.system) {
@@ -2767,7 +2760,7 @@ LogicalResult Importer::predeclareStructuralInstances(
           else fixed = true;
         }
         ports.push_back(
-            {cast<StringAttr>(name).getValue().str(), *type, stmt, kind, fixed});
+            {cast<StringAttr>(name).getValue().str(), *type, contractSite, kind, fixed});
       }
       return success();
     };
@@ -2798,7 +2791,7 @@ LogicalResult Importer::predeclareStructuralInstances(
     if (!decl.system)
       for (auto [output, port] :
            llvm::zip(instance.op->getResults(), instance.outputs)) {
-        remember(output, port.sourceKind);
+        rememberContract(output, port);
         if (port.fixedBits) fixedValues.insert(output);
       }
     structuralCallSites.insert(sourceOccurrence(at, decl.symbol, call));
@@ -2873,7 +2866,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
   for (auto &port : decl.inputs) {
     auto value = graph->addArgument(port.type, module->getLoc());
     values[port.name] = value;
-    remember(value, port.sourceKind);
+    rememberContract(value, port);
     if (port.fixedBits)
       fixedValues.insert(value);
   }
@@ -3073,20 +3066,20 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
             return error() << "tuple Rule result cannot write a protected owner";
         auto results = behavioralCall(decl, call, at, values, states, false, true);
         if (failed(results) || failed(bindCallableResults(stmt, *results, at,
-                decl.symbol, values, structuralInstances, tupleForbidden)))
+                decl.symbol, values, structuralInstances, tupleForbidden, &ordinaryBoundaries)))
           return failure();
         continue;
       }
     }
     auto moduleResults = bindModuleResults(stmt, at, decl.symbol, values,
-                                          structuralInstances, tupleForbidden);
+                                          structuralInstances, tupleForbidden, &ordinaryBoundaries);
     if (failed(moduleResults))
       return failure();
     if (*moduleResults)
       continue;
     auto fixed = bindFixedResults(stmt, at, decl.symbol, values,
                                   structuralInstances,
-                                  nullptr, tupleForbidden, false);
+                                  &ordinaryBoundaries, tupleForbidden, false);
     if (failed(fixed))
       return failure();
     if (*fixed)
@@ -3129,13 +3122,16 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
           expression(call, at, decl.symbol, values, structuralInstances);
       if (failed(value))
         return failure();
-      values[name] = *value;
-      ordinaryBoundaries[name] = inferredBoundary(name, *value, stmt);
+      std::optional<BindingBoundary> boundary;
+      if (ordinaryBoundaries.contains(name)) boundary = ordinaryBoundaries.lookup(name);
+      if (failed(bindLocalValues({{name, boundary}}, {*value}, call, at,
+                                 decl.symbol, values, &ordinaryBoundaries)))
+        return failure();
       noteNestedRuleDataBinding(name);
       continue;
     }
     if (stmt.kind() == "If" || stmt.kind() == "Match" || stmt.kind() == "For" ||
-        stmt.kind() == "Pass") {
+        stmt.kind() == "Pass" || ruleWrites.isLocalAnnotation(stmt)) {
       if (failed(moduleStatement(decl, i, at, values, ordinaryBoundaries,
                                  structuralInstances, tupleForbidden)))
         return failure();

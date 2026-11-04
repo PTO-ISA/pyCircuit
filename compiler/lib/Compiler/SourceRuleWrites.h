@@ -53,6 +53,10 @@ public:
     return pending;
   }
   uint64_t spentWork() const { return work; }
+  // One source-order declaration plan is shared by owner analysis and lowering.
+  // A later annotation of ordinary data is a local boundary, never new storage.
+  bool isPersistentDeclaration(const AstNode &statement) const;
+  bool isLocalAnnotation(const AstNode &statement) const;
   mlir::FailureOr<const SourceRuleCallPlan *> lookup(
       const AstNode &module, const AstNode &call,
       llvm::function_ref<bool(uint64_t)> charge) const;
@@ -61,6 +65,11 @@ public:
 
 private:
   mlir::LogicalResult analyze();
+  mlir::LogicalResult analyzeModuleBindings(const AstNode &module);
+  enum class DeclarationRole { Persistent, Local };
+  std::optional<DeclarationRole> declarationRole(const AstNode &statement) const;
+  llvm::DenseMap<mlir::DictionaryAttr,
+      llvm::SmallVector<std::pair<AstNode, DeclarationRole>, 1>> declarationRoles;
   bool charge(uint64_t amount = 1);
   std::optional<ResolvedSourceBinding> binding(const AstNode &node) const;
   CapturedSource source;

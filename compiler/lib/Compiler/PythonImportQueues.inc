@@ -121,7 +121,7 @@ LogicalResult Importer::declareQueue(const AstNode &assignment, ModuleDecl &decl
     op->setAttr("ac.payload_constraint", *constraint);
     if (!seen.contains("in_valid")) op->setAttr("ac.source_unbound_push", at.getBoolAttr(true));
     if (!seen.contains("out_ready")) op->setAttr("ac.source_unbound_pop", at.getBoolAttr(true));
-    remember(op->getResult(2), contract.sourceKind);
+    rememberContract(op->getResult(2), contract);
     if (contract.fixedBits) fixedValues.insert(op->getResult(2));
   } else if (isa<ac::BitsType>(*payload))
     fixedValues.insert(op->getResult(2));
@@ -247,34 +247,6 @@ FailureOr<bool> Importer::bindQueueResults(
     for (auto [ordinal, target] : llvm::enumerate(*targets)) values[target] = found->second.op->getResult(ordinal);
   }
   return true;
-}
-FailureOr<std::optional<Type>> Importer::queueExpressionType(
-    const AstNode &node, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
-    llvm::StringMap<Instance *> &instances) {
-  AstNode attribute = node.kind() == "Call" ? node.child("func") : node;
-  if (attribute.kind() != "Attribute" || attribute.child("value").kind() != "Name")
-    return std::optional<Type>();
-  StringRef base = attribute.child("value").string("id");
-  auto found = instances.find(base);
-  auto handle = values.contains(base) || queryBound(base) ||
-                        found == instances.end()
-                    ? nullptr
-                    : queueInstance(found->second);
-  if (!handle) return std::optional<Type>();
-  if (activeSourceEffects && activeSourceEffects->callable &&
-      !activeSourceEffects->callable->lexical)
-    return error() << "global Rule cannot capture a caller Module Queue handle";
-  StringRef member = attribute.string("attr");
-  if (node.kind() == "Call") {
-    if (member == "pop" || member == "peek")
-      return std::optional<Type>(handle->outputs[2].type);
-    if (member == "push") return error() << "queue.push does not produce a payload value";
-  } else {
-    if (member == "ready" || member == "valid")
-      return std::optional<Type>(handle->outputs[member == "ready" ? 0 : 1].type);
-    if (member == "data") return std::optional<Type>(handle->outputs[2].type);
-  }
-  return error() << "unknown Queue member or indirect Queue method value";
 }
 FailureOr<std::optional<Value>> Importer::queueRawExpression(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,

@@ -3,7 +3,7 @@
 // every result has passed its boundary.
 FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
     const AstNode &statement, const BranchEnvironment &environment,
-    FlatSymbolRefAttr symbol, LocalBindingPolicy policy) {
+    FlatSymbolRefAttr symbol) {
   bool annotated = statement.kind() == "AnnAssign";
   auto target = annotated ? statement.child("target")
                           : statement.item("targets", 0);
@@ -11,12 +11,9 @@ FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
   LocalAssignmentBinding prepared;
   prepared.destination.name = name;
   auto existing = environment.boundaries.find(name);
-  if (existing != environment.boundaries.end())
+  if (existing != environment.boundaries.end() && existing->second.declared)
     prepared.destination.boundary = existing->second;
   if (annotated) {
-    if (policy == LocalBindingPolicy::Transaction &&
-        environment.values.contains(name))
-      return error() << "Method/Rule local annotation cannot redeclare a binding";
     auto annotation = statement.child("annotation");
     auto type = portType(annotation, symbol);
     if (failed(type))
@@ -25,15 +22,13 @@ FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
                               annotationKind(annotation),
                               fixedAnnotation(annotation)}, true};
     auto &binding = prepared.destination.boundary;
-    if (policy == LocalBindingPolicy::Ordinary && binding && binding->declared &&
-        !sameBindingBoundary(*binding, declared))
+    if (binding && !sameBindingBoundary(*binding, declared))
       return mlir::emitError(statement.location(b.getContext(), source.path))
              << "annotation cannot replace a declared binding boundary";
-    if (policy == LocalBindingPolicy::Transaction || !binding || !binding->declared)
+    if (!binding)
       binding = std::move(declared);
   }
-  if ((annotated || policy == LocalBindingPolicy::Ordinary) &&
-      prepared.destination.boundary &&
+  if (prepared.destination.boundary &&
       prepared.destination.boundary->contract().type)
     prepared.expected = prepared.destination.boundary->contract().type;
   return prepared;
@@ -48,7 +43,7 @@ LogicalResult Importer::bindLocalValues(
   SmallVector<Value, 1> converted;
   for (auto [destination, result] : llvm::zip(destinations, results)) {
     const auto &binding = destination.boundary;
-    if (binding) {
+    if (binding && binding->declared) {
       auto value = applyBindingBoundary(result, *binding, node, at, symbol);
       if (failed(value))
         return failure();
@@ -58,8 +53,12 @@ LogicalResult Importer::bindLocalValues(
   }
   for (auto [index, destination] : llvm::enumerate(destinations)) {
     values[destination.name] = converted[index];
-    if (boundaries && destination.boundary)
-      (*boundaries)[destination.name] = *destination.boundary;
+    if (boundaries) {
+      if (destination.boundary && destination.boundary->declared)
+        (*boundaries)[destination.name] = *destination.boundary;
+      else
+        boundaries->erase(destination.name);
+    }
     if (noteDataBindings)
       noteNestedRuleDataBinding(destination.name);
   }
@@ -78,14 +77,12 @@ FailureOr<Value> Importer::lowerBoundExpression(
 
 LogicalResult Importer::lowerLocalAssignment(
     const AstNode &statement, OpBuilder &at, FlatSymbolRefAttr symbol,
-    BranchEnvironment &environment, llvm::StringMap<Instance *> &instances,
-    LocalBindingPolicy policy) {
+    BranchEnvironment &environment, llvm::StringMap<Instance *> &instances) {
   auto target = statement.kind() == "AnnAssign" ? statement.child("target")
                                                : statement.item("targets", 0);
-  if (policy == LocalBindingPolicy::Ordinary &&
-      failed(validateAssignmentRoot(target, statement, at)))
+  if (failed(validateAssignmentRoot(target, statement, at)))
     return failure();
-  auto prepared = prepareLocalAssignment(statement, environment, symbol, policy);
+  auto prepared = prepareLocalAssignment(statement, environment, symbol);
   if (failed(prepared))
     return failure();
   auto rhs = statement.child("value");
@@ -93,12 +90,9 @@ LogicalResult Importer::lowerLocalAssignment(
                           prepared->expected);
   if (failed(value))
     return failure();
-  if (!prepared->destination.boundary && policy == LocalBindingPolicy::Ordinary)
-    prepared->destination.boundary =
-        inferredBoundary(prepared->destination.name, *value, statement);
   return bindLocalValues({prepared->destination}, {*value}, rhs, at, symbol,
                          environment.values, &environment.boundaries,
-                         policy == LocalBindingPolicy::Ordinary);
+                         activeModuleStatements != nullptr);
 }
 
 // This is a fixed-result producer contract, not general tuple unpacking.
@@ -148,6 +142,9 @@ FailureOr<bool> Importer::bindFixedResults(
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
     llvm::StringMap<BindingBoundary> *boundaries,
     const llvm::StringSet<> &forbidden, bool immutable) {
+  auto helper = bindValueHelperResults(assignment, at, symbol, values, instances,
+                                        boundaries, forbidden, immutable);
+  if (failed(helper) || *helper) return helper;
   auto targets = fixedResultTargets(assignment);
   if (failed(targets))
     return failure();
@@ -180,14 +177,8 @@ FailureOr<bool> Importer::bindFixedResults(
   SmallVector<PreparedLocalBinding, 2> destinations;
   for (StringRef name : **targets) {
     std::optional<BindingBoundary> binding;
-    if (boundaries && boundaries->contains(name))
+    if (boundaries && boundaries->contains(name) && boundaries->lookup(name).declared)
       binding = boundaries->lookup(name);
-    else if (values.contains(name))
-      binding = inferredBoundary(name, values.lookup(name), assignment);
-    // The producer's result supplies the fresh boundary, while an existing
-    // local retains its own contract.
-    if (!binding)
-      binding = inferredBoundary(name, (*results)[destinations.size()], assignment);
     destinations.push_back({name, std::move(binding)});
   }
   if (failed(bindLocalValues(destinations, *results, call, at, symbol, values,
@@ -607,6 +598,27 @@ LogicalResult Importer::validateAssignmentRoot(const AstNode &target,
       return error() << "assignment shadows a source declaration";
   }
   return success();
+}
+
+// Resolve the leaf's declaration before lowering the RHS. Index evaluation and
+// publication remain with the owning assignment dispatcher.
+FailureOr<Value> Importer::prepareAssignmentLeaf(
+    TypedAccessPath &path, const AstNode &rhs, OpBuilder &at,
+    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    llvm::StringMap<Instance *> &instances, AssignmentIndexPolicy indexPolicy) {
+  assert(!path.steps.empty());
+  auto target = accessSite(path, 0);
+  if (failed(target)) return failure();
+  const auto &leaf = path.steps.back();
+  auto replacement = expression(rhs, at, symbol, values, instances, leaf.type);
+  if (failed(replacement)) return failure();
+  if (!leaf.field && indexPolicy == AssignmentIndexPolicy::UnsignedBoundary)
+    return unsignedBoundary(*replacement, leaf.type, rhs, at, symbol);
+  BindingBoundary boundary = leaf.field
+      ? BindingBoundary{structFieldPort(leaf.field, **target), true}
+      : BindingBoundary{{path.name().str(), leaf.type, **target, {},
+                          isa<ac::BitsType>(leaf.type)}, true};
+  return applyBindingBoundary(*replacement, boundary, rhs, at, symbol);
 }
 
 LogicalResult Importer::updateAssignment(

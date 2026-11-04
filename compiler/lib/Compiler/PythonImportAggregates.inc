@@ -56,6 +56,36 @@ Importer::resolveBinding(const AstNode &node) const {
     return ResolvedSourceBinding{MarkerKind::None, binding->symbol};
   return std::nullopt;
 }
+SourceCallClassification
+Importer::classifyCall(const AstNode &function) const {
+  SourceCallClassification result;
+  result.binding = lookupBinding(function);
+  result.subscribed = function.kind() == "Subscript";
+  auto target = function.kind() == "Subscript" ? function.child("value")
+                                               : function;
+  auto binding = function.kind() == "Subscript" ? lookupBinding(target)
+                                               : result.binding;
+  if (binding && binding->category == BindingCategory::Marker) {
+    result.marker = classifyImportedMarker(binding->importedModule,
+                                           binding->remote);
+    result.observation = binding->importedModule == "pycircuit" &&
+                         (binding->remote == "log" || binding->remote == "report");
+  }
+  result.method = methodOwner(function);
+  result.allocation =
+      (result.binding && result.binding->category == BindingCategory::Module) ||
+      result.marker == MarkerKind::Queue || result.method ||
+      (function.kind() == "Subscript" &&
+       (result.marker == MarkerKind::Table || !memoryReference(target).empty()));
+  if (function.kind() == "Name") {
+    StringRef name = function.string("id");
+    result.transaction = behavioralRules.contains(name) ||
+        (activeNestedRuleScope &&
+         activeNestedRuleScope->bindings.contains(
+             StringAttr::get(b.getContext(), name)));
+  }
+  return result;
+}
 bool Importer::nominalAnnotation(const AstNode &node) const {
   auto binding = resolveBinding(node);
   return binding && binding->marker == MarkerKind::None &&
@@ -205,9 +235,9 @@ bool Importer::concatCall(const AstNode &node) const {
   if (node.kind() != "Call")
     return false;
   auto function = node.child("func");
-  return intrinsic(function, "concat") ||
-         (function.kind() == "Subscript" &&
-          intrinsic(function.child("value"), "concat"));
+  if (function.kind() == "Subscript")
+    function = function.child("value");
+  return classifyCall(function).marker == MarkerKind::Concat;
 }
 LogicalResult Importer::validateConcatCall(const AstNode &node) {
   auto loc = node.location(b.getContext(), source.path);
@@ -273,11 +303,16 @@ StringRef Importer::fixedCountCall(const AstNode &node) const {
   auto function = node.child("func");
   if (function.kind() == "Subscript")
     function = function.child("value");
-  for (StringRef name :
-       {"popcount", "count_leading_zeros", "count_trailing_zeros"})
-    if (intrinsic(function, name))
-      return name;
-  return {};
+  switch (classifyCall(function).marker) {
+  case MarkerKind::Popcount:
+    return "popcount";
+  case MarkerKind::CountLeadingZeros:
+    return "count_leading_zeros";
+  case MarkerKind::CountTrailingZeros:
+    return "count_trailing_zeros";
+  default:
+    return {};
+  }
 }
 LogicalResult Importer::validateFixedCountCall(const AstNode &node,
                                                StringRef name) {

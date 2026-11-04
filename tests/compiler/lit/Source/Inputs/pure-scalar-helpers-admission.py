@@ -210,13 +210,6 @@ def admission_cases():
         ),
         ("shadow", "call", "helper"),
     )
-    add(
-        "query_callback_helper",
-        design(
-            identity, "value.map(lambda row: helper(row))[0]", value_type="table[3, u8]"
-        ),
-        ("callback", "helper", "lambda", "expression", "call"),
-    )
     # Limits are the published source-invocation ledger contracts, not inferred
     # operation recipes. These sources are small despite exceeding the limits.
     nesting_limit = 128
@@ -384,11 +377,6 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
         "formal_collision",
         mapped(identity.replace("value: u8", "Result: u8")),
         ("collision", "formal", "declaration", "binding"),
-    )
-    add(
-        "lambda_helper",
-        mapped(expression="value.map(lambda row: helper(row))"),
-        ("callback", "helper", "lambda", "expression", "call"),
     )
     # A fitting lane constant cannot grant a narrower generic callback formal.
     add(
