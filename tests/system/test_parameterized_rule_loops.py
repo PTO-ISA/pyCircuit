@@ -180,6 +180,47 @@ def Exercise():
     _check_execution(final, tmp_path, [(16, 14, 10, 22, 18)] * 6)
 
 
+def test_imported_parameterized_loop_preserves_user_names(tmp_path: Path) -> None:
+    final = _imported_system(
+        tmp_path,
+        """import pycircuit as ac
+
+def Scan_pyc_spec_0(value: ac.u8) -> ac.u8:
+    return value + 1
+
+@ac.module
+def Scan_pyc_spec_0_(value: ac.u8) -> ac.u8:
+    return value + 7
+
+@ac.module
+def Scan(value: ac.u8, *, SLOTS: int = 3) -> ac.u8:
+    @ac.rule
+    def accumulate() -> ac.u8:
+        total = Scan_pyc_spec_0(value)
+        for index in range(SLOTS):
+            total = total + 2
+        return total
+    return accumulate
+""",
+        """import pycircuit as ac
+from checks.provider import Scan, Scan_pyc_spec_0_
+
+@ac.system
+def Exercise():
+    first = Scan(10, SLOTS=2)
+    second = Scan(10, SLOTS=4)
+    authored = Scan_pyc_spec_0_(10)
+
+    @ac.rule
+    def observe() -> None:
+        ac.log("info", "values", first, second, authored)
+""",
+    )
+    # User declarations retain their meaning while two loop bounds specialize.
+    # Constant inputs give 10 + 1 + 2*2, 10 + 1 + 2*4, and 10 + 7.
+    _check_execution(final, tmp_path, [(15, 19, 17)] * 6)
+
+
 def test_imported_parameterized_method_table_candidates(tmp_path: Path) -> None:
     final = _imported_system(
         tmp_path,

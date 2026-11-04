@@ -199,6 +199,10 @@ specializeSourceTemplates(ModuleOp candidate,
   llvm::DenseSet<Attribute> active;
   SmallVector<std::unique_ptr<Variant>> storage;
   llvm::StringSet<> concreteSymbols;
+  llvm::StringSet<> reservedSymbols;
+  for (Operation &operation : candidate.getBody()->getOperations())
+    if (auto symbol = SymbolTable::getSymbolName(&operation))
+      reservedSymbols.insert(symbol.getValue());
   DictionaryAttr selectedRootKey;
   std::function<FailureOr<ModuleInterfaceView>(const SourceTemplateRequest &)>
       instantiate;
@@ -266,22 +270,45 @@ specializeSourceTemplates(ModuleOp candidate,
     if (!variant->definition)
       return emitError()
              << "source template lowering lost its selected definition";
+    SmallVector<func::FuncOp> lexicalHelpers;
+    for (Operation &operation : variant->body->getBody()->getOperations()) {
+      if (&operation == variant->definition.getOperation())
+        continue;
+      if (auto helper = dyn_cast<func::FuncOp>(operation);
+          helper && helper->getAttrOfType<FlatSymbolRefAttr>(
+                        "ac.lexical_owner") == request.target) {
+        lexicalHelpers.push_back(helper);
+        continue;
+      }
+      if (auto symbol = SymbolTable::getSymbolName(&operation))
+        reservedSymbols.insert(symbol.getValue());
+    }
+    auto helperName = [&](func::FuncOp helper, StringRef owner) {
+      return owner.str() + helper.getSymName()
+                               .drop_front(request.target.getValue().size())
+                               .str();
+    };
     std::string name = request.target.getValue().str();
-    if (!request.bindings.empty() && key != selectedRootKey)
+    if (!request.bindings.empty() && key != selectedRootKey) {
       name += "_pyc_spec_" + std::to_string(storage.size());
-    while (concreteSymbols.contains(name))
-      name += "_";
+      // The Module and its lexical helpers share the linked symbol table with
+      // source declarations and every other specialization.
+      while (reservedSymbols.contains(name) ||
+             llvm::any_of(lexicalHelpers, [&](func::FuncOp helper) {
+               return reservedSymbols.contains(helperName(helper, name));
+             }))
+        name += "_";
+    }
     concreteSymbols.insert(name);
+    reservedSymbols.insert(name);
     auto originalOrigin = variant->definition->getAttr("ac.origin");
     llvm::StringMap<std::string> symbolMapping;
     symbolMapping[request.target.getValue()] = name;
-    for (auto helper : variant->body->getOps<func::FuncOp>())
-      if (helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner") ==
-          request.target) {
-        StringRef original = helper.getSymName();
-        symbolMapping[original] =
-            name + original.drop_front(request.target.getValue().size()).str();
-      }
+    for (auto helper : lexicalHelpers) {
+      auto renamed = helperName(helper, name);
+      reservedSymbols.insert(renamed);
+      symbolMapping[helper.getSymName()] = std::move(renamed);
+    }
     variant->body->walk([&](Operation *operation) {
       NamedAttrList attrs;
       for (NamedAttribute attr : operation->getAttrs())
