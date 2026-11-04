@@ -319,6 +319,43 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
   return std::move(*registry);
 }
 
+FailureOr<SmallVector<Attribute>> detail::bindSourceRootParameters(
+    Operation *declaration, ArrayRef<SourceLinkParameterBinding> parameters,
+    ac::detail::EmitError emitError) {
+  auto formals = declaration->getAttrOfType<ArrayAttr>("parameters");
+  llvm::StringMap<ac::MathIntAttr> overrides;
+  for (const SourceLinkParameterBinding &binding : parameters) {
+    if (binding.name.empty() || overrides.contains(binding.name))
+      return declaration->emitOpError(
+          "root parameter binding names must be nonempty and unique");
+    if (!llvm::any_of(formals, [&](Attribute raw) {
+          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
+                 binding.name;
+        }))
+      return declaration->emitOpError() << "unknown root integer parameter: "
+                                        << binding.name;
+    auto value = ac::detail::parseMathIntAttr(declaration->getContext(),
+                                            binding.value, emitError);
+    if (failed(value))
+      return failure();
+    overrides[binding.name] = *value;
+  }
+  SmallVector<Attribute> arguments;
+  for (Attribute raw : formals) {
+    auto parameter = cast<DictionaryAttr>(raw);
+    StringRef name = parameter.getAs<StringAttr>("name").getValue();
+    Attribute value = parameter.getAs<ac::StaticExprAttr>("default");
+    if (auto found = overrides.find(name); found != overrides.end())
+      value = found->second;
+    if (!value)
+      return declaration->emitOpError()
+             << "source link root integer parameter requires a value or default: "
+             << name;
+    arguments.push_back(value);
+  }
+  return arguments;
+}
+
 FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     ArrayRef<SourceLinkUnit> units, StringRef top,
     ac::detail::EmitError emitError, SourceLinkTarget target,
@@ -423,24 +460,12 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   if (!root.getTypeParameters().empty())
     return root.emitOpError(
         "source link requires concrete root type arguments");
-  llvm::StringMap<ac::MathIntAttr> overrides;
-  for (const SourceLinkParameterBinding &binding : parameters) {
-    if (binding.name.empty() || overrides.contains(binding.name))
-      return root.emitOpError(
-          "root parameter binding names must be nonempty and unique");
-    if (!llvm::any_of(root.getParameters(), [&](Attribute raw) {
-          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
-                 binding.name;
-        }))
-      return root.emitOpError() << "unknown root integer parameter: "
-                                << binding.name;
-    auto value = ac::detail::parseMathIntAttr(context, binding.value, emitError);
-    if (failed(value))
-      return failure();
-    overrides[binding.name] = *value;
-  }
+  auto boundParameters =
+      detail::bindSourceRootParameters(root, parameters, emitError);
+  if (failed(boundParameters))
+    return failure();
   DictionaryAttr origin, span;
-  if (!overrides.empty()) {
+  if (!parameters.empty()) {
     origin = root->getAttrOfType<DictionaryAttr>("ac.origin");
     auto location = dyn_cast<FileLineColLoc>(root.getLoc());
     if (!origin || !location)
@@ -456,22 +481,17 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
         builder.getNamedAttr("end_column", builder.getI64IntegerAttr(location.getColumn()))});
   }
   SmallVector<Attribute> arguments;
-  for (Attribute raw : root.getParameters()) {
-    auto parameter = cast<DictionaryAttr>(raw);
-    StringRef name = parameter.getAs<StringAttr>("name").getValue();
-    auto value = parameter.getAs<ac::StaticExprAttr>("default");
-    if (auto found = overrides.find(name); found != overrides.end())
+  for (Attribute bound : *boundParameters) {
+    auto value = dyn_cast<ac::StaticExprAttr>(bound);
+    if (auto integer = dyn_cast<ac::MathIntAttr>(bound))
       value = ac::StaticExprAttr::get(
           context, builder.getDictionaryAttr({
               builder.getNamedAttr("kind", builder.getStringAttr("literal")),
               builder.getNamedAttr("value", builder.getDictionaryAttr({
                   builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-                  builder.getNamedAttr("value", found->second)})),
+                  builder.getNamedAttr("value", integer)})),
               builder.getNamedAttr("origin", origin),
               builder.getNamedAttr("location", span)}));
-    if (!value)
-      return root.emitOpError() << "source link root integer parameter requires "
-                                  "a value or default: " << name;
     arguments.push_back(value);
   }
   OperationState state(root.getLoc(), ac::SystemOp::getOperationName());

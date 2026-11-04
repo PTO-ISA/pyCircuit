@@ -6515,19 +6515,6 @@ FailureOr<DictionaryAttr> describeSourceTemplate(
   return context->importer->templateDescription(target, capture);
 }
 
-FailureOr<SmallVector<SourceTemplateRequest>> discoverSourceTemplateCallees(
-    ArrayAttr capture, DictionaryAttr owner, FlatSymbolRefAttr target,
-    ArrayRef<SourceTemplateBinding> bindings, const SourceHeaderRegistry &headers,
-    ac::detail::EmitError emitError) {
-  auto context = templateImportContext(capture, owner, headers, target, bindings, true, emitError);
-  if (failed(context) || failed(context->importer->prepare())) return failure();
-  auto sites = context->importer->templateCallees();
-  if (failed(sites)) return failure();
-  SmallVector<SourceTemplateRequest> result;
-  for (auto &site : *sites) result.push_back(std::move(site.second));
-  return result;
-}
-
 FailureOr<OwningOpRef<ModuleOp>> lowerBoundSourceTemplate(
     ArrayAttr capture, DictionaryAttr owner, FlatSymbolRefAttr target,
     ArrayRef<SourceTemplateBinding> bindings, const SourceHeaderRegistry &headers,

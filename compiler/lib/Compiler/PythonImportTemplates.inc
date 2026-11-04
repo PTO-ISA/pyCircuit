@@ -1,5 +1,24 @@
 // Module templates retain the same immutable capture and reuse this importer
 // after the ordinary integer binding and callee interfaces are available.
+bool anySourceTemplateChild(
+    const AstNode &node, llvm::function_ref<bool(const AstNode &)> visit,
+    StringRef ignoredField = {}) {
+  for (NamedAttribute field : node.fields()) {
+    StringRef name = field.getName().getValue();
+    if (name == ignoredField)
+      continue;
+    if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+      if (child.getAs<StringAttr>("kind") && visit(node.child(name)))
+        return true;
+    } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+      for (size_t k = 0; k < children.size(); ++k)
+        if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+            child && child.getAs<StringAttr>("kind") && visit(node.item(name, k)))
+          return true;
+  }
+  return false;
+}
+
 bool Importer::needsSourceTemplates() {
   // A re-export-only unit has no body to defer and owns no capture payload.
   if (modules.empty())
@@ -21,19 +40,9 @@ bool Importer::needsSourceTemplates() {
           return true;
       }
     }
-    for (NamedAttribute field : node.fields()) {
-      if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
-        if (child.getAs<StringAttr>("kind") &&
-            self(self, node.child(field.getName().getValue())))
-          return true;
-      } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-        for (size_t k = 0; k < children.size(); ++k)
-          if (auto child = dyn_cast<DictionaryAttr>(children[k]);
-              child && child.getAs<StringAttr>("kind") &&
-              self(self, node.item(field.getName().getValue(), k)))
-            return true;
-    }
-    return false;
+    return anySourceTemplateChild(node, [&](const AstNode &child) {
+      return self(self, child);
+    });
   };
   if (templateDependency(templateDependency, source.module))
     return true;
@@ -47,19 +56,9 @@ bool Importer::needsSourceTemplates() {
             range.item("args", 0).kind() != "Constant")
           return true;
       }
-      for (NamedAttribute field : node.fields()) {
-        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
-          if (child.getAs<StringAttr>("kind") &&
-              self(self, node.child(field.getName().getValue())))
-            return true;
-        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-          for (size_t k = 0; k < children.size(); ++k)
-            if (auto child = dyn_cast<DictionaryAttr>(children[k]);
-                child && child.getAs<StringAttr>("kind") &&
-                self(self, node.item(field.getName().getValue(), k)))
-              return true;
-      }
-      return false;
+      return anySourceTemplateChild(node, [&](const AstNode &child) {
+        return self(self, child);
+      });
     };
     for (size_t k = 0; k < decl.node.array("body").size(); ++k) {
       auto callable = decl.node.item("body", k);
@@ -206,21 +205,10 @@ Importer::templateCallees() {
       }
       requests.push_back({function, std::move(request)});
     }
-    for (NamedAttribute field : node.fields()) {
-      if (field.getName().getValue() == "annotation")
-        continue;
-      if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
-        if (child.getAs<StringAttr>("kind") &&
-            failed(self(self, node.child(field.getName().getValue()))))
-          return failure();
-      } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-        for (size_t k = 0; k < children.size(); ++k)
-          if (auto child = dyn_cast<DictionaryAttr>(children[k]);
-              child && child.getAs<StringAttr>("kind") &&
-              failed(self(self, node.item(field.getName().getValue(), k))))
-            return failure();
-    }
-    return success();
+    bool failedChild = anySourceTemplateChild(
+        node, [&](const AstNode &child) { return failed(self(self, child)); },
+        "annotation");
+    return failure(failedChild);
   };
   for (size_t k = 0; k < selected->node.array("body").size(); ++k)
     if (failed(visit(visit, selected->node.item("body", k))))

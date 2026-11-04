@@ -98,26 +98,6 @@ Type renameType(Type type, const llvm::StringMap<std::string> &mapping) {
   return type;
 }
 
-ModuleInterfaceView interfaceView(ac::ModuleImportOp declaration) {
-  return {declaration,
-          FlatSymbolRefAttr::get(declaration.getContext(),
-                                 declaration.getSymName()),
-          declaration.getSourceOwner(),
-          declaration.getParameters(),
-          declaration.getFunctionType(),
-          declaration.getTypeParameters(),
-          declaration.getInputNames(),
-          declaration.getOutputNames(),
-          declaration.getSemanticKindAttr(),
-          declaration.getDependencySummaryAttr(),
-          declaration.getTransactionSummaryAttr(),
-          declaration.getPrimitiveKindAttr(),
-          declaration->getAttrOfType<StringAttr>("ac.return_form"),
-          declaration->getAttrOfType<ArrayAttr>("ac.parameters"),
-          declaration->getAttrOfType<ArrayAttr>("ac.result_constraints"),
-          declaration->getAttrOfType<DictionaryAttr>("ac.domain_inputs")};
-}
-
 struct Variant {
   OwningOpRef<ModuleOp> body;
   OwningOpRef<ModuleOp> interface;
@@ -131,32 +111,13 @@ FailureOr<ModuleInterfaceView> publishVariant(Variant &variant) {
   ac::SourceMethodSummariesAnalysis methods(body);
   if (!methods.isValid())
     return failure();
-  auto transactions =
-      methods.requiresTransactionPublication(variant.definition);
-  if (failed(transactions))
+  ac::HardwareAnalysis analysis(body);
+  auto attributes = methods.getInterfaceAttributes(variant.definition, analysis);
+  if (failed(attributes))
     return failure();
-  Builder b(body.getContext());
-  NamedAttrList attrs(variant.definition->getAttrs());
+  NamedAttrList attrs(*attributes);
   attrs.erase("ac.template_specialization");
   attrs.erase("ac.template_origin");
-  attrs.set("semantic_kind",
-            b.getStringAttr(*transactions ? "transactions" : "hardware"));
-  if (*transactions) {
-    auto summary = methods.getPublicationSummary(variant.definition);
-    if (failed(summary))
-      return failure();
-    attrs.set("transaction_summary", *summary);
-  } else {
-    ac::HardwareAnalysis analysis(body);
-    ac::HardwareBindings bindings;
-    bindings.owner = variant.definition;
-    auto facts = analysis.analyzeModule(variant.definition, bindings);
-    if (failed(facts))
-      return failure();
-    attrs.set("dependency_summary",
-              ac::serializeOutputDependencies(body.getContext(),
-                                              facts->dependencies));
-  }
   variant.interface = cast<ModuleOp>(body->clone());
   for (auto module :
        llvm::make_early_inc_range(variant.interface->getOps<ac::ModuleOp>()))
@@ -168,7 +129,7 @@ FailureOr<ModuleInterfaceView> publishVariant(Variant &variant) {
   variant.interface->getBody()->push_back(declaration);
   if (failed(verify(variant.interface->getOperation())))
     return failure();
-  variant.view = interfaceView(declaration);
+  variant.view = detail::moduleInterfaceView(declaration);
   return variant.view;
 }
 } // namespace
@@ -237,29 +198,11 @@ specializeSourceTemplates(ModuleOp candidate,
     auto capture = captures.lookup(definition.getCaptureOwner());
     if (!capture)
       return emitError() << "source template capture is absent";
-    auto children = detail::discoverSourceTemplateCallees(
-        capture, definition.getSourceOwner(), request.target, request.bindings,
-        headers, emitError);
-    if (failed(children))
-      return failure();
-    for (const auto &child : *children)
-      if (failed(instantiate(child)))
-        return failure();
+    // The importer's declaration-only phase discovers callees and resolves
+    // them before preparing this concrete executable body.
     auto lowered = detail::lowerBoundSourceTemplate(
         capture, definition.getSourceOwner(), request.target, request.bindings,
-        headers,
-        [&](const SourceTemplateRequest &child)
-            -> FailureOr<ModuleInterfaceView> {
-          auto childTemplate = templates.find(child.target.getValue());
-          if (childTemplate == templates.end())
-            return instantiate(child);
-          auto found = complete.find(requestKey(b, child));
-          if (found == complete.end())
-            return emitError() << "source template child discovery did not "
-                                  "close before body lowering";
-          return found->second->view;
-        },
-        emitError);
+        headers, instantiate, emitError);
     if (failed(lowered))
       return failure();
     auto variant = std::make_unique<Variant>();
@@ -345,33 +288,18 @@ specializeSourceTemplates(ModuleOp candidate,
     ac::HardwareAnalysis analysis(candidate);
     ac::HardwareBindings bindings;
     bindings.owner = declaration.declaration;
-    llvm::StringMap<ac::MathIntAttr> overrides;
-    for (const auto &binding : parameters) {
-      if (overrides.contains(binding.name))
-        return emitError() << "duplicate root parameter binding";
-      auto value = ac::detail::parseMathIntAttr(b.getContext(), binding.value,
-                                                emitError);
-      if (failed(value))
-        return failure();
-      overrides[binding.name] = *value;
-    }
+    auto arguments = detail::bindSourceRootParameters(declaration.declaration,
+                                                     parameters, emitError);
+    if (failed(arguments))
+      return failure();
     SourceTemplateRequest request{selected->second.getTargetAttr(), {}};
-    for (Attribute raw : selected->second.getParameters()) {
-      auto formal = cast<DictionaryAttr>(raw);
-      auto name = formal.getAs<StringAttr>("name");
-      ac::MathIntAttr value;
-      if (auto bound = overrides.find(name.getValue());
-          bound != overrides.end()) {
-        value = bound->second;
-        overrides.erase(bound);
-      } else {
-        auto expression = formal.getAs<ac::StaticExprAttr>("default");
-        if (!expression)
-          return emitError() << "source link root Integer parameter requires a "
-                                "value or default: "
-                             << name;
-        auto evaluated = analysis.evaluateStatic(expression, bindings,
-                                                 declaration.declaration);
+    for (auto [raw, argument] :
+         llvm::zip(selected->second.getParameters(), *arguments)) {
+      auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
+      auto value = dyn_cast<ac::MathIntAttr>(argument);
+      if (!value) {
+        auto evaluated = analysis.evaluateStatic(
+            cast<ac::StaticExprAttr>(argument), bindings, declaration.declaration);
         if (failed(evaluated))
           return failure();
         value = dyn_cast<ac::MathIntAttr>(*evaluated);
@@ -382,8 +310,6 @@ specializeSourceTemplates(ModuleOp candidate,
       bindings.integers[name.getValue()] = value;
       request.bindings.push_back({name, value});
     }
-    if (!overrides.empty())
-      return emitError() << "unknown root Integer parameter";
     selectedRootKey = requestKey(b, request);
     auto view = instantiate(request);
     if (failed(view))

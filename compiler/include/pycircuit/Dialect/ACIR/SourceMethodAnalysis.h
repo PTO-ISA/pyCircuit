@@ -241,6 +241,11 @@ public:
   getPublicationSummary(ModuleOp definition);
   mlir::FailureOr<bool> requiresTransactionPublication(ModuleOp definition);
 
+  /// Derive ModuleImport attributes from the intact current definition using
+  /// the same transaction or hardware publication analysis for every caller.
+  mlir::FailureOr<mlir::DictionaryAttr>
+  getInterfaceAttributes(ModuleOp definition, HardwareAnalysis &hardware);
+
 private:
   llvm::DenseMap<mlir::Attribute, SourceMethodSummary> methods;
   llvm::DenseMap<mlir::Operation *, bool> transactions;

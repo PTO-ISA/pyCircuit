@@ -629,18 +629,13 @@ SourceHeaderRegistry::lookupDeclaration(FlatSymbolRefAttr canonical) const {
 }
 
 ModuleInterfaceView
-SourceHeaderRegistry::lookupModule(FlatSymbolRefAttr canonical) const {
-  auto found = modules_.find(canonical);
-  if (found == modules_.end())
-    return {};
-  ac::ModuleImportOp declaration = found->second;
-  auto functionType =
-      dyn_cast<FunctionType>(declaration.getFunctionTypeAttr().getValue());
+detail::moduleInterfaceView(ac::ModuleImportOp declaration) {
   return {declaration,
-          canonical,
+          FlatSymbolRefAttr::get(declaration.getContext(),
+                                 declaration.getSymName()),
           declaration.getSourceOwner(),
           declaration.getParameters(),
-          functionType,
+          declaration.getFunctionType(),
           declaration.getTypeParameters(),
           declaration.getInputNames(),
           declaration.getOutputNames(),
@@ -654,31 +649,17 @@ SourceHeaderRegistry::lookupModule(FlatSymbolRefAttr canonical) const {
           declaration->getAttrOfType<DictionaryAttr>("ac.domain_inputs")};
 }
 
+ModuleInterfaceView
+SourceHeaderRegistry::lookupModule(FlatSymbolRefAttr canonical) const {
+  auto found = modules_.find(canonical);
+  return found == modules_.end() ? ModuleInterfaceView()
+                                : detail::moduleInterfaceView(found->second);
+}
+
 ModuleInterfaceView SourceHeaderRegistry::lookupBuiltin(StringRef kind) const {
   auto found = builtins_.find(kind);
-  if (found == builtins_.end())
-    return {};
-  ac::ModuleImportOp declaration = found->second;
-  auto symbol = FlatSymbolRefAttr::get(declaration.getContext(),
-                                       declaration.getSymName());
-  auto functionType =
-      dyn_cast<FunctionType>(declaration.getFunctionTypeAttr().getValue());
-  return {declaration,
-          symbol,
-          declaration.getSourceOwner(),
-          declaration.getParameters(),
-          functionType,
-          declaration.getTypeParameters(),
-          declaration.getInputNames(),
-          declaration.getOutputNames(),
-          declaration.getSemanticKindAttr(),
-          declaration.getDependencySummaryAttr(),
-          declaration.getTransactionSummaryAttr(),
-          declaration.getPrimitiveKindAttr(),
-          declaration->getAttrOfType<StringAttr>("ac.return_form"),
-          declaration->getAttrOfType<ArrayAttr>("ac.parameters"),
-          declaration->getAttrOfType<ArrayAttr>("ac.result_constraints"),
-          declaration->getAttrOfType<DictionaryAttr>("ac.domain_inputs")};
+  return found == builtins_.end() ? ModuleInterfaceView()
+                                 : detail::moduleInterfaceView(found->second);
 }
 
 bool SourceHeaderRegistry::isTrustedBuiltin(

@@ -30,13 +30,6 @@ describeSourceTemplate(mlir::ArrayAttr capture, mlir::DictionaryAttr owner,
                        mlir::FlatSymbolRefAttr target,
                        const SourceHeaderRegistry &headers,
                        ac::detail::EmitError emitError);
-mlir::FailureOr<llvm::SmallVector<SourceTemplateRequest>>
-discoverSourceTemplateCallees(mlir::ArrayAttr capture,
-                              mlir::DictionaryAttr owner,
-                              mlir::FlatSymbolRefAttr target,
-                              llvm::ArrayRef<SourceTemplateBinding> bindings,
-                              const SourceHeaderRegistry &headers,
-                              ac::detail::EmitError emitError);
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
 lowerBoundSourceTemplate(mlir::ArrayAttr capture, mlir::DictionaryAttr owner,
                          mlir::FlatSymbolRefAttr target,
