@@ -264,6 +264,11 @@ def positive_cases():
         value = a
     return {"result": a}
 """),
+        "sequential_rebinding": structural("""    wire = a
+    saved = wire
+    wire = a ^ 1
+    return {"result": saved ^ wire}
+"""),
         "scalar_alias": structural("""    check = a
     saved = check
     @ac.rule

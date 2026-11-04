@@ -9,12 +9,14 @@ bool Importer::moduleCall(const AstNode &node) const {
 FailureOr<DictionaryAttr> Importer::sourceConstraint(const Port &port) {
   using ac::detail::ValueKind;
   StringRef kind;
-  ac::SourceDomainAttr domain;
+  ac::SourceDomainAttr domain = port.domain;
   if (port.sourceKind == ValueKind::Boolean) {
     kind = "boolean";
     domain = ac::SourceDomainAttr::get(
         b.getContext(),
         b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("bool"))}));
+  } else if (port.sourceKind == ValueKind::Integer && domain) {
+    kind = "integer";
   } else if (port.sourceKind == ValueKind::Integer) {
     kind = "integer";
     ac::HardwareAnalysis analysis(*body);
@@ -197,7 +199,8 @@ Port Importer::sourceCallPort(DictionaryAttr constraint, StringRef name,
   if (kind == "integer")
     sourceKind = ac::detail::ValueKind::Integer;
   return {name.str(), constraint.getAs<TypeAttr>("type").getValue(), callSite,
-          sourceKind, kind == "fixed_bits"};
+          sourceKind, kind == "fixed_bits",
+          constraint.getAs<ac::SourceDomainAttr>("domain")};
 }
 
 Port Importer::structFieldPort(DictionaryAttr field, const AstNode &site) const {
@@ -211,7 +214,7 @@ Port Importer::structFieldPort(DictionaryAttr field, const AstNode &site) const 
 void Importer::rememberStructField(Value value, DictionaryAttr field,
                                    const AstNode &site) {
   Port port = structFieldPort(field, site);
-  remember(value, port.sourceKind);
+  rememberContract(value, port);
   if (port.fixedBits)
     fixedValues.insert(value);
   else

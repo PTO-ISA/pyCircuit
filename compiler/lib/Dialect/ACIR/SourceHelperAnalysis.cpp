@@ -117,10 +117,11 @@ LogicalResult verifySignature(func::FuncOp helper, uint64_t &work) {
   FunctionType signature = helper.getFunctionType();
   if (signature.getNumInputs() != parameters.size() + captures.size() ||
       signature.getNumResults() != constraints.size() ||
-      constraints.size() > 1 ||
-      form.getValue() != (constraints.empty() ? "none" : "single"))
+      (constraints.empty() ? form.getValue() != "none" :
+       form.getValue() != "tuple" &&
+           (constraints.size() != 1 || form.getValue() != "single")))
     return error() << "value helper signature must contain explicit inputs, "
-                      "capture suffix, and zero or one ordinary result";
+                      "capture suffix, and matching None, single or tuple results";
   auto lexicalOwner = helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");
   if (helper->hasAttr("ac.lexical_owner") && !lexicalOwner)
     return error() << "value helper lexical owner must be a FlatSymbolRefAttr";

@@ -72,6 +72,9 @@ struct TableQueryStageEnvelope {
   uint64_t observedValues = 0, mappingEntries = 0;
 };
 
+// Shared by helper-closure admission and the final scalar staging check.
+bool isTableQueryScalarOperation(mlir::Operation *operation, bool mapAggregates);
+
 // Consumes already typed SSA. The owning importer is the only syntax lowerer.
 class TableQueryLowering {
 public:

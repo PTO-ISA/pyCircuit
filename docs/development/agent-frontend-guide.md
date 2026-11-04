@@ -563,8 +563,12 @@ for exact result, callback, four-state and resource boundaries. Map also accepts
 named ordinary typed `def` callbacks through the shared pure-helper lowering.
 Named callbacks retain fixed-Bits parameters/results and no free captures.
 Generic row types must exactly match their formal annotations; individual lane
-values do not supply range or constant authority. Helper calls inside expression
-lambdas remain unsupported. Use ordinary typed `def` for pure reuse and reserve
+values do not supply range or constant authority. Expression lambdas in `map`,
+`first` and `argmin` can call pure helpers within the existing callback operation
+boundary. Direct lambda captures use the query-time snapshot; helper captures
+retain their definition-time snapshots, including transitive captures. Table
+helper boundaries and tuple-valued lambda results remain unsupported. Use
+ordinary typed `def` for pure reuse and reserve
 `@rule` for exactly one static autonomous registration per declaration/instance.
 See [pure value helpers](../reference/language.md#pure-value-helpers) for lexical
 snapshots, publication and the bounded body grammar. Ordered prefixes can use the
@@ -604,13 +608,17 @@ New locals must be bound on both paths before a later read; a subsequent
 unconditional assignment can bind a partial local. Unknown effective enables
 retain standard storage failure and whole-system discard behavior.
 
-Inferred Integer locals can grow their representation while retaining Integer
-kind. Explicit annotations and persistent owners preserve their original logical
-kind and range/width contracts. An unannotated non-owner Integer rule formal
+Unannotated ordinary locals bind the RHS type and facts at each assignment in
+helpers, Modules, Rules and Methods. Saved aliases retain their earlier SSA value.
+An explicit annotation establishes a fixed boundary from that assignment onward;
+repeating the same annotation is allowed, while a conflicting annotation rejects.
+Explicit annotations and persistent owners preserve their logical kind and
+range/width contracts. An unannotated non-owner Integer rule formal
 retains the call's representation and source facts, including negative values;
 it does not acquire an unsigned range and cannot widen through reassignment.
 An explicitly annotated formal checks its declared range, and owner-bound formals
-retain the owner's contract. Reannotation cannot replace an existing declaration.
+retain the owner's contract. Reannotation cannot replace an existing owner or
+formal contract.
 
 Statement and expression joins retain exact Integer representations. A fixed
 branch peer can convert a fitting closed Integer, or a closed Boolean only for
@@ -715,8 +723,8 @@ Use a single local assignment to share a supported pure expression, for example
 `next_value = (x + 1) & 255`. Outputs and rules then reuse the original SSA value.
 It recomputes during Work and retains old-Q semantics, source kind, interval and
 mathematical provenance; assignment does not allocate storage or narrow it.
-Structural local wires reject rebinding, protected-name shadowing, direct forward
-references, new locals after Return and rule-local assignment. In ordinary
+Ordinary Module wires support sequential rebinding. Protected-name shadowing,
+direct forward references and new locals after Return remain unsupported. In ordinary
 structural/behavioral Module/System bodies, a data local may precede a directly
 nested Rule of the same name. Save an alias before the Rule declaration if the
 data is needed afterwards: from that declaration onward, the original spelling
@@ -726,7 +734,7 @@ names and intrinsic grammar remain protected. This exception does not extend
 typed transaction/Method-owner binding or change that structural profile's
 forward-registration rules. Aliasing does not make shift
 counts, divisors or parameter/default positions static. See
-[immutable local wires](../reference/language.md#immutable-local-wires).
+[ordinary local wires](../reference/language.md#ordinary-local-wires).
 
 The return mapping also accepts supported pure bitwise, comparison, selection
 and literal expressions. These become combinational SSA through the same

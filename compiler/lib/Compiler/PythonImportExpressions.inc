@@ -213,8 +213,7 @@ if (node.kind() == "Attribute" && !sourceLiteral &&
   return readAccessField(*base, *field, node, at);
 }
 if (node.kind() == "Call") {
-  auto constructor = lookupBinding(node.child("func"));
-  if (constructor && constructor->category == BindingCategory::Struct)
+  if (classifyCall(node.child("func")).constructor())
     return constructStruct(node, at, ownerSymbol, values, instances, expected,
                            captures);
 }

@@ -21,6 +21,11 @@ struct NumericValue {
   std::optional<IntegerInterval> interval;
   mlir::Attribute closedSourceConstant{};
 };
+
+// AND/OR/XOR of nonnegative Integer operands cannot introduce a bit above
+// either operand's proven magnitude. This derives no facts from carrier width.
+std::optional<IntegerInterval>
+nonnegativeBitwiseInterval(const NumericValue &lhs, const NumericValue &rhs);
 struct NumericLoweringSite {
   mlir::Location location;
   mlir::DictionaryAttr origin, sourceSpan;

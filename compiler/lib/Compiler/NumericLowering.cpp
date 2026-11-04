@@ -249,6 +249,24 @@ std::optional<IntegerInterval> refineUnsignedSelectInterval(
       APSInt::compareValues(*upper, *fallbackUpper) > 0 ? *upper : *fallbackUpper};
 }
 
+std::optional<IntegerInterval>
+nonnegativeBitwiseInterval(const NumericValue &lhs, const NumericValue &rhs) {
+  if (lhs.sourceKind != ValueKind::Integer ||
+      rhs.sourceKind != ValueKind::Integer || !lhs.interval || !rhs.interval ||
+      lhs.interval->lower.isNegative() || rhs.interval->lower.isNegative())
+    return std::nullopt;
+  auto magnitudeBits = [](const APSInt &upper) {
+    return upper.getActiveBits() - (upper.isPowerOf2() ? 1u : 0u);
+  };
+  unsigned width = std::max(magnitudeBits(lhs.interval->upper),
+                            magnitudeBits(rhs.interval->upper));
+  if (width == std::numeric_limits<unsigned>::max())
+    return std::nullopt;
+  APInt upper(width + 1, 0);
+  upper.setBit(width);
+  return IntegerInterval{APSInt::getUnsigned(0), APSInt(std::move(upper), true)};
+}
+
 FailureOr<NumericValue> lowerExactIntegerBinary(OpBuilder &builder,
                                                 const NumericLoweringSite &site,
                                                 ValueOpcode opcode,

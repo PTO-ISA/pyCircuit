@@ -186,6 +186,94 @@ bool SourceRuleWritesAnalysis::charge(uint64_t amount) {
   return true;
 }
 
+std::optional<SourceRuleWritesAnalysis::DeclarationRole>
+SourceRuleWritesAnalysis::declarationRole(const AstNode &statement) const {
+  auto found = declarationRoles.find(statement.value);
+  if (found != declarationRoles.end())
+    for (const auto &[site, role] : found->second)
+      if (sameOccurrence(site, statement)) return role;
+  return std::nullopt;
+}
+bool SourceRuleWritesAnalysis::isPersistentDeclaration(const AstNode &site) const {
+  return declarationRole(site) == DeclarationRole::Persistent;
+}
+bool SourceRuleWritesAnalysis::isLocalAnnotation(const AstNode &site) const {
+  return declarationRole(site) == DeclarationRole::Local;
+}
+
+LogicalResult SourceRuleWritesAnalysis::analyzeModuleBindings(const AstNode &module) {
+  // This is lexical role analysis, not expression typing or definite assignment.
+  // True denotes an existing owner; false denotes an ordinary data candidate.
+  using Bindings = llvm::StringMap<bool>;
+  Bindings bindings;
+  auto bind = [&](const AstNode &target, Bindings &scope, bool owner) {
+    return forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+      if (leaf.kind() != "Name") return success();
+      StringRef name = leaf.string("id");
+      if (!charge(1 + name.size())) return failure();
+      scope.try_emplace(name, owner);
+      return success();
+    });
+  };
+  auto copyCost = [&](const Bindings &scope) {
+    for (const auto &entry : scope)
+      if (!charge(1 + entry.getKey().size())) return false;
+    return true;
+  };
+  auto visit = [&](auto &&self, const AstNode &statement, Bindings &scope,
+                   bool controlled, unsigned depth) -> LogicalResult {
+    if (depth > 128)
+      return emitError(statement.location(operation->getContext(), source.path))
+             << "Module declaration nesting exceeds source analysis depth";
+    if (!charge(1 + statement.path.size())) return failure();
+    StringRef kind = statement.kind();
+    auto allocation = statement.child("value");
+    bool table = kind == "Assign" && statement.array("targets").size() == 1 &&
+        allocation.kind() == "Call" && allocation.child("func").kind() == "Subscript" &&
+        resolves(allocation.child("func").child("value"), MarkerKind::Table);
+    if (kind == "AnnAssign" || table) {
+      auto target = table ? statement.item("targets", 0) : statement.child("target");
+      auto found = scope.find(target.string("id"));
+      bool persistent = table || (found != scope.end() ? found->second : !controlled);
+      auto role = persistent ? DeclarationRole::Persistent : DeclarationRole::Local;
+      if (!charge(4 + statement.path.size())) return failure();
+      declarationRoles[statement.value].push_back({statement, role});
+      return bind(target, scope, persistent);
+    }
+    if (kind == "Assign") {
+      for (size_t i = 0; i < statement.array("targets").size(); ++i)
+        if (failed(bind(statement.item("targets", i), scope, false))) return failure();
+      return success();
+    }
+    if (kind != "If" && kind != "Match" && kind != "For" && kind != "While")
+      return success(); // Nested definitions keep their own lexical frames.
+    if (kind == "For" && failed(bind(statement.child("target"), scope, false)))
+      return failure();
+    if (!copyCost(scope)) return failure();
+    Bindings incoming = scope;
+    auto arm = [&](const AstNode &parent, StringRef field) -> LogicalResult {
+      if (!copyCost(incoming)) return failure();
+      Bindings branch = incoming;
+      for (size_t i = 0; i < parent.array(field).size(); ++i)
+        if (failed(self(self, parent.item(field, i), branch, true, depth + 1)))
+          return failure();
+      if (!copyCost(branch)) return failure();
+      for (const auto &entry : branch) scope.try_emplace(entry.getKey(), entry.second);
+      return success();
+    };
+    if (kind == "Match") {
+      for (size_t i = 0; i < statement.array("cases").size(); ++i)
+        if (failed(arm(statement.item("cases", i), "body"))) return failure();
+    } else if (failed(arm(statement, "body")) || failed(arm(statement, "orelse")))
+      return failure();
+    return success();
+  };
+  for (size_t i = 0; i < module.array("body").size(); ++i)
+    if (failed(visit(visit, module.item("body", i), bindings, false, 0)))
+      return failure();
+  return success();
+}
+
 LogicalResult SourceRuleWritesAnalysis::analyze() {
   auto diagnostic = [&](const AstNode &node) {
     return emitError(node.location(operation->getContext(), source.path));
@@ -227,6 +315,7 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     if (module.kind() != "FunctionDef" ||
         (!hasDecorator(module, "module") && !hasDecorator(module, "system")))
       continue;
+    if (failed(analyzeModuleBindings(module))) return failure();
     auto globalRules = rules;
     llvm::StringSet<> nestedRuleNames;
     for (size_t j = 0; j < module.array("body").size(); ++j) {
@@ -535,15 +624,11 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     for (size_t j = 0; j < module.array("body").size(); ++j) {
       auto stmt = module.item("body", j);
 
-      if (stmt.kind() == "AnnAssign") {
-        auto target = stmt.child("target");
+      if (isPersistentDeclaration(stmt)) {
+        auto target = stmt.kind() == "AnnAssign" ? stmt.child("target")
+                                                : stmt.item("targets", 0);
         if (target.kind() == "Name")
-          owners[target.string("id")] = stmt;
-      } else if (stmt.kind() == "Assign" && stmt.array("targets").size() == 1) {
-        auto rhs = stmt.child("value");
-        if (rhs.kind() == "Call" && rhs.child("func").kind() == "Subscript" &&
-            resolves(rhs.child("func").child("value"), MarkerKind::Table))
-          owners[stmt.item("targets", 0).string("id")] = stmt;
+          owners.try_emplace(target.string("id"), stmt);
       }
       AstNode call = llvm::is_contained(ArrayRef<StringRef>{"Expr", "Assign", "AnnAssign", "Return"}, stmt.kind())
                          ? stmt.child("value") : AstNode();

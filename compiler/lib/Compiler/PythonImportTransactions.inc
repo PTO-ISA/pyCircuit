@@ -359,7 +359,7 @@ LogicalResult Importer::scanSourceCallables() {
     llvm::StringSet<> moduleOwners;
     for (size_t j = 0; j < module.array("body").size(); ++j) {
       auto statement = module.item("body", j);
-      if (statement.kind() == "AnnAssign")
+      if (statement.kind() == "AnnAssign" && ruleWrites.isPersistentDeclaration(statement))
         moduleOwners.insert(assignmentRoot(statement.child("target")));
       auto value = statement.child("value");
       if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
@@ -804,7 +804,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   for (const Port &port : decl.inputs) {
     Value value = graph->addArgument(port.type, module->getLoc());
     moduleValues[port.name] = value;
-    remember(value, port.sourceKind);
+    rememberContract(value, port);
     if (port.fixedBits)
       fixedValues.insert(value);
   }
@@ -879,7 +879,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   llvm::StringSet<> authoredOwnerNames;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto statement = decl.node.item("body", i);
-    if (statement.kind() == "AnnAssign")
+    if (statement.kind() == "AnnAssign" && ruleWrites.isPersistentDeclaration(statement))
       authoredOwnerNames.insert(assignmentRoot(statement.child("target")));
     auto value = statement.child("value");
     if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
@@ -942,6 +942,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       if (port.sourceKind) encoded << static_cast<unsigned>(*port.sourceKind);
       if (index < specialized.actualFacts.size()) {
         auto facts = valueInfo(specialized.actualFacts[index]);
+        encoded << ":math:" << arithmeticValues.contains(specialized.actualFacts[index]);
+        if (facts.interval)
+          encoded << ":range:"
+                  << ac::MathIntAttr::get(b.getContext(), facts.interval->lower).getAsOpaquePointer()
+                  << ":"
+                  << ac::MathIntAttr::get(b.getContext(), facts.interval->upper).getAsOpaquePointer();
         if (facts.closedSourceConstant)
           encoded << ":" << facts.closedSourceConstant.getAsOpaquePointer();
       }
@@ -970,7 +976,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     created.privateSpecialization = true;
     methodCaptures[privateName] = methodCaptures[name];
     if (queuedMethods.insert(privateName).second) methodWork.push_back(privateName);
-    if (created.inferResults && failed(emitMethod(privateName))) return failure();
+    bool inferredProposal = llvm::any_of(created.inputs, [&](const Port &port) {
+      return port.inferredValue && created.assignedFormals.contains(port.name) &&
+             !created.stateFormals.contains(port.name);
+    });
+    if ((created.inferResults || inferredProposal) && failed(emitMethod(privateName)))
+      return failure();
     return privateName;
   };
 
@@ -1367,6 +1378,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 auto seed = constant(indexType, 0, statement, inside, decl.symbol);
                 if (failed(seed)) return failure();
                 remember(*seed, ac::detail::ValueKind::Integer);
+                if (failed(recordClosed(*seed,
+                        ac::MathIntAttr::get(b.getContext(), llvm::APSInt::getUnsigned(0)),
+                        statement))) return failure();
                 fixedValues.erase(*seed);
                 values[inductionName] = *seed;
               }
@@ -1434,7 +1448,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               if (boundary == iteration.boundaries.end() || !boundary->second.declared ||
                   boundary->second.integerMode != IntegerBoundaryMode::Range) {
                 auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
-                  return port.name == name && port.sourceKind == kind;
+                  return port.name == name && port.sourceKind == kind &&
+                         (port.domain || port.node.child("annotation"));
                 });
                 if (formal == callable.inputs.end())
                   return statementError(statement) << "Integer loop carries require an explicit bounded annotation";
@@ -1442,7 +1457,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               }
             }
             Value argument = block->addArgument(original.getType(), location);
-            remember(argument, kind);
+            auto boundary = iteration.boundaries.find(name);
+            if (kind == ac::detail::ValueKind::Integer &&
+                boundary != iteration.boundaries.end() &&
+                boundary->second.declared &&
+                boundary->second.integerMode == IntegerBoundaryMode::Range)
+              rememberContract(argument, boundary->second.contract());
+            else
+              remember(argument, kind);
             if (fixedValues.contains(original)) fixedValues.insert(argument);
             iteration.values[name] = argument;
             if (!iteration.boundaries.contains(name))
@@ -1651,7 +1673,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               if (boundary == environment.boundaries.end() || !boundary->second.declared ||
                   boundary->second.integerMode != IntegerBoundaryMode::Range) {
                 auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
-                  return port.name == name && port.sourceKind == kind;
+                  return port.name == name && port.sourceKind == kind &&
+                         (port.domain || port.node.child("annotation"));
                 });
                 if (formal == callable.inputs.end())
                   return statementError(statement) << "Integer loop carries require an explicit bounded annotation";
@@ -1662,7 +1685,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             for (auto [block, local] : {std::pair{before, &conditionEnvironment},
                                        std::pair{after, &iteration}}) {
               Value argument = block->addArgument(original.getType(), location);
-              remember(argument, kind);
+              auto boundary = local->boundaries.find(name);
+              if (kind == ac::detail::ValueKind::Integer &&
+                  boundary != local->boundaries.end() &&
+                  boundary->second.declared &&
+                  boundary->second.integerMode == IntegerBoundaryMode::Range)
+                rememberContract(argument, boundary->second.contract());
+              else
+                remember(argument, kind);
               if (fixedValues.contains(original)) fixedValues.insert(argument);
               local->values[name] = argument;
               if (!local->boundaries.contains(name))
@@ -1725,7 +1755,15 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           createOp(loopAt, location, scf::YieldOp::getOperationName(), nextValues, {}, {});
           for (auto [ordinal, name] : llvm::enumerate(carriedNames)) {
             Value original = values.lookup(name), result = loop->getResult(ordinal);
-            remember(result, valueInfo(original).sourceKind);
+            auto kind = valueInfo(original).sourceKind;
+            auto boundary = conditionEnvironment.boundaries.find(name);
+            if (kind == ac::detail::ValueKind::Integer &&
+                boundary != conditionEnvironment.boundaries.end() &&
+                boundary->second.declared &&
+                boundary->second.integerMode == IntegerBoundaryMode::Range)
+              rememberContract(result, boundary->second.contract());
+            else
+              remember(result, kind);
             if (fixedValues.contains(original)) fixedValues.insert(result);
             values[name] = result;
           }
@@ -1952,19 +1990,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           const StateOwner &owner = states[ownerRoot];
           auto access = resolveAccessPath(target, owner.type, decl.symbol);
           if (failed(access)) return failure();
-          const auto &selected = access->steps.back();
-          DictionaryAttr selectedField = selected.field;
-          Type selectedType = selected.type;
-          auto replacement = expression(rhs, inside, decl.symbol, values,
-                                          instances, selectedType);
-          if (failed(replacement)) return failure();
-          auto converted = selectedField
-              ? applyBindingBoundary(
-                    *replacement,
-                    BindingBoundary(structFieldPort(selectedField, target), true),
-                    rhs, inside, decl.symbol)
-              : unsignedBoundary(*replacement, selectedType, rhs, inside,
-                                   decl.symbol);
+          auto converted = prepareAssignmentLeaf(
+              *access, rhs, inside, decl.symbol, values, instances,
+              AssignmentIndexPolicy::UnsignedBoundary);
           if (failed(converted)) return failure();
           auto selectors = accessSelectors(*access, inside);
           if (failed(selectors))
@@ -2018,19 +2046,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           auto access = resolveAccessPath(target, values.lookup(ownerRoot).getType(),
                                            decl.symbol);
           if (failed(access)) return failure();
-          const auto &selected = access->steps.back();
-          DictionaryAttr selectedField = selected.field;
-          Type selectedType = selected.type;
-          auto replacement = expression(rhs, inside, decl.symbol, values,
-                                          instances, selectedType);
-          if (failed(replacement)) return failure();
-          auto converted = selectedField
-              ? applyBindingBoundary(
-                    *replacement,
-                    BindingBoundary(structFieldPort(selectedField, target), true),
-                    rhs, inside, decl.symbol)
-              : unsignedBoundary(*replacement, selectedType, rhs, inside,
-                                   decl.symbol);
+          auto converted = prepareAssignmentLeaf(
+              *access, rhs, inside, decl.symbol, values, instances,
+              AssignmentIndexPolicy::UnsignedBoundary);
           SmallVector<Value> indices;
           if (failed(converted) ||
               failed(updateAssignment(*access, *converted, statement, inside,
@@ -2071,14 +2089,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (!llvm::all_of(access->steps,
                             [](const TypedAccessStep &step) { return bool(step.field); }))
             return error() << "local Struct field target requires an Attribute-only Name path";
-          DictionaryAttr selectedField = access->steps.back().field;
           BindingBoundary rootBoundary = environment.boundaries.contains(root)
               ? environment.boundaries.lookup(root)
               : inferredBoundary(root, original, statement);
-          BindingBoundary fieldBoundary{
-              structFieldPort(selectedField, target), true};
-          auto converted = lowerBoundExpression(rhs, fieldBoundary, inside,
-                                                  decl.symbol, values, instances);
+          auto converted = prepareAssignmentLeaf(
+              *access, rhs, inside, decl.symbol, values, instances,
+              AssignmentIndexPolicy::UnsignedBoundary);
           bool preserveProjectionWitnesses =
               formalProposals && callable.assignedFormals.contains(root) &&
               !callable.stateFormals.contains(root);
@@ -2142,8 +2158,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                  << "Method/Rule local shadows a bound callable, instance, "
                     "import or type declaration";
         if (failed(lowerLocalAssignment(statement, inside, decl.symbol,
-                                         environment, instances,
-                                         LocalBindingPolicy::Transaction)))
+                                         environment, instances)))
           return failure();
         if (failed(emitFormalWrite(name, values.lookup(name), statement, inside, environment))) return failure();
       }
@@ -2169,6 +2184,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               isa<ac::BitsType>(port.type) && ac::areEquivalentHardwareTypes(data.getType(), port.type))
             data = boundaryBitsIdentity(data, port.type, callable.declaration, inside, decl.symbol);
           yielded.push_back(data);
+          if (port.inferredValue)
+            callable.proposalFacts[port.name] = data;
           Value intent = environment.values.lookup(intentName(port.name));
           Type predicateType = internalBits(1, callable.declaration, decl.symbol);
           if (intent.getType() != predicateType)
@@ -2269,7 +2286,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           recordValueInfo(std::move(facts));
           if (arithmeticValues.contains(callable.actualFacts[index]))
             arithmeticValues.insert(argument);
-        } else remember(argument, port.sourceKind);
+        } else rememberContract(argument, port);
         if (port.fixedBits)
           fixedValues.insert(argument);
       }
@@ -2325,6 +2342,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   llvm::DenseMap<DictionaryAttr, SourceCallableDecl> registeredCallables;
   llvm::StringMap<SmallVector<Operation *>> transactionsForCallable;
   llvm::StringSet<> transactionNames;
+  llvm::StringMap<BindingBoundary> ordinaryBoundaries;
   auto registerRule = [&](const AstNode &statement,
                           const AstNode &call) -> LogicalResult {
     bool localDeclaration = call.kind() == "FunctionDef";
@@ -2503,7 +2521,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     transactionsForCallable[name].push_back(transaction);
     for (auto [result, contract] : llvm::zip(transaction->getResults(),
                                             callable.resultContracts)) {
-      remember(result, contract.sourceKind);
+      rememberContract(result, contract);
       if (contract.fixedBits) fixedValues.insert(result);
     }
     if (localDeclaration) {
@@ -2527,7 +2545,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     for (const auto &rule : rules) forbidden.insert(rule.first());
     if (callable.returnShape == ReturnShape::Tuple)
       return bindCallableResults(statement, transaction->getResults(), at,
-                                  decl.symbol, moduleValues, instances, forbidden);
+                                  decl.symbol, moduleValues, instances, forbidden, &ordinaryBoundaries);
     if (statement.array("targets").size() != 1 ||
         statement.item("targets", 0).kind() != "Name" ||
         callable.results.size() != 1)
@@ -2537,12 +2555,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         target == "pyc_clk" || target == "pyc_rst" ||
         queueResultNames.contains(target) || memoryResultNames.contains(target))
       return error() << "Rule result cannot write a protected hardware binding";
-    moduleValues[target] = transaction->getResult(0);
-    return success();
+    std::optional<BindingBoundary> boundary;
+    if (ordinaryBoundaries.contains(target)) boundary = ordinaryBoundaries.lookup(target);
+    return bindLocalValues({{target, boundary}}, {transaction->getResult(0)},
+                            call, at, decl.symbol, moduleValues, &ordinaryBoundaries);
   };
 
   llvm::StringMap<unsigned> moduleAssignmentCounts;
-  llvm::StringMap<BindingBoundary> ordinaryBoundaries;
   auto ordinaryStatement = [&](size_t ordinal) -> LogicalResult {
     auto ordinaryValues = std::move(moduleValues);
     auto restoreValues = llvm::scope_exit([&] {
@@ -2663,7 +2682,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         for (const auto &input : authoredInputs) forbidden.insert(input.getKey());
         for (const auto &state : states) forbidden.insert(state.first());
         if (failed(bindCallableResults(statement, binding->results, at, decl.symbol,
-                                        moduleValues, instances, forbidden))) return failure();
+                                        moduleValues, instances, forbidden,
+                                        &ordinaryBoundaries))) return failure();
         ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
         continue;
       }
@@ -2727,7 +2747,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       continue;
     }
     if (statement.kind() == "If" || statement.kind() == "Match" ||
-        statement.kind() == "For") {
+        statement.kind() == "For" || ruleWrites.isLocalAnnotation(statement)) {
       if (failed(ordinaryStatement(i)))
         return failure();
       continue;
@@ -2754,7 +2774,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     if (statement.kind() == "Assign" &&
         statement.array("targets").size() == 1 &&
         statement.item("targets", 0).kind() == "Tuple" &&
-        !fixedResultCall(statement.child("value")).empty()) {
+        statement.child("value").kind() == "Call") {
       llvm::StringMap<Value> ordinaryValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
@@ -2771,7 +2791,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       for (const auto &entry : states)
         forbidden.insert(entry.first());
       auto fixed = bindFixedResults(statement, at, decl.symbol, ordinaryValues,
-                                    instances, nullptr, forbidden, false);
+                                    instances, &ordinaryBoundaries, forbidden, false);
       if (failed(fixed)) return failure();
       if (*fixed) {
         auto target = statement.item("targets", 0);
@@ -2799,7 +2819,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         forbidden.insert(entry.first());
       for (size_t j = 0; j < decl.node.array("body").size(); ++j) {
         auto declaration = decl.node.item("body", j);
-        if (declaration.kind() == "AnnAssign")
+        if (declaration.kind() == "AnnAssign" && ruleWrites.isPersistentDeclaration(declaration))
           forbidden.insert(assignmentRoot(declaration.child("target")));
       }
       llvm::StringMap<Value> ordinaryValues(moduleValues);
@@ -2829,7 +2849,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         continue;
       }
       auto bound = bindModuleResults(statement, at, decl.symbol, ordinaryValues,
-                                     instances, forbidden);
+                                     instances, forbidden, &ordinaryBoundaries);
       if (failed(bound))
         return failure();
       if (*bound) {
@@ -2855,7 +2875,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         for (const auto &name : methods) forbidden.insert(name.first());
         for (const auto &name : rules) forbidden.insert(name.first());
         if (failed(bindCallableResults(statement, instance->second->op->getResults(),
-                at, decl.symbol, moduleValues, instances, forbidden)))
+                at, decl.symbol, moduleValues, instances, forbidden,
+                &ordinaryBoundaries)))
           return failure();
         ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
         continue;
@@ -3525,7 +3546,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     operation->setAttr("ac.formal_owner_bindings", at.getArrayAttr(formalOwnerBindings));
   for (auto [result, contract] :
        llvm::zip(operation->getResults(), resultContracts)) {
-    remember(result, contract.sourceKind);
+    rememberContract(result, contract);
     if (contract.fixedBits)
       fixedValues.insert(result);
   }
@@ -3534,7 +3555,12 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     if (actual.kind() != "Name") continue;
     Value data = operation->getResult(publicResults + 2 * ordinal);
     Value intent = operation->getResult(publicResults + 2 * ordinal + 1);
-    remember(data, inputs[index].sourceKind);
+    if (target && target->proposalFacts.contains(inputs[index].name))
+      mapValueFacts(target->proposalFacts.lookup(inputs[index].name), data);
+    else if (inputs[index].inferredValue)
+      remember(data, inputs[index].sourceKind);
+    else
+      rememberContract(data, inputs[index]);
     if (inputs[index].fixedBits) fixedValues.insert(data);
     remember(intent, ac::detail::ValueKind::Boolean);
     fixedValues.erase(intent);
@@ -3567,7 +3593,22 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
                at.getNamedAttr("ac.location",
                                sourceSpan(at, source.path, node))})
               ->getResult(0);
-      remember(snapshot, formal->sourceKind);
+      // The proposal may hold the old value when its intent is false. Retain
+      // facts from both actual SSA alternatives, never the incoming formal's
+      // singleton alone or its inferred carrier width.
+      auto dataFacts = valueInfo(data), previousFacts = valueInfo(previous);
+      std::optional<IntegerInterval> interval;
+      if (dataFacts.interval && previousFacts.interval)
+        interval = IntegerInterval{
+            llvm::APSInt::compareValues(dataFacts.interval->lower, previousFacts.interval->lower) < 0
+                ? dataFacts.interval->lower : previousFacts.interval->lower,
+            llvm::APSInt::compareValues(dataFacts.interval->upper, previousFacts.interval->upper) > 0
+                ? dataFacts.interval->upper : previousFacts.interval->upper};
+      remember(snapshot, dataFacts.sourceKind == previousFacts.sourceKind
+                             ? dataFacts.sourceKind : std::nullopt,
+               std::move(interval));
+      if (arithmeticValues.contains(data) || arithmeticValues.contains(previous))
+        arithmeticValues.insert(snapshot);
       if (formal->fixedBits) fixedValues.insert(snapshot);
       values[actual.string("id")] = snapshot;
       continue;

@@ -3532,7 +3532,7 @@ TEST_F(TransactionLoweringTest,
   }
   // Keep receiver resolution below its depth budget. The sole active call
   // reaches Relay.counter through 30 ordinary wrapper definitions; every idle
-  // occurrence shares all sixteen downward state routes.
+  // occurrence shares all downward state routes.
   constexpr unsigned depth = 30;
   for (unsigned i = 0; i < depth; ++i) {
     auto layer = emptyModule(*file, provider, "Shared" + std::to_string(i),
@@ -3592,8 +3592,7 @@ TEST_F(TransactionLoweringTest,
   });
   ASSERT_TRUE(analysis->isValid()) << diagnostics;
   ASSERT_NE(analysis->lookup(named<SourceTransactionOp>(root, "run")), nullptr);
-  rejects(*file, "prep: route arities");
-  EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
+  rejects(*file, "budget");
 }
 
 TEST_F(TransactionLoweringTest,

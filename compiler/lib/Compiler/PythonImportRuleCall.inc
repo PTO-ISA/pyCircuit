@@ -389,7 +389,7 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
   // The Rule's completed return boundary publishes the same source authority
   // as a typed Module result. Registration remains a Rule even with no effects.
   for (auto [result, port] : llvm::zip(results, contract.outputs)) {
-    remember(result, port.sourceKind);
+    rememberContract(result, port);
     if (port.fixedBits) fixedValues.insert(result);
   }
   return results;

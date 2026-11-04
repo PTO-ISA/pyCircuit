@@ -96,6 +96,12 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
           for (StringRef name : **targets) locals.insert(name);
           return self(self, site.child("value"), false, false);
         }
+        if (lhs.kind() == "Tuple" && site.child("value").kind() == "Call") {
+          auto targets = moduleResultTargets(site, lhs.array("elts").size());
+          if (failed(targets)) return failure();
+          for (StringRef name : *targets) locals.insert(name);
+          return self(self, site.child("value"), false, false);
+        }
         // Locals have Python lexical identity throughout the helper, and never
         // accidentally capture a same-spelled enclosing wire.
         StringRef root = assignmentRoot(lhs);
@@ -132,13 +138,10 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
     if (kind == "Call") {
       auto function = site.child("func");
       StringRef name = function.kind() == "Name" ? function.string("id") : StringRef();
-      if (behavioralRules.contains(name) || local.contains(name) || queueCall(site) ||
-          !memoryKind(site).empty() || methodOwner(function) ||
-          intrinsic(function, "log") || intrinsic(function, "report"))
+      auto classification = classifyCall(function);
+      if (classification.transaction || local.contains(name) ||
+          classification.allocation || classification.observation)
         return diagnostic(site) << "pure helper cannot call Rule, Method, allocation or IO";
-      auto binding = lookupBinding(function);
-      if (binding && binding->category == BindingCategory::Module)
-        return diagnostic(site) << "pure helper cannot instantiate a module";
       // Only the existing Table owners admit callback Lambdas: the first map
       // actual, first/argmin's where, and argmin's key. Actual receiver typing,
       // scalar purity and capture staging remain with preflightQueryCallback.
@@ -265,16 +268,20 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
         b.getNamedAttr("origin", sourceOccurrence(b, helper->symbol, formal)),
         b.getNamedAttr("location", sourceSpan(b, source.path, formal))}));
   }
-  auto annotation = node.child("returns");
-  bool none = annotation.kind() == "Constant" && isa_and_nonnull<UnitAttr>(annotation.get("value"));
-  if (!none) {
-    auto type = portType(annotation, helper->symbol);
-    if (failed(type)) return failure();
-    Port result{"result", *type, annotation, annotationKind(annotation), fixedAnnotation(annotation)};
+  ModuleDecl returnContract;
+  returnContract.symbol = helper->symbol;
+  llvm::StringSet<> resultNames;
+  for (const Port &input : helper->inputs) resultNames.insert(input.name);
+  if (failed(readReturnContract(returnContract, node.child("returns"), resultNames, true)))
+    return failure();
+  if (returnContract.returnShape == ReturnShape::Mapping)
+    return error() << "pure helper requires None, one ordinary result or a fixed tuple";
+  helper->returnShape = returnContract.returnShape;
+  helper->results = std::move(returnContract.outputs);
+  for (const Port &result : helper->results) {
     auto constraint = sourceConstraint(result);
     if (failed(constraint)) return failure();
-    helper->results.push_back(result);
-    results.push_back(*type);
+    results.push_back(result.type);
     constraints.push_back(*constraint);
   }
   for (const auto &capture : helper->captures) {
@@ -291,7 +298,9 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
   function->setAttr("ac.declaration_role", b.getStringAttr("definition"));
   function->setAttr("ac.parameters", b.getArrayAttr(parameters));
   function->setAttr("ac.result_constraints", b.getArrayAttr(constraints));
-  function->setAttr("ac.return_form", b.getStringAttr(none ? "none" : "single"));
+  function->setAttr("ac.return_form", b.getStringAttr(
+      helper->returnShape == ReturnShape::None ? "none" :
+      helper->returnShape == ReturnShape::Tuple ? "tuple" : "single"));
   function->setAttr("ac.capture_types", b.getArrayAttr(captureTypes));
   if (lexicalOwner) {
     function.setPrivate();
@@ -319,7 +328,8 @@ FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &functio
                                                          FlatSymbolRefAttr ownerSymbol,
                                                          const llvm::StringMap<Value> *values) {
   if (function.kind() == "Name") {
-    if ((activeHelperFrame && activeHelperFrame->localNames.contains(function.string("id"))) ||
+    if (queryBound(function.string("id")) ||
+        (activeHelperFrame && activeHelperFrame->localNames.contains(function.string("id"))) ||
         (values && values->contains(function.string("id"))))
       return error() << "pure helper callable binding is shadowed by a local value";
     FlatSymbolRefAttr lexical = activeValueHelper ? activeHelperLexicalOwner : ownerSymbol;
@@ -337,8 +347,9 @@ FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &functio
       if (found != valueHelpers.end()) return found->second.get();
     }
   }
-  auto binding = lookupBinding(function);
-  if (!binding || binding->category != BindingCategory::Helper) return static_cast<ValueHelperDecl *>(nullptr);
+  auto classification = classifyCall(function);
+  const auto &binding = classification.binding;
+  if (!classification.helper()) return static_cast<ValueHelperDecl *>(nullptr);
   auto found = valueHelpers.find(binding->symbol.getValue());
   if (found != valueHelpers.end()) return found->second.get();
   auto functionBody = dyn_cast_or_null<func::FuncOp>(binding->declaration);
@@ -352,6 +363,9 @@ FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &functio
   helper->function = dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, binding->symbol));
   if (!helper->function) return error() << "imported helper snapshot is missing";
   helper->state = 2;
+  auto form = helper->function->getAttrOfType<StringAttr>("ac.return_form");
+  helper->returnShape = form.getValue() == "tuple" ? ReturnShape::Tuple :
+                        form.getValue() == "none" ? ReturnShape::None : ReturnShape::Struct;
   for (Attribute raw : helper->function->getAttrOfType<ArrayAttr>("ac.parameters")) {
     auto parameter = cast<DictionaryAttr>(raw);
     helper->inputs.push_back(sourceCallPort(parameter.getAs<DictionaryAttr>("constraint"),
@@ -380,6 +394,7 @@ struct Importer::HelperScope {
   SourceEffectContext *effects;
   LoopLoweringContext *loop;
   SmallVector<DictionaryAttr> expansion;
+  SmallVector<SmallVector<StringRef>> queryBindings;
 
   HelperScope(Importer &importer, ValueHelperDecl &helper)
       : importer(importer),
@@ -394,8 +409,10 @@ struct Importer::HelperScope {
         states(std::exchange(importer.activeStates, nullptr)),
         effects(std::exchange(importer.activeSourceEffects, nullptr)),
         loop(std::exchange(importer.activeLoop, nullptr)),
-        expansion(std::move(importer.activeSourceExpansion)) {
+        expansion(std::move(importer.activeSourceExpansion)),
+        queryBindings(std::move(importer.queryArguments)) {
     importer.activeSourceExpansion.clear();
+    importer.queryArguments.clear();
   }
   ~HelperScope() {
     importer.activeNestedRuleScope = nestedRules;
@@ -409,6 +426,7 @@ struct Importer::HelperScope {
     importer.activeSourceEffects = effects;
     importer.activeLoop = loop;
     importer.activeSourceExpansion = std::move(expansion);
+    importer.queryArguments = std::move(queryBindings);
   }
   HelperScope(const HelperScope &) = delete;
   HelperScope &operator=(const HelperScope &) = delete;
@@ -467,7 +485,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     auto argument = block->getArgument(ordinal++);
     environment.values[port.name] = argument;
     environment.boundaries[port.name] = BindingBoundary{port, true};
-    remember(argument, port.sourceKind);
+    rememberContract(argument, port);
     if (port.fixedBits) fixedValues.insert(argument);
   }
   for (const auto &capture : helper.captures) {
@@ -475,26 +493,25 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     mapValueFacts(capture.second, argument);
     if (!capture.first.empty()) {
       environment.values[capture.first] = argument;
-      environment.boundaries[capture.first] = inferredBoundary(capture.first, argument, helper.node);
     }
   }
   auto inside = OpBuilder::atBlockEnd(block);
   llvm::StringSet<> noOwners;
   AstNode returned;
   if (failed(statements(helper.node, "body", inside, helper.symbol, environment, noOwners, returned))) return failure();
-  SmallVector<Value> results;
   llvm::StringMap<Instance *> noInstances;
   auto valueNode = returned ? returned.child("value") : AstNode();
-  bool none = !valueNode || (valueNode.kind() == "Constant" && isa_and_nonnull<UnitAttr>(valueNode.get("value")));
-  if (helper.results.empty()) {
-    if (!none) return error() << "None pure helper cannot return a value";
-  } else {
-    if (none) return error() << "valued pure helper must return a value";
-    auto converted = lowerBoundExpression(valueNode,
-        BindingBoundary{helper.results[0], true}, inside, helper.symbol,
-        environment.values, noInstances);
-    if (failed(converted)) return failure();
-    auto exact = exactHelperValue(*converted, helper.results[0].type, valueNode, inside, helper.symbol);
+  ModuleDecl returnContract;
+  returnContract.symbol = helper.symbol;
+  returnContract.outputs = helper.results;
+  returnContract.returnShape = helper.returnShape;
+  auto lowered = lowerReturn(returnContract, valueNode, inside, environment.values, noInstances);
+  if (failed(lowered)) return failure();
+  SmallVector<Value> results;
+  for (auto [index, value] : llvm::enumerate(*lowered)) {
+    auto element = helper.returnShape == ReturnShape::Tuple
+        ? valueNode.item("elts", index) : valueNode;
+    auto exact = exactHelperValue(value, helper.results[index].type, element, inside, helper.symbol);
     if (failed(exact)) return failure();
     results.push_back(*exact);
   }
@@ -585,6 +602,14 @@ Value Importer::helperCapture(Value original, Block *block, Location location) {
   if (original.getParentBlock() == block) return original;
   auto found = helperCaptureBindings[block].find(original);
   if (found != helperCaptureBindings[block].end()) return found->second;
+  // Query templates inside a helper borrow its declaration capture arguments;
+  // a function frame must never acquire synthetic Rule capture operands.
+  if (activeHelperFrame &&
+      block == &activeHelperFrame->function.getBody().front())
+    for (auto [index, capture] : llvm::enumerate(activeHelperFrame->captures))
+      if (capture.second == original)
+        return activeHelperFrame->function.getArgument(
+            activeHelperFrame->inputs.size() + index);
   Operation *ownerOp = block->getParentOp();
   // Source branches are transparent lexical regions. Their arms may use an
   // ordinary instance output captured by the enclosing Method/Rule block;
@@ -869,7 +894,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
     if (activeLoop) activeLoop->helperOwned.insert(op.getOperation());
     op->setAttr("ac.origin", sourceOccurrence(at, symbol, call));
     for (auto [result, port] : llvm::zip(op.getResults(), helper.results)) {
-      remember(result, port.sourceKind);
+      rememberContract(result, port);
       if (port.fixedBits) fixedValues.insert(result);
     }
     return SmallVector<Value>(op.getResults());
@@ -1006,7 +1031,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
   auto results = inlineBody(inlineBody, helper.function, inputs, at);
   if (failed(results)) return failure();
   for (auto [result, port] : llvm::zip(*results, helper.results)) {
-    remember(result, port.sourceKind);
+    rememberContract(result, port);
     if (port.fixedBits) fixedValues.insert(result);
   }
   return results;
@@ -1014,10 +1039,12 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
 
 FailureOr<SmallVector<Value>> Importer::valueHelperCall(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    bool tupleCall) {
   auto helper = resolveValueHelper(call.child("func"), symbol, &values);
   if (failed(helper) || !*helper) return error() << "call does not resolve to a pure helper";
-  if (!queryArguments.empty()) return error() << "pure helper calls inside expression Lambdas are unsupported";
+  if (((*helper)->returnShape == ReturnShape::Tuple) != tupleCall)
+    return error() << "tuple helper call requires direct Tuple unpacking";
   if (failed(lowerValueHelper(**helper))) return failure();
   if (!call.array("keywords").empty() || call.array("args").size() != (*helper)->inputs.size())
     return error() << "pure helper requires its exact positional argument list";
@@ -1063,7 +1090,30 @@ FailureOr<SmallVector<Value>> Importer::valueHelperCall(
     if (!value) return error() << "pure helper capture is not in its declaration frame";
     actuals.push_back(value);
   }
-  return instantiateValueHelper(**helper, actuals, call, at, symbol);
+  return instantiateValueHelper(**helper, actuals, call, at, symbol,
+                                !queryArguments.empty());
+}
+
+FailureOr<bool> Importer::bindValueHelperResults(
+    const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    llvm::StringMap<BindingBoundary> *boundaries,
+    const llvm::StringSet<> &forbidden, bool immutable) {
+  auto call = assignment.child("value");
+  if (call.kind() != "Call") return false;
+  auto helper = resolveValueHelper(call.child("func"), symbol, &values);
+  if (failed(helper)) return failure();
+  if (!*helper || (*helper)->returnShape != ReturnShape::Tuple) return false;
+  auto targets = moduleResultTargets(assignment, (*helper)->results.size());
+  if (failed(targets)) return failure();
+  for (StringRef name : *targets)
+    if (forbidden.contains(name) || instances.contains(name) ||
+        (immutable && values.contains(name)))
+      return error() << "tuple helper result cannot write a protected binding";
+  auto results = valueHelperCall(call, at, symbol, values, instances, true);
+  if (failed(results) || failed(bindCallableResults(assignment, *results, at,
+          symbol, values, instances, forbidden, boundaries))) return failure();
+  return true;
 }
 
 FailureOr<Value> Importer::namedHelperMap(const AstNode &call, const AstNode &name,
@@ -1076,6 +1126,7 @@ FailureOr<Value> Importer::namedHelperMap(const AstNode &call, const AstNode &na
   if (!*helper) return error() << "named Table callback must resolve to an ordinary typed helper";
   if (failed(lowerValueHelper(**helper))) return failure();
   if (!(*helper)->captures.empty() || (*helper)->inputs.size() != tables.size() ||
+      (*helper)->returnShape == ReturnShape::Tuple ||
       (*helper)->results.size() != 1 || !(*helper)->results.front().fixedBits ||
       !isa<ac::BitsType>((*helper)->results.front().type))
     return error() << "named Table callback requires a zero-capture typed scalar helper";

@@ -447,10 +447,16 @@ projection witnesses. General expression roots and slices keep their specialized
 read admission; selected writes still permit only the existing single Table
 index forms.
 
-These internal facilities do not extend callback helper calls, helper result
-shapes, aggregate indexing, early returns or loop forms. Admission changes remain
-separate follow-up work under issue #375; analysis capacity work under #374 is
-also separate. The [language reference](../reference/language.md) remains the
+Selected assignments share leaf-contract lookup and once-only RHS conversion.
+Ordinary indexed bindings and transaction unsigned boundaries retain their
+existing conversion policies; local reconstruction, persistent writes and formal
+proposals remain with their owners.
+
+Expression callback helper calls and fixed-tuple helper results use these same
+existing type and inline facilities within the language reference's boundaries.
+Aggregate indexing, early returns and loop forms are not broadened. Remaining
+admission work under issue #375 and analysis capacity work under #374 stay
+separate. The [language reference](../reference/language.md) remains the
 authority for supported source forms.
 
 ## Compile and link

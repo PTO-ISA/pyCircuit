@@ -223,7 +223,7 @@ FailureOr<SmallVector<Value>> Importer::memoryMethodCall(
        at.getNamedAttr("ac.location", sourceSpan(at, source.path, node))});
   if (!results.empty()) {
     auto result = operation->getResult(0);
-    remember(result, receiver.outputs.front().sourceKind);
+    rememberContract(result, receiver.outputs.front());
     if (receiver.outputs.front().fixedBits) fixedValues.insert(result);
   }
   return SmallVector<Value>(operation->getResults());
