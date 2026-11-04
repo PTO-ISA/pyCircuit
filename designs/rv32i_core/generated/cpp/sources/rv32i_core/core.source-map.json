@@ -1,0 +1,53 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/core.cpp",
+    "sources/rv32i_core/core.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [
+    {
+      "location": "loc(\"core.py\":14:5)",
+      "operation": "ac.instance",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 0 : i64}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":15:18)",
+      "operation": "ac.instance",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 1 : i64}, {kind = \"field\", name = \"value\"}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":16:23)",
+      "operation": "ac.instance",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 2 : i64}, {kind = \"field\", name = \"value\"}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":17:18)",
+      "operation": "ac.instance",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 3 : i64}, {kind = \"field\", name = \"value\"}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":18:14)",
+      "operation": "ac.instance",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 4 : i64}, {kind = \"field\", name = \"value\"}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":20:23)",
+      "operation": "ac.instance",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 5 : i64}, {kind = \"field\", name = \"value\"}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":13:1)",
+      "operation": "ac.module",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}], definition = @rv32i_core.core.Core}}"
+    },
+    {
+      "location": "loc(\"core.py\":24:5)",
+      "operation": "ac.rule",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}, {kind = \"field\", name = \"body\"}, {kind = \"index\", value = 6 : i64}], definition = @rv32i_core.core.Core}}"
+    }
+  ],
+  "source": {
+    "package": "rv32i_core",
+    "path": "core.py"
+  }
+}

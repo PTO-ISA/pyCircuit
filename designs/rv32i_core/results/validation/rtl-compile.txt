@@ -1,0 +1,2 @@
+$PROJECT/generated/rtl/sources/rv32i_core/core.v:308: warning: input port pyc_root_commit_ok is coerced to inout.
+$PROJECT/generated/rtl/design_top.sv:188: warning: input port pyc_root_commit_ok is coerced to inout.

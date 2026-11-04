@@ -1,0 +1,62 @@
+{
+  "generated_files": [
+    "sources/rv32i_core/types.hpp"
+  ],
+  "kind": "pycircuit-source-map",
+  "origins": [
+    {
+      "location": "loc(\"types.py\":7:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 1 : i64}], definition = @rv32i_core.types.BusInputs}}"
+    },
+    {
+      "location": "loc(\"types.py\":152:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 10 : i64}], definition = @rv32i_core.types.ExecuteControl}}"
+    },
+    {
+      "location": "loc(\"types.py\":17:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 2 : i64}], definition = @rv32i_core.types.Decoded}}"
+    },
+    {
+      "location": "loc(\"types.py\":40:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 3 : i64}], definition = @rv32i_core.types.Fetch}}"
+    },
+    {
+      "location": "loc(\"types.py\":48:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 4 : i64}], definition = @rv32i_core.types.Execute}}"
+    },
+    {
+      "location": "loc(\"types.py\":58:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 5 : i64}], definition = @rv32i_core.types.Packet}}"
+    },
+    {
+      "location": "loc(\"types.py\":82:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 6 : i64}], definition = @rv32i_core.types.Machine}}"
+    },
+    {
+      "location": "loc(\"types.py\":101:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 7 : i64}], definition = @rv32i_core.types.Pins}}"
+    },
+    {
+      "location": "loc(\"types.py\":137:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 8 : i64}], definition = @rv32i_core.types.WritebackControl}}"
+    },
+    {
+      "location": "loc(\"types.py\":146:1)",
+      "operation": "ac.struct",
+      "origin": "{expansion = [], site = {ast_path = [{kind = \"field\", name = \"body\"}, {kind = \"index\", value = 9 : i64}], definition = @rv32i_core.types.MemoryControl}}"
+    }
+  ],
+  "source": {
+    "package": "rv32i_core",
+    "path": "types.py"
+  }
+}

@@ -1,0 +1,19 @@
+read_liberty -lib -ignore_miss_func "@LIBERTY@"
+read_verilog "@SYNTHESIS_INPUT@"
+hierarchy -check -top pyc_root
+synth -top pyc_root -flatten
+check -assert
+scc -expect 0
+select -assert-none t:$_DLATCH* t:$dlatch*
+dffunmap
+dfflibmap -liberty "@LIBERTY@"
+abc -liberty "@LIBERTY@"
+clean
+write_json mapped-before-normalization.json
+clean -purge
+splitnets -ports
+check -assert
+select -assert-none t:$*
+tee -o stat.json stat -json -liberty "@LIBERTY@"
+write_json mapped.json
+write_verilog -noattr -noexpr -simple-lhs mapped.v
