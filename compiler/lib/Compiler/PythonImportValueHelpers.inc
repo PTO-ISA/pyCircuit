@@ -364,36 +364,64 @@ FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &functio
   return result;
 }
 
+// A helper body has its own lexical, control and effect frame. Keep the saved
+// fields together so every exit, including a failed nested helper, restores the
+// caller completely. This scope does not own declarations or numeric facts.
+struct Importer::HelperScope {
+  Importer &importer;
+  NestedRuleScope *nestedRules;
+  ValueHelperDecl *frame;
+  bool pure;
+  FlatSymbolRefAttr lexicalOwner;
+  RuleEvaluation *rule;
+  ModuleStatementContext *moduleStatements;
+  ModuleDecl *declaration;
+  SmallVector<StateOwner> *states;
+  SourceEffectContext *effects;
+  LoopLoweringContext *loop;
+  SmallVector<DictionaryAttr> expansion;
+
+  HelperScope(Importer &importer, ValueHelperDecl &helper)
+      : importer(importer),
+        nestedRules(std::exchange(importer.activeNestedRuleScope, nullptr)),
+        frame(std::exchange(importer.activeHelperFrame, &helper)),
+        pure(std::exchange(importer.activeValueHelper, true)),
+        lexicalOwner(std::exchange(importer.activeHelperLexicalOwner,
+                                   helper.lexicalOwner)),
+        rule(std::exchange(importer.activeRule, nullptr)),
+        moduleStatements(std::exchange(importer.activeModuleStatements, nullptr)),
+        declaration(std::exchange(importer.activeBehavioralDecl, nullptr)),
+        states(std::exchange(importer.activeStates, nullptr)),
+        effects(std::exchange(importer.activeSourceEffects, nullptr)),
+        loop(std::exchange(importer.activeLoop, nullptr)),
+        expansion(std::move(importer.activeSourceExpansion)) {
+    importer.activeSourceExpansion.clear();
+  }
+  ~HelperScope() {
+    importer.activeNestedRuleScope = nestedRules;
+    importer.activeHelperFrame = frame;
+    importer.activeValueHelper = pure;
+    importer.activeHelperLexicalOwner = lexicalOwner;
+    importer.activeRule = rule;
+    importer.activeModuleStatements = moduleStatements;
+    importer.activeBehavioralDecl = declaration;
+    importer.activeStates = states;
+    importer.activeSourceEffects = effects;
+    importer.activeLoop = loop;
+    importer.activeSourceExpansion = std::move(expansion);
+  }
+  HelperScope(const HelperScope &) = delete;
+  HelperScope &operator=(const HelperScope &) = delete;
+};
+
 LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
-  auto *previousNestedRules = std::exchange(activeNestedRuleScope, nullptr);
-  auto restoreNestedRules = llvm::scope_exit([&] { activeNestedRuleScope = previousNestedRules; });
   if (helper.state == 2) return success();
   if (helper.state == 1) return error() << "recursive pure helper call closure is unsupported";
   std::string reason;
   if (!queryBudget.enter(reason)) return error() << reason;
   auto leaveHelper = llvm::scope_exit([&] { queryBudget.leave(); });
   helper.state = 1;
-  auto savedFrame = std::exchange(activeHelperFrame, &helper);
-  auto savedPure = std::exchange(activeValueHelper, true);
-  auto savedLexical = std::exchange(activeHelperLexicalOwner, helper.lexicalOwner);
-  auto savedRule = std::exchange(activeRule, nullptr);
-  auto savedModuleStatements = std::exchange(activeModuleStatements, nullptr);
-  auto savedDecl = std::exchange(activeBehavioralDecl, nullptr);
-  auto savedStates = std::exchange(activeStates, nullptr);
-  auto savedEffects = std::exchange(activeSourceEffects, nullptr);
-  auto savedLoop = std::exchange(activeLoop, nullptr);
-  auto savedExpansion = std::move(activeSourceExpansion);
-  activeSourceExpansion.clear();
-  auto restore = llvm::scope_exit([&] {
-    activeHelperFrame = savedFrame;
-    activeValueHelper = savedPure; activeHelperLexicalOwner = savedLexical;
-    activeRule = savedRule;
-    activeModuleStatements = savedModuleStatements;
-    activeBehavioralDecl = savedDecl;
-    activeStates = savedStates;
-    activeSourceEffects = savedEffects; activeLoop = savedLoop;
-    activeSourceExpansion = std::move(savedExpansion);
-  });
+  HelperScope scope(*this, helper);
   // All lexical declarations have names and their own declaration snapshots
   // before any body is demanded. Seal transitive capture inputs from callee
   // snapshots, without consulting a dynamic Module or caller value frame.
@@ -444,11 +472,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   }
   for (const auto &capture : helper.captures) {
     auto argument = block->getArgument(ordinal++);
-    auto info = valueInfo(capture.second);
-    info.value = argument;
-    numericValues[argument] = info;
-    if (fixedValues.contains(capture.second)) fixedValues.insert(argument);
-    if (arithmeticValues.contains(capture.second)) arithmeticValues.insert(argument);
+    mapValueFacts(capture.second, argument);
     if (!capture.first.empty()) {
       environment.values[capture.first] = argument;
       environment.boundaries[capture.first] = inferredBoundary(capture.first, argument, helper.node);
@@ -466,9 +490,9 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     if (!none) return error() << "None pure helper cannot return a value";
   } else {
     if (none) return error() << "valued pure helper must return a value";
-    auto value = expression(valueNode, inside, helper.symbol, environment.values, noInstances, helper.results[0].type);
-    if (failed(value)) return failure();
-    auto converted = applyBindingBoundary(*value, BindingBoundary{helper.results[0], true}, valueNode, inside, helper.symbol);
+    auto converted = lowerBoundExpression(valueNode,
+        BindingBoundary{helper.results[0], true}, inside, helper.symbol,
+        environment.values, noInstances);
     if (failed(converted)) return failure();
     auto exact = exactHelperValue(*converted, helper.results[0].type, valueNode, inside, helper.symbol);
     if (failed(exact)) return failure();
@@ -504,9 +528,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     Value replacement = literalPayloadReplacement(extract, *block);
     if (!replacement) continue;
     Value result = extract.getResult();
-    numericValues.erase(result);
-    fixedValues.erase(result);
-    arithmeticValues.erase(result);
+    forgetValueFacts(result);
     result.replaceAllUsesWith(replacement);
     extract.erase();
   }
@@ -523,9 +545,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   if (failed(literalPlan)) return failure();
   for (auto [constant, representative] : *literalPlan) {
     Value result = constant.getResult();
-    numericValues.erase(result);
-    fixedValues.erase(result);
-    arithmeticValues.erase(result);
+    forgetValueFacts(result);
     result.replaceAllUsesWith(representative);
     constant.erase();
   }
@@ -658,17 +678,17 @@ FailureOr<TableQueryCharge> Importer::valueHelperCost(func::FuncOp root,
     auto chargeValue = [&](Value value, uint64_t copies = 2,
                            bool cloneFacts = true) {
       fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 3);
-      auto facts = numericValues.find(value);
+      const auto *facts = findValueInfo(value);
       // A missing/empty fact row has exactly valueInfo's default meaning. The
       // clone need not allocate a second empty row for an aggregate SSA handle.
-      if (facts != numericValues.end()) {
-        bool meaningful = facts->second.sourceKind || facts->second.interval ||
-                          facts->second.closedSourceConstant;
+      if (facts) {
+        bool meaningful = facts->sourceKind || facts->interval ||
+                          facts->closedSourceConstant;
         fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
             meaningful ? copies : 1, (sizeof(NumericValue) + 7) / 8 + 4);
-        if (facts->second.interval)
-          for (const auto *endpoint : {&facts->second.interval->lower,
-                                       &facts->second.interval->upper})
+        if (facts->interval)
+          for (const auto *endpoint : {&facts->interval->lower,
+                                       &facts->interval->upper})
             fits &= TableQueryBudget::addProduct(cost, TableQueryResource::PayloadWords,
                 (endpoint->getBitWidth() + 63) / 64, cloneFacts ? 3 : 1);
       }
@@ -861,16 +881,6 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
   size_t frameDepth = activeSourceExpansion.size();
   if (failed(pushHelperFrame(call, helper.node, symbol, helper.symbol))) return failure();
   auto restoreFrame = llvm::scope_exit([&] { activeSourceExpansion.resize(frameDepth); });
-  auto copyFacts = [&](Value original, Value copied) {
-    auto facts = numericValues.find(original);
-    if (facts != numericValues.end() &&
-        (facts->second.sourceKind || facts->second.interval || facts->second.closedSourceConstant)) {
-      auto info = facts->second; info.value = copied;
-      numericValues[copied] = std::move(info);
-    }
-    if (fixedValues.contains(original)) fixedValues.insert(copied);
-    if (arithmeticValues.contains(original)) arithmeticValues.insert(copied);
-  };
   auto inlineBody = [&](auto &&self, func::FuncOp function, ValueRange actuals,
                         OpBuilder &target) -> FailureOr<SmallVector<Value>> {
     auto returned = cast<func::ReturnOp>(function.getBody().front().getTerminator());
@@ -970,7 +980,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
         auto *copy = builder.cloneWithoutRegions(operation, map);
         if (activeLoop) activeLoop->helperOwned.insert(copy);
         for (auto [original, result] : llvm::zip(operation.getResults(), copy->getResults()))
-          if (retainsFacts(original)) copyFacts(original, result);
+          if (retainsFacts(original)) mapValueFacts(original, result, /*sparse=*/true);
         copy->setAttrs(cast<DictionaryAttr>(expandAttribute(expandAttribute, copy->getAttrDictionary(), false)));
         for (auto [sourceRegion, copiedRegion] : llvm::zip(operation.getRegions(), copy->getRegions()))
           for (Block &regionBlock : sourceRegion) {
@@ -980,7 +990,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
             for (Value argument : regionBlock.getArguments()) {
               auto result = newBlock->addArgument(argument.getType(), argument.getLoc());
               map.map(argument, result);
-              if (retainsFacts(argument)) copyFacts(argument, result);
+              if (retainsFacts(argument)) mapValueFacts(argument, result, /*sparse=*/true);
             }
             auto inside = OpBuilder::atBlockEnd(newBlock);
             if (failed(expand(expand, regionBlock, *newBlock, map, inside))) return failure();
@@ -1022,6 +1032,8 @@ FailureOr<SmallVector<Value>> Importer::valueHelperCall(
   // helper's isolated body frame; no declaration capture is looked up by name.
   for (size_t i = 0; i < call.array("args").size(); ++i) {
     auto actualNode = call.item("args", i);
+    // Helper actuals intentionally have no destination context. Their existing
+    // exact-carrier and loop-ownership work surrounds the common conversion.
     auto actual = expression(actualNode, at, symbol, values, instances);
     if (failed(actual)) return failure();
     Operation *previous = at.getBlock()->empty() ? nullptr : &at.getBlock()->back();

@@ -1,4 +1,4 @@
-"""Module ordinary statements match existing helper and Rule semantics."""
+"""Module ordinary statements match existing helper, Rule and Method semantics."""
 
 from __future__ import annotations
 
@@ -70,27 +70,39 @@ def rule_if(value: ac.u8, enabled: ac.u1) -> ac.u8:
     if enabled:
         result = result + 1
     return result
+@ac.module
+def MethodOwner():
+    @ac.method
+    def compute(value: ac.u8, enabled: ac.u1) -> ac.u8:
+        result = value
+        if enabled:
+            result = result + 1
+        return result
 @ac.system(samples=((1, 0),))
 def Exercise():
-    module_value = ModuleIf(7, 1)
-    helper_value = helper_if(7, 1)
+    module_on = ModuleIf(7, 1)
+    module_off = ModuleIf(7, 0)
+    helper_on = helper_if(7, 1)
+    helper_off = helper_if(7, 0)
+    owner = MethodOwner()
     @ac.rule
     def check():
-        rule_value = rule_if(7, 1)
-        assert module_value == 8
-        assert helper_value == 8
-        assert rule_value == 8
-        ac.log('info', 'if_parity', module_value, helper_value, rule_value)
+        rule_on = rule_if(7, 1)
+        rule_off = rule_if(7, 0)
+        method_on = owner.compute(7, 1)
+        method_off = owner.compute(7, 0)
+        ac.log('info', 'if_parity', module_on, module_off,
+               helper_on, helper_off, rule_on, rule_off, method_on, method_off)
 """
 
 
-def test_plain_module_if_matches_helper_and_rule_in_both_backends(
+def test_plain_module_if_matches_helper_rule_and_method_in_both_backends(
     tmp_path: Path,
 ) -> None:
     traces = _system_records(_final(tmp_path, "if_parity", IF_PARITY), tmp_path)
     logs = [[row for row in trace if row["kind"] == "log"] for trace in traces]
     assert logs[0] == logs[1] == logs[2]
-    assert [value["value"] for value in logs[0][0]["values"]] == ["8", "8", "8"]
+    assert [value["value"] for value in logs[0][0]["values"]] == ["8", "7"] * 4
 
 
 def test_pure_module_final_has_no_synthetic_domain_or_storage(tmp_path: Path) -> None:
@@ -216,6 +228,59 @@ def Exercise():
     assert logs[0] == logs[1] == logs[2]
 
 
+def test_plain_and_stateful_child_paths_keep_snapshots_and_instance_identity(
+    tmp_path: Path,
+) -> None:
+    final = _final(
+        tmp_path,
+        "child_parity",
+        """import pycircuit as ac
+def add(value: ac.u8, amount: ac.u8) -> ac.u8: return value + amount
+@ac.module
+def Counter(step: ac.u8) -> ac.u8:
+    count: ac.u8 = 7
+    @ac.rule
+    def advance():
+        count = count + step
+    return count
+@ac.module
+def Plain(value: ac.u8, enabled: ac.u1) -> tuple[ac.u8, ac.u8]:
+    snapshot = add(value, 1)
+    result = snapshot
+    if enabled:
+        result = add(result, 1)
+    return snapshot, result
+@ac.module
+def WithChild(step: ac.u8, enabled: ac.u1) -> tuple[ac.u8, ac.u8]:
+    child = Counter(step)
+    snapshot = add(child, 1)
+    result = snapshot
+    if enabled:
+        result = add(result, 1)
+    return snapshot, result
+@ac.system(samples=((0, 0), (1, 0), (0, 0), (1, 0), (0, 0)))
+def Exercise():
+    plain_before, plain_after = Plain(7, 1)
+    left_before, left_after = WithChild(1, 1)
+    right_before, right_after = WithChild(3, 1)
+    @ac.rule
+    def check():
+        ac.log('info', 'child_parity', plain_before, plain_after,
+               left_before, left_after, right_before, right_after)
+""",
+    )
+    traces = _system_records(final, tmp_path)
+    logs = [[row for row in trace if row["kind"] == "log"] for trace in traces]
+    assert logs[0] == logs[1] == logs[2]
+    assert [[int(value["value"]) for value in row["values"]] for row in logs[0]] == [
+        [8, 9, 8, 9, 8, 9],
+        [8, 9, 8, 9, 8, 9],
+        [8, 9, 9, 10, 11, 12],
+        [8, 9, 9, 10, 11, 12],
+        [8, 9, 10, 11, 14, 15],
+    ]
+
+
 def test_module_ordinary_values_and_state_writing_rule_keep_one_state_owner(
     tmp_path: Path,
 ) -> None:
@@ -277,7 +342,7 @@ def Top(value: ac.u8, enabled: ac.u1) -> ac.u8:
     )
 
 
-def test_struct_and_table_local_updates_preserve_unmodified_fields(
+def test_struct_and_table_local_updates_preserve_snapshots_and_unmodified_fields(
     tmp_path: Path,
 ) -> None:
     final = _final(
@@ -289,25 +354,37 @@ class Pair:
     left: ac.u8
     right: ac.u8
 @ac.module
-def Update(pair: Pair, values: ac.table[2, ac.u8]) -> tuple[Pair, ac.table[2, ac.u8]]:
+def Update(pair: Pair, values: ac.table[2, ac.u8]) -> tuple[Pair, Pair, ac.table[2, ac.u8], ac.table[2, ac.u8]]:
     updated_pair = pair
+    saved_pair = updated_pair
     updated_pair.left = pair.left + 1
     updated_values = values
+    saved_values = updated_values
     updated_values[1] = values[1] + 1
-    return updated_pair, updated_values
+    return saved_pair, updated_pair, saved_values, updated_values
 @ac.system(samples=((1, 0),))
 def Exercise():
-    pair, values = Update(Pair(left=3, right=9), (4, 7))
+    saved_pair, pair, saved_values, values = Update(Pair(left=3, right=9), (4, 7))
     @ac.rule
     def check():
-        assert pair.left == 4
-        assert pair.right == 9
-        assert values[0] == 4
-        assert values[1] == 8
+        ac.log('info', 'aggregate_update', saved_pair.left, saved_pair.right,
+               pair.left, pair.right, saved_values[0], saved_values[1],
+               values[0], values[1])
 """,
     )
     traces = _system_records(final, tmp_path)
-    assert all(any(row["kind"] == "result" for row in trace) for trace in traces)
+    logs = [[row for row in trace if row["kind"] == "log"] for trace in traces]
+    assert logs[0] == logs[1] == logs[2]
+    assert [value["value"] for value in logs[0][0]["values"]] == [
+        "3",
+        "9",
+        "4",
+        "9",
+        "4",
+        "7",
+        "4",
+        "8",
+    ]
 
 
 def test_scalar_module_annotation_is_state_and_requires_closed_initializer(

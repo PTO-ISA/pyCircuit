@@ -190,6 +190,15 @@ if ((node.kind() == "Constant" || sourceLiteral) && expected && !isa<ac::BitsTyp
     return error() << "aggregate literal requires contextual zero";
   return constant(*expected, 0, node, at, ownerSymbol);
 }
+if ((node.kind() == "Attribute" || node.kind() == "Subscript") &&
+    !sourceLiteral && plainAccessPath(node)) {
+  StringRef root = assignmentRoot(node);
+  if (!queryBound(root) && values.contains(root)) {
+    auto path = resolveAccessPath(node, values.lookup(root).getType(), ownerSymbol);
+    if (failed(path)) return failure();
+    return readAccessPath(*path, at, ownerSymbol, values, instances, captures);
+  }
+}
 if (node.kind() == "Attribute" && !sourceLiteral &&
     !(node.child("value").kind() == "Name" &&
       !queryBound(node.child("value").string("id")) &&
@@ -199,25 +208,9 @@ if (node.kind() == "Attribute" && !sourceLiteral &&
                          instances, {}, captures);
   if (failed(base))
     return failure();
-  auto record = dyn_cast<ac::StructType>(base->getType());
-  ac::HardwareAnalysis analysis(*body);
-  auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
-  if (!declaration)
-    return error() << "field projection requires a struct";
-  for (Attribute raw : declaration.getFields()) {
-    auto field = cast<DictionaryAttr>(raw);
-    if (field.getAs<StringAttr>("name").getValue() == node.string("attr")) {
-      auto result =
-          createOp(at, node.location(b.getContext(), source.path),
-                   ac::StructGetOp::getOperationName(), {*base},
-                   TypeRange{field.getAs<TypeAttr>("type").getValue()},
-                   {at.getNamedAttr("field", field.getAs<StringAttr>("name"))})
-              ->getResult(0);
-      rememberStructField(result, field, node);
-      return result;
-    }
-  }
-  return error() << "unknown struct field";
+  auto field = accessField(base->getType(), node.string("attr"));
+  if (failed(field)) return failure();
+  return readAccessField(*base, *field, node, at);
 }
 if (node.kind() == "Call") {
   auto constructor = lookupBinding(node.child("func"));
@@ -330,53 +323,7 @@ if (node.kind() == "Subscript") {
                           instances, {}, captures);
   if (failed(index))
     return failure();
-  if (isa<ac::BitsType>(base->getType())) {
-    if (!fixedValues.contains(*base))
-      return error() << "bit index requires authoritative fixed bits, not a "
-                        "Boolean or Integer carrier";
-    ac::HardwareAnalysis analysis(*body);
-    auto width = analysis.getPackedWidth(base->getType(), {},
-                                         at.getInsertionBlock()->getParentOp());
-    if (failed(width) || failed(proveIndexExtent(*index, *width, node, "bit")))
-      return failure();
-    // Keep the complete index carrier, including high X/Z bits. A logical
-    // Boolean/Integer index crosses an explicit fresh fixed-Bits boundary;
-    // aliases of the original source value retain their source-kind facts.
-    auto count = unsignedBoundary(*index, index->getType(), node.child("slice"),
-                                  at, ownerSymbol);
-    if (failed(count))
-      return failure();
-    auto shifted =
-        fixedUnsignedShift(*base, *count, "lshr", node, node.child("value"),
-                           node.child("slice"), at, ownerSymbol);
-    if (failed(shifted))
-      return failure();
-    auto result =
-        createOp(at, node.location(b.getContext(), source.path),
-                 ac::BitsExtractOp::getOperationName(), {*shifted},
-                 TypeRange{internalBits(1, node, ownerSymbol)},
-                 {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
-            ->getResult(0);
-    remember(result, std::nullopt);
-    fixedValues.insert(result);
-    return result;
-  }
-  auto type = dyn_cast<ac::TableType>(base->getType());
-  if (!type)
-    return error() << "subscript requires fixed bits or a table";
-  auto admission = proveIndex(*base, *index, node);
-  if (failed(admission)) return failure();
-  SmallVector<Type> results{type.getElementType()};
-  bool deferred = *admission == SourceIndexAdmission::Deferred;
-  if (!deferred) results.push_back(internalBits(1, node, ownerSymbol));
-  auto result =
-      createOp(at, node.location(b.getContext(), source.path),
-               deferred ? ac::TableReadOp::getOperationName() : ac::TableGetOp::getOperationName(),
-               {*base, *index}, results, {})
-          ->getResult(0);
-  if (isa<ac::BitsType>(result.getType()))
-    fixedValues.insert(result);
-  return result;
+  return readAccessIndex(*base, *index, node, at, ownerSymbol);
 }
 if (node.kind() == "BoolOp") {
   if (node.array("values").size() < 2)

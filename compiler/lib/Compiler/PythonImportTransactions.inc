@@ -1040,36 +1040,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     bool formalProposals = isa<ac::SourceMethodOp>(inside.getBlock()->getParentOp()) &&
                            callable.syntax.marker == MarkerKind::Rule;
     auto intentName = [](StringRef formal) { return ("$intent." + formal).str(); };
-    auto writeSelectors = [&](const AstNode &target,
-                              OpBuilder &at) -> FailureOr<ArrayAttr> {
-      SmallVector<Attribute> selectors;
-      AstNode current = target;
-      while (current.kind() == "Attribute" || current.kind() == "Subscript") {
-        TableQueryCharge charge;
-        std::string reason;
-        if (!TableQueryBudget::add(charge, TableQueryResource::Work, 1) ||
-            !TableQueryBudget::add(charge, TableQueryResource::Slots, 4) ||
-            !queryBudget.reserve(charge, reason))
-          return error() << "selected write footprint: " << reason;
-        if (current.kind() == "Attribute")
-          selectors.push_back(at.getDictionaryAttr({at.getNamedAttr(
-              "field", at.getStringAttr(current.string("attr")))}));
-        else {
-          if (llvm::any_of(selectors, [](Attribute raw) {
-                return cast<DictionaryAttr>(raw).get("index");
-              }))
-            return error()
-                   << "selected writes support one Table index per path";
-          selectors.push_back(at.getDictionaryAttr(
-              {at.getNamedAttr("index", at.getI64IntegerAttr(0))}));
-        }
-        current = current.child("value");
-      }
-      if (current.kind() != "Name")
-        return error() << "selected write requires a named payload root";
-      std::reverse(selectors.begin(), selectors.end());
-      return at.getArrayAttr(selectors);
-    };
     auto emitFormalWrite = [&](StringRef name, Value payload,
                                const AstNode &site, OpBuilder &at,
                                BranchEnvironment &environment,
@@ -1256,103 +1226,17 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         }
         if (statement.kind() == "If") {
-          std::string reason;
-          if (!queryBudget.enter(reason))
-            return mlir::emitError(statement.location(b.getContext(), source.path))
-                   << "source branch: " << reason;
-          auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
-          if (failed(chargeLoopDescriptorWork(statement,
-                                              "source branch statement")))
+          BranchStatementContext branchContext{decl.symbol, instances, nullptr,
+                                                &context};
+          auto emitArm = [&](const AstNode &branch, StringRef arm,
+                              OpBuilder &armAt, BranchEnvironment &branchEnvironment) {
+            // The enclosing continuation is already established; only the
+            // authored selector controls these effect regions.
+            return emitRange(branch, arm, armAt, branchEnvironment, true, 0, true);
+          };
+          if (failed(ifStatement(statement, inside, environment, branchContext,
+                                  emitArm)))
             return failure();
-          // Statement arms admit effects; evaluating their selector remains
-          // pure, independently of whether this statement is in another arm.
-          auto test = [&]() {
-            bool savedPureExpression =
-                std::exchange(context.pureExpression, true);
-            auto restorePureExpression = llvm::scope_exit([&] {
-              context.pureExpression = savedPureExpression;
-            });
-            return expression(statement.child("test"), inside, decl.symbol,
-                              values, instances);
-          }();
-          if (failed(test))
-            return failure();
-          auto predicate = predicateView(*test, statement.child("test"), decl.symbol);
-          if (failed(predicate))
-            return failure();
-          // Seed capture boundaries before any environment copies. Captures
-          // retain their original authority, including unchanged aggregates.
-          for (const auto &binding : values) {
-            if (environment.boundaries.contains(binding.first()))
-              continue;
-            TableQueryCharge charge;
-            bool fits = TableQueryBudget::add(charge, TableQueryResource::Slots, 16) &&
-                        TableQueryBudget::add(charge, TableQueryResource::Work, 2) &&
-                        TableQueryBudget::addProduct(
-                            charge, TableQueryResource::ConstantBytes, 2,
-                            binding.first().size());
-            for (const AstStep &step : statement.path)
-              fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 8) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Work, 1) &&
-                      TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
-                                            step.field.size());
-            if (!fits || !queryBudget.reserve(charge, reason))
-              return mlir::emitError(statement.location(b.getContext(), source.path))
-                     << "source branch capture binding: "
-                     << (fits ? reason : "binding storage counter exhausted");
-            environment.boundaries[binding.first()] =
-                inferredBoundary(binding.first(), binding.second, statement);
-          }
-          bool unchangedElse = statement.array("orelse").empty();
-          if (failed(reserveSourceEnvironmentCopies(statement, environment,
-                                                    nullptr, nullptr,
-                                                    unchangedElse ? 1 : 2)))
-            return failure();
-          BranchEnvironment yes = environment;
-          std::optional<BranchEnvironment> materializedElse;
-          if (!unchangedElse)
-            materializedElse.emplace(environment);
-          // An empty else is the unchanged incoming environment, not another
-          // full map/descriptor copy. Both references remain immutable at join.
-          const BranchEnvironment &no =
-              unchangedElse ? environment : *materializedElse;
-          TableQueryCharge charge;
-          bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
-                      TableQueryBudget::add(charge, TableQueryResource::Work, 4);
-          if (!fits || !queryBudget.reserve(charge, reason))
-            return mlir::emitError(statement.location(b.getContext(), source.path))
-                   << "source branch construction: "
-                   << (fits ? reason : "operation storage counter exhausted");
-          auto branch = cast<ac::SourceBranchOp>(createOp(
-              inside, statement.location(b.getContext(), source.path),
-              ac::SourceBranchOp::getOperationName(), {predicate->value}, {},
-              {inside.getNamedAttr("occurrence",
-                                   sourceOccurrence(inside, decl.symbol, statement)),
-               inside.getNamedAttr("ac.condition_location",
-                                   sourceSpan(inside, source.path,
-                                              statement.child("test")))}, 2));
-          branch.getThenRegion().push_back(new Block());
-          branch.getElseRegion().push_back(new Block());
-          OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
-          OpBuilder elseAt = OpBuilder::atBlockEnd(&branch.getElseRegion().front());
-          // Reaching this statement already establishes the enclosing loop's
-          // continuation. The authored selector controls its two arms; adding
-          // the same continuation guard inside each arm duplicates proof IR.
-          if (failed(
-                  emitRange(statement, "body", thenAt, yes, true, 0, true)) ||
-              (!unchangedElse &&
-               failed(emitRange(statement, "orelse", elseAt, *materializedElse,
-                                true, 0, true))) ||
-              failed(reserveSourceEnvironmentCopies(statement, environment,
-                                                    &yes, &no)))
-            return failure();
-          auto joined = joinBranches(*predicate, environment, yes, no, statement,
-                                      inside, decl.symbol, branch);
-          if (failed(joined))
-            return failure();
-          environment = std::move(*joined);
           continue;
         }
         if (statement.kind() == "For") {
@@ -1913,11 +1797,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 if (!key || key.getValue() != contract.name)
                   return error() << "named Rule return key disagrees with its result contract";
               }
-              auto value = expression(element, inside, decl.symbol, values,
-                                      instances, contract.type);
-              if (failed(value)) return failure();
-              auto converted = applyBindingBoundary(*value,
-                  BindingBoundary{contract, true}, element, inside, decl.symbol);
+              auto converted = lowerBoundExpression(element,
+                  BindingBoundary{contract, true}, inside, decl.symbol,
+                  values, instances);
               if (failed(converted)) return failure();
               if (converted->getType() != contract.type &&
                   isa<ac::BitsType>(converted->getType()) &&
@@ -2068,24 +1950,23 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (statement.kind() == "Assign" && target.kind() != "Name" && rhs &&
             states.contains(ownerRoot)) {
           const StateOwner &owner = states[ownerRoot];
-          llvm::StringMap<Value> typeValues(values);
-          typeValues[ownerRoot] = owner.op->getResult(0);
-          DictionaryAttr selectedField;
-          auto selectedType = expressionType(target, typeValues, instances,
-                                             decl.symbol, &selectedField);
-          if (failed(selectedType)) return failure();
+          auto access = resolveAccessPath(target, owner.type, decl.symbol);
+          if (failed(access)) return failure();
+          const auto &selected = access->steps.back();
+          DictionaryAttr selectedField = selected.field;
+          Type selectedType = selected.type;
           auto replacement = expression(rhs, inside, decl.symbol, values,
-                                          instances, *selectedType);
+                                          instances, selectedType);
           if (failed(replacement)) return failure();
           auto converted = selectedField
               ? applyBindingBoundary(
                     *replacement,
                     BindingBoundary(structFieldPort(selectedField, target), true),
                     rhs, inside, decl.symbol)
-              : unsignedBoundary(*replacement, *selectedType, rhs, inside,
+              : unsignedBoundary(*replacement, selectedType, rhs, inside,
                                    decl.symbol);
           if (failed(converted)) return failure();
-          auto selectors = writeSelectors(target, inside);
+          auto selectors = accessSelectors(*access, inside);
           if (failed(selectors))
             return failure();
           SmallVector<Value> operands;
@@ -2095,18 +1976,25 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           operands.append({*path, *converted});
           // Bind the target index once after the RHS. Native state lowering
           // reconstructs this selected write against the current candidate.
-          AstNode element = target.kind() == "Subscript"
-                                ? target
-                                : indexedFieldTarget(target);
-          if (element) {
-            auto index = expression(element.child("slice"), inside, decl.symbol,
-                                    values, instances);
-            auto container = expression(element.child("value"), inside,
-                                        decl.symbol, values, instances);
-            if (failed(index) || failed(container) ||
-                failed(proveIndex(*container, *index, statement)))
+          auto index = llvm::find_if(access->steps,
+              [](const TypedAccessStep &step) { return !step.field; });
+          if (index != access->steps.end()) {
+            // Preserve the old selected-write grammar: a terminal Table index,
+            // or a root Table index followed only by declared Struct fields.
+            if (target.kind() != "Subscript" && index != access->steps.begin())
+              return error() << "selected field write requires a named Table root";
+            if (!isa<ac::TableType>(index->parentType))
+              return error() << "indexed assignment requires a Table payload";
+            if (failed(bindAccessIndex(*access, *index, inside, decl.symbol, values, instances)))
               return failure();
-            operands.push_back(*index);
+            auto container = readAccessPath(*access, inside, decl.symbol, values,
+                                             instances, nullptr,
+                                             std::distance(access->steps.begin(), index));
+            if (failed(container) ||
+                failed(proveIndex(*container, index->index, statement)))
+              return failure();
+            index->parent = *container;
+            operands.push_back(index->index);
           }
           createOp(
               inside, statement.location(b.getContext(), source.path),
@@ -2127,23 +2015,25 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               isa<ac::StructType>(values.lookup(ownerRoot).getType())))) {
           if (failed(chargeLoopDescriptorWork(statement, "local Table reconstruction")))
             return failure();
-          DictionaryAttr selectedField;
-          auto selectedType = expressionType(target, values, instances,
-                                             decl.symbol, &selectedField);
-          if (failed(selectedType)) return failure();
+          auto access = resolveAccessPath(target, values.lookup(ownerRoot).getType(),
+                                           decl.symbol);
+          if (failed(access)) return failure();
+          const auto &selected = access->steps.back();
+          DictionaryAttr selectedField = selected.field;
+          Type selectedType = selected.type;
           auto replacement = expression(rhs, inside, decl.symbol, values,
-                                          instances, *selectedType);
+                                          instances, selectedType);
           if (failed(replacement)) return failure();
           auto converted = selectedField
               ? applyBindingBoundary(
                     *replacement,
                     BindingBoundary(structFieldPort(selectedField, target), true),
                     rhs, inside, decl.symbol)
-              : unsignedBoundary(*replacement, *selectedType, rhs, inside,
+              : unsignedBoundary(*replacement, selectedType, rhs, inside,
                                    decl.symbol);
           SmallVector<Value> indices;
           if (failed(converted) ||
-              failed(updateAssignment(target, *converted, statement, inside,
+              failed(updateAssignment(*access, *converted, statement, inside,
                                       decl.symbol, values, &indices)))
             return failure();
           if (auto boundary = environment.boundaries.find(ownerRoot);
@@ -2153,7 +2043,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             if (failed(bounded)) return failure();
             values[ownerRoot] = *bounded;
           }
-          auto selectors = writeSelectors(target, inside);
+          auto selectors = accessSelectors(*access, inside);
           if (failed(selectors) ||
               failed(emitFormalWrite(ownerRoot, *converted, statement, inside,
                                      environment, {}, *selectors, indices)))
@@ -2161,38 +2051,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         }
         if (statement.kind() == "Assign" && target.kind() == "Attribute" && rhs) {
-          auto reserveLocal = [&](uint64_t work, uint64_t slots,
-                                  uint64_t operations = 0) -> LogicalResult {
-            TableQueryCharge charge;
-            std::string reason;
-            bool fits = TableQueryBudget::add(charge, TableQueryResource::Work, work) &&
-                        TableQueryBudget::add(charge, TableQueryResource::Slots, slots) &&
-                        TableQueryBudget::add(charge, TableQueryResource::Operations, operations);
-            if (!fits || !queryBudget.reserve(charge, reason))
-              return error() << "local Struct field reconstruction: "
-                             << (fits ? reason : "cost counter exhausted");
-            return success();
-          };
-          if (failed(reserveLocal(target.path.size() + 1,
-                  (target.path.size() + 1) * ((sizeof(AstStep) + 7) / 8))))
-            return failure();
-          AstNode rootTarget = target;
-          SmallVector<StringRef, 0> fieldNames;
-          while (rootTarget.kind() == "Attribute") {
-            if (fieldNames.size() >= 128)
-              return error() << "local Struct field target depth exceeded";
-            uint64_t pathSlots =
-                3 * (rootTarget.path.size() + 2) * ((sizeof(AstStep) + 7) / 8);
-            if (failed(reserveLocal(rootTarget.path.size() + fieldNames.size() + 3,
-                                    pathSlots + fieldNames.size() + 1)))
-              return failure();
-            fieldNames.reserve(fieldNames.size() + 1);
-            fieldNames.push_back(rootTarget.string("attr"));
-            rootTarget = rootTarget.child("value");
-          }
-          if (rootTarget.kind() != "Name")
-            return error() << "local Struct field target requires an Attribute-only Name path";
-          StringRef root = rootTarget.string("id");
+          StringRef root = ownerRoot;
           bool formal = llvm::any_of(callable.inputs, [&](const Port &port) {
             return port.name == root;
           });
@@ -2205,69 +2064,32 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             return error() << "local field assignment requires a nominal Struct payload";
           auto admitted = resolveBranchPayloadType(original.getType(), inside, statement);
           if (failed(admitted)) return failure();
-          std::reverse(fieldNames.begin(), fieldNames.end());
-          Type selectedType = *admitted;
-          DictionaryAttr selectedField;
-          ac::HardwareAnalysis analysis(*body);
-          for (StringRef fieldName : fieldNames) {
-            auto record = dyn_cast<ac::StructType>(selectedType);
-            auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
-            if (!declaration)
-              return error() << "local field path intermediates require Struct payloads";
-            auto fields = declaration.getFields();
-            if (failed(reserveLocal(fields.size() + fieldName.size(), 0)))
-              return failure();
-            Type next;
-            for (Attribute raw : fields) {
-              auto field = cast<DictionaryAttr>(raw);
-              StringRef name = field.getAs<StringAttr>("name").getValue();
-              if (failed(reserveLocal(1 + (name.size() == fieldName.size()
-                                               ? name.size() : 0), 0)))
-                return failure();
-              if (name == fieldName) {
-                next = field.getAs<TypeAttr>("type").getValue();
-                selectedField = field;
-              }
-            }
-            if (!next) return error() << "unknown local Struct assignment field";
-            selectedType = next;
-          }
-          // Each actual replaceField call pays its own concrete reconstruction.
-          // Repeated recursive target evaluation still copies AST paths and
-          // projects ancestors; no constructor reuse is assumed for those
-          // intermediate projection results.
-          uint64_t depth = fieldNames.size();
-          for (uint64_t level = 0; level < depth; ++level) {
-            uint64_t ancestors = depth - level - 1;
-            uint64_t path = target.path.size() + depth + 1;
-            if (failed(reserveLocal(
-                    (ancestors + 1) * (path + 1),
-                    (ancestors + 1) * path * ((sizeof(AstStep) + 7) / 8) +
-                        ancestors * 32 + 32,
-                    ancestors + 1)))
-              return failure();
-          }
+          auto access = resolveAccessPath(target, *admitted, decl.symbol);
+          if (failed(access)) return failure();
+          if (access->steps.size() > 128)
+            return error() << "local Struct field target depth exceeded";
+          if (!llvm::all_of(access->steps,
+                            [](const TypedAccessStep &step) { return bool(step.field); }))
+            return error() << "local Struct field target requires an Attribute-only Name path";
+          DictionaryAttr selectedField = access->steps.back().field;
           BindingBoundary rootBoundary = environment.boundaries.contains(root)
               ? environment.boundaries.lookup(root)
               : inferredBoundary(root, original, statement);
           BindingBoundary fieldBoundary{
               structFieldPort(selectedField, target), true};
-          auto value = expression(rhs, inside, decl.symbol, values, instances,
-                                  selectedType);
-          if (failed(value)) return failure();
-          auto converted = applyBindingBoundary(*value, fieldBoundary, rhs,
-                                                inside, decl.symbol);
+          auto converted = lowerBoundExpression(rhs, fieldBoundary, inside,
+                                                  decl.symbol, values, instances);
           bool preserveProjectionWitnesses =
               formalProposals && callable.assignedFormals.contains(root) &&
               !callable.stateFormals.contains(root);
-          if (failed(converted) || failed(updateAssignment(target, *converted,
+          if (failed(converted) || failed(updateAssignment(*access, *converted,
                   statement, inside, decl.symbol, values, nullptr,
                   preserveProjectionWitnesses)))
             return failure();
           if (values.lookup(root).getType() != original.getType())
             return error() << "local field reconstruction changed root nominal type";
           environment.boundaries[root] = std::move(rootBoundary);
-          auto selectors = writeSelectors(target, inside);
+          auto selectors = accessSelectors(*access, inside);
           if (failed(selectors) ||
               failed(emitFormalWrite(root, *converted, statement, inside,
                                      environment, {}, *selectors)))
@@ -2297,12 +2119,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (states.contains(name)) {
           if (statement.kind() == "AnnAssign")
             return error() << "owner shadow declaration is unsupported";
-          auto value = expression(rhs, inside, decl.symbol, values, instances,
-                                  states[name].type);
-          if (failed(value))
-            return failure();
-          auto converted = applyBindingBoundary(
-              *value, ownerBoundary(states[name]), rhs, inside, decl.symbol);
+          auto converted = lowerBoundExpression(rhs, ownerBoundary(states[name]),
+                                                  inside, decl.symbol, values,
+                                                  instances);
           if (failed(converted))
             return failure();
           auto path = trueValue(statement, inside, decl.symbol);
@@ -2322,43 +2141,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           return error()
                  << "Method/Rule local shadows a bound callable, instance, "
                     "import or type declaration";
-        if (statement.kind() == "AnnAssign" && values.contains(name))
-          return error()
-                 << "Method/Rule local annotation cannot redeclare a binding";
-        std::optional<Type> expected;
-        Port localContract;
-        if (statement.kind() == "AnnAssign") {
-          auto type = portType(statement.child("annotation"), decl.symbol);
-          if (failed(type))
-            return failure();
-          expected = *type;
-          localContract = {name.str(), *type, statement.child("annotation"),
-                           annotationKind(statement.child("annotation")),
-                           fixedAnnotation(statement.child("annotation"))};
-        }
-        auto value =
-            expression(rhs, inside, decl.symbol, values, instances, expected);
-        if (failed(value))
+        if (failed(lowerLocalAssignment(statement, inside, decl.symbol,
+                                         environment, instances,
+                                         LocalBindingPolicy::Transaction)))
           return failure();
-        if (expected) {
-          auto converted = applyBindingBoundary(
-              *value, BindingBoundary{localContract, true}, rhs, inside, decl.symbol);
-          if (failed(converted))
-            return failure();
-          values[name] = *converted;
-          environment.boundaries[name] = BindingBoundary{localContract, true};
-        } else {
-          auto binding = environment.boundaries.find(name);
-          if (binding != environment.boundaries.end()) {
-            auto converted = applyBindingBoundary(*value, binding->second, rhs,
-                                                   inside, decl.symbol);
-            if (failed(converted))
-              return failure();
-            values[name] = *converted;
-          } else {
-            values[name] = *value;
-          }
-        }
         if (failed(emitFormalWrite(name, values.lookup(name), statement, inside, environment))) return failure();
       }
       return success();
@@ -2480,7 +2266,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (callable.privateSpecialization && index < callable.actualFacts.size()) {
           auto facts = valueInfo(callable.actualFacts[index]);
           facts.value = argument;
-          if (!isa<ac::EnumType>(argument.getType())) numericValues[argument] = facts;
+          recordValueInfo(std::move(facts));
           if (arithmeticValues.contains(callable.actualFacts[index]))
             arithmeticValues.insert(argument);
         } else remember(argument, port.sourceKind);

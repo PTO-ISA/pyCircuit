@@ -141,9 +141,7 @@ LogicalResult Importer::validateDefaults() {
   // Values from validation are discarded, including all private SSA facts.
   scratch->walk([&](Operation *op) {
     for (Value result : op->getResults()) {
-      numericValues.erase(result);
-      arithmeticValues.erase(result);
-      fixedValues.erase(result);
+      forgetValueFacts(result);
     }
   });
   return status;
