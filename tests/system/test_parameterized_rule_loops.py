@@ -270,6 +270,143 @@ def Exercise():
     _check_execution(final, tmp_path, expected)
 
 
+@pytest.mark.parametrize(
+    "publication", ("same-source-control", "same-source-loop", "imported-loop")
+)
+@pytest.mark.parametrize("static_parameter", (False, True), ids=("plain", "static"))
+def test_unused_parameterized_loop_preserves_module_reference(
+    tmp_path: Path, publication: str, static_parameter: bool
+) -> None:
+    provider_text = """import pycircuit as ac
+
+@ac.module
+def Child() -> ac.u8:
+    return 1
+
+@ac.module
+def Counter():
+    child = Child()
+    count: ac.u8 = 0
+
+    @ac.method
+    def increment() -> None:
+        count = count + 1
+
+    @ac.method
+    def read() -> ac.u8:
+        return count
+
+@ac.module
+def Writer(counter: Counter):
+    @ac.rule
+    def write() -> None:
+        counter.increment()
+"""
+    system_text = """
+@ac.system
+def Exercise():
+    child = Child()
+    counter = Counter()
+    Writer(counter)
+
+    @ac.rule
+    def observe() -> None:
+        ac.log("info", "values", counter.read())
+"""
+    if static_parameter:
+        # The unused parameter exercises reference-provider binding independently
+        # of state initialization; an explicit nondefault actual must survive.
+        provider_text = provider_text.replace(
+            "def Counter():", "def Counter(*, SEED: int = 0):"
+        )
+        system_text = system_text.replace("Counter()", "Counter(SEED=7)")
+    unused_loop = """
+@ac.module
+def Scan(value: ac.u8, *, SLOTS: int = 2) -> ac.u8:
+    @ac.rule
+    def accumulate() -> ac.u8:
+        total = value
+        for index in range(SLOTS):
+            total = total + 1
+        return total
+    return accumulate
+"""
+    if publication == "imported-loop":
+        final = _imported_system(
+            tmp_path,
+            provider_text + unused_loop,
+            "import pycircuit as ac\nfrom checks.provider import Child, Counter, Writer\n"
+            + system_text,
+        )
+        assert not (tmp_path / "source" / "provider.py").exists()
+    else:
+        # The same-source pair differs only by the appended, unused definition.
+        source = tmp_path / "source"
+        source.mkdir()
+        _write(
+            source,
+            "bench.py",
+            provider_text
+            + system_text
+            + (unused_loop if publication == "same-source-loop" else ""),
+        )
+        unit = tmp_path / "unit"
+        _ok(_compile(source, "bench.py", unit))
+        final = tmp_path / "system.ac"
+        _ok(_link([unit], "checks.bench.Exercise", final))
+
+    # Writer mutates the original Counter once per rising edge. The independent
+    # observer reads committed state at both Work samples, before that commit.
+    # A replacement Counter inside Writer would leave these original reads at 0.
+    _check_execution(final, tmp_path, [(0,), (0,), (1,), (1,), (2,), (2,)])
+
+
+def test_unused_reference_does_not_bind_parameterized_provider(tmp_path: Path) -> None:
+    final = _imported_system(
+        tmp_path,
+        """import pycircuit as ac
+
+@ac.module
+def Counter(*, STEPS: int = 2):
+    count: ac.u8 = 0
+
+    @ac.method
+    def increment() -> None:
+        for index in range(STEPS):
+            count = count + 1
+
+    @ac.method
+    def read() -> ac.u8:
+        return count
+
+@ac.module
+def Writer(counter: Counter):
+    @ac.rule
+    def write() -> None:
+        counter.increment()
+""",
+        """import pycircuit as ac
+from checks.provider import Counter
+
+@ac.system
+def Exercise():
+    counter = Counter(STEPS=3)
+
+    @ac.rule
+    def update() -> None:
+        counter.increment()
+
+    @ac.rule
+    def observe() -> None:
+        ac.log("info", "values", counter.read())
+""",
+    )
+    # Only Counter is allocated. Unused Writer must not force an unbound replay
+    # of its reference provider. Each rising edge adds the explicit three steps;
+    # the independent observer sees committed state at both Work samples.
+    _check_execution(final, tmp_path, [(0,), (0,), (3,), (3,), (6,), (6,)])
+
+
 def test_negative_parameterized_loop_preserves_final_output(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

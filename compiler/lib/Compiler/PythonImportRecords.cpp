@@ -468,7 +468,8 @@ public:
   }
   bool needsSourceTemplates();
   FailureOr<DictionaryAttr> templateDescription(FlatSymbolRefAttr target, ArrayAttr capture);
-  FailureOr<SmallVector<std::pair<AstNode, SourceTemplateRequest>>> templateCallees();
+  FailureOr<SmallVector<std::pair<AstNode, SourceTemplateRequest>>>
+  templateCallees(bool preserveParameters);
   FailureOr<OwningOpRef<ModuleOp>> lower() override;
   ArrayRef<MemoryCallPlan> memoryCalls() const override { return memoryPlans; }
   ArrayRef<ModuleDomainPlan> moduleDomains() const override {
@@ -6255,19 +6256,31 @@ LogicalResult Importer::prepare() {
          b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))});
   }
   if (failed(scanModules())) return failure();
-  llvm::StringSet<> retainedConcreteDeclarations;
+  llvm::StringMap<Operation *> retainedConcreteDeclarations;
   for (Operation &operation : body->getBody()->getOperations())
-    if (auto symbol = SymbolTable::getSymbolName(&operation)) retainedConcreteDeclarations.insert(symbol.getValue());
+    if (auto symbol = SymbolTable::getSymbolName(&operation)) retainedConcreteDeclarations[symbol.getValue()] = &operation;
   for (const auto &entry : templateViews) {
     // A transaction interface authenticates its complete child closure, not
     // merely the immediate receiver's callable header.
     auto header = entry.second.declaration->getParentOfType<ModuleOp>();
     for (Operation &declaration : header.getBody()->getOperations()) {
       auto symbol = SymbolTable::getSymbolName(&declaration);
-      if (!symbol || !retainedConcreteDeclarations.insert(symbol.getValue()).second) continue;
+      if (!symbol) continue;
+      auto prior = retainedConcreteDeclarations.find(symbol.getValue());
+      if (prior != retainedConcreteDeclarations.end()) {
+        auto deferred = dyn_cast<ac::ModuleImportOp>(prior->second);
+        auto concrete = dyn_cast<ac::ModuleImportOp>(&declaration);
+        if (!deferred || deferred.getSemanticKind() != "source_template" ||
+            !concrete || concrete.getSemanticKind() == "source_template")
+          continue;
+        // A resolved interface replaces its deferred declaration, including
+        // transitive providers retained from an independently compiled unit.
+        prior->second->erase();
+      }
       Operation *copy = declaration.clone();
       copy->setAttr("ac.declaration_role", b.getStringAttr("import_snapshot"));
       body->getBody()->push_back(copy);
+      retainedConcreteDeclarations[symbol.getValue()] = copy;
     }
   }
   if (boundTarget && !declarationsOnly) {
@@ -6495,6 +6508,20 @@ FailureOr<TemplateImportContext> templateImportContext(
 }
 }
 
+FailureOr<SourceTemplateCallees>
+sourceTemplateCallees(ArrayAttr capture, DictionaryAttr owner,
+                      FlatSymbolRefAttr target,
+                      ArrayRef<SourceTemplateBinding> bindings,
+                      bool preserveParameters,
+                      const SourceHeaderRegistry &headers,
+                      ac::detail::EmitError emitError) {
+  auto declarations = templateImportContext(capture, owner, headers, target,
+                                            bindings, true, emitError);
+  if (failed(declarations) || failed(declarations->importer->prepare()))
+    return failure();
+  return declarations->importer->templateCallees(preserveParameters);
+}
+
 FailureOr<OwningOpRef<ModuleOp>> compileSourceTemplates(
     ModuleOp transport, DictionaryAttr owner, const SourceHeaderRegistry &headers,
     ac::detail::EmitError emitError) {
@@ -6517,18 +6544,17 @@ FailureOr<DictionaryAttr> describeSourceTemplate(
 
 FailureOr<OwningOpRef<ModuleOp>> lowerBoundSourceTemplate(
     ArrayAttr capture, DictionaryAttr owner, FlatSymbolRefAttr target,
-    ArrayRef<SourceTemplateBinding> bindings, const SourceHeaderRegistry &headers,
+    ArrayRef<SourceTemplateBinding> bindings,
+    ArrayRef<std::pair<AstNode, SourceTemplateRequest>> callees,
+    const SourceHeaderRegistry &headers,
     SourceTemplateCalleeResolver resolveCallee, ac::detail::EmitError emitError) {
-  auto declarations = templateImportContext(capture, owner, headers, target, bindings, true, emitError);
-  if (failed(declarations) || failed(declarations->importer->prepare())) return failure();
-  auto sites = declarations->importer->templateCallees();
-  if (failed(sites)) return failure();
   auto context = templateImportContext(capture, owner, headers, target, bindings, false, emitError);
   if (failed(context)) return failure();
-  for (const auto &site : *sites) {
+  for (const auto &site : callees) {
     auto view = resolveCallee(site.second);
     if (failed(view)) return failure();
-    context->importer->templateCalls[site.first.value] = *view;
+    if (site.first)
+      context->importer->templateCalls[site.first.value] = *view;
     context->importer->templateViews[view->symbol.getValue()] = *view;
   }
   if (failed(context->importer->prepare())) return failure();

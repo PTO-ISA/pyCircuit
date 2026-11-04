@@ -25,9 +25,12 @@ DictionaryAttr requestKey(Builder &b, const SourceTemplateRequest &request) {
     values.push_back(
         b.getDictionaryAttr({b.getNamedAttr("name", binding.name),
                              b.getNamedAttr("value", binding.value)}));
-  return b.getDictionaryAttr(
-      {b.getNamedAttr("definition", request.target),
-       b.getNamedAttr("arguments", b.getArrayAttr(values))});
+  NamedAttrList key;
+  key.append("definition", request.target);
+  key.append("arguments", b.getArrayAttr(values));
+  if (request.preserveParameters)
+    key.append("preserve_parameters", b.getUnitAttr());
+  return key.getDictionary(b.getContext());
 }
 
 // Source origins use the concrete executable namespace after cloning. The
@@ -158,17 +161,67 @@ specializeSourceTemplates(ModuleOp candidate,
     templates[definition.getSymName()] = definition;
   llvm::DenseMap<Attribute, Variant *> complete;
   llvm::DenseSet<Attribute> active;
+  llvm::DenseMap<Attribute, std::unique_ptr<detail::SourceTemplateCallees>>
+      calleeCache;
+  llvm::DenseSet<Attribute> discovered;
+  llvm::StringSet<> nominalProviders;
   SmallVector<std::unique_ptr<Variant>> storage;
   llvm::StringSet<> concreteSymbols;
+  llvm::StringSet<> providedSymbols;
   llvm::StringSet<> reservedSymbols;
   for (Operation &operation : candidate.getBody()->getOperations())
     if (auto symbol = SymbolTable::getSymbolName(&operation))
       reservedSymbols.insert(symbol.getValue());
   DictionaryAttr selectedRootKey;
+  auto callees = [&](const SourceTemplateRequest &request)
+      -> FailureOr<ArrayRef<std::pair<detail::AstNode, SourceTemplateRequest>>> {
+    auto key = requestKey(b, request);
+    auto found = calleeCache.find(key);
+    if (found == calleeCache.end()) {
+      if (calleeCache.size() >= 4096)
+        return emitError() << "over-budget source template specialization";
+      auto definition = templates.lookup(request.target.getValue());
+      auto capture = captures.lookup(definition.getCaptureOwner());
+      if (!capture)
+        return emitError() << "source template capture is absent";
+      auto sites = detail::sourceTemplateCallees(
+          capture, definition.getSourceOwner(), request.target,
+          request.bindings, request.preserveParameters, headers, emitError);
+      if (failed(sites)) return failure();
+      found = calleeCache
+                  .try_emplace(key, std::make_unique<detail::SourceTemplateCallees>(
+                                        std::move(*sites)))
+                  .first;
+    }
+    return ArrayRef<std::pair<detail::AstNode, SourceTemplateRequest>>(*found->second);
+  };
+  // Discover reachable reference contracts before choosing any executable
+  // provider identity. Uninstantiated reference-bearing definitions do not
+  // change the specialization of otherwise independent callers.
+  std::function<LogicalResult(const SourceTemplateRequest &)> discover;
+  discover = [&](const SourceTemplateRequest &request) -> LogicalResult {
+    if (request.preserveParameters) {
+      nominalProviders.insert(request.target.getValue());
+      return success();
+    }
+    if (!templates.contains(request.target.getValue())) return success();
+    auto key = requestKey(b, request);
+    if (discovered.contains(key)) return success();
+    if (active.size() >= 128 || !active.insert(key).second)
+      return emitError() << "recursive or over-budget source template specialization";
+    auto leave = llvm::scope_exit([&] { active.erase(key); });
+    auto sites = callees(request);
+    if (failed(sites)) return failure();
+    for (const auto &site : *sites)
+      if (failed(discover(site.second))) return failure();
+    discovered.insert(key);
+    return success();
+  };
   std::function<FailureOr<ModuleInterfaceView>(const SourceTemplateRequest &)>
       instantiate;
-  instantiate = [&](const SourceTemplateRequest &request)
+  instantiate = [&](const SourceTemplateRequest &incoming)
       -> FailureOr<ModuleInterfaceView> {
+    SourceTemplateRequest request = incoming;
     auto source = templates.find(request.target.getValue());
     if (source == templates.end()) {
       auto view = headers.lookupModule(request.target);
@@ -177,6 +230,11 @@ specializeSourceTemplates(ModuleOp candidate,
                << "source template child has no supplied owning body: "
                << request.target;
       return view;
+    }
+    if (request.preserveParameters ||
+        nominalProviders.contains(request.target.getValue())) {
+      request.bindings.clear();
+      request.preserveParameters = !source->second.getParameters().empty();
     }
     auto key = requestKey(b, request);
     if (auto found = complete.find(key); found != complete.end())
@@ -187,7 +245,8 @@ specializeSourceTemplates(ModuleOp candidate,
              << "recursive or over-budget source template specialization";
     auto leave = llvm::scope_exit([&] { active.erase(key); });
     auto definition = source->second;
-    if (request.bindings.size() != definition.getParameters().size())
+    if (!request.preserveParameters &&
+        request.bindings.size() != definition.getParameters().size())
       return emitError() << "source template must bind each Integer parameter";
     for (auto [raw, binding] :
          llvm::zip(definition.getParameters(), request.bindings))
@@ -198,11 +257,11 @@ specializeSourceTemplates(ModuleOp candidate,
     auto capture = captures.lookup(definition.getCaptureOwner());
     if (!capture)
       return emitError() << "source template capture is absent";
-    // The importer's declaration-only phase discovers callees and resolves
-    // them before preparing this concrete executable body.
+    auto sites = callees(request);
+    if (failed(sites)) return failure();
     auto lowered = detail::lowerBoundSourceTemplate(
         capture, definition.getSourceOwner(), request.target, request.bindings,
-        headers, instantiate, emitError);
+        *sites, headers, instantiate, emitError);
     if (failed(lowered))
       return failure();
     auto variant = std::make_unique<Variant>();
@@ -242,7 +301,8 @@ specializeSourceTemplates(ModuleOp candidate,
              }))
         name += "_";
     }
-    concreteSymbols.insert(name);
+    providedSymbols.insert(name);
+    if (!request.preserveParameters) concreteSymbols.insert(name);
     reservedSymbols.insert(name);
     auto originalOrigin = variant->definition->getAttr("ac.origin");
     llvm::StringMap<std::string> symbolMapping;
@@ -270,8 +330,10 @@ specializeSourceTemplates(ModuleOp candidate,
           SymbolTable::setSymbolName(operation, found->second);
     });
     variant->key = key;
-    variant->definition->setAttr("ac.template_specialization", key);
-    variant->definition->setAttr("ac.template_origin", originalOrigin);
+    if (!request.preserveParameters) {
+      variant->definition->setAttr("ac.template_specialization", key);
+      variant->definition->setAttr("ac.template_origin", originalOrigin);
+    }
     auto view = publishVariant(*variant);
     if (failed(view))
       return failure();
@@ -283,6 +345,7 @@ specializeSourceTemplates(ModuleOp candidate,
 
   auto selected = templates.find(top);
   std::string selectedName = top.str();
+  SmallVector<SourceTemplateRequest> roots;
   if (selected != templates.end()) {
     auto declaration = headers.lookupModule(selected->second.getTargetAttr());
     ac::HardwareAnalysis analysis(candidate);
@@ -311,10 +374,7 @@ specializeSourceTemplates(ModuleOp candidate,
       request.bindings.push_back({name, value});
     }
     selectedRootKey = requestKey(b, request);
-    auto view = instantiate(request);
-    if (failed(view))
-      return failure();
-    selectedName = view->symbol.getValue().str();
+    roots.push_back(std::move(request));
   }
   // All ordinary closed definitions remain validation roots, including siblings
   // in a deferred unit that are not reachable from the selected top.
@@ -322,8 +382,15 @@ specializeSourceTemplates(ModuleOp candidate,
     if (entry.second.getParameters().empty() &&
         !entry.second->hasAttr("ac.reference_parameters") &&
         entry.first() != top)
-      if (failed(instantiate({entry.second.getTargetAttr(), {}})))
-        return failure();
+      roots.push_back({entry.second.getTargetAttr(), {}});
+  for (const auto &request : roots)
+    if (failed(discover(request))) return failure();
+  for (const auto &request : roots) {
+    auto view = instantiate(request);
+    if (failed(view)) return failure();
+    if (request.target.getValue() == top)
+      selectedName = view->symbol.getValue().str();
+  }
   for (auto definition :
        llvm::make_early_inc_range(candidate.getOps<ac::SourceTemplateOp>()))
     definition.erase();
@@ -339,7 +406,7 @@ specializeSourceTemplates(ModuleOp candidate,
     for (Operation &operation : variant->body->getBody()->getOperations()) {
       auto imported = dyn_cast<ac::ModuleImportOp>(operation);
       if (imported && (imported.getSemanticKind() == "source_template" ||
-                       concreteSymbols.contains(imported.getSymName())))
+                       providedSymbols.contains(imported.getSymName())))
         continue;
       auto symbol = SymbolTable::getSymbolName(&operation);
       if (!symbol)

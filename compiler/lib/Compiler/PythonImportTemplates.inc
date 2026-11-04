@@ -151,13 +151,22 @@ Importer::templateDescription(FlatSymbolRefAttr target, ArrayAttr capture) {
 }
 
 FailureOr<SmallVector<std::pair<AstNode, SourceTemplateRequest>>>
-Importer::templateCallees() {
+Importer::templateCallees(bool preserveParameters) {
   auto selected = llvm::find_if(modules, [&](const ModuleDecl &decl) {
     return decl.symbol == boundTarget;
   });
   if (selected == modules.end())
     return error() << "source template target is absent";
   SmallVector<std::pair<AstNode, SourceTemplateRequest>> requests;
+  // Reference formals need the provider's concrete interface without creating
+  // an allocation or changing its nominal Module identity.
+  for (Attribute raw : selected->references) {
+    if (failed(chargeLoopDescriptorWork(
+            selected->node, "source template reference declaration")))
+      return failure();
+    auto callee = cast<DictionaryAttr>(raw).getAs<FlatSymbolRefAttr>("callee");
+    requests.push_back({AstNode{}, {callee, {}, true}});
+  }
   auto visit = [&](auto &&self, const AstNode &node) -> LogicalResult {
     if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
       return success();
@@ -189,19 +198,21 @@ Importer::templateCallees() {
       auto actuals = bindParameters(signature, node, boundTarget, true);
       if (failed(actuals))
         return failure();
-      SourceTemplateRequest request{binding->symbol, {}};
-      ac::HardwareAnalysis analysis(*body);
-      for (auto [formal, actual] :
-           llvm::zip(signature.getAs<ArrayAttr>("parameters"), *actuals)) {
-        auto value = analysis.evaluateStatic(cast<ac::StaticExprAttr>(actual),
-                                             {}, body->getOperation());
-        auto integer = succeeded(value) ? dyn_cast<ac::MathIntAttr>(*value)
-                                        : ac::MathIntAttr();
-        if (!integer)
-          return error() << "source template child parameter requires a closed "
-                            "mathematical Integer";
-        request.bindings.push_back(
-            {cast<DictionaryAttr>(formal).getAs<StringAttr>("name"), integer});
+      SourceTemplateRequest request{binding->symbol, {}, preserveParameters};
+      if (!preserveParameters) {
+        ac::HardwareAnalysis analysis(*body);
+        for (auto [formal, actual] :
+             llvm::zip(signature.getAs<ArrayAttr>("parameters"), *actuals)) {
+          auto value = analysis.evaluateStatic(cast<ac::StaticExprAttr>(actual),
+                                               {}, body->getOperation());
+          auto integer = succeeded(value) ? dyn_cast<ac::MathIntAttr>(*value)
+                                          : ac::MathIntAttr();
+          if (!integer)
+            return error() << "source template child parameter requires a closed "
+                              "mathematical Integer";
+          request.bindings.push_back(
+              {cast<DictionaryAttr>(formal).getAs<StringAttr>("name"), integer});
+        }
       }
       requests.push_back({function, std::move(request)});
     }

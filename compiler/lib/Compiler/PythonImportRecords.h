@@ -16,10 +16,21 @@ struct SourceTemplateBinding {
 struct SourceTemplateRequest {
   mlir::FlatSymbolRefAttr target;
   llvm::SmallVector<SourceTemplateBinding> bindings;
+  bool preserveParameters = false;
 };
 using SourceTemplateCalleeResolver =
     llvm::function_ref<mlir::FailureOr<ModuleInterfaceView>(
         const SourceTemplateRequest &)>;
+
+using SourceTemplateCallees =
+    llvm::SmallVector<std::pair<AstNode, SourceTemplateRequest>>;
+mlir::FailureOr<SourceTemplateCallees>
+sourceTemplateCallees(mlir::ArrayAttr capture, mlir::DictionaryAttr owner,
+                       mlir::FlatSymbolRefAttr target,
+                       llvm::ArrayRef<SourceTemplateBinding> bindings,
+                       bool preserveParameters,
+                       const SourceHeaderRegistry &headers,
+                       ac::detail::EmitError emitError);
 
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
 compileSourceTemplates(mlir::ModuleOp transport, mlir::DictionaryAttr owner,
@@ -34,6 +45,7 @@ mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
 lowerBoundSourceTemplate(mlir::ArrayAttr capture, mlir::DictionaryAttr owner,
                          mlir::FlatSymbolRefAttr target,
                          llvm::ArrayRef<SourceTemplateBinding> bindings,
+                         llvm::ArrayRef<std::pair<AstNode, SourceTemplateRequest>> callees,
                          const SourceHeaderRegistry &headers,
                          SourceTemplateCalleeResolver resolveCallee,
                          ac::detail::EmitError emitError);

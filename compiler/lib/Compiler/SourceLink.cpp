@@ -436,7 +436,6 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   bool selectedTemplate = isa_and_nonnull<ac::SourceTemplateOp>(symbols.lookup(top));
   auto specializedTop = specializeSourceTemplates(*linked, *admitted, top, parameters, emitError);
   if (failed(specializedTop)) return failure();
-  if (selectedTemplate) parameters = {};
   symbols.clear();
   for (Operation &operation : linked->getBody()->getOperations())
     if (auto name = SymbolTable::getSymbolName(&operation)) symbols[name.getValue()] = &operation;
@@ -448,6 +447,7 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   if (!root)
     return emitError() << "link top is not a supplied module definition: @"
                        << top;
+  if (selectedTemplate && root.getParameters().empty()) parameters = {};
   if (target == SourceLinkTarget::Routed && llvm::any_of(linked->getOps<ac::ModuleOp>(),
         [](ac::ModuleOp module) { return module->hasAttr("ac.execution_model"); }))
     return root.emitOpError("execution-model selection currently requires final linking");
