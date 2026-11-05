@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "scope": "Independent layout/transition oracle only; not generated DUT execution evidence",
+  "cases": [
+    {"name":"first_zero", "phase":33, "incoming_index":"0x00000000", "expected":{"writes":1,"slot":0,"byte_address":0,"data":"0x8000000000000000","root_after":0,"next_free_after":1}},
+    {"name":"first_high_bit", "phase":33, "incoming_index":"0x80000000", "expected":{"writes":1,"slot":0,"byte_address":0,"data":"0x8000000080000000","root_after":0,"next_free_after":1}},
+    {"name":"leaf_all_bits_raw_encoding", "phase":29, "next_free":4093, "incoming_index":"0xffffffff", "expected":{"writes":1,"slot":4093,"byte_address":32744,"data":"0x80000000ffffffff","next_free_after":4093}, "note":"Raw helper boundary only; public uint32 key_length cannot admit token UINT32_MAX"},
+    {"name":"leaf_highest_admissible_token", "phase":29, "next_free":4093, "incoming_index":"0xfffffffe", "expected":{"writes":1,"slot":4093,"byte_address":32744,"data":"0x80000000fffffffe","next_free_after":4093}},
+    {"name":"branch_low_bit_right", "phase":30, "next_free":1, "cursor":0, "split_bit":0, "incoming_index":"0x00000001", "expected":{"writes":1,"slot":2,"byte_address":16,"data":"0x0002000000000000","next_free_after":1}},
+    {"name":"branch_high_bit_right_last_allocation", "phase":30, "next_free":4093, "cursor":4092, "split_bit":31, "incoming_index":"0x80000000", "expected":{"writes":1,"slot":4094,"byte_address":32752,"data":"0x1ffbff9f00000000","next_free_after":4093}},
+    {"name":"branch_high_bit_left_last_allocation", "phase":30, "next_free":4093, "cursor":4092, "split_bit":31, "incoming_index":"0x7fffffff", "expected":{"writes":1,"slot":4094,"byte_address":32752,"data":"0x1ff9ffbf00000000","next_free_after":4093}},
+    {"name":"patch_parent_left", "phase":31, "next_free":4093, "parent":4090, "parent_valid":1, "parent_right":0, "parent_fields":{"bit":31,"left":17,"right":4092}, "expected":{"writes":1,"slot":4090,"byte_address":32720,"data":"0x1ff9ffdf00000000","next_free_after":4095,"root":"unchanged"}},
+    {"name":"patch_parent_right", "phase":31, "next_free":4093, "parent":4090, "parent_valid":1, "parent_right":1, "parent_fields":{"bit":31,"left":17,"right":4092}, "expected":{"writes":1,"slot":4090,"byte_address":32720,"data":"0x1ffc023f00000000","next_free_after":4095,"root":"unchanged"}},
+    {"name":"replace_root_without_parent", "phase":31, "next_free":4093, "parent_valid":0, "expected":{"writes":0,"root_after":4094,"next_free_after":4095}},
+    {"name":"allocator_capacity_failure", "phase":29, "next_free":4094, "incoming_index":"0x80000000", "expected":{"failure":"index trie allocation capacity","committed_writes":0,"all_system_commits":0,"state":"unchanged"}},
+    {"name":"allocator_wrapping_address_failure", "phase":29, "next_free":4096, "incoming_index":"0x80000000", "expected":{"failure":"index trie allocation capacity","committed_writes":0,"all_system_commits":0,"state":"unchanged"}, "note":"Do not let a speculative truncated byte address overwrite slot0 before the capacity check"},
+    {"name":"cancel_all_write_phases", "phases":[29,30,31,33], "cancel":1, "expected":{"writes":0,"state":"unchanged"}},
+    {"name":"nonwrite_phases", "phases":[0,4,5,25,27,28,32], "cancel":0, "expected":{"writes":0}, "note":"Preserve each phase's original non-memory state effects; phase32 ordered index write belongs to engine, not trie"}
+  ]
+}
