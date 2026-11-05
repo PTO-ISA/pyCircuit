@@ -1,0 +1,11 @@
+format_version: "0.2"
+project: wse-calendar
+roots:
+  - spec/*.md
+id_prefixes: [WSEMIG]
+domains: [noc, verification]
+policies: {}
+dependencies:
+  ndf:
+    path: .pycircuit_out/ndf
+    graph: false
