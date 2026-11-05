@@ -8,6 +8,7 @@ in this gallery does not register it in the compiler's example smoke gates.
 | Project | Design | Start here |
 | --- | --- | --- |
 | [RV32I core](rv32i_core/README.md) | PyCircuit 项目 demo：以五级 CPU 展示 NDF → Spec → PyCircuit → C++/RTL 开发与验证流程；[中文实验报告](rv32i_core/EXPERIMENT.md) | [NDF specification](rv32i_core/spec/README.md), [verification tools](rv32i_core/verification/TOOLS.md) |
+| [WSE Calendar](wse_model/README.md) | Completion-driven collective control, routing and receive state; large Work/O0 compiler reproducer | [Reproduction steps](wse_model/REPRODUCE.md), [validation status](wse_model/VALIDATION.md) |
 | [New project template](template/README.md) | Generate compute, stateful or backpressure models with L0–L3 NDF documents | `pycircuit init designs/my_design --template stateful` |
 
 ## Add a design
