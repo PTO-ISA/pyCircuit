@@ -5,6 +5,9 @@
 
 namespace acir::compiler::detail {
 
+// Project an already admitted declaration without rederiving its authority.
+ModuleInterfaceView moduleInterfaceView(ac::ModuleImportOp declaration);
+
 bool sameDeclaration(mlir::Operation *definition, mlir::Operation *snapshot);
 
 mlir::LogicalResult verifySourcePath(mlir::DictionaryAttr sourceSpan,

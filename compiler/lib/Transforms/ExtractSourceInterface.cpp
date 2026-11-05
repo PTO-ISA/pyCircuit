@@ -31,6 +31,29 @@ public:
       return;
     }
 
+    if (!input.getOps<ac::SourceTemplateOp>().empty()) {
+      OwningOpRef<mlir::ModuleOp> staged(input.clone());
+      Builder builder(input.getContext());
+      (*staged)->setAttr("ac.unit_kind", builder.getStringAttr("interface"));
+      (*staged)->removeAttr("ac.source_templates");
+      for (auto definition : llvm::make_early_inc_range(staged->getOps<ac::SourceTemplateOp>())) {
+        NamedAttrList attrs(definition->getAttrs());
+        for (StringRef field : {"capture_owner", "target", "ast_path"}) attrs.erase(field);
+        attrs.set("semantic_kind", builder.getStringAttr("source_template"));
+        OperationState state(definition.getLoc(), ac::ModuleImportOp::getOperationName());
+        state.addAttributes(attrs);
+        Operation *declaration = Operation::create(state);
+        definition->getBlock()->getOperations().insert(definition->getIterator(), declaration);
+        definition.erase();
+      }
+      if (failed(ac::verifySourceInterfaceStructure(*staged, [&] { return staged->emitError(); }))) {
+        signalPassFailure(); return;
+      }
+      input->setAttrs((*staged)->getAttrs());
+      input->getRegion(0).takeBody((*staged)->getRegion(0));
+      return;
+    }
+
     // All analysis resolves the intact definitions. Replacing even one early
     // would turn a same-source callee into an import and change later results.
     auto &analysis = getAnalysis<ac::HardwareAnalysis>();
@@ -39,36 +62,14 @@ public:
       signalPassFailure();
       return;
     }
-    struct Publication {
-      bool transactions;
-      Attribute summary;
-    };
-    llvm::StringMap<Publication> summaries;
+    llvm::StringMap<DictionaryAttr> publications;
     for (ac::ModuleOp definition : analysis.getDefinitions()) {
-      auto transactions = methods.requiresTransactionPublication(definition);
-      if (failed(transactions)) {
+      auto attributes = methods.getInterfaceAttributes(definition, analysis);
+      if (failed(attributes)) {
         signalPassFailure();
         return;
       }
-      if (*transactions) {
-        auto facts = methods.getPublicationSummary(definition);
-        if (failed(facts)) {
-          signalPassFailure();
-          return;
-        }
-        summaries[definition.getSymName()] = {true, *facts};
-      } else {
-        ac::HardwareBindings bindings;
-        bindings.owner = definition;
-        auto facts = analysis.analyzeModule(definition, bindings);
-        if (failed(facts)) {
-          signalPassFailure();
-          return;
-        }
-        summaries[definition.getSymName()] = {
-            false, ac::serializeOutputDependencies(input.getContext(),
-                                                   facts->dependencies)};
-      }
+      publications[definition.getSymName()] = *attributes;
     }
 
     // The detached clone is disposable until both native and source-local
@@ -81,17 +82,8 @@ public:
          llvm::make_early_inc_range(staged->getOps<ac::ModuleOp>())) {
       OperationState state(definition.getLoc(),
                            ac::ModuleImportOp::getOperationName());
-      NamedAttrList attributes(definition->getAttrs());
-      const Publication &publication =
-          summaries.find(definition.getSymName())->second;
-      attributes.erase("dependency_summary");
-      attributes.erase("transaction_summary");
-      attributes.set("semantic_kind", builder.getStringAttr(
-          publication.transactions ? "transactions" : "hardware"));
-      attributes.set(publication.transactions ? "transaction_summary"
-                                             : "dependency_summary",
-                     publication.summary);
-      state.addAttributes(attributes);
+      state.addAttributes(
+          publications.find(definition.getSymName())->second.getValue());
       Operation *declaration = Operation::create(state);
       definition->getBlock()->getOperations().insert(definition->getIterator(),
                                                      declaration);

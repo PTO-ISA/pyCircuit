@@ -214,8 +214,67 @@ DictionaryAttr getOutputDependencyAttr(Builder &builder, unsigned output,
 } // namespace acir::ac
 
 namespace acir::ac::detail {
+LogicalResult verifySourceTemplateContract(Operation *declaration) {
+  auto error = [&] { return declaration->emitOpError(); };
+  auto package = dyn_cast_or_null<mlir::ModuleOp>(declaration->getParentOp());
+  auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+  if (!stage || stage.getValue() != "source")
+    return error() << "source templates require the source stage";
+  for (StringRef name : {"dependency_summary", "transaction_summary",
+                         "primitive_kind", "ac.external_contract"})
+    if (declaration->hasAttr(name))
+      return error() << "source templates cannot carry " << name;
+  auto contract = declaration->getAttrOfType<DictionaryAttr>("template_contract");
+  auto version = contract ? contract.getAs<IntegerAttr>("version") : IntegerAttr();
+  auto target = contract ? contract.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
+  auto digest = contract ? contract.getAs<StringAttr>("capture_digest") : StringAttr();
+  auto methods = contract ? contract.getAs<ArrayAttr>("methods") : ArrayAttr();
+  auto name = SymbolTable::getSymbolName(declaration);
+  if (!contract || contract.size() != 4 || !version ||
+      !version.getType().isSignlessInteger(64) || version.getInt() != 1 ||
+      !name || !target || target.getValue() != name.getValue() || !digest ||
+      digest.getValue().size() != 64 ||
+      !llvm::all_of(digest.getValue(), [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+      }) || !methods)
+    return error() << "source template requires its versioned declaration and capture digest";
+  llvm::DenseSet<StringAttr> names;
+  for (Attribute raw : methods) {
+    auto method = dyn_cast<DictionaryAttr>(raw);
+    auto methodName = method ? method.getAs<StringAttr>("name") : StringAttr();
+    auto type = method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
+    auto parameters = method ? method.getAs<ArrayAttr>("ac.parameters") : ArrayAttr();
+    auto form = method ? method.getAs<StringAttr>("ac.return_form") : StringAttr();
+    auto results = method ? method.getAs<ArrayAttr>("ac.result_constraints") : ArrayAttr();
+    auto origin = method ? method.getAs<DictionaryAttr>("declaration") : DictionaryAttr();
+    Attribute guard = method ? method.get("guard") : Attribute();
+    auto signature = type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
+    if (!method || method.size() != 7 || !methodName || methodName.getValue().empty() ||
+        !names.insert(methodName).second || !signature || !parameters || !form ||
+        !results || parameters.size() != signature.getNumInputs() ||
+        results.size() != signature.getNumResults() ||
+        failed(verifyOccurrence(origin, error)) ||
+        !isa_and_nonnull<UnitAttr, ArrayAttr>(guard))
+      return error() << "source template Method declaration is malformed";
+    if (auto path = dyn_cast<ArrayAttr>(guard))
+      for (Attribute component : path) {
+        auto field = dyn_cast<DictionaryAttr>(component);
+        if (!field || failed(verifyPathComponent(field, error))) return failure();
+      }
+    for (Type payload : signature.getInputs())
+      if (failed(verifyHardwareTypeScope(payload, declaration))) return failure();
+    for (Type payload : signature.getResults())
+      if (failed(verifyHardwareTypeScope(payload, declaration))) return failure();
+  }
+  return success();
+}
+
 LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported) {
   auto kind = imported->getAttrOfType<StringAttr>("semantic_kind");
+  if (kind && kind.getValue() == "source_template")
+    return verifySourceTemplateContract(imported);
+  if (imported->hasAttr("template_contract"))
+    return imported.emitOpError("template_contract requires source_template kind");
   if (!kind || (kind.getValue() != "hardware" &&
                 kind.getValue() != "transactions"))
     return imported.emitOpError()

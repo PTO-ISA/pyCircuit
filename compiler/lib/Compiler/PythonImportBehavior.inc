@@ -2691,7 +2691,7 @@ LogicalResult Importer::predeclareStructuralInstances(
                                 return attr.getName() == "ac.return_form";
                               });
     else {
-      auto view = headers.lookupModule(binding->symbol);
+      auto view = lookupModule(binding->symbol);
       callable = view && view.hasSourceCallContract();
     }
     if (callable)

@@ -35,6 +35,8 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/SHA256.h"
+#include "llvm/ADT/StringExtras.h"
 
 #include <limits>
 #include <memory>
@@ -479,6 +481,34 @@ public:
         }),
         b(owner.getContext()), prefix(moduleName(owner)) {}
   LogicalResult prepare() override;
+  bool declarationsOnly = false;
+  bool publishTemplates = false;
+  ArrayAttr sourceTemplateCapture;
+  FlatSymbolRefAttr boundTarget;
+  llvm::StringMap<ac::MathIntAttr> templateBindings;
+  llvm::DenseMap<DictionaryAttr, ModuleInterfaceView> templateCalls;
+  llvm::StringMap<ModuleInterfaceView> templateViews;
+  ModuleInterfaceView lookupModule(FlatSymbolRefAttr symbol) const {
+    auto found = templateViews.find(symbol.getValue());
+    return found == templateViews.end() ? headers.lookupModule(symbol) : found->second;
+  }
+  bool boundParameterUse(const AstNode &node, FlatSymbolRefAttr ownerSymbol) const {
+    if (!boundTarget || boundTarget != ownerSymbol || node.kind() != "Name" ||
+        !templateBindings.contains(node.string("id"))) return false;
+    for (size_t k = 0; k < source.module.array("body").size(); ++k) {
+      auto declaration = source.module.item("body", k);
+      if (declaration.kind() != "FunctionDef" || qualify(declaration.string("name")) != boundTarget.getValue()) continue;
+      if (node.path.size() < declaration.path.size()) return false;
+      for (size_t j = 0; j < declaration.path.size(); ++j)
+        if (node.path[j].field != declaration.path[j].field || node.path[j].index != declaration.path[j].index) return false;
+      return !sourceBindingShadowed(source, node, node.string("id"), declaration.value);
+    }
+    return false;
+  }
+  bool needsSourceTemplates();
+  FailureOr<DictionaryAttr> templateDescription(FlatSymbolRefAttr target, ArrayAttr capture);
+  FailureOr<SmallVector<std::pair<AstNode, SourceTemplateRequest>>>
+  templateCallees(bool preserveParameters);
   FailureOr<OwningOpRef<ModuleOp>> lower() override;
   ArrayRef<MemoryCallPlan> memoryCalls() const override { return memoryPlans; }
   ArrayRef<ModuleDomainPlan> moduleDomains() const override {
@@ -2530,6 +2560,15 @@ Importer::staticExpr(const AstNode &node, FlatSymbolRefAttr ownerSymbol) {
     return wrap("literal", ArrayRef<NamedAttribute>{field});
   }
   if (node.kind() == "Name") {
+    if (boundParameterUse(node, ownerSymbol)) {
+      auto bound = templateBindings.find(node.string("id"));
+      if (bound != templateBindings.end()) {
+        NamedAttribute field = b.getNamedAttr("value", b.getDictionaryAttr({
+            b.getNamedAttr("kind", b.getStringAttr("integer")),
+            b.getNamedAttr("value", bound->second)}));
+        return wrap("literal", ArrayRef<NamedAttribute>{field});
+      }
+    }
     DictionaryAttr ref = b.getDictionaryAttr(
         {b.getNamedAttr("kind", b.getStringAttr("parameter")),
          b.getNamedAttr("owner", ownerSymbol),
@@ -3426,13 +3465,15 @@ FailureOr<Value> Importer::expression(
     if (candidate.kind() == "Name") {
       // A helper's names are its fixed formals. A coincidentally equal caller
       // parameter spelling must not become a static capture from that module.
-      if (activeValueHelper)
+      if (activeValueHelper || (activeSourceEffects && activeSourceEffects->callable &&
+          !activeSourceEffects->callable->lexical))
         return false;
       for (const ModuleDecl &module : modules)
         if (module.symbol == ownerSymbol)
           return llvm::any_of(module.parameters,
                               [&](const Parameter &parameter) {
-                                return parameter.name == candidate.string("id");
+                                return parameter.name == candidate.string("id") &&
+                                    !sourceBindingShadowed(source, candidate, candidate.string("id"), module.node.value);
                               });
       return false;
     }
@@ -5662,6 +5703,7 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
              << "owner-enable proof has duplicate exact proposal endpoints";
   }
   for (auto [index, pair] : llvm::enumerate(ruleWrites.pendingPairs())) {
+    if (publishTemplates) continue;
     if (!grantProof->charge(1 + pair.module.path.size() + module.path.size()))
       return error() << grantProof->failureReason();
     if (!sameSourceSite(pair.module, module))
@@ -6293,10 +6335,46 @@ LogicalResult Importer::prepare() {
                  item.second)),
          b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))});
   }
-  if (failed(scanModules()) || failed(scanStaticInstanceReferences()) ||
-      failed(prepareMemoryBindings()) ||
-      failed(inferModuleGraph()))
-    return failure();
+  if (failed(scanModules())) return failure();
+  llvm::StringMap<Operation *> retainedConcreteDeclarations;
+  for (Operation &operation : body->getBody()->getOperations())
+    if (auto symbol = SymbolTable::getSymbolName(&operation)) retainedConcreteDeclarations[symbol.getValue()] = &operation;
+  for (const auto &entry : templateViews) {
+    // A transaction interface authenticates its complete child closure, not
+    // merely the immediate receiver's callable header.
+    auto header = entry.second.declaration->getParentOfType<ModuleOp>();
+    for (Operation &declaration : header.getBody()->getOperations()) {
+      auto symbol = SymbolTable::getSymbolName(&declaration);
+      if (!symbol) continue;
+      auto prior = retainedConcreteDeclarations.find(symbol.getValue());
+      if (prior != retainedConcreteDeclarations.end()) {
+        auto deferred = dyn_cast<ac::ModuleImportOp>(prior->second);
+        auto concrete = dyn_cast<ac::ModuleImportOp>(&declaration);
+        if (!deferred || deferred.getSemanticKind() != "source_template" ||
+            !concrete || concrete.getSemanticKind() == "source_template")
+          continue;
+        // A resolved interface replaces its deferred declaration, including
+        // transitive providers retained from an independently compiled unit.
+        prior->second->erase();
+      }
+      Operation *copy = declaration.clone();
+      copy->setAttr("ac.declaration_role", b.getStringAttr("import_snapshot"));
+      body->getBody()->push_back(copy);
+      retainedConcreteDeclarations[symbol.getValue()] = copy;
+    }
+  }
+  if (boundTarget && !declarationsOnly) {
+    auto selected = llvm::find_if(modules, [&](const ModuleDecl &decl) {
+      return decl.symbol == boundTarget;
+    });
+    if (selected == modules.end()) return error() << "bound source template target is absent";
+    ModuleDecl selectedDecl = *selected;
+    modules.clear(); modules.push_back(std::move(selectedDecl));
+    local.clear(); local[modules.front().node.string("name")] = 0;
+  }
+  if (failed(scanStaticInstanceReferences()) ||
+      (!declarationsOnly && failed(prepareMemoryBindings())) ||
+      failed(inferModuleGraph())) return failure();
   (*body)->setAttr(
       "ac.unit_kind",
       b.getStringAttr(modules.empty() ? "declarations" : "implementation"));
@@ -6332,8 +6410,9 @@ LogicalResult Importer::prepare() {
   SmallVector<ValueHelperDecl *> topHelpers;
   for (auto &entry : valueHelpers)
     if (!entry.second->lexicalOwner) topHelpers.push_back(entry.second.get());
-  for (auto *helper : topHelpers)
-    if (failed(lowerValueHelper(*helper))) return failure();
+  if (!declarationsOnly)
+    for (auto *helper : topHelpers)
+      if (failed(lowerValueHelper(*helper))) return failure();
   for (const ModuleDecl &decl : modules)
     domainPlans.push_back({decl.node, decl.symbol, decl.type,
                            decl.sourceCallAttrs, decl.needsDomain});
@@ -6367,15 +6446,23 @@ FailureOr<StringRef> Importer::fourStatePattern(const AstNode &node) {
 FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
   grantProof =
       std::make_unique<OwnerEnableProof>(*body, ruleWrites.spentWork());
-  for (ModuleDecl &decl : modules)
-    if (failed(emitModule(decl)))
-      return failure();
+  for (ModuleDecl &decl : modules) {
+    if (publishTemplates) {
+      auto attributes = templateDescription(decl.symbol,
+          sourceTemplateCapture);
+      if (failed(attributes)) return failure();
+      b.setInsertionPointToEnd(body->getBody());
+      createOp(b, decl.node.location(b.getContext(), source.path),
+               ac::SourceTemplateOp::getOperationName(), {}, {}, attributes->getValue());
+    } else if (failed(emitModule(decl))) return failure();
+  }
   SmallVector<ValueHelperDecl *> pendingHelpers;
   for (auto &entry : valueHelpers)
     if (entry.second->state == 0) pendingHelpers.push_back(entry.second.get());
   for (auto *helper : pendingHelpers)
-    if (failed(lowerValueHelper(*helper))) return failure();
+    if ((!publishTemplates || !helper->lexicalOwner) && failed(lowerValueHelper(*helper))) return failure();
   for (auto [index, pair] : llvm::enumerate(ruleWrites.pendingPairs())) {
+    if (publishTemplates) continue;
     if (dischargedPairs.contains(index)) continue;
     // Typed effects transfer these ownership obligations to state/call analysis
     // and independent final transaction verification. Only ordinary Rule pairs
@@ -6444,10 +6531,117 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
   });
   (*body)->setAttr("ac.exports", b.getArrayAttr(exports));
   (*body)->setAttr("ac.import_bindings", b.getArrayAttr(imports));
+  if (publishTemplates)
+    (*body)->setAttr("ac.source_templates", b.getArrayAttr({b.getDictionaryAttr({
+        b.getNamedAttr("owner", owner), b.getNamedAttr("capture", sourceTemplateCapture)})}));
   return std::move(body);
 }
 
+#include "PythonImportTemplates.inc"
+
 } // namespace
+
+StringAttr sourceTemplateCaptureDigest(DictionaryAttr owner, ArrayAttr capture) {
+  Builder builder(owner.getContext());
+  auto payload = builder.getDictionaryAttr({builder.getNamedAttr("owner", owner),
+                                           builder.getNamedAttr("capture", capture)});
+  std::string text;
+  llvm::raw_string_ostream stream(text);
+  payload.print(stream);
+  stream.flush();
+  auto digest = llvm::SHA256::hash(llvm::ArrayRef<uint8_t>(
+      reinterpret_cast<const uint8_t *>(text.data()), text.size()));
+  return builder.getStringAttr(llvm::toHex(digest, true));
+}
+
+namespace {
+struct TemplateImportContext {
+  OwningOpRef<ModuleOp> transport;
+  std::unique_ptr<SourceRuleWritesAnalysis> writes;
+  std::unique_ptr<Importer> importer;
+};
+FailureOr<TemplateImportContext> templateImportContext(
+    ArrayAttr capture, DictionaryAttr owner, const SourceHeaderRegistry &headers,
+    FlatSymbolRefAttr target, ArrayRef<SourceTemplateBinding> bindings,
+    bool declarationsOnly, ac::detail::EmitError emitError) {
+  owner.getContext()->getOrLoadDialect<func::FuncDialect>();
+  owner.getContext()->getOrLoadDialect<arith::ArithDialect>();
+  owner.getContext()->getOrLoadDialect<scf::SCFDialect>();
+  TemplateImportContext result;
+  result.transport = ModuleOp::create(UnknownLoc::get(owner.getContext()));
+  (*result.transport)->setAttr("ac.python_capture", capture);
+  auto source = readSingleCapture(*result.transport, emitError);
+  if (failed(source) || source->path != owner.getAs<StringAttr>("path").getValue())
+    return emitError() << "source template capture path differs from owner";
+  result.writes = std::make_unique<SourceRuleWritesAnalysis>(result.transport->getOperation());
+  if (!result.writes->isPlanValid()) return failure();
+  result.importer = std::make_unique<Importer>(*source, owner, headers, *result.writes,
+      [emitError] { return emitError(); });
+  result.importer->declarationsOnly = declarationsOnly;
+  result.importer->boundTarget = target;
+  for (const auto &binding : bindings) {
+    if (!binding.name || !binding.value || result.importer->templateBindings.contains(binding.name.getValue()))
+      return emitError() << "invalid or duplicate source template binding";
+    result.importer->templateBindings[binding.name.getValue()] = binding.value;
+  }
+  return result;
+}
+}
+
+FailureOr<SourceTemplateCallees>
+sourceTemplateCallees(ArrayAttr capture, DictionaryAttr owner,
+                      FlatSymbolRefAttr target,
+                      ArrayRef<SourceTemplateBinding> bindings,
+                      bool preserveParameters,
+                      const SourceHeaderRegistry &headers,
+                      ac::detail::EmitError emitError) {
+  auto declarations = templateImportContext(capture, owner, headers, target,
+                                            bindings, true, emitError);
+  if (failed(declarations) || failed(declarations->importer->prepare()))
+    return failure();
+  return declarations->importer->templateCallees(preserveParameters);
+}
+
+FailureOr<OwningOpRef<ModuleOp>> compileSourceTemplates(
+    ModuleOp transport, DictionaryAttr owner, const SourceHeaderRegistry &headers,
+    ac::detail::EmitError emitError) {
+  auto capture = transport->getAttrOfType<ArrayAttr>("ac.python_capture");
+  auto context = templateImportContext(capture, owner, headers, {}, {}, true, emitError);
+  if (failed(context) || failed(context->importer->prepare())) return failure();
+  if (!context->importer->needsSourceTemplates()) return OwningOpRef<ModuleOp>();
+  context->importer->publishTemplates = true;
+  context->importer->sourceTemplateCapture = capture;
+  return context->importer->lower();
+}
+
+FailureOr<DictionaryAttr> describeSourceTemplate(
+    ArrayAttr capture, DictionaryAttr owner, FlatSymbolRefAttr target,
+    const SourceHeaderRegistry &headers, ac::detail::EmitError emitError) {
+  auto context = templateImportContext(capture, owner, headers, {}, {}, true, emitError);
+  if (failed(context) || failed(context->importer->prepare())) return failure();
+  return context->importer->templateDescription(target, capture);
+}
+
+FailureOr<OwningOpRef<ModuleOp>> lowerBoundSourceTemplate(
+    ArrayAttr capture, DictionaryAttr owner, FlatSymbolRefAttr target,
+    ArrayRef<SourceTemplateBinding> bindings,
+    ArrayRef<std::pair<AstNode, SourceTemplateRequest>> callees,
+    const SourceHeaderRegistry &headers,
+    SourceTemplateCalleeResolver resolveCallee, ac::detail::EmitError emitError) {
+  auto context = templateImportContext(capture, owner, headers, target, bindings, false, emitError);
+  if (failed(context)) return failure();
+  for (const auto &site : callees) {
+    auto view = resolveCallee(site.second);
+    if (failed(view)) return failure();
+    if (site.first)
+      context->importer->templateCalls[site.first.value] = *view;
+    context->importer->templateViews[view->symbol.getValue()] = *view;
+  }
+  if (failed(context->importer->prepare())) return failure();
+  auto result = context->importer->lower();
+  if (failed(result) || failed(::acir::normalizeSourceControlFlow(**result)) || failed(verify(**result))) return failure();
+  return std::move(*result);
+}
 
 std::unique_ptr<SourceDeclarationContext> createSourceDeclarationContext(
     const CapturedSource &source, const SourceCompilationInputs &inputs,

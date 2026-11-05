@@ -3,6 +3,12 @@ bool Importer::lexicallyShadowed(const AstNode &node, StringRef name) const {
   return sourceBindingShadowed(source, node, name);
 }
 std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
+  if (auto found = templateCalls.find(node.value); found != templateCalls.end()) {
+    const auto &view = found->second;
+    return Import{view.symbol, view.declaration, node, view.sourceOwner,
+                  node.kind() == "Name" ? node.string("id").str() : node.string("attr").str(),
+                  false, BindingCategory::Module};
+  }
   if (node.kind() == "Name") {
     StringRef name = node.string("id");
     auto found = names.find(name);

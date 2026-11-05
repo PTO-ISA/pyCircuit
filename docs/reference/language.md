@@ -119,7 +119,7 @@ Selecting a Module with parameterized state in its hierarchy as the public root
 also preserves ordinary retained callers of that definition. The compiler owns
 the additional entry routing boundary; authors keep the original top and ports.
 This does not add parameterized nominal types, arbitrary initializer programs,
-type parameters, symbolic Integer domains, `range(W)` expansion or a static
+type parameters, symbolic Integer domains or a static
 divisor proof for `% N` when N is unresolved.
 
 The profiles below retain their shape, indexing, purity and control restrictions.
@@ -768,6 +768,22 @@ negative bounds do not qualify. Pure-helper loops retain their literal-only
 profile. Existing finite while comparison/progress proofs remain required.
 General nesting, dynamic range bounds and `while True` with a
 conditional break are not enabled by loop-else support.
+
+A typed Rule or Method may also use its owning Module's static Integer
+parameters in the bound, such as `range(SLOTS)`. Independent compilation retains
+the source template; link resolves each instance's actual arguments before
+lowering the existing finite loop. A default is used only when that argument is
+omitted. Required parameters, forwarded parameters and different bindings of the
+same provider follow the ordinary Module binding rules. An actual bound must
+still be a nonnegative signed-64-bit Integer within the compiler's expansion
+budget. Zero retains the existing zero-trip behavior below. This does not enable
+runtime bounds or change the literal-only pure-helper profile.
+
+Template interfaces publish declarations, rather than completed dependency or
+effect proofs. Instance-dependent checks run during link, including otherwise
+unused Methods of an instantiated Module. A failed check prevents publication
+of the linked artifact. Reusing a specialization shares its code; each Module
+instance continues to own separate state.
 
 A loop's `else` suite executes exactly once on natural completion, including
 zero iterations. A reached `break` targeting that loop suppresses its else;

@@ -497,7 +497,7 @@ FailureOr<SourceDeclarationOrder> sourceDeclarationOrder(
 }
 
 bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
-                           StringRef name) {
+                           StringRef name, DictionaryAttr ignoredScope) {
   auto binds = [&](auto &&self, const AstNode &scope) -> bool {
     if (scope.kind() == "Name")
       return scope.string("id") == name;
@@ -567,7 +567,7 @@ bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
     if ((ancestor.kind() == "FunctionDef" || ancestor.kind() == "ClassDef" ||
          ancestor.kind() == "Lambda") &&
         step.field == "body") {
-      if (scopeBinds(ancestor))
+      if (ancestor.value != ignoredScope && scopeBinds(ancestor))
         return true;
     }
     if (i + 1 < node.path.size() && node.path[i + 1].index) {

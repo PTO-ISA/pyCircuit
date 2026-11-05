@@ -1,5 +1,6 @@
 #include "SourceHeaderHelpers.h"
 #include "SourceUnit.h"
+#include "PythonImportRecords.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -41,7 +42,8 @@ template <typename LookupDeclaration>
 LogicalResult
 verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
                                     LookupDeclaration lookupDeclaration,
-                                    ac::detail::EmitError emitError) {
+                                    ac::detail::EmitError emitError,
+                                    const SourceHeaderRegistry *headers = nullptr) {
   if (!body || !owningHeader)
     return emitError() << "source body and owning header are both required";
 
@@ -67,6 +69,35 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
 
   unsigned executableModules = 0;
   for (Operation &operation : body.getBody()->getOperations()) {
+    if (auto definition = dyn_cast<ac::SourceTemplateOp>(operation)) {
+      if (bodyKind.getValue() != "implementation") return emitError() << "declarations body cannot own source templates";
+      ++executableModules;
+      auto target = definition.getTargetAttr();
+      auto declaration = dyn_cast_or_null<ac::ModuleImportOp>(lookupDeclaration(target));
+      if (!declaration || declaration.getSemanticKind() != "source_template" ||
+          declaration.getSourceOwner() != owner)
+        return emitError() << "source template lacks its owning declaration";
+      ArrayAttr capture;
+      if (auto payloads = body->getAttrOfType<ArrayAttr>("ac.source_templates"))
+        for (Attribute raw : payloads) {
+          auto payload = cast<DictionaryAttr>(raw);
+          if (payload.get("owner") == definition.getCaptureOwner()) capture = payload.getAs<ArrayAttr>("capture");
+        }
+      if (!capture || detail::sourceTemplateCaptureDigest(owner, capture) !=
+          definition.getTemplateContract().getAs<StringAttr>("capture_digest"))
+        return emitError() << "source template capture content differs from its declaration";
+      if (headers) {
+        auto derived = detail::describeSourceTemplate(capture, owner, target, *headers, emitError);
+        if (failed(derived) || *derived != definition->getAttrDictionary())
+          return emitError() << "source template declaration differs from its native capture";
+      }
+      NamedAttrList expected(definition->getAttrs());
+      for (StringRef field : {"capture_owner", "target", "ast_path"}) expected.erase(field);
+      expected.set("semantic_kind", StringAttr::get(body.getContext(), "source_template"));
+      if (expected.getDictionary(body.getContext()) != declaration->getAttrDictionary())
+        return emitError() << "source template differs from its published interface";
+      continue;
+    }
     if (auto module = dyn_cast<ac::ModuleOp>(operation)) {
       if (bodyKind.getValue() != "implementation")
         return emitError() << "declarations body cannot own ac.module";
@@ -137,7 +168,7 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
     if (!definition || !bodyRole || bodyRole.getValue() != "definition" ||
         ac::detail::declarationSourceOwner(definition) != owner ||
         (isa<ac::ModuleImportOp>(declaration)
-             ? !isa<ac::ModuleOp>(definition)
+             ? !isa<ac::ModuleOp, ac::SourceTemplateOp>(definition)
              : !detail::sameDeclaration(&declaration, definition)))
       return emitError()
              << "owning header declaration has no matching body "
@@ -248,7 +279,7 @@ LogicalResult SourceHeaderRegistry::verifyBodySnapshots(
       return lookupDeclaration(canonical);
     };
     return verifyBodySnapshotsAgainstAuthority(body, owningHeader, lookup,
-                                               emitError);
+                                               emitError, this);
   }
 
   SmallVector<ModuleOp> completeHeaders(headers_.begin(), headers_.end());
@@ -260,7 +291,7 @@ LogicalResult SourceHeaderRegistry::verifyBodySnapshots(
     return authority->lookupDeclaration(canonical);
   };
   return verifyBodySnapshotsAgainstAuthority(body, owningHeader, lookup,
-                                             emitError);
+                                             emitError, &*authority);
 }
 
 } // namespace acir::compiler

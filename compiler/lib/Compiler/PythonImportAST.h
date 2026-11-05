@@ -65,7 +65,8 @@ mlir::FailureOr<SourceDeclarationOrder> sourceDeclarationOrder(
     llvm::function_ref<bool(uint64_t)> charge);
 
 bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
-                           llvm::StringRef name);
+                           llvm::StringRef name,
+                           mlir::DictionaryAttr ignoredScope = {});
 
 mlir::LogicalResult validateTableQueryLambda(const AstNode &node,
                                              ac::detail::EmitError emitError,
