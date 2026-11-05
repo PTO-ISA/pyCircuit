@@ -11,6 +11,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/ToolOutputFile.h"
 
@@ -27,8 +28,9 @@ llvm::cl::opt<std::string> capturePath("capture", llvm::cl::Required);
 llvm::cl::opt<std::string> packageName("package", llvm::cl::init(""));
 llvm::cl::opt<std::string> sourcePath("path", llvm::cl::Required);
 llvm::cl::list<std::string> headerPaths("header", llvm::cl::ZeroOrMore);
-llvm::cl::opt<std::string> bodyOutput("body-out", llvm::cl::Required);
-llvm::cl::opt<std::string> interfaceOutput("interface-out", llvm::cl::Required);
+llvm::cl::opt<std::string> bodyOutput("body-out", llvm::cl::init(""));
+llvm::cl::opt<std::string> interfaceOutput("interface-out", llvm::cl::init(""));
+llvm::cl::opt<std::string> acirOutput("acir-out", llvm::cl::init(""));
 llvm::cl::opt<std::string> depsOutput("deps-out", llvm::cl::init(""));
 llvm::cl::opt<std::string> sourceImportOutput(
     "source-import-out", llvm::cl::init(""),
@@ -237,6 +239,7 @@ openSourceImport(llvm::ArrayRef<llvm::StringRef> otherPaths) {
 } // namespace
 
 int main(int argc, char **argv) {
+  llvm::InitLLVM init(argc, argv);
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "isolated pyCircuit source-unit harness\n");
   mlir::DialectRegistry dialects;
@@ -277,6 +280,20 @@ int main(int argc, char **argv) {
       builder.getNamedAttr("path", builder.getStringAttr(sourcePath)),
   });
   bool retainSourceImport = sourceImportOutput.getNumOccurrences() != 0;
+  if (!acirOutput.empty()) {
+    if (!bodyOutput.empty() || !interfaceOutput.empty() ||
+        !depsOutput.empty() || retainSourceImport) {
+      llvm::errs() << "acir-out cannot be combined with source publication outputs\n";
+      return 1;
+    }
+    auto result = acir::compiler::compilePythonACIR(
+        *capture, owner, *registry, emitError);
+    return mlir::failed(result) || !writeModule(**result, acirOutput);
+  }
+  if (bodyOutput.empty() || interfaceOutput.empty()) {
+    llvm::errs() << "source compilation requires body-out and interface-out\n";
+    return 1;
+  }
   auto result = acir::compiler::compilePythonSourceUnit(
       *capture, owner, *registry, emitError, retainSourceImport);
   if (mlir::failed(result) || mlir::failed(mlir::verify(*result->body)) ||

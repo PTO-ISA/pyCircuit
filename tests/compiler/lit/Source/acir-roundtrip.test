@@ -1,0 +1,1 @@
+# RUN: %python %S/Inputs/acir-roundtrip.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --optimizer %pycircuit_opt --scratch %t.dir

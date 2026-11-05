@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/ADT/StringMap.h"
 #include <cstdint>
 #include <functional>
@@ -310,6 +311,9 @@ public:
           &debit = {}) const;
   /// Discharge retained source Table index obligations using bound layout and
   /// original SSA. Raw TableGet membership semantics do not use this query.
+  mlir::FailureOr<llvm::ConstantRange> inferUnsignedValueRange(
+      mlir::Value value, const HardwareBindings &bindings,
+      mlir::Operation *site) const;
   mlir::LogicalResult verifySourceIndex(mlir::Value index, TableType table,
       const HardwareBindings &bindings, mlir::Operation *site) const;
   mlir::LogicalResult

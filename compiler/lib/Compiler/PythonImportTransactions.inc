@@ -2019,7 +2019,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                              instances, nullptr,
                                              std::distance(access->steps.begin(), index));
             if (failed(container) ||
-                failed(proveIndex(*container, index->index, statement)))
+                failed(proveIndex(*container, index->index, statement, inside)))
               return failure();
             index->parent = *container;
             operands.push_back(index->index);

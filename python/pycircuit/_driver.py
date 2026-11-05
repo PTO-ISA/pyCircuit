@@ -95,8 +95,9 @@ def compile_command(
     package_prefix: str = "",
     interface_units: Sequence[str | Path] = (),
     replace: bool = False,
-) -> _SourceCompileResult:
-    """``pycircuit compile``: one source into one published source unit."""
+    emit: str = "source",
+) -> _SourceCompileResult | None:
+    """Compile one source into a published unit or inspectable ACIR."""
 
     for unit in interface_units:
         _require_published_unit(unit, role="compile interface unit")
@@ -108,6 +109,7 @@ def compile_command(
         output=output,
         interface_units=tuple(interface_units),
         replace=replace,
+        emit=emit,
     )
 
 

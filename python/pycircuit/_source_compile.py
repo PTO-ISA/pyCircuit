@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -150,6 +151,34 @@ def _receipt_text(*, package: str, source_path: str, stem: str) -> str:
     )
 
 
+def _write_acir(destination: Path, text: str, *, replace: bool) -> None:
+    """Install complete IR atomically, with no source-unit publication state."""
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=destination.parent,
+        prefix=f".{destination.name}.",
+        delete=False,
+    ) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            temporary.unlink()
+            raise
+    try:
+        if replace:
+            os.replace(temporary, destination)
+        else:
+            # A hard link installs the completed file without a race between
+            # checking existence and creating the destination.
+            os.link(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _compile_source_unit(
     source: str | Path,
     *,
@@ -159,10 +188,14 @@ def _compile_source_unit(
     output: str | Path,
     interface_units: Sequence[str | Path] = (),
     replace: bool = False,
+    emit: str = "source",
     cancelled: Callable[[str], bool] | None = None,
     filesystem: _PublicationFileSystem | None = None,
-) -> _SourceCompileResult:
-    """Compile one source and atomically publish its source-unit directory."""
+) -> _SourceCompileResult | None:
+    """Compile one source and publish a unit, or export verified ACIR text."""
+
+    if emit not in ("source", "acir"):
+        raise ValueError("compile emit must be 'source' or 'acir'")
 
     fs = filesystem or _PublicationFileSystem()
     destination = Path(output)
@@ -195,11 +228,16 @@ def _compile_source_unit(
 
     with _publication_lock_set(
         inputs=inputs,
-        outputs=[
-            _PublicationOutput(
-                destination=destination, recovery_validate=_validate_full_source_unit
-            )
-        ],
+        outputs=(
+            [
+                _PublicationOutput(
+                    destination=destination,
+                    recovery_validate=_validate_full_source_unit,
+                )
+            ]
+            if emit == "source"
+            else []
+        ),
         filesystem=fs,
     ) as locks:
         # One stable snapshot of the source; the native compiler never reopens it.
@@ -243,13 +281,20 @@ def _compile_source_unit(
                 package,
                 "--path",
                 relative,
-                "--body-out",
-                str(body_path),
-                "--interface-out",
-                str(interface_path),
-                "--deps-out",
-                str(deps_path),
             ]
+            if emit == "acir":
+                command.extend(("--acir-out", str(body_path)))
+            else:
+                command.extend(
+                    (
+                        "--body-out",
+                        str(body_path),
+                        "--interface-out",
+                        str(interface_path),
+                        "--deps-out",
+                        str(deps_path),
+                    )
+                )
             for header_path in header_paths:
                 command.extend(("--header", str(header_path)))
             completed = subprocess.run(
@@ -262,6 +307,13 @@ def _compile_source_unit(
                 )
             if completed.stderr:
                 sys.stderr.write(completed.stderr)
+            if emit == "acir":
+                text = body_path.read_text(encoding="utf-8")
+                if str(output) == "-":
+                    sys.stdout.write(text)
+                else:
+                    _write_acir(destination, text, replace=replace)
+                return None
             if not body_path.is_file() or not interface_path.is_file():
                 raise _PublicationError(
                     "native source compiler did not produce both artifacts"

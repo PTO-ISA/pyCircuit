@@ -4,6 +4,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/Pass/PassManager.h"
 
 using namespace mlir;
 
@@ -51,7 +52,24 @@ std::unique_ptr<mlir::Pass> createVerifyRoutedPass() {
 std::unique_ptr<mlir::Pass> createVerifyHardwarePass() {
   return std::make_unique<VerifyHardwarePass>();
 }
+void buildACIRToSourcePipeline(OpPassManager &pipeline) {
+  pipeline.addPass(createVerifyACIRPass());
+  pipeline.addPass(createInlineHelpersPass());
+  pipeline.addPass(createNormalizeSourceControlFlowPass());
+  pipeline.addPass(createLowerValueBoundariesPass());
+  pipeline.addPass(createLowerQueriesPass());
+  pipeline.addPass(createFinalizeSourcePass());
+}
+
 void registerACIRPasses() {
+  registerPass([] { return createVerifyACIRPass(); });
+  registerPass([] { return createInlineHelpersPass(); });
+  registerPass([] { return createLowerValueBoundariesPass(); });
+  registerPass([] { return createLowerQueriesPass(); });
+  registerPass([] { return createFinalizeSourcePass(); });
+  PassPipelineRegistration<>("acir-to-source",
+      "Lower retained ACIR calls and callbacks to published Source IR",
+      buildACIRToSourcePipeline);
   PassRegistration<VerifyHardwarePass>();
   PassRegistration<VerifyRoutedPass>();
   registerPass([] { return createRouteTransactionsPass(); });

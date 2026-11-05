@@ -1,4 +1,5 @@
 add_acir_library(ACIRDialect SOURCES
+  ACIRCaptureOps.cpp
   ACIRConstantOps.cpp
   ACIRSourceControlFlowOps.cpp
   ACIRDialect.cpp
@@ -60,6 +61,7 @@ target_link_libraries(ACIRDialect PUBLIC
   LLVMCore
   MLIRArithDialect
   MLIRFuncDialect
+  MLIRCallInterfaces
   MLIRSCFDialect
   MLIRSideEffectInterfaces
 )

@@ -1,5 +1,4 @@
 #include "TableQueryLowering.h"
-#include "PythonImportContext.h"
 #include "mlir/IR/IRMapping.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/ADT/DenseMap.h"
@@ -134,12 +133,10 @@ measureTableStorageWords(Type type, ac::HardwareAnalysis &analysis,
     return failure();
   return weight;
 }
-FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth,
-                                              bool debitWork) {
+FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth) {
   auto visit = [&]() -> LogicalResult {
     std::string reason;
-    if (debitWork &&
-        !budget.reserveProduct(TableQueryResource::Work, 1, 1, reason))
+    if (!budget.reserveProduct(TableQueryResource::Work, 1, 1, reason))
       return emitError(loc) << reason;
     return success();
   };
@@ -161,7 +158,7 @@ LogicalResult TableQueryLowering::capture(Value value) {
   return success();
 }
 bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
-                                  TableQueryCharge &charge, bool debitWork) {
+                                  TableQueryCharge &charge) {
   if (!rows)
     return false;
   bool fits =
@@ -171,7 +168,7 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
                                 operation->getNumResults()) &&
       TableQueryBudget::addProduct(charge, TableQueryResource::Work, rows, 1);
   for (Type type : operation->getResultTypes()) {
-    auto weight = words(type, 0, debitWork);
+    auto weight = words(type);
     fits &= succeeded(weight) && TableQueryBudget::addProduct(
                                      charge, TableQueryResource::PayloadWords,
                                      succeeded(weight) ? *weight : 0, 3);
@@ -192,44 +189,6 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
                                            succeeded(weight) ? *weight : 0, 8);
   }
   return fits;
-}
-bool TableQueryLowering::describeWithoutReservation(Operation *operation,
-                                                    uint64_t rows,
-                                                    TableQueryCharge &charge) {
-  if (!operation || !rows ||
-      rows > TableQueryBudget::limit(TableQueryResource::Work) ||
-      operation->getNumRegions() || operation->getNumSuccessors() ||
-      operation->getNumResults() != 1 || operation->getNumOperands() > 3 ||
-      !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
-           ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
-           ac::BitsExtractOp, ac::BitsResizeOp>(operation))
-    return false;
-  // This descriptor is for the importer's precharged flat scalar template.
-  // Do not introduce another aggregate or static-expression type walk here.
-  auto fixedLiteral = [](Type type) {
-    auto bits = dyn_cast<ac::BitsType>(type);
-    auto tree = bits ? bits.getWidth().getTree() : DictionaryAttr();
-    auto tag = tree ? tree.getAs<StringAttr>("kind") : StringAttr();
-    auto raw = tree ? tree.getAs<DictionaryAttr>("value") : DictionaryAttr();
-    auto width = raw ? raw.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
-    if (!tag || tag.getValue() != "literal" || !width)
-      return false;
-    StringRef spelling = width.getCanonicalValue();
-    uint64_t ceiling =
-        64 * TableQueryBudget::limit(TableQueryResource::PayloadWords);
-    std::string maximum = std::to_string(ceiling);
-    if (spelling.empty() || spelling.front() == '0' ||
-        llvm::any_of(spelling, [](char c) { return c < '0' || c > '9'; }) ||
-        spelling.size() > maximum.size() ||
-        (spelling.size() == maximum.size() && spelling.compare(maximum) > 0))
-      return false;
-    uint64_t integer = 0;
-    return !spelling.getAsInteger(10, integer) && integer && integer <= ceiling;
-  };
-  if (!llvm::all_of(operation->getOperandTypes(), fixedLiteral) ||
-      !llvm::all_of(operation->getResultTypes(), fixedLiteral))
-    return false;
-  return describe(operation, rows, charge, false);
 }
 LogicalResult TableQueryLowering::charge(Operation *operation, uint64_t rows) {
   TableQueryCharge charge;

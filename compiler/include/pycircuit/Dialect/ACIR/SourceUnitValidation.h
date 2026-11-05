@@ -17,6 +17,11 @@ struct SourceUnitStructure {
   llvm::StringMap<mlir::Operation *> declarations;
 };
 
+/// Capture envelope, declarations and pure typed bodies, before hardware proofs.
+mlir::FailureOr<SourceUnitStructure> verifyACIRBodyStructure(
+    mlir::ModuleOp unit,
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError);
+
 mlir::FailureOr<SourceUnitStructure> verifySourceBodyStructure(
     mlir::ModuleOp unit,
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError);
