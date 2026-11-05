@@ -175,22 +175,134 @@ def Array3DRow():
 
     @ac.method
     def advance(beat: Row3DStep) -> ac.u32:
-        cell0.advance(Cell3DStep(left=beat.left, right=beat.right[0], k_mask=beat.k_mask, enabled=beat.mask[0]))
-        cell1.advance(Cell3DStep(left=beat.left, right=beat.right[1], k_mask=beat.k_mask, enabled=beat.mask[1]))
-        cell2.advance(Cell3DStep(left=beat.left, right=beat.right[2], k_mask=beat.k_mask, enabled=beat.mask[2]))
-        cell3.advance(Cell3DStep(left=beat.left, right=beat.right[3], k_mask=beat.k_mask, enabled=beat.mask[3]))
-        cell4.advance(Cell3DStep(left=beat.left, right=beat.right[4], k_mask=beat.k_mask, enabled=beat.mask[4]))
-        cell5.advance(Cell3DStep(left=beat.left, right=beat.right[5], k_mask=beat.k_mask, enabled=beat.mask[5]))
-        cell6.advance(Cell3DStep(left=beat.left, right=beat.right[6], k_mask=beat.k_mask, enabled=beat.mask[6]))
-        cell7.advance(Cell3DStep(left=beat.left, right=beat.right[7], k_mask=beat.k_mask, enabled=beat.mask[7]))
-        cell8.advance(Cell3DStep(left=beat.left, right=beat.right[8], k_mask=beat.k_mask, enabled=beat.mask[8]))
-        cell9.advance(Cell3DStep(left=beat.left, right=beat.right[9], k_mask=beat.k_mask, enabled=beat.mask[9]))
-        cell10.advance(Cell3DStep(left=beat.left, right=beat.right[10], k_mask=beat.k_mask, enabled=beat.mask[10]))
-        cell11.advance(Cell3DStep(left=beat.left, right=beat.right[11], k_mask=beat.k_mask, enabled=beat.mask[11]))
-        cell12.advance(Cell3DStep(left=beat.left, right=beat.right[12], k_mask=beat.k_mask, enabled=beat.mask[12]))
-        cell13.advance(Cell3DStep(left=beat.left, right=beat.right[13], k_mask=beat.k_mask, enabled=beat.mask[13]))
-        cell14.advance(Cell3DStep(left=beat.left, right=beat.right[14], k_mask=beat.k_mask, enabled=beat.mask[14]))
-        cell15.advance(Cell3DStep(left=beat.left, right=beat.right[15], k_mask=beat.k_mask, enabled=beat.mask[15]))
+        cell0.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[0],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[0],
+            )
+        )
+        cell1.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[1],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[1],
+            )
+        )
+        cell2.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[2],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[2],
+            )
+        )
+        cell3.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[3],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[3],
+            )
+        )
+        cell4.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[4],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[4],
+            )
+        )
+        cell5.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[5],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[5],
+            )
+        )
+        cell6.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[6],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[6],
+            )
+        )
+        cell7.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[7],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[7],
+            )
+        )
+        cell8.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[8],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[8],
+            )
+        )
+        cell9.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[9],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[9],
+            )
+        )
+        cell10.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[10],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[10],
+            )
+        )
+        cell11.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[11],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[11],
+            )
+        )
+        cell12.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[12],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[12],
+            )
+        )
+        cell13.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[13],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[13],
+            )
+        )
+        cell14.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[14],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[14],
+            )
+        )
+        cell15.advance(
+            Cell3DStep(
+                left=beat.left,
+                right=beat.right[15],
+                k_mask=beat.k_mask,
+                enabled=beat.mask[15],
+            )
+        )
         cells: ac.u32 = ac.popcount(beat.mask)
         lanes: ac.u32 = ac.popcount(beat.k_mask)
         return (cells | 0) * (lanes | 0)
@@ -246,7 +358,11 @@ def Array16x16x16():
     row14 = Array3DRow()
     row15 = Array3DRow()
 
-    @ac.method(guard=lambda command: (phase == 0) & (command.length > 0) & (command.length <= 64))
+    @ac.method(
+        guard=lambda command: (phase == 0)
+        & (command.length > 0)
+        & (command.length <= 64)
+    )
     def begin(command: Array3DBegin) -> None:
         saved_tag = command.tag
         length = command.length
@@ -306,7 +422,12 @@ def Array16x16x16():
             if command.tag == saved_tag:
                 if command.action == 0:
                     action_accepted = 1
-                elif (command.action == 1) & (phase == 1) & (command.index == accepted) & (accepted < groups):
+                elif (
+                    (command.action == 1)
+                    & (phase == 1)
+                    & (command.index == accepted)
+                    & (accepted < groups)
+                ):
                     group_accepted = 1
                     action_accepted = 1
                 elif (command.action == 2) & (phase == 1) & (accepted == groups):
@@ -322,39 +443,233 @@ def Array16x16x16():
                 effective_k = command.k_mask & group_tail_mask(length, accepted)
                 occupancy = occupancy | 1
                 accepted = accepted + 1
-            mask0 = cell_mask[0:16] & command.col_mask if group_accepted & command.row_mask[0] else 0
-            count0 = row0.advance(Row3DStep(left=command.left[0], right=command.right, k_mask=effective_k, mask=mask0))
-            mask1 = cell_mask[16:32] & command.col_mask if group_accepted & command.row_mask[1] else 0
-            count1 = row1.advance(Row3DStep(left=command.left[1], right=command.right, k_mask=effective_k, mask=mask1))
-            mask2 = cell_mask[32:48] & command.col_mask if group_accepted & command.row_mask[2] else 0
-            count2 = row2.advance(Row3DStep(left=command.left[2], right=command.right, k_mask=effective_k, mask=mask2))
-            mask3 = cell_mask[48:64] & command.col_mask if group_accepted & command.row_mask[3] else 0
-            count3 = row3.advance(Row3DStep(left=command.left[3], right=command.right, k_mask=effective_k, mask=mask3))
-            mask4 = cell_mask[64:80] & command.col_mask if group_accepted & command.row_mask[4] else 0
-            count4 = row4.advance(Row3DStep(left=command.left[4], right=command.right, k_mask=effective_k, mask=mask4))
-            mask5 = cell_mask[80:96] & command.col_mask if group_accepted & command.row_mask[5] else 0
-            count5 = row5.advance(Row3DStep(left=command.left[5], right=command.right, k_mask=effective_k, mask=mask5))
-            mask6 = cell_mask[96:112] & command.col_mask if group_accepted & command.row_mask[6] else 0
-            count6 = row6.advance(Row3DStep(left=command.left[6], right=command.right, k_mask=effective_k, mask=mask6))
-            mask7 = cell_mask[112:128] & command.col_mask if group_accepted & command.row_mask[7] else 0
-            count7 = row7.advance(Row3DStep(left=command.left[7], right=command.right, k_mask=effective_k, mask=mask7))
-            mask8 = cell_mask[128:144] & command.col_mask if group_accepted & command.row_mask[8] else 0
-            count8 = row8.advance(Row3DStep(left=command.left[8], right=command.right, k_mask=effective_k, mask=mask8))
-            mask9 = cell_mask[144:160] & command.col_mask if group_accepted & command.row_mask[9] else 0
-            count9 = row9.advance(Row3DStep(left=command.left[9], right=command.right, k_mask=effective_k, mask=mask9))
-            mask10 = cell_mask[160:176] & command.col_mask if group_accepted & command.row_mask[10] else 0
-            count10 = row10.advance(Row3DStep(left=command.left[10], right=command.right, k_mask=effective_k, mask=mask10))
-            mask11 = cell_mask[176:192] & command.col_mask if group_accepted & command.row_mask[11] else 0
-            count11 = row11.advance(Row3DStep(left=command.left[11], right=command.right, k_mask=effective_k, mask=mask11))
-            mask12 = cell_mask[192:208] & command.col_mask if group_accepted & command.row_mask[12] else 0
-            count12 = row12.advance(Row3DStep(left=command.left[12], right=command.right, k_mask=effective_k, mask=mask12))
-            mask13 = cell_mask[208:224] & command.col_mask if group_accepted & command.row_mask[13] else 0
-            count13 = row13.advance(Row3DStep(left=command.left[13], right=command.right, k_mask=effective_k, mask=mask13))
-            mask14 = cell_mask[224:240] & command.col_mask if group_accepted & command.row_mask[14] else 0
-            count14 = row14.advance(Row3DStep(left=command.left[14], right=command.right, k_mask=effective_k, mask=mask14))
-            mask15 = cell_mask[240:256] & command.col_mask if group_accepted & command.row_mask[15] else 0
-            count15 = row15.advance(Row3DStep(left=command.left[15], right=command.right, k_mask=effective_k, mask=mask15))
-            useful_macs = useful_macs + count0 + count1 + count2 + count3 + count4 + count5 + count6 + count7 + count8 + count9 + count10 + count11 + count12 + count13 + count14 + count15
+            mask0 = (
+                cell_mask[0:16] & command.col_mask
+                if group_accepted & command.row_mask[0]
+                else 0
+            )
+            count0 = row0.advance(
+                Row3DStep(
+                    left=command.left[0],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask0,
+                )
+            )
+            mask1 = (
+                cell_mask[16:32] & command.col_mask
+                if group_accepted & command.row_mask[1]
+                else 0
+            )
+            count1 = row1.advance(
+                Row3DStep(
+                    left=command.left[1],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask1,
+                )
+            )
+            mask2 = (
+                cell_mask[32:48] & command.col_mask
+                if group_accepted & command.row_mask[2]
+                else 0
+            )
+            count2 = row2.advance(
+                Row3DStep(
+                    left=command.left[2],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask2,
+                )
+            )
+            mask3 = (
+                cell_mask[48:64] & command.col_mask
+                if group_accepted & command.row_mask[3]
+                else 0
+            )
+            count3 = row3.advance(
+                Row3DStep(
+                    left=command.left[3],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask3,
+                )
+            )
+            mask4 = (
+                cell_mask[64:80] & command.col_mask
+                if group_accepted & command.row_mask[4]
+                else 0
+            )
+            count4 = row4.advance(
+                Row3DStep(
+                    left=command.left[4],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask4,
+                )
+            )
+            mask5 = (
+                cell_mask[80:96] & command.col_mask
+                if group_accepted & command.row_mask[5]
+                else 0
+            )
+            count5 = row5.advance(
+                Row3DStep(
+                    left=command.left[5],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask5,
+                )
+            )
+            mask6 = (
+                cell_mask[96:112] & command.col_mask
+                if group_accepted & command.row_mask[6]
+                else 0
+            )
+            count6 = row6.advance(
+                Row3DStep(
+                    left=command.left[6],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask6,
+                )
+            )
+            mask7 = (
+                cell_mask[112:128] & command.col_mask
+                if group_accepted & command.row_mask[7]
+                else 0
+            )
+            count7 = row7.advance(
+                Row3DStep(
+                    left=command.left[7],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask7,
+                )
+            )
+            mask8 = (
+                cell_mask[128:144] & command.col_mask
+                if group_accepted & command.row_mask[8]
+                else 0
+            )
+            count8 = row8.advance(
+                Row3DStep(
+                    left=command.left[8],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask8,
+                )
+            )
+            mask9 = (
+                cell_mask[144:160] & command.col_mask
+                if group_accepted & command.row_mask[9]
+                else 0
+            )
+            count9 = row9.advance(
+                Row3DStep(
+                    left=command.left[9],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask9,
+                )
+            )
+            mask10 = (
+                cell_mask[160:176] & command.col_mask
+                if group_accepted & command.row_mask[10]
+                else 0
+            )
+            count10 = row10.advance(
+                Row3DStep(
+                    left=command.left[10],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask10,
+                )
+            )
+            mask11 = (
+                cell_mask[176:192] & command.col_mask
+                if group_accepted & command.row_mask[11]
+                else 0
+            )
+            count11 = row11.advance(
+                Row3DStep(
+                    left=command.left[11],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask11,
+                )
+            )
+            mask12 = (
+                cell_mask[192:208] & command.col_mask
+                if group_accepted & command.row_mask[12]
+                else 0
+            )
+            count12 = row12.advance(
+                Row3DStep(
+                    left=command.left[12],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask12,
+                )
+            )
+            mask13 = (
+                cell_mask[208:224] & command.col_mask
+                if group_accepted & command.row_mask[13]
+                else 0
+            )
+            count13 = row13.advance(
+                Row3DStep(
+                    left=command.left[13],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask13,
+                )
+            )
+            mask14 = (
+                cell_mask[224:240] & command.col_mask
+                if group_accepted & command.row_mask[14]
+                else 0
+            )
+            count14 = row14.advance(
+                Row3DStep(
+                    left=command.left[14],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask14,
+                )
+            )
+            mask15 = (
+                cell_mask[240:256] & command.col_mask
+                if group_accepted & command.row_mask[15]
+                else 0
+            )
+            count15 = row15.advance(
+                Row3DStep(
+                    left=command.left[15],
+                    right=command.right,
+                    k_mask=effective_k,
+                    mask=mask15,
+                )
+            )
+            useful_macs = (
+                useful_macs
+                + count0
+                + count1
+                + count2
+                + count3
+                + count4
+                + count5
+                + count6
+                + count7
+                + count8
+                + count9
+                + count10
+                + count11
+                + count12
+                + count13
+                + count14
+                + count15
+            )
             if (phase == 2) & (retired == groups):
                 phase = 3
         return action_accepted
@@ -362,7 +677,9 @@ def Array16x16x16():
     @ac.method(guard=lambda: phase == 3)
     def take() -> Array3DResult:
         result = Array3DResult(
-            tag=saved_tag, groups=accepted, useful_macs=useful_macs,
+            tag=saved_tag,
+            groups=accepted,
+            useful_macs=useful_macs,
             rows=(
                 row0.read(),
                 row1.read(),

@@ -17,6 +17,7 @@ def Edges():
     clamp = fp_exp_neg(3246391296)  # -16
     unit = fp_exp_neg(2147483648)
     quotient = fp_div(1077936128, 1073741824)  # 3/2
+
     @ac.rule
     def check():
         assert gap == 1065353215, "RTZ opposite-sign exponent gap"
@@ -30,4 +31,5 @@ def Edges():
         assert clamp == 0, "exp clamp -16"
         assert unit == 1065353216, "exp negative zero"
         assert quotient == 1069547520, "exact normalization divide"
+
     check()

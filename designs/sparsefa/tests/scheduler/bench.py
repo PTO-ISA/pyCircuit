@@ -18,20 +18,47 @@ def TensorSchedulerSystem():
     reply_data: ac.u32 = 0
     writes: ac.u8 = 0
     completions: ac.u8 = 0
-    command = TensorCommand(valid=~started, tag=73, batches=2, heads=2,
-        queries=2, keys=1, dimensions=1, scale=1065353216, indexed=0,
-        causal=1, bf16=0, causal_origin=1, causal_origin_negative=1,
-        q_base=4096, k_base=8192, v_base=12288, o_base=16384,
-        count_base=0, index_base=0,
-        q_batch_stride=128, q_head_stride=32, q_row_stride=6,
-        k_batch_stride=144, k_head_stride=36, k_row_stride=2,
-        v_batch_stride=160, v_head_stride=40, v_row_stride=2,
-        o_batch_stride=176, o_head_stride=44, o_row_stride=10,
-        count_batch_stride=0, count_head_stride=0, count_row_stride=0,
-        index_batch_stride=0, index_head_stride=0, index_row_stride=0)
+    command = TensorCommand(
+        valid=~started,
+        tag=73,
+        batches=2,
+        heads=2,
+        queries=2,
+        keys=1,
+        dimensions=1,
+        scale=1065353216,
+        indexed=0,
+        causal=1,
+        bf16=0,
+        causal_origin=1,
+        causal_origin_negative=1,
+        q_base=4096,
+        k_base=8192,
+        v_base=12288,
+        o_base=16384,
+        count_base=0,
+        index_base=0,
+        q_batch_stride=128,
+        q_head_stride=32,
+        q_row_stride=6,
+        k_batch_stride=144,
+        k_head_stride=36,
+        k_row_stride=2,
+        v_batch_stride=160,
+        v_head_stride=40,
+        v_row_stride=2,
+        o_batch_stride=176,
+        o_head_stride=44,
+        o_row_stride=10,
+        count_batch_stride=0,
+        count_head_stride=0,
+        count_row_stride=0,
+        index_batch_stride=0,
+        index_head_stride=0,
+        index_row_stride=0,
+    )
     ready = (cycle[:2] != 0) & ~pending
-    memory = MemoryReply(request_ready=ready, valid=pending,
-                         data=reply_data, error=0)
+    memory = MemoryReply(request_ready=ready, valid=pending, data=reply_data, error=0)
     request, status = FA2TensorScheduler(command, memory, 1, 0)
 
     @ac.rule
@@ -84,4 +111,5 @@ def TensorSchedulerSystem():
             assert writes == 8, "bounded tensor progress"
             assert completions == 1, "exactly one tensor completion"
             ac.log("info", "tensor_scheduler_pass", writes, completions)
+
     memory_and_check()

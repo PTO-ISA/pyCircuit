@@ -8,6 +8,7 @@ Cancellation is level-sensitive and takes priority over command/request issue.
 An offered, unaccepted request is withdrawn on cancel; an accepted request
 retains response_ready until its response is drained.
 """
+
 import pycircuit as ac
 
 

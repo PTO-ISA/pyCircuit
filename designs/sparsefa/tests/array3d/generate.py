@@ -97,9 +97,11 @@ class Schedule:
                 active.append(enabled)
                 values.append(
                     [
-                        mul(left[r][k], right[c][k])
-                        if enabled and (lanes >> k) & 1
-                        else 0
+                        (
+                            mul(left[r][k], right[c][k])
+                            if enabled and (lanes >> k) & 1
+                            else 0
+                        )
                         for k in range(16)
                     ]
                 )

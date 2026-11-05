@@ -50,7 +50,9 @@ class ArithmeticTest(unittest.TestCase):
         for row in range(16):
             for column in range(16):
                 expected = Fraction(1921, 128) * (row + 1) * (2 * column + 1)
-                self.assertEqual(third_tail["rows"][row][column], oracle.encode(expected))
+                self.assertEqual(
+                    third_tail["rows"][row][column], oracle.encode(expected)
+                )
         self.assertEqual(signed_zero["rows"], [[0x80000000] * 16 for _ in range(16)])
         self.assertEqual(signed_zero["useful_macs"], 512)
         self.assertEqual(signed_zero["take_cycle"], signed_zero["end_cycle"] + 1)

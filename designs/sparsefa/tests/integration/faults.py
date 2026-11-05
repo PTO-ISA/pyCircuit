@@ -1,4 +1,4 @@
-# ruff: noqa: F821, F823, F841, N802 -- compiler-owned hardware state and System names.
+# ruff: noqa: B011, F821, F823, F841, N802 -- compiler-owned hardware assertions, state and System names.
 """Independent delayed memory failures, operand rejection and clean restart.
 
 D2 singleton Q=[1,1], K=[0,0], V=[2,-3], so normal O=V exactly.
@@ -23,28 +23,58 @@ def FaultSystem():
     injected: ac.u1 = 0
     writes: ac.u2 = 0
     completions: ac.u4 = 0
-    command = TensorCommand(valid=(scenario < 10) & ~started, tag=117,
-        batches=1, heads=1, queries=1, keys=1, dimensions=2,
-        scale=1065353216, indexed=1, causal=0, bf16=0,
-        causal_origin=0, causal_origin_negative=0,
-        q_base=4096, k_base=8192, v_base=12288, o_base=16384,
-        count_base=24576, index_base=32768,
-        q_batch_stride=0, q_head_stride=0, q_row_stride=4,
-        k_batch_stride=0, k_head_stride=0, k_row_stride=8,
-        v_batch_stride=0, v_head_stride=0, v_row_stride=12,
-        o_batch_stride=0, o_head_stride=0, o_row_stride=4,
-        count_batch_stride=0, count_head_stride=0, count_row_stride=4,
-        index_batch_stride=0, index_head_stride=0, index_row_stride=8192)
+    command = TensorCommand(
+        valid=(scenario < 10) & ~started,
+        tag=117,
+        batches=1,
+        heads=1,
+        queries=1,
+        keys=1,
+        dimensions=2,
+        scale=1065353216,
+        indexed=1,
+        causal=0,
+        bf16=0,
+        causal_origin=0,
+        causal_origin_negative=0,
+        q_base=4096,
+        k_base=8192,
+        v_base=12288,
+        o_base=16384,
+        count_base=24576,
+        index_base=32768,
+        q_batch_stride=0,
+        q_head_stride=0,
+        q_row_stride=4,
+        k_batch_stride=0,
+        k_head_stride=0,
+        k_row_stride=8,
+        v_batch_stride=0,
+        v_head_stride=0,
+        v_row_stride=12,
+        o_batch_stride=0,
+        o_head_stride=0,
+        o_row_stride=4,
+        count_batch_stride=0,
+        count_head_stride=0,
+        count_row_stride=4,
+        index_batch_stride=0,
+        index_head_stride=0,
+        index_row_stride=8192,
+    )
     ready = ~pending & (cycle[:2] != 0)
     response_valid = pending & (delay == 0)
-    memory = MemoryReply(request_ready=ready, valid=response_valid,
-                         data=reply_data, error=reply_error)
+    memory = MemoryReply(
+        request_ready=ready, valid=response_valid, data=reply_data, error=reply_error
+    )
     request, status = FA2TensorScheduler(command, memory, 1, 0)
 
     @ac.rule
     def memory_and_oracle() -> None:
         cycle = cycle + 1
-        assert ~request.response_ready | pending, "fault DUT waits only for accepted requests"
+        assert (
+            ~request.response_ready | pending
+        ), "fault DUT waits only for accepted requests"
         if status.command_ready & command.valid:
             started = 1
             writes = 0
@@ -98,7 +128,9 @@ def FaultSystem():
                     injected = 1
             elif (request.address == 16384) | (request.address == 16386):
                 assert request.write, "O accesses are writes"
-                assert (scenario == 5) | (scenario == 9), "failed inputs never publish O"
+                assert (scenario == 5) | (
+                    scenario == 9
+                ), "failed inputs never publish O"
                 assert request.size == 2, "fault output element size"
                 if request.address == 16384:
                     assert writes == 0, "output lane0 exactly once"
@@ -111,7 +143,7 @@ def FaultSystem():
                     assert request.data == 49664, "singleton lane1 equals original V"
                 writes = writes + 1
             else:
-                assert False, "fault test unexpected address"  # noqa: B011 -- hardware assertion, not host Python.
+                assert False, "fault test unexpected address"
             if request.address < 16384:
                 assert ~request.write, "QKV reads never write"
         if status.completion_valid:
@@ -127,11 +159,15 @@ def FaultSystem():
             else:
                 assert status.code == 0, "clean restart after all fault classes"
             if scenario == 5:
-                assert writes == 1, "failed O response leaves result invalid and stops further writes"
+                assert (
+                    writes == 1
+                ), "failed O response leaves result invalid and stops further writes"
             elif scenario == 9:
                 assert writes == 2, "clean restart publishes complete vector"
             else:
-                assert writes == 0, "failed input/shadow transaction publishes no output"
+                assert (
+                    writes == 0
+                ), "failed input/shadow transaction publishes no output"
             completions = completions + 1
             scenario = scenario + 1
             started = 0
@@ -139,4 +175,5 @@ def FaultSystem():
             assert completions == 10, "all faults and restart complete once"
             assert scenario == 10, "no duplicate fault completion"
             ac.log("info", "fault_pass", completions, writes)
+
     memory_and_oracle()

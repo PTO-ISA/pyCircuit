@@ -60,29 +60,58 @@ def SchedulerWide16(value: ac.u16) -> ac.u64:
 
 
 @ac.module
-def TensorLayoutValid(base: ac.u64, batch_stride: ac.u64,
-                      head_stride: ac.u64, row_stride: ac.u64,
-                      batches: ac.u16, heads: ac.u16, rows: ac.u32,
-                      width: ac.u64, metadata: ac.u1, broadcast: ac.u1) -> ac.u1:
+def TensorLayoutValid(
+    base: ac.u64,
+    batch_stride: ac.u64,
+    head_stride: ac.u64,
+    row_stride: ac.u64,
+    batches: ac.u16,
+    heads: ac.u16,
+    rows: ac.u32,
+    width: ac.u64,
+    metadata: ac.u1,
+    broadcast: ac.u1,
+) -> ac.u1:
     # Last-address checks use wide arithmetic, including each multiplication.
     last_row = rows - 1 if rows != 0 else 0
     last_head = heads - 1 if heads != 0 else 0
     last_batch = batches - 1 if batches != 0 else 0
     row_extent = Extend64(Extend32(last_row)) * Extend64(row_stride) + Extend64(width)
-    head_extent = Extend64(SchedulerWide16(last_head)) * Extend64(head_stride) + row_extent
-    tensor_extent = Extend64(SchedulerWide16(last_batch)) * Extend64(batch_stride) + head_extent
+    head_extent = (
+        Extend64(SchedulerWide16(last_head)) * Extend64(head_stride) + row_extent
+    )
+    tensor_extent = (
+        Extend64(SchedulerWide16(last_batch)) * Extend64(batch_stride) + head_extent
+    )
     end = Extend64(base) + tensor_extent
     alignment_mask = 3 if metadata else 1
     aligned = ((base | batch_stride | head_stride | row_stride) & alignment_mask) == 0
-    separate_rows = (rows <= 1) | (row_stride >= width) | (broadcast & (row_stride == 0))
-    separate_heads = (heads <= 1) | (Extend64(head_stride) >= row_extent) | (broadcast & (head_stride == 0))
-    separate_batches = (batches <= 1) | (Extend64(batch_stride) >= head_extent) | (broadcast & (batch_stride == 0))
-    return aligned & separate_rows & separate_heads & separate_batches & (end <= 18446744073709551616)
+    separate_rows = (
+        (rows <= 1) | (row_stride >= width) | (broadcast & (row_stride == 0))
+    )
+    separate_heads = (
+        (heads <= 1)
+        | (Extend64(head_stride) >= row_extent)
+        | (broadcast & (head_stride == 0))
+    )
+    separate_batches = (
+        (batches <= 1)
+        | (Extend64(batch_stride) >= head_extent)
+        | (broadcast & (batch_stride == 0))
+    )
+    return (
+        aligned
+        & separate_rows
+        & separate_heads
+        & separate_batches
+        & (end <= 18446744073709551616)
+    )
 
 
 @ac.module
-def FA2TensorScheduler(command: TensorCommand, memory: MemoryReply,
-                       completion_ready: ac.u1, cancel: ac.u1) -> tuple[MemoryRequest, EngineStatus]:
+def FA2TensorScheduler(
+    command: TensorCommand, memory: MemoryReply, completion_ready: ac.u1, cancel: ac.u1
+) -> tuple[MemoryRequest, EngineStatus]:
     # phase0 idle, phase1 row offer, phase2 row execution/drain, phase3 terminal.
     saved: TensorCommand = TensorCommand()
     phase: ac.u5 = 0
@@ -94,23 +123,69 @@ def FA2TensorScheduler(command: TensorCommand, memory: MemoryReply,
     batch_offset = SchedulerWide16(batch)
     head_offset = SchedulerWide16(head)
     query_offset = Extend32(query)
-    row_q = saved.q_base + batch_offset * saved.q_batch_stride + head_offset * saved.q_head_stride + query_offset * saved.q_row_stride
-    row_k = saved.k_base + batch_offset * saved.k_batch_stride + head_offset * saved.k_head_stride
-    row_v = saved.v_base + batch_offset * saved.v_batch_stride + head_offset * saved.v_head_stride
-    row_o = saved.o_base + batch_offset * saved.o_batch_stride + head_offset * saved.o_head_stride + query_offset * saved.o_row_stride
-    row_count = saved.count_base + batch_offset * saved.count_batch_stride + head_offset * saved.count_head_stride + query_offset * saved.count_row_stride
-    row_index = saved.index_base + batch_offset * saved.index_batch_stride + head_offset * saved.index_head_stride + query_offset * saved.index_row_stride
+    row_q = (
+        saved.q_base
+        + batch_offset * saved.q_batch_stride
+        + head_offset * saved.q_head_stride
+        + query_offset * saved.q_row_stride
+    )
+    row_k = (
+        saved.k_base
+        + batch_offset * saved.k_batch_stride
+        + head_offset * saved.k_head_stride
+    )
+    row_v = (
+        saved.v_base
+        + batch_offset * saved.v_batch_stride
+        + head_offset * saved.v_head_stride
+    )
+    row_o = (
+        saved.o_base
+        + batch_offset * saved.o_batch_stride
+        + head_offset * saved.o_head_stride
+        + query_offset * saved.o_row_stride
+    )
+    row_count = (
+        saved.count_base
+        + batch_offset * saved.count_batch_stride
+        + head_offset * saved.count_head_stride
+        + query_offset * saved.count_row_stride
+    )
+    row_index = (
+        saved.index_base
+        + batch_offset * saved.index_batch_stride
+        + head_offset * saved.index_head_stride
+        + query_offset * saved.index_row_stride
+    )
     causal_empty = saved.causal_origin_negative & (query < saved.causal_origin)
-    causal_position = query - saved.causal_origin if saved.causal_origin_negative else query + saved.causal_origin
-    child_command = EngineCommand(valid=phase == 1, tag=saved.tag,
-        q_base=row_q, k_base=row_k, v_base=row_v, o_base=row_o,
-        count_base=row_count, index_base=row_index,
-        k_stride=saved.k_row_stride, v_stride=saved.v_row_stride,
-        key_length=saved.keys, query_position=causal_position,
-        dimensions=saved.dimensions, scale=saved.scale, indexed=saved.indexed,
-        causal=saved.causal, causal_empty=causal_empty, bf16=saved.bf16)
-    request, child_status = FA2Engine(child_command, memory, phase == 2,
-                                    cancel | cancel_pending)
+    causal_position = (
+        query - saved.causal_origin
+        if saved.causal_origin_negative
+        else query + saved.causal_origin
+    )
+    child_command = EngineCommand(
+        valid=phase == 1,
+        tag=saved.tag,
+        q_base=row_q,
+        k_base=row_k,
+        v_base=row_v,
+        o_base=row_o,
+        count_base=row_count,
+        index_base=row_index,
+        k_stride=saved.k_row_stride,
+        v_stride=saved.v_row_stride,
+        key_length=saved.keys,
+        query_position=causal_position,
+        dimensions=saved.dimensions,
+        scale=saved.scale,
+        indexed=saved.indexed,
+        causal=saved.causal,
+        causal_empty=causal_empty,
+        bf16=saved.bf16,
+    )
+    request, child_status = FA2Engine(
+        child_command, memory, phase == 2, cancel | cancel_pending
+    )
     # Scalar wire snapshots keep each Rule's captures limited to its field uses.
     saved_queries = saved.queries
     saved_heads = saved.heads
@@ -119,15 +194,89 @@ def FA2TensorScheduler(command: TensorCommand, memory: MemoryReply,
     child_completion_valid = child_status.completion_valid
     child_code = child_status.code
     width = Extend7(command.dimensions) * 2
-    q_layout = TensorLayoutValid(command.q_base, command.q_batch_stride, command.q_head_stride, command.q_row_stride, command.batches, command.heads, command.queries, width, 0, 1)
-    k_layout = TensorLayoutValid(command.k_base, command.k_batch_stride, command.k_head_stride, command.k_row_stride, command.batches, command.heads, command.keys, width, 0, 1)
-    v_layout = TensorLayoutValid(command.v_base, command.v_batch_stride, command.v_head_stride, command.v_row_stride, command.batches, command.heads, command.keys, width, 0, 1)
-    o_layout = TensorLayoutValid(command.o_base, command.o_batch_stride, command.o_head_stride, command.o_row_stride, command.batches, command.heads, command.queries, width, 0, 0)
-    count_layout = TensorLayoutValid(command.count_base, command.count_batch_stride, command.count_head_stride, command.count_row_stride, command.batches, command.heads, command.queries, 4, 1, 1)
-    index_layout = TensorLayoutValid(command.index_base, command.index_batch_stride, command.index_head_stride, command.index_row_stride, command.batches, command.heads, command.queries, 8192, 1, 1)
+    q_layout = TensorLayoutValid(
+        command.q_base,
+        command.q_batch_stride,
+        command.q_head_stride,
+        command.q_row_stride,
+        command.batches,
+        command.heads,
+        command.queries,
+        width,
+        0,
+        1,
+    )
+    k_layout = TensorLayoutValid(
+        command.k_base,
+        command.k_batch_stride,
+        command.k_head_stride,
+        command.k_row_stride,
+        command.batches,
+        command.heads,
+        command.keys,
+        width,
+        0,
+        1,
+    )
+    v_layout = TensorLayoutValid(
+        command.v_base,
+        command.v_batch_stride,
+        command.v_head_stride,
+        command.v_row_stride,
+        command.batches,
+        command.heads,
+        command.keys,
+        width,
+        0,
+        1,
+    )
+    o_layout = TensorLayoutValid(
+        command.o_base,
+        command.o_batch_stride,
+        command.o_head_stride,
+        command.o_row_stride,
+        command.batches,
+        command.heads,
+        command.queries,
+        width,
+        0,
+        0,
+    )
+    count_layout = TensorLayoutValid(
+        command.count_base,
+        command.count_batch_stride,
+        command.count_head_stride,
+        command.count_row_stride,
+        command.batches,
+        command.heads,
+        command.queries,
+        4,
+        1,
+        1,
+    )
+    index_layout = TensorLayoutValid(
+        command.index_base,
+        command.index_batch_stride,
+        command.index_head_stride,
+        command.index_row_stride,
+        command.batches,
+        command.heads,
+        command.queries,
+        8192,
+        1,
+        1,
+    )
     causal_end = Extend32(command.queries) + Extend32(command.causal_origin)
-    causal_bad = command.causal & ~command.causal_origin_negative & (causal_end > 4294967296)
-    layout_bad = ~q_layout | ~k_layout | ~v_layout | ~o_layout | (command.indexed & (~count_layout | ~index_layout))
+    causal_bad = (
+        command.causal & ~command.causal_origin_negative & (causal_end > 4294967296)
+    )
+    layout_bad = (
+        ~q_layout
+        | ~k_layout
+        | ~v_layout
+        | ~o_layout
+        | (command.indexed & (~count_layout | ~index_layout))
+    )
 
     scale_bad = (command.scale < 8388608) | (command.scale > 1065353216)
     dense_bad = ~command.indexed & (command.keys > 2048)
@@ -141,7 +290,17 @@ def FA2TensorScheduler(command: TensorCommand, memory: MemoryReply,
         cancel_pending = 0
         code = 0
         phase = 1
-        if (command.batches == 0) | (command.heads == 0) | (command.queries == 0) | (command.dimensions == 0) | (command.dimensions > 64) | layout_bad | causal_bad | scale_bad | dense_bad:
+        if (
+            (command.batches == 0)
+            | (command.heads == 0)
+            | (command.queries == 0)
+            | (command.dimensions == 0)
+            | (command.dimensions > 64)
+            | layout_bad
+            | causal_bad
+            | scale_bad
+            | dense_bad
+        ):
             code = 1
             phase = 3
 
@@ -193,5 +352,10 @@ def FA2TensorScheduler(command: TensorCommand, memory: MemoryReply,
     cancel_offer()
     cancel_active()
     retire()
-    return request, EngineStatus(command_ready=(phase == 0) & ~cancel,
-        completion_valid=phase == 3, tag=saved.tag, code=code, phase=phase)
+    return request, EngineStatus(
+        command_ready=(phase == 0) & ~cancel,
+        completion_valid=phase == 3,
+        tag=saved.tag,
+        code=code,
+        phase=phase,
+    )

@@ -3,6 +3,7 @@
 The right operand stores column vectors: right[n].cK is B[k,n].
 An advance is one enabled pipeline edge; omitting it holds every stage.
 """
+
 import pycircuit as ac
 from fa2.fa2_array_interfaces import Row16
 

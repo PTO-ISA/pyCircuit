@@ -59,7 +59,7 @@ def _integer(value: int, name: str, *, minimum: int | None = None) -> int:
 
 
 def _length(value: Sequence, name: str) -> int:
-    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
         raise AttentionInputError(f"{name} must be a sequence")
     return len(value)
 

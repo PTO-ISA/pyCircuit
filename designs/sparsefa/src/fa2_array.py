@@ -131,7 +131,11 @@ def Array16x16():
     row14 = ArrayRow()
     row15 = ArrayRow()
 
-    @ac.method(guard=lambda command: (phase == 0) & (command.length > 0) & (command.length <= 64))
+    @ac.method(
+        guard=lambda command: (phase == 0)
+        & (command.length > 0)
+        & (command.length <= 64)
+    )
     def begin(command: ArrayBegin) -> None:
         saved_tag = command.tag
         length = command.length
@@ -156,35 +160,174 @@ def Array16x16():
         row15.clear()
         phase = 1
 
-    @ac.method(guard=lambda beat: (phase == 1) & (beat.tag == saved_tag) & (beat.index == accepted_steps) & (accepted_steps < length))
+    @ac.method(
+        guard=lambda beat: (phase == 1)
+        & (beat.tag == saved_tag)
+        & (beat.index == accepted_steps)
+        & (accepted_steps < length)
+    )
     def step(beat: ArrayStep) -> None:
-        count0 = row0.accumulate(RowStep(left=beat.left[0], right=beat.right, mask=cell_mask[0:16] & beat.col_mask, enabled=beat.row_mask[0]))
-        count1 = row1.accumulate(RowStep(left=beat.left[1], right=beat.right, mask=cell_mask[16:32] & beat.col_mask, enabled=beat.row_mask[1]))
-        count2 = row2.accumulate(RowStep(left=beat.left[2], right=beat.right, mask=cell_mask[32:48] & beat.col_mask, enabled=beat.row_mask[2]))
-        count3 = row3.accumulate(RowStep(left=beat.left[3], right=beat.right, mask=cell_mask[48:64] & beat.col_mask, enabled=beat.row_mask[3]))
-        count4 = row4.accumulate(RowStep(left=beat.left[4], right=beat.right, mask=cell_mask[64:80] & beat.col_mask, enabled=beat.row_mask[4]))
-        count5 = row5.accumulate(RowStep(left=beat.left[5], right=beat.right, mask=cell_mask[80:96] & beat.col_mask, enabled=beat.row_mask[5]))
-        count6 = row6.accumulate(RowStep(left=beat.left[6], right=beat.right, mask=cell_mask[96:112] & beat.col_mask, enabled=beat.row_mask[6]))
-        count7 = row7.accumulate(RowStep(left=beat.left[7], right=beat.right, mask=cell_mask[112:128] & beat.col_mask, enabled=beat.row_mask[7]))
-        count8 = row8.accumulate(RowStep(left=beat.left[8], right=beat.right, mask=cell_mask[128:144] & beat.col_mask, enabled=beat.row_mask[8]))
-        count9 = row9.accumulate(RowStep(left=beat.left[9], right=beat.right, mask=cell_mask[144:160] & beat.col_mask, enabled=beat.row_mask[9]))
-        count10 = row10.accumulate(RowStep(left=beat.left[10], right=beat.right, mask=cell_mask[160:176] & beat.col_mask, enabled=beat.row_mask[10]))
-        count11 = row11.accumulate(RowStep(left=beat.left[11], right=beat.right, mask=cell_mask[176:192] & beat.col_mask, enabled=beat.row_mask[11]))
-        count12 = row12.accumulate(RowStep(left=beat.left[12], right=beat.right, mask=cell_mask[192:208] & beat.col_mask, enabled=beat.row_mask[12]))
-        count13 = row13.accumulate(RowStep(left=beat.left[13], right=beat.right, mask=cell_mask[208:224] & beat.col_mask, enabled=beat.row_mask[13]))
-        count14 = row14.accumulate(RowStep(left=beat.left[14], right=beat.right, mask=cell_mask[224:240] & beat.col_mask, enabled=beat.row_mask[14]))
-        count15 = row15.accumulate(RowStep(left=beat.left[15], right=beat.right, mask=cell_mask[240:256] & beat.col_mask, enabled=beat.row_mask[15]))
-        useful_macs = useful_macs + count0 + count1 + count2 + count3 + count4 + count5 + count6 + count7 + count8 + count9 + count10 + count11 + count12 + count13 + count14 + count15
+        count0 = row0.accumulate(
+            RowStep(
+                left=beat.left[0],
+                right=beat.right,
+                mask=cell_mask[0:16] & beat.col_mask,
+                enabled=beat.row_mask[0],
+            )
+        )
+        count1 = row1.accumulate(
+            RowStep(
+                left=beat.left[1],
+                right=beat.right,
+                mask=cell_mask[16:32] & beat.col_mask,
+                enabled=beat.row_mask[1],
+            )
+        )
+        count2 = row2.accumulate(
+            RowStep(
+                left=beat.left[2],
+                right=beat.right,
+                mask=cell_mask[32:48] & beat.col_mask,
+                enabled=beat.row_mask[2],
+            )
+        )
+        count3 = row3.accumulate(
+            RowStep(
+                left=beat.left[3],
+                right=beat.right,
+                mask=cell_mask[48:64] & beat.col_mask,
+                enabled=beat.row_mask[3],
+            )
+        )
+        count4 = row4.accumulate(
+            RowStep(
+                left=beat.left[4],
+                right=beat.right,
+                mask=cell_mask[64:80] & beat.col_mask,
+                enabled=beat.row_mask[4],
+            )
+        )
+        count5 = row5.accumulate(
+            RowStep(
+                left=beat.left[5],
+                right=beat.right,
+                mask=cell_mask[80:96] & beat.col_mask,
+                enabled=beat.row_mask[5],
+            )
+        )
+        count6 = row6.accumulate(
+            RowStep(
+                left=beat.left[6],
+                right=beat.right,
+                mask=cell_mask[96:112] & beat.col_mask,
+                enabled=beat.row_mask[6],
+            )
+        )
+        count7 = row7.accumulate(
+            RowStep(
+                left=beat.left[7],
+                right=beat.right,
+                mask=cell_mask[112:128] & beat.col_mask,
+                enabled=beat.row_mask[7],
+            )
+        )
+        count8 = row8.accumulate(
+            RowStep(
+                left=beat.left[8],
+                right=beat.right,
+                mask=cell_mask[128:144] & beat.col_mask,
+                enabled=beat.row_mask[8],
+            )
+        )
+        count9 = row9.accumulate(
+            RowStep(
+                left=beat.left[9],
+                right=beat.right,
+                mask=cell_mask[144:160] & beat.col_mask,
+                enabled=beat.row_mask[9],
+            )
+        )
+        count10 = row10.accumulate(
+            RowStep(
+                left=beat.left[10],
+                right=beat.right,
+                mask=cell_mask[160:176] & beat.col_mask,
+                enabled=beat.row_mask[10],
+            )
+        )
+        count11 = row11.accumulate(
+            RowStep(
+                left=beat.left[11],
+                right=beat.right,
+                mask=cell_mask[176:192] & beat.col_mask,
+                enabled=beat.row_mask[11],
+            )
+        )
+        count12 = row12.accumulate(
+            RowStep(
+                left=beat.left[12],
+                right=beat.right,
+                mask=cell_mask[192:208] & beat.col_mask,
+                enabled=beat.row_mask[12],
+            )
+        )
+        count13 = row13.accumulate(
+            RowStep(
+                left=beat.left[13],
+                right=beat.right,
+                mask=cell_mask[208:224] & beat.col_mask,
+                enabled=beat.row_mask[13],
+            )
+        )
+        count14 = row14.accumulate(
+            RowStep(
+                left=beat.left[14],
+                right=beat.right,
+                mask=cell_mask[224:240] & beat.col_mask,
+                enabled=beat.row_mask[14],
+            )
+        )
+        count15 = row15.accumulate(
+            RowStep(
+                left=beat.left[15],
+                right=beat.right,
+                mask=cell_mask[240:256] & beat.col_mask,
+                enabled=beat.row_mask[15],
+            )
+        )
+        useful_macs = (
+            useful_macs
+            + count0
+            + count1
+            + count2
+            + count3
+            + count4
+            + count5
+            + count6
+            + count7
+            + count8
+            + count9
+            + count10
+            + count11
+            + count12
+            + count13
+            + count14
+            + count15
+        )
         accepted_steps = accepted_steps + 1
 
-    @ac.method(guard=lambda tag: (phase == 1) & (tag == saved_tag) & (accepted_steps == length))
+    @ac.method(
+        guard=lambda tag: (phase == 1) & (tag == saved_tag) & (accepted_steps == length)
+    )
     def end(tag: ac.u32) -> None:
         phase = 2
 
     @ac.method(guard=lambda: phase == 2)
     def take() -> ArrayResult:
         result = ArrayResult(
-            tag=saved_tag, steps=accepted_steps, useful_macs=useful_macs,
+            tag=saved_tag,
+            steps=accepted_steps,
+            useful_macs=useful_macs,
             rows=(
                 row0.read(),
                 row1.read(),

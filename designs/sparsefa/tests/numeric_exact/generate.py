@@ -3,6 +3,7 @@
 This never imports or executes the DUT. Fractions keep the arithmetic exact,
 including exponent-gap subtraction and values beyond host-float precision.
 """
+
 import random
 from fractions import Fraction
 from pathlib import Path
@@ -64,13 +65,20 @@ def generate() -> None:
     ]
     rng = random.Random(771281)
     for _ in range(16):
-        cases.append(tuple((rng.randrange(2) << 31) | (rng.randrange(1, 255) << 23)
-                           | rng.randrange(1 << 23) for _ in range(2)))
+        cases.append(
+            tuple(
+                (rng.randrange(2) << 31)
+                | (rng.randrange(1, 255) << 23)
+                | rng.randrange(1 << 23)
+                for _ in range(2)
+            )
+        )
     records = []
     for a, b in cases:
         add, mul, div = expectations(a, b)
         records.append(f"        Case(a={a}, b={b}, add={add}, mul={mul}, div={div}),")
-    source = '''# ruff: noqa: N802
+    source = (
+        '''# ruff: noqa: N802
 """Generated independent rational expectations; regenerate with generate.py."""
 import pycircuit as ac
 
@@ -86,7 +94,9 @@ class Case:
 
 def vectors() -> ac.table[32, Case]:
     data: ac.table[32, Case] = (
-''' + "\n".join(records) + '''
+'''
+        + "\n".join(records)
+        + """
     )
     return data
 
@@ -111,7 +121,8 @@ def ExactSystem():
         ac.log("info", "exact", index, added, multiplied, divided)
     check()
     step(index)
-'''
+"""
+    )
     Path(__file__).with_name("bench.py").write_text(source)
 
 

@@ -8,9 +8,11 @@ from fa2.fa2_numeric import fp_exp_neg
 def advance(phase):
     phase = phase + 1
 
+
 @ac.module
 def extend(phase: ac.u12) -> ac.u32:
     return phase
+
 
 @ac.system
 def ExpSweep():
@@ -18,8 +20,10 @@ def ExpSweep():
     index = extend(phase)
     argument = 3212836864 + (index << 13)
     result = fp_exp_neg(argument)
+
     @ac.rule
     def observe():
         ac.log("info", "exp_sweep", argument, result)
+
     observe()
     advance(phase)

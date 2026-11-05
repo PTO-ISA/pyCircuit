@@ -42,7 +42,6 @@ L1 不规定阵列是 systolic、SIMD、vector 或时分复用，也不规定 ex
 P0S共享标量ALU、phase操作数选择、位级算术、exp、PV影子提交及normalize连接见
 [FA2-CORE-COMP-1001](../l2/fa2-core-comp-1001.md)。
 
-
 ## P0S具体化
 
 数值执行顺序和RTZ/FTZ/exp/cast由 [P0S profile](fa2-core-profile-0001.md) 定义；

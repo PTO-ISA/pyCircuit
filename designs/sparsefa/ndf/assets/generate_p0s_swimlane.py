@@ -32,20 +32,20 @@ parts = [
     f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
     f'viewBox="0 0 {WIDTH} {HEIGHT}" role="img" '
     'aria-label="FlashAttention2 P0S 数据流泳道图">',
-    '<defs>',
+    "<defs>",
     '<marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" '
     'orient="auto" markerUnits="strokeWidth"><path d="M0 0 L10 4 L0 8 Z" fill="#34445e"/></marker>',
     '<marker id="arrow-muted" markerWidth="10" markerHeight="8" refX="9" refY="4" '
     'orient="auto" markerUnits="strokeWidth"><path d="M0 0 L10 4 L0 8 Z" fill="#8593a9"/></marker>',
-    '</defs>',
+    "</defs>",
     '<rect width="2460" height="1900" fill="#f7f9fc"/>',
     '<text x="78" y="67" font-size="39" font-weight="700" fill="#152338">'
-    'FlashAttention2 · P0S 数据流泳道图</text>',
+    "FlashAttention2 · P0S 数据流泳道图</text>",
     '<text x="80" y="106" font-size="21" fill="#516276">'
-    '时间向下 · 当前串行行引擎 · indexed 路径示例</text>',
+    "时间向下 · 当前串行行引擎 · indexed 路径示例</text>",
 ]
 
-for index, ((name, detail, fill, stroke), x) in enumerate(zip(LANES, CENTERS)):
+for (name, detail, fill, stroke), x in zip(LANES, CENTERS, strict=True):
     left = x - 137
     parts += [
         f'<rect x="{left}" y="137" width="274" height="1612" rx="15" '
@@ -97,14 +97,16 @@ def arrow(src: int, dst: int, y: int, label: str, muted: bool = False) -> None:
 
 
 def separator(y: int, caption: str) -> None:
-    parts.extend([
-        f'<line x1="50" y1="{y}" x2="2410" y2="{y}" '
-        'stroke="#d8e0ea" stroke-width="2"/>',
-        f'<rect x="66" y="{y - 18}" width="{max(225, 22 * len(caption))}" '
-        'height="36" rx="18" fill="#34445e"/>',
-        f'<text x="86" y="{y + 7}" font-size="18" font-weight="700" '
-        f'fill="white">{esc(caption)}</text>',
-    ])
+    parts.extend(
+        [
+            f'<line x1="50" y1="{y}" x2="2410" y2="{y}" '
+            'stroke="#d8e0ea" stroke-width="2"/>',
+            f'<rect x="66" y="{y - 18}" width="{max(225, 22 * len(caption))}" '
+            'height="36" rx="18" fill="#34445e"/>',
+            f'<text x="86" y="{y + 7}" font-size="18" font-weight="700" '
+            f'fill="white">{esc(caption)}</text>',
+        ]
+    )
 
 
 box(0, 282, ["TensorCommand", "Index/Count 已由上游生成"])
@@ -122,8 +124,10 @@ arrow(0, 3, 573, "内存输入")
 box(3, 573, ["逐项读 Index[p]", "每次只挂起 1 请求"])
 arrow(3, 2, 645, "index")
 box(2, 645, ["范围 + 重复校验", "Patricia 树；保留顺序"])
-parts.append('<text x="785" y="711" text-anchor="middle" font-size="18" '
-             'fill="#39624f">循环至完整前缀通过 · dense 模式跳过此段</text>')
+parts.append(
+    '<text x="785" y="711" text-anchor="middle" font-size="18" '
+    'fill="#39624f">循环至完整前缀通过 · dense 模式跳过此段</text>'
+)
 
 separator(753, "② 选 token，计算 QK score")
 box(1, 826, ["装载当前 Q[d]", "逐维 D = 1..64"])
@@ -146,23 +150,31 @@ arrow(6, 3, 1401, "V[j,d]")
 arrow(3, 6, 1452, "V 响应")
 box(6, 1506, ["shadow[d] =", "active[d]×α + β×V[d]"])
 box(6, 1602, ["最后一个 d：", "切换 bank，提交 m′/l′"])
-parts.append('<text x="1985" y="1655" text-anchor="middle" font-size="17" '
-             'font-weight="700" fill="#23827d">还有 token：返回 ②，重做 QK → softmax → PV</text>')
+parts.append(
+    '<text x="1985" y="1655" text-anchor="middle" font-size="17" '
+    'font-weight="700" fill="#23827d">还有 token：返回 ②，重做 QK → softmax → PV</text>'
+)
 
 separator(1671, "④ 全部 token 完成后归一化、写回")
 arrow(6, 7, 1722, "acc[d] / l")
 box(7, 1766, ["FP16 / BF16 编码", "O[d] 写入并等待 ack"], 82)
 arrow(7, 3, 1823, "O 写 / ack")
-parts.append('<text x="1220" y="1874" text-anchor="middle" font-size="20" '
-             'font-weight="700" fill="#354861">最后一个写确认后发布 completion</text>')
-parts.append('</svg>')
+parts.append(
+    '<text x="1220" y="1874" text-anchor="middle" font-size="20" '
+    'font-weight="700" fill="#354861">最后一个写确认后发布 completion</text>'
+)
+parts.append("</svg>")
 SVG.write_text("\n".join(parts) + "\n", encoding="utf-8")
 
 
 def render_png() -> None:
     cairo = ctypes.CDLL("libcairo.so.2")
     rsvg = ctypes.CDLL("librsvg-2.so.2")
-    cairo.cairo_image_surface_create.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    cairo.cairo_image_surface_create.argtypes = [
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+    ]
     cairo.cairo_image_surface_create.restype = ctypes.c_void_p
     cairo.cairo_create.argtypes = [ctypes.c_void_p]
     cairo.cairo_create.restype = ctypes.c_void_p

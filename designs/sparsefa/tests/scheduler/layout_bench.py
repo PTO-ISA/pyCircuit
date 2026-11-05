@@ -14,7 +14,9 @@ def TensorLayoutSystem():
     batch_alias = TensorLayoutValid(4096, 32, 44, 10, 2, 2, 2, 2, 0, 0)
     last_legal = TensorLayoutValid(18446744073709551614, 0, 0, 0, 1, 1, 1, 2, 0, 0)
     overflowing = TensorLayoutValid(18446744073709551614, 0, 0, 0, 1, 1, 1, 4, 0, 0)
-    product_overflow = TensorLayoutValid(0, 18446744073709551614, 0, 0, 3, 1, 1, 2, 0, 0)
+    product_overflow = TensorLayoutValid(
+        0, 18446744073709551614, 0, 0, 3, 1, 1, 2, 0, 0
+    )
     unaligned = TensorLayoutValid(4097, 128, 32, 6, 2, 2, 2, 2, 0, 0)
     metadata_unaligned = TensorLayoutValid(4098, 0, 0, 0, 1, 1, 1, 4, 1, 0)
 
@@ -32,4 +34,5 @@ def TensorLayoutSystem():
         assert unaligned == 0, "tensor alignment"
         assert metadata_unaligned == 0, "metadata alignment"
         ac.log("info", "tensor_layout_pass")
+
     check()
