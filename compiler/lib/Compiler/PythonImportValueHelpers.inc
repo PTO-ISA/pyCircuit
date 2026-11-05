@@ -434,7 +434,7 @@ struct Importer::HelperScope {
 
 LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   if (helper.state == 2) return success();
-  if (helper.state == 1) return error() << "recursive pure helper call closure is unsupported";
+  if (helper.state == 1) return success(); // Recursion is diagnosed by the IR inliner.
   std::string reason;
   if (!queryBudget.enter(reason)) return error() << reason;
   auto leaveHelper = llvm::scope_exit([&] { queryBudget.leave(); });
@@ -490,6 +490,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   }
   for (const auto &capture : helper.captures) {
     auto argument = block->getArgument(ordinal++);
+    originalCaptures[argument] = capture.second;
     mapValueFacts(capture.second, argument);
     if (!capture.first.empty()) {
       environment.values[capture.first] = argument;
@@ -516,57 +517,6 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     results.push_back(*exact);
   }
   inside.create<func::ReturnOp>(helper.function.getLoc(), results);
-  auto verifyHelper = [&] {
-    return ac::verifySourceValueHelper(helper.function, [&](FlatSymbolRefAttr symbol) {
-      return dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, symbol));
-    });
-  };
-  if (failed(verifyHelper())) return failure();
-  // This is a newly captured local definition, never an imported snapshot.
-  // Prepay the scans, metadata erases and use rewrites before changing either
-  // its SSA or importer facts. The existing clone planner then sees smaller IR.
-  TableQueryCharge scan;
-  bool fits = true;
-  for (Operation &operation : *block) {
-    fits &= TableQueryBudget::add(scan, TableQueryResource::Work, 2);
-    if (auto extract = dyn_cast<ac::BitsExtractOp>(operation)) {
-      fits &= TableQueryBudget::add(scan, TableQueryResource::Work, 16);
-      for (OpOperand &use : extract.getResult().getUses()) {
-        (void)use;
-        fits &= TableQueryBudget::add(scan, TableQueryResource::Work, 3);
-      }
-    }
-  }
-  std::string scanReason;
-  if (!fits || !queryBudget.reserve(scan, scanReason))
-    return error() << (fits ? scanReason : "pure helper payload scan work exhausted");
-  for (auto extract :
-       llvm::make_early_inc_range(block->getOps<ac::BitsExtractOp>())) {
-    Value replacement = literalPayloadReplacement(extract, *block);
-    if (!replacement) continue;
-    Value result = extract.getResult();
-    forgetValueFacts(result);
-    result.replaceAllUsesWith(replacement);
-    extract.erase();
-  }
-  auto literalPlan = planLiteralPayloadConstants(
-      *block, [&](uint64_t work, uint64_t bytes) -> LogicalResult {
-        TableQueryCharge charge;
-        bool fits = TableQueryBudget::add(charge, TableQueryResource::Work, work) &&
-                    TableQueryBudget::add(charge, TableQueryResource::Slots,
-                                          bytes / 8 + (bytes % 8 != 0));
-        if (!fits || !queryBudget.reserve(charge, scanReason))
-          return error() << (fits ? scanReason : "pure helper literal plan exhausted");
-        return success();
-      });
-  if (failed(literalPlan)) return failure();
-  for (auto [constant, representative] : *literalPlan) {
-    Value result = constant.getResult();
-    forgetValueFacts(result);
-    result.replaceAllUsesWith(representative);
-    constant.erase();
-  }
-  if (failed(verifyHelper())) return failure();
   helper.state = 2;
   return success();
 }
@@ -629,412 +579,20 @@ Value Importer::helperCapture(Value original, Block *block, Location location) {
   return Value();
 }
 
-// These containers cannot contain a source occurrence, even transitively.
-// Retain their immutable handles without a memo row or a temporary copy.
-static bool invariantHelperAttributeContainer(Attribute attribute) {
-  auto leaf = [](Attribute value) {
-    return !isa<ac::StaticExprAttr, DictionaryAttr, ArrayAttr>(value);
-  };
-  if (auto dictionary = dyn_cast<DictionaryAttr>(attribute))
-    return llvm::all_of(dictionary, [&](NamedAttribute field) { return leaf(field.getValue()); });
-  if (auto array = dyn_cast<ArrayAttr>(attribute))
-    return llvm::all_of(array, leaf);
-  return false;
-}
-
-// Retain at most one small bucket array per attribute cache. Clearing reuses
-// storage; all repeated walks/copies and both cache-clear walks remain charged.
-static constexpr uint64_t helperAttributeMemoBuckets = 1024;
-static constexpr uint64_t helperAttributeMemoEntries =
-    helperAttributeMemoBuckets * 3 / 4 - 1;
-
-// Aggregate projections create fresh importer facts. Their typed helper's
-// internal scalar facts cannot escape except through an actual returned SSA
-// value. Scalar results retain all facts for operand-sensitive refinements.
-static bool aggregateValueHelperResults(func::FuncOp helper) {
-  auto aggregate = [](Type type) {
-    return isa<ac::StructType, ac::TableType>(type);
-  };
-  auto returned = cast<func::ReturnOp>(helper.getBody().front().getTerminator());
-  return !helper.getResultTypes().empty() &&
-         llvm::all_of(helper.getResultTypes(), aggregate) &&
-         llvm::all_of(returned.getOperandTypes(), aggregate);
-}
-
-FailureOr<TableQueryCharge> Importer::valueHelperCost(func::FuncOp root,
-                                                     bool preserveAllFacts) {
-  // Cost depends on frame count, never frame contents. Actual rebasing remains
-  // separately memoized by Attribute inside each complete inline invocation.
-  llvm::DenseMap<std::pair<Operation *, uint64_t>, TableQueryCharge> memo;
-  llvm::DenseSet<Operation *> visiting;
-  auto add = [&](TableQueryCharge &sum, const TableQueryCharge &amount) {
-    for (unsigned i = 0; i < amount.amounts.size(); ++i)
-      if (!TableQueryBudget::add(sum, static_cast<TableQueryResource>(i), amount.amounts[i])) return false;
-    return true;
-  };
-  auto visit = [&](auto &&self, func::FuncOp helper, unsigned depth,
-                   uint64_t frames) -> FailureOr<TableQueryCharge> {
-    if (depth > TableQueryBudget::limit(TableQueryResource::Nesting))
-      return error() << "pure helper call depth budget exhausted";
-    auto key = std::make_pair(helper.getOperation(), frames);
-    auto cached = memo.find(key);
-    if (cached != memo.end()) return cached->second;
-    if (!visiting.insert(helper.getOperation()).second)
-      return error() << "recursive pure helper closure is unsupported";
-    auto leave = llvm::scope_exit([&] { visiting.erase(helper.getOperation()); });
-    TableQueryCharge cost;
-    bool fits = TableQueryBudget::add(cost, TableQueryResource::Occurrences, 1) &&
-                TableQueryBudget::add(cost, TableQueryResource::Slots, helper.getNumArguments() * 4 + 24);
-    auto returned = cast<func::ReturnOp>(helper.getBody().front().getTerminator());
-    // Both planning and cloning inspect this borrowed range; no retention set
-    // or new fact inventory is allocated. Staging retains every fact.
-    fits &= TableQueryBudget::add(cost, TableQueryResource::Work,
-        preserveAllFacts ? 2 : 2 * (1 + helper.getResultTypes().size() +
-                                        returned.getNumOperands()));
-    bool pruneFacts = !preserveAllFacts && aggregateValueHelperResults(helper);
-    auto retainsFacts = [&](Value value) {
-      if (!pruneFacts) return true;
-      for (Value operand : returned.getOperands()) {
-        fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 2);
-        if (operand == value) return true;
-      }
-      return false;
-    };
-    auto chargeValue = [&](Value value, uint64_t copies = 2,
-                           bool cloneFacts = true) {
-      fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 3);
-      const auto *facts = findValueInfo(value);
-      // A missing/empty fact row has exactly valueInfo's default meaning. The
-      // clone need not allocate a second empty row for an aggregate SSA handle.
-      if (facts) {
-        bool meaningful = facts->sourceKind || facts->interval ||
-                          facts->closedSourceConstant;
-        fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
-            meaningful ? copies : 1, (sizeof(NumericValue) + 7) / 8 + 4);
-        if (facts->interval)
-          for (const auto *endpoint : {&facts->interval->lower,
-                                       &facts->interval->upper})
-            fits &= TableQueryBudget::addProduct(cost, TableQueryResource::PayloadWords,
-                (endpoint->getBitWidth() + 63) / 64, cloneFacts ? 3 : 1);
-      }
-      if (fixedValues.contains(value))
-        fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots, copies, 2);
-      if (arithmeticValues.contains(value))
-        fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots, copies, 2);
-    };
-    // Function arguments map to existing actuals; no clone argument is created.
-    for (Value argument : helper.getArguments()) chargeValue(argument, 1);
-    // The planning set and clone map hold the same container keys. Reserve
-    // their bucket arrays at actual DenseMap growth boundaries, rather than a
-    // per-node multiplier that charges unused growth slack for every key.
-    llvm::DenseSet<Attribute> attributes;
-    uint64_t attributeCapacity = 0;
-    auto chargeAttribute = [&](auto &&walk, Attribute attribute, unsigned level) -> void {
-      if (!fits) return;
-      if (!attribute || level > TableQueryBudget::limit(TableQueryResource::Nesting)) { fits = false; return; }
-      fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 2);
-      if (!isa<ac::StaticExprAttr, DictionaryAttr, ArrayAttr>(attribute)) return;
-      uint64_t children = 0;
-      if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) children = dictionary.size();
-      if (auto array = dyn_cast<ArrayAttr>(attribute)) children = array.size();
-      // Both the planning and rebasing walkers test this shallow fast path.
-      fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Work, children, 2);
-      if (invariantHelperAttributeContainer(attribute)) return;
-      // StaticExpr is a uniqued wrapper around its dictionary. Memoizing both
-      // handles retains redundant keys; memoize the shared tree alone.
-      if (auto expression = dyn_cast<ac::StaticExprAttr>(attribute)) {
-        fits &= TableQueryBudget::add(cost, TableQueryResource::Slots, 2);
-        walk(walk, expression.getTree(), level + 1);
-        return;
-      }
-      // Each operation's attribute dictionary is streamed once. Retain only
-      // child containers in the invocation memo, paying root copies per use.
-      if (level != 0 && attributes.contains(attribute)) return;
-      if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
-        // Temporary NamedAttrList and the rebuilt immutable dictionary retain
-        // name/value handles; neither copies String or mathematical payloads.
-        fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots, dictionary.size(), 4) &&
-                TableQueryBudget::addProduct(cost, TableQueryResource::Work, dictionary.size(), 2);
-        auto expansion = dictionary.getAs<ArrayAttr>("expansion");
-        if (dictionary.getAs<DictionaryAttr>("site") && expansion) {
-          uint64_t appended = expansion.size();
-          fits &= pureCheckedAdd(appended, frames);
-          // Growing scratch vector (<2N) plus the final ArrayAttr (N).
-          fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots, appended, 3) &&
-                  TableQueryBudget::addProduct(cost, TableQueryResource::Work, appended, 3);
-        } else {
-          for (NamedAttribute field : dictionary) walk(walk, field.getValue(), level + 1);
-        }
-      } else if (auto array = dyn_cast<ArrayAttr>(attribute)) {
-        fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots, array.size(), 3) &&
-                TableQueryBudget::add(cost, TableQueryResource::Work, array.size());
-        for (Attribute item : array) walk(walk, item, level + 1);
-      }
-      if (level != 0) {
-        if (!fits) return;
-        // Insert after children, matching the rebasing walk exactly. A clear
-        // may cause later siblings to revisit a subtree; those uses pay again.
-        if (attributes.size() == helperAttributeMemoEntries) {
-          fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Work,
-                                               attributeCapacity, 3);
-          if (!fits) return;
-          attributes.clear();
-        }
-        uint64_t capacity = std::max(uint64_t(64), attributeCapacity);
-        uint64_t count = attributes.size() + 1;
-        while (count * 4 >= capacity * 3) capacity *= 2;
-        if (capacity != attributeCapacity) {
-          fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
-                                               capacity, 3) &&
-                  TableQueryBudget::addProduct(cost, TableQueryResource::Work,
-                                               attributes.size(), 2);
-          attributeCapacity = capacity;
-        }
-        if (!fits) return;
-        attributes.insert(attribute);
-      }
-    };
-    // One invocation owns one mapping. Source SSA values and operations are
-    // unique even across sibling regions, so retaining earlier keys is safe and
-    // avoids copying every enclosing prefix for each nested block.
-    uint64_t mappedValues = 0, mappedOperations = 0;
-    uint64_t valueMapCapacity = 0, operationMapCapacity = 0;
-    auto chargeMap = [&](uint64_t &count, uint64_t &capacity,
-                         uint64_t inserted) {
-      for (uint64_t i = 0; i < inserted; ++i) {
-        uint64_t grown = std::max(uint64_t(64), capacity);
-        if ((count + 1) * 4 >= grown * 3) grown *= 2;
-        if (grown != capacity) {
-          fits &= TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
-                                               grown, 2) &&
-                  TableQueryBudget::add(cost, TableQueryResource::Work, count);
-          capacity = grown;
-        }
-        ++count;
-        fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 1);
-      }
-    };
-    chargeMap(mappedValues, valueMapCapacity, helper.getNumArguments());
-    helper.walk<WalkOrder::PreOrder>([&](Operation *operation) {
-      if (operation == helper.getOperation() || isa<func::ReturnOp>(operation)) return;
-      fits &= TableQueryBudget::add(cost, TableQueryResource::Work, 2);
-      if (auto call = dyn_cast<func::CallOp>(operation)) {
-        auto callee = dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, call.getCalleeAttr()));
-        if (!callee) { fits = false; return; }
-        auto origin = call->getAttrOfType<DictionaryAttr>("ac.origin");
-        auto saved = origin ? origin.getAs<ArrayAttr>("expansion") : ArrayAttr();
-        uint64_t childFrames = frames;
-        fits &= pureCheckedAdd(childFrames, saved ? saved.size() : 0) &&
-                pureCheckedAdd(childFrames, origin ? 1 : 0);
-        fits &= TableQueryBudget::add(cost, TableQueryResource::Operations, 1) &&
-                TableQueryBudget::add(cost, TableQueryResource::Slots, 16) &&
-                TableQueryBudget::addProduct(cost, TableQueryResource::Slots, childFrames, 2) &&
-                TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
-                    call->getNumOperands() + call->getNumResults() + 1, 4);
-        auto child = self(self, callee, depth + 1, childFrames);
-        if (failed(child)) { fits = false; return; }
-        // Every call edge contributes its complete cost, including repeated
-        // edges to one callee. Exponential helper DAGs still reject up front.
-        fits &= add(cost, *child);
-      } else {
-        fits &= TableQueryBudget::add(cost, TableQueryResource::Operations, 2) &&
-                TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
-                    8 + operation->getNumOperands() + operation->getNumResults(), 2);
-        chargeMap(mappedOperations, operationMapCapacity, 1);
-        for (Value value : operation->getResults()) {
-          bool retained = retainsFacts(value);
-          chargeValue(value, retained ? 2 : 1, retained);
-        }
-        if (auto pattern = dyn_cast<ac::BitsConstant4Op>(operation))
-          fits &= TableQueryBudget::add(cost, TableQueryResource::ConstantBytes,
-                                        pattern.getPattern().size());
-        chargeAttribute(chargeAttribute, operation->getAttrDictionary(), 0);
-      }
-      for (Region &region : operation->getRegions())
-        for (Block &block : region) {
-          fits &= TableQueryBudget::add(cost, TableQueryResource::Slots, 8) &&
-                  TableQueryBudget::addProduct(cost, TableQueryResource::Slots,
-                                               block.getNumArguments(), 2);
-          chargeMap(mappedValues, valueMapCapacity, block.getNumArguments());
-          for (Value argument : block.getArguments()) {
-            bool retained = retainsFacts(argument);
-            chargeValue(argument, retained ? 2 : 1, retained);
-          }
-        }
-      chargeMap(mappedValues, valueMapCapacity, operation->getNumResults());
-    });
-    if (!fits) return error() << "pure helper expanded DAG budget exhausted";
-    memo[key] = cost;
-    return cost;
-  };
-  return visit(visit, root, 0, activeSourceExpansion.size() + 1);
-}
-
-LogicalResult Importer::reserveValueHelper(func::FuncOp helper, const AstNode &call,
-                                          bool preserveAllFacts) {
-  auto cost = valueHelperCost(helper, preserveAllFacts);
-  if (failed(cost)) return failure();
-  // The cost owns the complete clone closure and its exact expansion-frame
-  // counts. Fixed template/clone fees never scale with appended frame depth.
-  std::string reason;
-  if (!queryBudget.reserve(*cost, reason))
-    return mlir::emitError(call.location(b.getContext(), source.path)) << reason;
-  return success();
-}
-
 FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
     ValueHelperDecl &helper, ValueRange inputs, const AstNode &call,
-    OpBuilder &at, FlatSymbolRefAttr symbol, bool forceInline) {
-  if (activeValueHelper && !forceInline) {
-    // Loop statement envelopes leave helper expansion to this existing DAG
-    // budget, including typed calls retained until the outer helper is inlined.
-    if (activeLoop && failed(reserveValueHelper(helper.function, call, true))) return failure();
-    auto op = at.create<func::CallOp>(call.location(b.getContext(), source.path),
-                                    helper.symbol, helper.function.getResultTypes(), inputs);
-    if (activeLoop) activeLoop->helperOwned.insert(op.getOperation());
-    op->setAttr("ac.origin", sourceOccurrence(at, symbol, call));
-    for (auto [result, port] : llvm::zip(op.getResults(), helper.results)) {
-      rememberContract(result, port);
-      if (port.fixedBits) fixedValues.insert(result);
-    }
-    return SmallVector<Value>(op.getResults());
-  }
-  bool preserveAllFacts = forceInline || activeLoop;
-  if (failed(ac::verifySourceValueHelper(helper.function, [&](FlatSymbolRefAttr callee) {
-        return dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, callee));
-      })) || failed(reserveValueHelper(helper.function, call, preserveAllFacts))) return failure();
-  size_t frameDepth = activeSourceExpansion.size();
-  if (failed(pushHelperFrame(call, helper.node, symbol, helper.symbol))) return failure();
-  auto restoreFrame = llvm::scope_exit([&] { activeSourceExpansion.resize(frameDepth); });
-  auto inlineBody = [&](auto &&self, func::FuncOp function, ValueRange actuals,
-                        OpBuilder &target) -> FailureOr<SmallVector<Value>> {
-    auto returned = cast<func::ReturnOp>(function.getBody().front().getTerminator());
-    bool pruneFacts = !preserveAllFacts && aggregateValueHelperResults(function);
-    auto retainsFacts = [&](Value value) {
-      return !pruneFacts || llvm::is_contained(returned.getOperands(), value);
-    };
-    // The expansion frame is fixed for this complete function invocation.
-    // Nested helpers create their own map and restore the caller's frame before
-    // returning; an attribute can never reuse a different invocation's origin.
-    llvm::DenseMap<Attribute, Attribute> expandedAttributes;
-    auto expandAttribute = [&](auto &&expand, Attribute attribute,
-                               bool memoize = true) -> Attribute {
-      if (!isa<ac::StaticExprAttr, DictionaryAttr, ArrayAttr>(attribute) ||
-          invariantHelperAttributeContainer(attribute)) return attribute;
-      if (auto expression = dyn_cast<ac::StaticExprAttr>(attribute)) {
-        Attribute tree = expand(expand, expression.getTree());
-        return tree == expression.getTree() ? attribute :
-            ac::StaticExprAttr::get(at.getContext(), cast<DictionaryAttr>(tree));
-      }
-      if (memoize) {
-        auto found = expandedAttributes.find(attribute);
-        if (found != expandedAttributes.end()) return found->second;
-      }
-      Attribute result = attribute;
-      if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
-        if (dictionary.getAs<DictionaryAttr>("site") && dictionary.getAs<ArrayAttr>("expansion")) {
-          SmallVector<Attribute> frames;
-          llvm::append_range(frames, dictionary.getAs<ArrayAttr>("expansion"));
-          llvm::append_range(frames, activeSourceExpansion);
-          NamedAttrList fields(dictionary); fields.set("expansion", at.getArrayAttr(frames));
-          result = fields.getDictionary(at.getContext());
-        } else {
-          NamedAttrList fields(dictionary);
-          bool changed = false;
-          for (NamedAttribute field : dictionary) {
-            Attribute value = expand(expand, field.getValue());
-            if (value != field.getValue()) { fields.set(field.getName(), value); changed = true; }
-          }
-          if (changed) result = fields.getDictionary(at.getContext());
-        }
-      } else if (auto array = dyn_cast<ArrayAttr>(attribute)) {
-        SmallVector<Attribute> items;
-        bool changed = false;
-        for (Attribute item : array) {
-          Attribute value = expand(expand, item);
-          changed |= value != item;
-          items.push_back(value);
-        }
-        if (changed) result = at.getArrayAttr(items);
-      }
-      if (memoize) {
-        if (expandedAttributes.size() == helperAttributeMemoEntries)
-          expandedAttributes.clear();
-        expandedAttributes.try_emplace(attribute, result);
-      }
-      return result;
-    };
-    IRMapping mapping;
-    for (auto [formal, actual] : llvm::zip(function.getArguments(), actuals)) mapping.map(formal, actual);
-    auto expandBlock = [&](auto &&expand, Block &sourceBlock, Block &destination,
-                           IRMapping &map, OpBuilder &builder) -> LogicalResult {
-      (void)destination;
-      for (Operation &operation : sourceBlock) {
-        if (isa<func::ReturnOp>(operation)) continue;
-        if (auto nestedCall = dyn_cast<func::CallOp>(operation)) {
-          auto callee = dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, nestedCall.getCalleeAttr()));
-          if (!callee) return error() << "pure helper callee is missing";
-          SmallVector<Value> bound;
-          for (Value operand : nestedCall.getOperands()) bound.push_back(map.lookup(operand));
-          auto callerExpansion = std::move(activeSourceExpansion);
-          activeSourceExpansion.clear();
-          auto restoreExpansion = llvm::scope_exit([&] {
-            activeSourceExpansion = std::move(callerExpansion);
-          });
-          auto origin = nestedCall->getAttrOfType<DictionaryAttr>("ac.origin");
-          // A typed call may itself have been expanded from a loop. Retain
-          // those declaration frames before the current caller's frames, as
-          // expandAttribute does for every other source occurrence.
-          if (origin)
-            if (auto expansion = origin.getAs<ArrayAttr>("expansion"))
-              for (Attribute frame : expansion)
-                activeSourceExpansion.push_back(cast<DictionaryAttr>(frame));
-          llvm::append_range(activeSourceExpansion, callerExpansion);
-          if (origin)
-            activeSourceExpansion.push_back(builder.getDictionaryAttr({
-                builder.getNamedAttr("kind", builder.getStringAttr("call")),
-                builder.getNamedAttr("site", origin.getAs<DictionaryAttr>("site")),
-                builder.getNamedAttr("callee", nestedCall.getCalleeAttr())}));
-          // The outer reservation already includes this exact call edge and
-          // its inherited/saved frame count. Do not prepay that closure twice.
-          auto values = self(self, callee, bound, builder);
-          if (failed(values)) return failure();
-          for (auto [result, value] : llvm::zip(nestedCall.getResults(), *values)) map.map(result, value);
-          continue;
-        }
-        auto *copy = builder.cloneWithoutRegions(operation, map);
-        if (activeLoop) activeLoop->helperOwned.insert(copy);
-        for (auto [original, result] : llvm::zip(operation.getResults(), copy->getResults()))
-          if (retainsFacts(original)) mapValueFacts(original, result, /*sparse=*/true);
-        copy->setAttrs(cast<DictionaryAttr>(expandAttribute(expandAttribute, copy->getAttrDictionary(), false)));
-        for (auto [sourceRegion, copiedRegion] : llvm::zip(operation.getRegions(), copy->getRegions()))
-          for (Block &regionBlock : sourceRegion) {
-            auto *newBlock = new Block(); copiedRegion.push_back(newBlock);
-            // Every source key belongs to this invocation. Region-local keys
-            // can remain in the map; no later source operand can alias them.
-            for (Value argument : regionBlock.getArguments()) {
-              auto result = newBlock->addArgument(argument.getType(), argument.getLoc());
-              map.map(argument, result);
-              if (retainsFacts(argument)) mapValueFacts(argument, result, /*sparse=*/true);
-            }
-            auto inside = OpBuilder::atBlockEnd(newBlock);
-            if (failed(expand(expand, regionBlock, *newBlock, map, inside))) return failure();
-          }
-      }
-      return success();
-    };
-    if (failed(expandBlock(expandBlock, function.getBody().front(), *target.getBlock(), mapping, target))) return failure();
-    SmallVector<Value> results;
-    for (Value operand : returned.getOperands()) results.push_back(mapping.lookup(operand));
-    return results;
-  };
-  auto results = inlineBody(inlineBody, helper.function, inputs, at);
-  if (failed(results)) return failure();
-  for (auto [result, port] : llvm::zip(*results, helper.results)) {
+    OpBuilder &at, FlatSymbolRefAttr symbol) {
+  auto *operation = createOp(
+      at, call.location(b.getContext(), source.path), "ac.call", inputs,
+      helper.function.getResultTypes(),
+      {at.getNamedAttr("callee", helper.symbol),
+       at.getNamedAttr("ac.origin", sourceOccurrence(at, symbol, call))});
+  if (activeLoop) activeLoop->helperOwned.insert(operation);
+  for (auto [result, port] : llvm::zip(operation->getResults(), helper.results)) {
     rememberContract(result, port);
     if (port.fixedBits) fixedValues.insert(result);
   }
-  return results;
+  return SmallVector<Value>(operation->getResults());
 }
 
 FailureOr<SmallVector<Value>> Importer::valueHelperCall(
@@ -1090,8 +648,7 @@ FailureOr<SmallVector<Value>> Importer::valueHelperCall(
     if (!value) return error() << "pure helper capture is not in its declaration frame";
     actuals.push_back(value);
   }
-  return instantiateValueHelper(**helper, actuals, call, at, symbol,
-                                !queryArguments.empty());
+  return instantiateValueHelper(**helper, actuals, call, at, symbol);
 }
 
 FailureOr<bool> Importer::bindValueHelperResults(
@@ -1117,8 +674,7 @@ FailureOr<bool> Importer::bindValueHelperResults(
 }
 
 FailureOr<Value> Importer::namedHelperMap(const AstNode &call, const AstNode &name,
-                                         ValueRange tables, TableQueryLowering &lowering,
-                                         const TableQueryHooks &hooks, OpBuilder &at,
+                                         ValueRange tables, OpBuilder &at,
                                          FlatSymbolRefAttr symbol,
                                          const llvm::StringMap<Value> &values) {
   auto helper = resolveValueHelper(name, symbol, &values);
@@ -1133,8 +689,8 @@ FailureOr<Value> Importer::namedHelperMap(const AstNode &call, const AstNode &na
   auto storage = std::make_unique<Block>();
   auto *block = storage.get();
   auto cleanup = llvm::scope_exit([&] {
-    for (Value argument : block->getArguments()) hooks.forgetFacts(argument);
-    block->walk([&](Operation *operation) { for (Value result : operation->getResults()) hooks.forgetFacts(result); });
+    for (Value argument : block->getArguments()) forgetValueFacts(argument);
+    block->walk([&](Operation *operation) { for (Value result : operation->getResults()) forgetValueFacts(result); });
   });
   SmallVector<Value> rows, actuals;
   OpBuilder inside(b.getContext());
@@ -1154,9 +710,10 @@ FailureOr<Value> Importer::namedHelperMap(const AstNode &call, const AstNode &na
     if (failed(exact)) return failure();
     actuals.push_back(*exact);
   }
-  auto results = instantiateValueHelper(**helper, actuals, call, inside, symbol, true);
+  auto results = instantiateValueHelper(**helper, actuals, call, inside, symbol);
   if (failed(results)) return failure();
-  auto staged = lowering.stage(*block, rows, tables, *results, false);
+  auto staged = retainQueryMap(*block, rows, tables, *results, false, call, at, symbol);
   if (failed(staged)) return failure();
+  storage.release();
   return staged->front();
 }

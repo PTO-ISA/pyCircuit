@@ -1007,12 +1007,20 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
 }
 LogicalResult Importer::proveIndexExtent(Value index, uint64_t extent,
                                          const AstNode &node,
-                                         StringRef indexedKind) {
+                                         StringRef indexedKind, OpBuilder &at) {
   auto info = valueInfo(index);
   bool knownUnsigned = fixedValues.contains(index) ||
                        info.sourceKind == ac::detail::ValueKind::Boolean ||
                        (info.sourceKind == ac::detail::ValueKind::Integer &&
                         info.interval && !info.interval->lower.isNegative());
+  if (dependsOnRetainedCall(index)) {
+    createOp(at, node.location(b.getContext(), source.path), "ac.index_check",
+             {index}, TypeRange{index.getType()},
+             {at.getNamedAttr("extent", at.getI64IntegerAttr(extent)),
+              at.getNamedAttr("is_signed", at.getBoolAttr(
+                  info.interval && info.interval->lower.isNegative()))});
+    return success();
+  }
   if (!knownUnsigned)
     return mlir::emitError(node.location(b.getContext(), source.path))
            << indexedKind
@@ -1037,7 +1045,7 @@ LogicalResult Importer::proveIndexExtent(Value index, uint64_t extent,
   return success();
 }
 FailureOr<SourceIndexAdmission> Importer::proveIndex(Value table, Value index,
-                                   const AstNode &node) {
+                                   const AstNode &node, OpBuilder &at) {
   ac::HardwareAnalysis analysis(*body);
   auto type = cast<ac::TableType>(table.getType());
   if (!analysis.isStaticEvaluable(type.getShape(), {})) {
@@ -1065,7 +1073,7 @@ FailureOr<SourceIndexAdmission> Importer::proveIndex(Value table, Value index,
           : cast<BlockArgument>(table).getOwner()->getParentOp());
   if (failed(size))
     return failure();
-  if (failed(proveIndexExtent(index, *size, node, "table"))) return failure();
+  if (failed(proveIndexExtent(index, *size, node, "table", at))) return failure();
   return SourceIndexAdmission::Proved;
 }
 FailureOr<Value> Importer::tableUpdate(Value table, Value index,
@@ -1074,7 +1082,7 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        const AstNode &node, OpBuilder &at,
                                        FlatSymbolRefAttr symbol,
                                        std::optional<size_t> domainSlot) {
-  auto admission = proveIndex(table, index, node);
+  auto admission = proveIndex(table, index, node, at);
   if (failed(admission)) return failure();
   if (*admission == SourceIndexAdmission::Deferred)
     return mlir::emitError(node.location(b.getContext(), source.path))
@@ -1227,6 +1235,9 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
          failed(ac::detail::verifyHardwareAttributeScope(constant.getValue(), lexical.owner))))
       return failure();
     if (!contextualStaticConstant) {
+      if (dependsOnRetainedCall(value))
+        return deferredBoundary(value, Port{"", target, node, std::nullopt, true},
+                                node, at, symbol);
       if (*equivalent &&
           !ac::areEquivalentHardwareTypes(value.getType(), target)) {
         value = boundaryBitsIdentity(value, target, node, at, symbol);

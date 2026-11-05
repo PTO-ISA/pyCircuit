@@ -19,8 +19,6 @@ add_acir_library(ACIRSourceCompiler SOURCES
   SourceMemoryBindings.cpp
   SourceRuleWrites.cpp
   SourceUnit.cpp
-  TableQueryLowering.cpp
-  TableQueryStages.cpp
   LINK_LIBRARIES
     ACIRDialect
     ACIRTransforms

@@ -29,6 +29,7 @@ for option in (
 ):
     parser.add_argument("--" + option, required=True)
 parser.add_argument("--prepare-only", action="store_true")
+parser.add_argument("--execution-only", action="store_true")
 args = parser.parse_args()
 repo = Path(args.repo).resolve()
 fixtures = Path(__file__).resolve().parent
@@ -202,6 +203,11 @@ oracles["self_check"]()
 cases = [oracles["scalar_case"](), oracles["count_case"](), oracles["named_map_case"](), oracles["loop_case"]()]
 negatives = admission["admission_cases"]()
 controls = admission["positive_controls"]()
+deferred_admission = []
+if args.execution_only:
+    deferred_admission = [case["name"] for case in controls + negatives]
+    controls = []
+    negatives = []
 for case in cases + controls + negatives:
     (source / (case["name"] + ".py")).write_text(case["text"])
 # Source occurrence accounting is independent of output coincidence. Count is
@@ -227,6 +233,7 @@ prepared = {
     "artifact_directory": str(build),
     "execution_cases": cases,
     "negative_cases": negatives,
+    "deferred_admission": deferred_admission,
     "positive_controls": controls,
     "source_count_sites": [
         {"line": n.lineno, "column": n.col_offset} for n in count_sites
@@ -447,6 +454,7 @@ result = {
     "artifact_directory": str(build),
     "cases": receipts,
     "negatives": negative_receipts,
+    "deferred_admission": deferred_admission,
     "controls": control_receipts,
     "source_occurrences": occurrence_receipt,
     "named_map_actual_occurrences": map_occurrences,

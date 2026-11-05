@@ -3,8 +3,15 @@
 #include <memory>
 namespace mlir {
 class Pass;
+class OpPassManager;
 }
 namespace acir {
+std::unique_ptr<mlir::Pass> createVerifyACIRPass();
+std::unique_ptr<mlir::Pass> createInlineHelpersPass();
+std::unique_ptr<mlir::Pass> createLowerValueBoundariesPass();
+std::unique_ptr<mlir::Pass> createLowerQueriesPass();
+std::unique_ptr<mlir::Pass> createFinalizeSourcePass();
+void buildACIRToSourcePipeline(mlir::OpPassManager &pipeline);
 std::unique_ptr<mlir::Pass> createVerifyHardwarePass();
 std::unique_ptr<mlir::Pass> createNormalizeSourceControlFlowPass();
 std::unique_ptr<mlir::Pass> createExtractSourceInterfacePass();

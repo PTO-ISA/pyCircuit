@@ -79,11 +79,40 @@ bool equivalentTypes(TypeRange left, TypeRange right) {
   return true;
 }
 
+// Capture retains typed source control until the registered normalizer runs.
+// This is a structural allowance, not source/hardware admission of SCF.
+bool captureControl(Operation *operation) {
+  if (!isACIRCapture(operation)) return false;
+  StringRef name = operation->getName().getStringRef();
+  return operation->getName().getDialectNamespace() == "arith" ||
+      isa<SourceIndexOp, SourcePredicateOp>(operation) ||
+      llvm::is_contained(ArrayRef<StringRef>{"scf.for", "scf.while", "scf.if",
+                                           "scf.yield", "scf.condition"}, name);
+}
+LogicalResult verifyCaptureControl(Operation *root, bool guard) {
+  auto result = root->walk([&](Operation *nested) {
+    if (captureControl(nested) || isACIRCaptureOperation(nested) ||
+        detail::isCombinationalHardwareOperation(nested) ||
+        isa<YieldOp, SourceStateReadOp>(nested)) return WalkResult::advance();
+    if (!guard && isa<SourceStateWriteOp, SourceFormalWriteOp, SourceMethodCallOp,
+                     SourceExpectOp, SourceObserveOp, SourceBranchOp>(nested))
+      return WalkResult::advance();
+    nested->emitOpError("unsupported operation in typed source control region");
+    return WalkResult::interrupt();
+  });
+  return failure(result.wasInterrupted());
+}
+
 LogicalResult transactionPlacement(Operation *operation, bool allowGuard,
                                    bool allowBranch = false) {
   auto *placed = operation;
   auto *parent = placed->getParentOp();
-  while (allowBranch && isa_and_nonnull<SourceBranchOp>(parent)) {
+  while (allowBranch && parent &&
+         (isa<SourceBranchOp>(parent) ||
+          (captureControl(parent) && parent->getNumRegions()))) {
+    if (!allowGuard && parent->getName().getStringRef() == "scf.while" &&
+        placed->getParentRegion() == &parent->getRegion(0))
+      return operation->emitOpError("effects are forbidden in while conditions");
     placed = parent;
     parent = placed->getParentOp();
   }
@@ -120,13 +149,18 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
     return yield.emitOpError() << "body yield types do not match results";
   }
   for (Operation &nested : block.without_terminator()) {
+    if (captureControl(&nested)) {
+      if (failed(verifyCaptureControl(&nested, guard))) return failure();
+      continue;
+    }
     if (isa<SourceStateReadOp>(nested))
       continue;
     if (!guard &&
         isa<SourceStateWriteOp, SourceFormalWriteOp, SourceMethodCallOp,
             SourceExpectOp, SourceObserveOp, SourceBranchOp>(nested))
       continue;
-    if (!detail::isCombinationalHardwareOperation(&nested))
+    if (!detail::isCombinationalHardwareOperation(&nested) &&
+        !(isACIRCapture(operation) && isACIRCaptureOperation(&nested)))
       return nested.emitOpError()
              << (guard ? "guard accepts only closed pure payload operations "
                          "and state reads"
@@ -137,6 +171,7 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
         nested.walk([&](Operation *child) {
           if (child == &nested ||
               detail::isCombinationalHardwareOperation(child) ||
+              (isACIRCapture(child) && isACIRCaptureOperation(child)) ||
               isa<YieldOp>(child))
             return WalkResult::advance();
           child->emitOpError()
@@ -158,6 +193,7 @@ LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
   if (depth > 128 || ++work > 1024 * 1024)
     return operation->emitOpError()
            << "source branch verification budget exceeded";
+  if (captureControl(operation)) return verifyCaptureControl(operation, !arm);
   if (arm && isa<SourceBranchOp>(operation)) {
     for (Region &nested : operation->getRegions())
       for (Block &block : nested)
@@ -182,7 +218,8 @@ LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
           SourceObserveOp>(operation))
     return success();
   if (!isa<YieldOp>(operation) &&
-      !detail::isCombinationalHardwareOperation(operation))
+      !detail::isCombinationalHardwareOperation(operation) &&
+      !(isACIRCapture(operation) && isACIRCaptureOperation(operation)))
     return operation->emitOpError()
            << "source branch arms accept only closed pure payload operations, "
               "selected finite state accesses, Method calls, checks, "

@@ -113,6 +113,10 @@ mlir::FailureOr<SourceUnitArtifacts> compilePythonSourceUnit(
     const SourceHeaderRegistry &headers, ac::detail::EmitError emitError,
     bool retainSourceImport = false);
 
+mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>> compilePythonACIR(
+    mlir::ModuleOp transport, mlir::DictionaryAttr sourceOwner,
+    const SourceHeaderRegistry &headers, ac::detail::EmitError emitError);
+
 mlir::LogicalResult
 verifyPublishedDependencies(ac::ModuleOp definition,
                             ac::ModuleImportOp declaration,

@@ -207,7 +207,8 @@ LogicalResult body(Operation *op, TypeRange inputs, TypeRange outputs) {
   for (Operation &nested : block.without_terminator()) {
     if (isa<YieldOp>(nested))
       return op->emitOpError() << "early yield is invalid";
-    if (isa<RuleOp>(op) && !detail::isCombinationalHardwareOperation(&nested))
+    if (isa<RuleOp>(op) && !detail::isCombinationalHardwareOperation(&nested) &&
+        !(isACIRCapture(op) && isACIRCaptureOperation(&nested)))
       return nested.emitOpError()
              << "rule accepts only closed combinational hardware operations";
   }
@@ -252,6 +253,7 @@ LogicalResult ModuleOp::verifyRegions() {
   });
   if (result.wasInterrupted())
     return failure();
+  if (isACIRCapture(*this)) return success();
   return HardwareAnalysis((*this)->getParentOfType<mlir::ModuleOp>())
       .verifyDefinitionSourceChecks(*this);
 }
@@ -294,7 +296,7 @@ LogicalResult YieldOp::verify() {
   if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
   for (Type type : getOperandTypes())
     if (!hardware(type)) return emitOpError("legacy yield requires hardware payloads");
-  if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp,
+  if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp, QueryMapOp,
                        SourceMethodOp, SourceTransactionOp, SourceBranchOp>(
           (*this)->getParentOp()))
     return emitOpError() << "must terminate a module, rule, table region, "

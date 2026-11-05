@@ -1,4 +1,7 @@
 add_acir_library(ACIRTransforms SOURCES
+  ACIRToSource.cpp
+  "${PYCIRCUIT_SOURCE_DIR}/lib/Compiler/TableQueryLowering.cpp"
+  "${PYCIRCUIT_SOURCE_DIR}/lib/Compiler/TableQueryStages.cpp"
   VerifyHardware.cpp
   NormalizeSourceControlFlow.cpp
   ExtractSourceInterface.cpp

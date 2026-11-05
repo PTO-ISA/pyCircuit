@@ -59,20 +59,9 @@ struct TableQueryHooks {
       select;
   std::function<mlir::Value(mlir::Value, mlir::Type, mlir::OpBuilder &)>
       identity;
-  std::function<void(mlir::Value, mlir::Value)> copyFacts;
-  std::function<void(mlir::Value)> forgetFacts;
 };
 
-// Logical bounds prepaid by the named fixed callback's first reservation.
-// Observation is integrated with the existing stage/clone loops, not a replay.
-struct TableQueryStageEnvelope {
-  uint64_t scalarOperations, rowArguments, mapArguments, factValues;
-  uint64_t mappingSlots;
-  uint64_t hoists = 0, pending = 0, inputs = 0, captures = 0, arguments = 0;
-  uint64_t observedValues = 0, mappingEntries = 0;
-};
-
-// Shared by helper-closure admission and the final scalar staging check.
+// Scalar operations admitted by query callback staging.
 bool isTableQueryScalarOperation(mlir::Operation *operation, bool mapAggregates);
 
 // Consumes already typed SSA. The owning importer is the only syntax lowerer.
@@ -83,26 +72,17 @@ public:
                      TableQueryHooks hooks);
   mlir::LogicalResult capture(mlir::Value value);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>>
-  stage(mlir::Block &scalar, mlir::Value row, mlir::Value receiver,
-        mlir::ValueRange outputs);
-  mlir::FailureOr<llvm::SmallVector<mlir::Value>>
   stage(mlir::Block &scalar, mlir::ValueRange rows, mlir::ValueRange receivers,
-        mlir::ValueRange outputs, bool mapAggregates = false,
-        TableQueryStageEnvelope *envelope = nullptr);
+        mlir::ValueRange outputs, bool mapAggregates = false);
   mlir::FailureOr<mlir::Value> fold(mlir::Value table, llvm::StringRef kind);
   mlir::FailureOr<mlir::Value> count(mlir::Value table, mlir::Type result);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>> choose(mlir::Value predicates,
                                                          mlir::Value keys = {});
-  // Describe already reserved scalar storage without spending the ledger a
-  // second time. The importer owns the reservation and consistency audit.
-  bool describeWithoutReservation(mlir::Operation *operation, uint64_t rows,
-                                  TableQueryCharge &charge);
 
 private:
-  mlir::FailureOr<uint64_t> words(mlir::Type type, unsigned depth = 0,
-                                  bool debitWork = true);
+  mlir::FailureOr<uint64_t> words(mlir::Type type, unsigned depth = 0);
   bool describe(mlir::Operation *operation, uint64_t rows,
-                TableQueryCharge &charge, bool debitWork = true);
+                TableQueryCharge &charge);
   mlir::LogicalResult charge(mlir::Operation *operation, uint64_t rows = 1);
   mlir::FailureOr<mlir::Value> gather(mlir::Value table, mlir::Value indices);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>>
@@ -113,8 +93,7 @@ private:
   map(mlir::ValueRange tables, mlir::ValueRange captures,
       llvm::ArrayRef<uint64_t> shape, mlir::TypeRange elements,
       const std::function<mlir::FailureOr<llvm::SmallVector<mlir::Value>>(
-          mlir::OpBuilder &, mlir::ValueRange)> &body,
-      TableQueryStageEnvelope *envelope = nullptr);
+          mlir::OpBuilder &, mlir::ValueRange)> &body);
   mlir::FailureOr<mlir::Value>
   view(mlir::Value input, llvm::StringRef kind, llvm::ArrayRef<uint64_t> shape,
        llvm::ArrayRef<mlir::NamedAttribute> parameters);

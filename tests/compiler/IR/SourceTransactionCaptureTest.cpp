@@ -126,7 +126,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
   }
 
   LogicalResult lower(ModuleOp captured, StringRef filename,
-                      bool runSummaries = true) {
+                      bool runSummaries = true, bool stopAtACIR = false) {
     auto headers =
         compiler::SourceHeaderRegistry::create(&context, {}, error());
     if (failed(headers))
@@ -137,8 +137,14 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         source::createInferSourceBindingsPass(owner(filename), *headers));
     pipeline.addPass(
         source::createLowerPythonSourcePass(owner(filename), *headers));
-    if (runSummaries)
-      pipeline.addPass(acir::createAnalyzeSourceMethodSummariesPass());
+    if (stopAtACIR) {
+      pipeline.addPass(acir::createVerifyACIRPass());
+    } else {
+      // Source fixtures inspect effects and summaries after compatibility.
+      acir::buildACIRToSourcePipeline(pipeline);
+      if (runSummaries)
+        pipeline.addPass(acir::createAnalyzeSourceMethodSummariesPass());
+    }
     if (failed(pipeline.run(captured)))
       return failure();
     return mlir::verify(captured);
@@ -4167,7 +4173,7 @@ def Top(value: ac.u8) -> ac.u3:
 
 TEST_F(SourceTransactionCaptureTest,
        PureHelperTableCallbacksKeepParametersLocalAndCaptureOuterValues) {
-  auto file = typed(R"py(import pycircuit as ac
+  auto file = capture("helper_table_callbacks.py", R"py(import pycircuit as ac
 @ac.struct
 class Samples:
     words: ac.table[2, ac.u8]
@@ -4178,13 +4184,17 @@ class Result:
 @ac.module
 def Top(offset: ac.u8, shadow: ac.u8) -> Result:
     def mapped(values: Samples) -> Result:
+        broadcast = values.words.map(lambda row: offset)
         shifted = values.words.map(lambda shadow, peer: shadow + peer + offset, values.words)
         first_index, first_valid = shifted.first(where=lambda shadow: shadow != 0)
         best_index, best_valid = shifted.argmin(where=lambda shadow: shadow != 0, key=lambda shadow: shadow)
-        return Result(first=shifted[first_index], last=shifted[best_index])
+        return Result(first=shifted[first_index], last=shifted[best_index] + broadcast[0])
     return mapped(Samples(words=(1, 2)))
-)py", "helper_table_callbacks.py");
+)py");
   ASSERT_TRUE(file) << diagnostics;
+  ASSERT_TRUE(succeeded(lower(*file, "helper_table_callbacks.py",
+                              /*runSummaries=*/false, /*stopAtACIR=*/true)))
+      << diagnostics;
   unsigned helpers = 0;
   for (auto helper : operations<func::FuncOp>(*file)) {
     if (helper->getAttrOfType<StringAttr>("ac.helper_kind") !=
@@ -4196,6 +4206,10 @@ def Top(offset: ac.u8, shadow: ac.u8) -> Result:
     EXPECT_EQ(helper.getNumArguments(), 2u); // Samples plus offset.
   }
   EXPECT_EQ(helpers, 1u);
+  EXPECT_TRUE(succeeded(verify(*file))) << diagnostics;
+  PassManager toSource(&context);
+  acir::buildACIRToSourcePipeline(toSource);
+  ASSERT_TRUE(succeeded(toSource.run(*file))) << diagnostics;
   EXPECT_TRUE(succeeded(verify(*file))) << diagnostics;
 }
 

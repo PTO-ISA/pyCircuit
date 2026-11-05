@@ -747,14 +747,12 @@ LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
 }
 } // namespace acir::ac
 namespace acir::ac {
-LogicalResult HardwareAnalysis::verifySourceIndex(
-    Value index, TableType table, const HardwareBindings &bindings,
+FailureOr<llvm::ConstantRange> HardwareAnalysis::inferUnsignedValueRange(
+    Value index, const HardwareBindings &bindings,
     Operation *site) const {
   using Range = llvm::ConstantRange;
   using Pred = llvm::CmpInst::Predicate;
-  auto extent = getTableSize(table, bindings, site);
-  if (failed(extent) || table.getShape().size() != 1 || !isa<BitsType>(index.getType()))
-    return failure();
+  if (!isa<BitsType>(index.getType())) return failure();
   detail::SourceCheckBudget budget(HardwareSourceCheckLimits{});
   budget.setPhase("checked Table index ranges");
   SmallVector<std::unique_ptr<HardwareBindings>, 4> contexts;
@@ -780,7 +778,17 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
     Value value = node.value, next;
     unsigned scope = node.context, nextScope = scope;
     auto &actual = *contexts[scope];
-    if (auto extract = value.getDefiningOp<BitsExtractOp>()) {
+    if (auto field = value.getDefiningOp<StructGetOp>()) {
+      if (auto create = field.getValue().getDefiningOp<StructCreateOp>()) {
+        auto declaration = lookupStruct(cast<StructType>(create.getResult().getType()));
+        if (!declaration) return failure();
+        for (auto [ordinal, raw] : llvm::enumerate(declaration.getFields()))
+          if (cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == field.getFieldAttr()) {
+            if (ordinal >= create.getNumOperands()) return failure();
+            next = create.getOperand(ordinal);
+          }
+      }
+    } else if (auto extract = value.getDefiningOp<BitsExtractOp>()) {
       if (failed(extract.verifyInvariantsImpl()) || failed(extract.verify()) || failed(validate(extract, scope))) return failure();
       auto low = evaluateStatic(extract.getLow(), actual, site);
       auto input = getPackedWidth(extract.getInput().getType(), actual, site);
@@ -794,7 +802,13 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
     } else if (auto argument = dyn_cast<BlockArgument>(value)) {
       Operation *owner = argument.getOwner()->getParentOp();
       unsigned ordinal = argument.getArgNumber();
-      if (auto rule = dyn_cast<RuleOp>(owner)) {
+      if (auto query = dyn_cast<QueryMapOp>(owner)) {
+        if (ordinal >= static_cast<uint64_t>(query.getTableCount()))
+          next = query.getOperand(ordinal);
+      } else if (auto map = dyn_cast<TableMapOp>(owner)) {
+        if (ordinal > map.getTables().size())
+          next = map.getCaptures()[ordinal - map.getTables().size() - 1];
+      } else if (auto rule = dyn_cast<RuleOp>(owner)) {
         if (argument.getOwner()->getNumArguments() != rule.getCaptures().size() || ordinal >= rule.getCaptures().size()) return failure();
         next = rule.getCaptures()[ordinal];
       } else if (auto transaction = dyn_cast<SourceTransactionOp>(owner)) {
@@ -968,6 +982,35 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
     }
     return std::optional<Range>();
   };
+  // Query callbacks and their consumers share this bounded SSA proof. An
+  // element range is a union over declared lanes, never an importer cache.
+  std::function<FailureOr<Range>(Value, unsigned, unsigned, unsigned)> elements;
+  elements = [&](Value table, unsigned scope, unsigned width, unsigned depth) -> FailureOr<Range> {
+    if (depth > 128 || failed(budget.debit(16, site))) return failure();
+    auto *operation = table.getDefiningOp();
+    if (auto create = dyn_cast_or_null<TableCreateOp>(operation)) {
+      Range result = Range::getEmpty(width);
+      for (Value input : create.getInputs()) {
+        auto range = infer(Node{input, scope}, depth + 1);
+        if (failed(range)) return failure();
+        result = result.unionWith(range->zextOrTrunc(width));
+      }
+      return result;
+    }
+    if (auto splat = dyn_cast_or_null<TableSplatOp>(operation))
+      return infer(Node{splat.getInput(), scope}, depth + 1);
+    if (auto view = dyn_cast_or_null<TableViewOp>(operation); view && view.getKind() == "reshape")
+      return elements(view.getInput(), scope, width, depth + 1);
+    if (isa_and_nonnull<QueryMapOp, TableMapOp>(operation)) {
+      auto ordinal = cast<OpResult>(table).getResultNumber();
+      Region &region = operation->getRegion(0);
+      if (!region.hasOneBlock() || region.front().empty()) return failure();
+      auto yield = dyn_cast<YieldOp>(region.front().back());
+      if (!yield || ordinal >= yield.getNumOperands()) return failure();
+      return infer(Node{yield.getOperand(ordinal), scope}, depth + 1);
+    }
+    return Range::getFull(width);
+  };
   infer = [&](Node node, unsigned depth) -> FailureOr<Range> {
     if (depth > 128) return site->emitOpError() << "checked index range depth exceeded";
     if (failed(budget.debit(16, site))) return failure();
@@ -995,6 +1038,35 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
         return range->zextOrTrunc(width);
       }
       auto *operation = node.value.getDefiningOp();
+      if (auto argument = dyn_cast<BlockArgument>(node.value)) {
+        Operation *owner = argument.getOwner()->getParentOp();
+        unsigned ordinal = argument.getArgNumber();
+        if (auto query = dyn_cast<QueryMapOp>(owner)) {
+          if (ordinal < static_cast<uint64_t>(query.getTableCount()))
+            return elements(query.getOperand(ordinal), node.context, width, depth + 1);
+        } else if (auto map = dyn_cast<TableMapOp>(owner)) {
+          if (ordinal > 0 && ordinal <= map.getTables().size())
+            return elements(map.getTables()[ordinal - 1], node.context, width, depth + 1);
+        }
+      }
+      if (isa_and_nonnull<TableGetOp, TableReadOp>(operation) &&
+          cast<OpResult>(node.value).getResultNumber() == 0) {
+        Value table = operation->getOperand(0), index = operation->getOperand(1);
+        auto indexRange = infer(Node{index, node.context}, depth + 1);
+        auto extent = getTableSize(cast<TableType>(table.getType()), actual, site);
+        if (failed(indexRange) || failed(extent)) return failure();
+        auto maximum = indexRange->getUnsignedMax();
+        if (maximum.getActiveBits() <= 64 && maximum.getZExtValue() < *extent)
+          return elements(table, node.context, width, depth + 1);
+      }
+      if (auto query = dyn_cast_or_null<QueryChooseOp>(operation)) {
+        if (cast<OpResult>(node.value).getResultNumber() == 0) {
+          auto extent = getTableSize(cast<TableType>(query.getOperand(0).getType()), actual, site);
+          if (failed(extent)) return failure();
+          if (llvm::APInt(64, *extent).getActiveBits() > width) return Range::getFull(width);
+          return Range(llvm::APInt(width, 0), llvm::APInt(width, *extent));
+        }
+      }
       if (auto constant = dyn_cast_or_null<BitsConstantOp>(operation)) {
         if (failed(constant.verifyInvariantsImpl()) || failed(constant.verify()) || failed(validate(constant, node.context))) return failure();
         auto evaluated = evaluateStatic(constant.getValue(), actual, site);
@@ -1068,6 +1140,16 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
   };
   auto root = context(bindings); if (failed(root)) return failure();
   auto result = infer(Node{index, *root}, 0);
+  if (failed(result)) return failure();
+  return *result;
+}
+
+LogicalResult HardwareAnalysis::verifySourceIndex(
+    Value index, TableType table, const HardwareBindings &bindings,
+    Operation *site) const {
+  auto extent = getTableSize(table, bindings, site);
+  if (failed(extent) || table.getShape().size() != 1) return failure();
+  auto result = inferUnsignedValueRange(index, bindings, site);
   if (failed(result)) return failure();
   if (result->isEmptySet()) return site->emitOpError() << "checked Table index has no admitted unsigned value";
   auto maximum = result->getUnsignedMax();

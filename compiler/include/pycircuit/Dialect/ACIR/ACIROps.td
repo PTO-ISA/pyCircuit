@@ -7,9 +7,57 @@ include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/CallInterfaces.td"
 
 class ACIR_Op<string mnemonic, list<Trait> traits = []>
     : Op<ACIR_Dialect, mnemonic, traits>;
+
+// Capture-stage operations survive printing and parsing without importer state.
+def ACIR_CallOp : ACIR_Op<"call", [CallOpInterface]> {
+  let summary = "Call a package-qualified pure helper";
+  let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$inputs,
+      OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs);
+  let results = (outs Variadic<AnyType>:$results);
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::CallInterfaceCallable getCallableForCallee() { return getCalleeAttr(); }
+    void setCalleeFromCallable(::mlir::CallInterfaceCallable value) {
+      setCalleeAttr(::llvm::cast<::mlir::FlatSymbolRefAttr>(value.get<::mlir::SymbolRefAttr>()));
+    }
+    ::mlir::Operation::operand_range getArgOperands() { return getInputs(); }
+    ::mlir::MutableOperandRange getArgOperandsMutable() { return getInputsMutable(); }
+    ::mlir::Operation *resolveCallable();
+    ::mlir::Operation *resolveCallableInTable(::mlir::SymbolTableCollection *);
+  }];
+}
+def ACIR_QueryMapOp : ACIR_Op<"query.map", [IsolatedFromAbove]> {
+  let summary = "Typed query callback before scalar staging";
+  let arguments = (ins Variadic<AnyType>:$inputs, I64Attr:$table_count,
+      BoolAttr:$aggregates);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region AnyRegion:$body);
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+def ACIR_QueryChooseOp : ACIR_Op<"query.choose"> {
+  let summary = "Deferred first or argmin query";
+  let arguments = (ins Variadic<AnyType>:$inputs, StrAttr:$kind);
+  let results = (outs Variadic<AnyType>:$results);
+  let hasVerifier = 1;
+}
+def ACIR_BoundaryOp : ACIR_Op<"boundary"> {
+  let summary = "Prove a logical conversion before changing its original carrier";
+  let arguments = (ins ACIR_BitsType:$input, DictionaryAttr:$constraint,
+      BoolAttr:$is_signed);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+def ACIR_IndexCheckOp : ACIR_Op<"index_check"> {
+  let summary = "Prove an original full-width index before Source publication";
+  let arguments = (ins ACIR_BitsType:$input, I64Attr:$extent, BoolAttr:$is_signed);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
 
 def ACIR_TypeAliasOp : ACIR_Op<"type_alias", [Symbol]> {
   let summary = "Declare one source-owned transparent logical type alias";
