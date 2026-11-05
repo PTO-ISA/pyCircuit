@@ -7,6 +7,7 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/SourceControlFlow.h"
+#include "pycircuit/Transforms/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Verifier.h"
@@ -1003,7 +1004,12 @@ def Top(value: u8) -> Out:
       << diagnostics;
   auto lowered = bindings.lower(owner("provenance.py"), *headers);
   ASSERT_TRUE(succeeded(lowered)) << diagnostics;
-  ASSERT_TRUE(succeeded(acir::normalizeSourceControlFlow(**lowered))) << diagnostics;
+  unsigned capturedCalls = 0;
+  (*lowered)->walk([&](ac::CallOp) { ++capturedCalls; });
+  ASSERT_GT(capturedCalls, 0u);
+  PassManager toSource(&context);
+  acir::buildACIRToSourcePipeline(toSource);
+  ASSERT_TRUE(succeeded(toSource.run(**lowered))) << diagnostics;
   ASSERT_TRUE(succeeded(mlir::verify(**lowered))) << diagnostics;
 
   auto originOf = [](Operation *operation) {

@@ -5,6 +5,46 @@ hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
+## Inspecting ACIR before Source lowering
+
+`compile --emit source` is the default and publishes the usual source-unit
+directory. To inspect the earlier ACIR stage, use:
+
+```bash
+pycircuit compile -c design.py --source-root . --emit acir -o design.acir
+pycircuit compile -c design.py --source-root . --emit acir -o -
+pycircuit-opt design.acir \
+  --pass-pipeline='builtin.module(acir-to-source)' -o design.source.mlir
+```
+
+ACIR retains ordinary helper definitions and typed `ac.call` sites, including
+calls inside callbacks. Nested helpers receive their captured snapshots as
+explicit arguments. Table callbacks and deferred value boundaries remain typed
+operations until the compatibility pipeline lowers them. The text contains the
+declarations, imported implementation snapshots and source provenance needed to
+parse and lower it in a fresh process without the Python source.
+Compatibility lowering preserves exported helper definitions for interface
+extraction and removes private lexical helper templates after expanding their
+calls. Imported helper snapshots retain their published representation.
+
+`--emit acir` stops after ACIR verification. It does not publish a Source unit,
+interface, dependency file or receipt. `--source-root`, `--package-prefix` and
+`-I` retain their usual meanings. `-o -` writes only MLIR to standard output;
+diagnostics go to standard error. A file destination must be new unless
+`--replace` is explicit; a failed compile leaves an existing file intact.
+ACIR text is an inspectable compiler-stage artifact, with no cross-version
+serialization guarantee, and is not a direct input to `link`.
+
+Normal compilation and `pycircuit-opt` use the same `acir-to-source` pipeline:
+`ac-verify-acir`, `ac-inline-helpers`, `ac-normalize-source-control-flow`,
+`ac-lower-value-boundaries`, `ac-lower-queries`, and `ac-finalize-source`.
+The stages run through MLIR's PassManager, so pass printing and timing can
+identify a failing compatibility stage. Checks requiring helper implementation
+facts run during compatibility lowering. ACIR verification alone does not prove
+that a design can be published or executed. The resulting Source IR continues
+through the existing interface extraction, explicit link closure, transaction
+lowering and shared C++/Verilog emission.
+
 The [functional numeric provider example](../reference/functional-float-source-units.md)
 shows reusable independent source functions, response Structs and explicit
 provider closures. Its public build driver emits C++ and Verilog from each

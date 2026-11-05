@@ -175,8 +175,59 @@ LogicalResult verifySignature(func::FuncOp helper, uint64_t &work) {
   return success();
 }
 
+LogicalResult verifyHelperCall(func::CallOp call, func::FuncOp helper,
+                               SourceHelperLookup lookup, uint64_t &work) {
+  auto target = lookup(call.getCalleeAttr());
+  auto kind = target ? target->getAttrOfType<StringAttr>("ac.helper_kind")
+                     : StringAttr();
+  if (!target || !kind || kind.getValue() != "value" ||
+      failed(verifySignature(target, work)) ||
+      target.getFunctionType() != call.getCalleeType())
+    return call.emitOpError() << "value helper call requires a resolved "
+                                "ordinary helper with exact signature";
+  auto lexical = target->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");
+  if (lexical && lexical !=
+          helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner"))
+    return call.emitOpError() << "private helper call crosses lexical owner";
+  return success();
+}
+
 LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
                          uint64_t &work) {
+  if (isACIRCapture(helper)) {
+    if (helper.getBody().empty() || !helper.getBody().hasOneBlock())
+      return helper.emitOpError("ACIR helper requires one defined block");
+    auto result = helper.walk([&](Operation *operation) {
+      if (operation == helper.getOperation()) return WalkResult::advance();
+      if (++work > maxWork) {
+        operation->emitOpError("ACIR helper verification budget exceeded");
+        return WalkResult::interrupt();
+      }
+      if (auto call = dyn_cast<func::CallOp>(operation))
+        if (failed(verifyHelperCall(call, helper, lookup, work)))
+          return WalkResult::interrupt();
+      StringRef name = operation->getName().getStringRef();
+      bool control = llvm::is_contained(ArrayRef<StringRef>{
+          "scf.if", "scf.for", "scf.while", "scf.condition", "scf.yield",
+          "arith.constant", "arith.addi", "arith.subi", "arith.cmpi",
+          "arith.index_cast", "ac.source.predicate", "ac.source.index"}, name);
+      if (!isa<func::ReturnOp, func::CallOp, YieldOp, SourceBranchOp>(operation) &&
+          !isACIRCaptureOperation(operation) &&
+          !detail::isCombinationalHardwareOperation(operation) && !control) {
+        operation->emitOpError("unsupported operation in pure ACIR helper");
+        return WalkResult::interrupt();
+      }
+      for (Value operand : operation->getOperands()) {
+        Operation *scope = operand.getParentRegion()->getParentOp();
+        if (scope != helper && !helper->isProperAncestor(scope)) {
+          operation->emitOpError("helper reads outside explicit inputs and captures");
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+    return result.wasInterrupted() ? failure() : mlir::verify(helper);
+  }
   if (failed(preflightBody(helper, lookup, work)) ||
       failed(mlir::verify(helper)))
     return failure();
@@ -205,18 +256,8 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
                                            "explicit inputs and captures";
       }
       if (auto call = dyn_cast<func::CallOp>(operation)) {
-        auto target = lookup(call.getCalleeAttr());
-        auto kind = target ? target->getAttrOfType<StringAttr>("ac.helper_kind")
-                           : StringAttr();
-        if (!target || !kind || kind.getValue() != "value" ||
-            failed(verifySignature(target, work)) ||
-            target.getFunctionType() != call.getCalleeType())
-          return call.emitOpError() << "value helper call requires a resolved "
-                                      "ordinary helper with exact signature";
-        auto lexical = target->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");
-        if (lexical && lexical !=
-                helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner"))
-          return call.emitOpError() << "private helper call crosses lexical owner";
+        if (failed(verifyHelperCall(call, helper, lookup, work)))
+          return failure();
         continue;
       }
       if (isa<func::ReturnOp>(operation)) {

@@ -360,7 +360,7 @@ FailureOr<Value> Importer::readAccessIndex(Value base, Value index,
     ac::HardwareAnalysis analysis(*body);
     auto width = analysis.getPackedWidth(base.getType(), {},
                                          at.getInsertionBlock()->getParentOp());
-    if (failed(width) || failed(proveIndexExtent(index, *width, node, "bit")))
+    if (failed(width) || failed(proveIndexExtent(index, *width, node, "bit", at)))
       return failure();
     // Keep the complete index carrier, including high X/Z bits. A logical
     // Boolean/Integer index crosses an explicit fresh fixed-Bits boundary;
@@ -387,7 +387,7 @@ FailureOr<Value> Importer::readAccessIndex(Value base, Value index,
   auto type = dyn_cast<ac::TableType>(base.getType());
   if (!type)
     return error() << "subscript requires fixed bits or a table";
-  auto admission = proveIndex(base, index, node);
+  auto admission = proveIndex(base, index, node, at);
   if (failed(admission)) return failure();
   SmallVector<Type> results{type.getElementType()};
   bool deferred = *admission == SourceIndexAdmission::Deferred;

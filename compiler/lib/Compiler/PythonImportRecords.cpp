@@ -1,6 +1,5 @@
 #include "PythonImportRecords.h"
 #include "ExecutionProjection.h"
-#include "LiteralPayloadWires.h"
 #include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "Dialect/ACIR/HardwareGrantProof.h"
 #include "SourceDeclarationContext.h"
@@ -21,10 +20,8 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
-#include "pycircuit/Transforms/SourceControlFlow.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
-#include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -470,7 +467,7 @@ OwningOpRef<ModuleOp> unit(MLIRContext *ctx, Location loc, DictionaryAttr owner,
   OwningOpRef<ModuleOp> result(ModuleOp::create(loc));
   result->getOperation()->setAttr("ac.source_owner", owner);
   result->getOperation()->setAttr("ac.unit_kind", StringAttr::get(ctx, kind));
-  result->getOperation()->setAttr("ac.stage", StringAttr::get(ctx, "source"));
+  result->getOperation()->setAttr("ac.stage", StringAttr::get(ctx, "acir"));
   result->getOperation()->setAttr("ac.interfaces", interfaces);
   return result;
 }
@@ -803,18 +800,21 @@ private:
       const llvm::StringSet<> &forbidden, bool immutable);
   FailureOr<SmallVector<Value>> instantiateValueHelper(ValueHelperDecl &helper,
                                       ValueRange inputs, const AstNode &call,
-                                      OpBuilder &at, FlatSymbolRefAttr symbol,
-                                      bool forceInline = false);
+                                      OpBuilder &at, FlatSymbolRefAttr symbol);
   FailureOr<Value> exactHelperValue(Value value, Type target, const AstNode &node,
                                     OpBuilder &at, FlatSymbolRefAttr symbol);
-  FailureOr<TableQueryCharge> valueHelperCost(func::FuncOp helper,
-                                             bool preserveAllFacts);
-  LogicalResult reserveValueHelper(func::FuncOp helper, const AstNode &call,
-                                   bool preserveAllFacts);
   Value helperCapture(Value original, Block *block, Location location);
+  FailureOr<SmallVector<Value>> retainQueryMap(
+      Block &scalar, ValueRange rows, ValueRange tables, ValueRange results,
+      bool aggregates, const AstNode &site, OpBuilder &at,
+      FlatSymbolRefAttr symbol);
+  bool dependsOnRetainedCall(Value value) const;
+  FailureOr<Value> deferredBoundary(Value value, const Port &contract,
+                                    const AstNode &node, OpBuilder &at,
+                                    FlatSymbolRefAttr symbol);
+
   FailureOr<Value> namedHelperMap(const AstNode &call, const AstNode &name,
-                                 ValueRange tables, TableQueryLowering &lowering,
-                                 const TableQueryHooks &hooks, OpBuilder &at,
+                                 ValueRange tables, OpBuilder &at,
                                  FlatSymbolRefAttr symbol,
                                  const llvm::StringMap<Value> &values);
   FailureOr<SmallVector<Value>>
@@ -916,9 +916,9 @@ private:
   FailureOr<std::optional<size_t>> addressDomainSlot(StringRef formal,
                                                      const AstNode &assignment,
                                                      const AstNode &index);
-  FailureOr<SourceIndexAdmission> proveIndex(Value table, Value index, const AstNode &node);
+  FailureOr<SourceIndexAdmission> proveIndex(Value table, Value index, const AstNode &node, OpBuilder &at);
   LogicalResult proveIndexExtent(Value index, uint64_t extent,
-                                 const AstNode &node, StringRef indexedKind);
+                                 const AstNode &node, StringRef indexedKind, OpBuilder &at);
   FailureOr<Value> unsignedBoundary(Value value, Type target,
                                     const AstNode &node, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
@@ -1394,6 +1394,8 @@ FailureOr<Value> Importer::boundary(Value value, const Port &destination,
           boundaryBitsIdentity(value, destination.type, node, at, ownerSymbol);
       info = valueInfo(value);
     }
+    if (dependsOnRetainedCall(value))
+      return deferredBoundary(value, destination, node, at, ownerSymbol);
     auto converted =
         lowerExactIntegerBoundary(at, numericSite(node, ownerSymbol), info,
                                   dyn_cast<ac::BitsType>(destination.type));
@@ -1906,6 +1908,8 @@ FailureOr<Value> Importer::applyBindingBoundary(Value value,
                   "type";
       return value;
     }
+    if (dependsOnRetainedCall(value))
+      return deferredBoundary(value, contract, node, at, ownerSymbol);
     auto converted =
         lowerExactIntegerBoundary(at, numericSite(node, ownerSymbol), info,
                                   dyn_cast<ac::BitsType>(contract.type));
@@ -5595,6 +5599,99 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
   return success();
 }
 
+// Callback bodies remain typed SSA, with every external value represented by
+// an explicit capture argument. No importer facts are part of the saved IR.
+FailureOr<SmallVector<Value>> Importer::retainQueryMap(
+    Block &scalar, ValueRange rows, ValueRange tables, ValueRange results,
+    bool aggregates, const AstNode &site, OpBuilder &at,
+    FlatSymbolRefAttr symbol) {
+  OpBuilder inside(b.getContext());
+  inside.setInsertionPointToEnd(&scalar);
+  auto *yield = createOp(inside, site.location(b.getContext(), source.path),
+      ac::YieldOp::getOperationName(), results, {}, {});
+  llvm::DenseSet<Value> local;
+  for (Value argument : scalar.getArguments()) local.insert(argument);
+  scalar.walk([&](Operation *operation) {
+    for (Value result : operation->getResults()) local.insert(result);
+    for (Region &region : operation->getRegions())
+      for (Block &block : region)
+        for (Value argument : block.getArguments()) local.insert(argument);
+  });
+  SmallVector<Value> operands(tables);
+  llvm::DenseMap<Value, Value> captures;
+  scalar.walk([&](Operation *operation) {
+    for (OpOperand &operand : operation->getOpOperands()) {
+      Value value = operand.get();
+      if (local.contains(value)) continue;
+      auto found = captures.find(value);
+      if (found == captures.end()) {
+        operands.push_back(value);
+        Value argument = scalar.addArgument(value.getType(), value.getLoc());
+        captures.try_emplace(value, argument);
+        operand.set(argument);
+      } else operand.set(found->second);
+    }
+  });
+  auto shape = cast<ac::TableType>(tables.front().getType()).getShape();
+  SmallVector<Type> resultTypes;
+  for (Value value : yield->getOperands())
+    resultTypes.push_back(ac::TableType::get(b.getContext(), shape, value.getType()));
+  auto *query = createOp(at, site.location(b.getContext(), source.path),
+      "ac.query.map", operands, resultTypes,
+      {at.getNamedAttr("table_count", at.getI64IntegerAttr(rows.size())),
+       at.getNamedAttr("aggregates", at.getBoolAttr(aggregates)),
+       at.getNamedAttr("ac.location", sourceSpan(at, source.path, site)),
+       at.getNamedAttr("ac.origin", sourceOccurrence(at, symbol, site))}, 1);
+  if (auto *parent = scalar.getParent())
+    query->getRegion(0).getBlocks().splice(query->getRegion(0).end(),
+                                         parent->getBlocks(), scalar.getIterator());
+  else
+    query->getRegion(0).push_back(&scalar);
+  return SmallVector<Value>(query->getResults());
+}
+
+bool Importer::dependsOnRetainedCall(Value value) const {
+  SmallVector<Value> pending{value};
+  llvm::DenseSet<Value> seen;
+  while (!pending.empty()) {
+    Value current = pending.pop_back_val();
+    if (!seen.insert(current).second) continue;
+    auto *operation = current.getDefiningOp();
+    if (!operation) {
+      if (Value original = originalCaptures.lookup(current))
+        pending.push_back(original);
+      continue;
+    }
+    auto retained = operation->walk([](Operation *nested) -> WalkResult {
+      StringRef name = nested->getName().getStringRef();
+      return name == "ac.call" || name == "ac.boundary" ||
+                     name == "ac.query.map" || name == "ac.query.choose"
+                 ? WalkResult::interrupt() : WalkResult::advance();
+    });
+    if (retained.wasInterrupted()) return true;
+    llvm::append_range(pending, operation->getOperands());
+  }
+  return false;
+}
+
+FailureOr<Value> Importer::deferredBoundary(
+    Value value, const Port &contract, const AstNode &node, OpBuilder &at,
+    FlatSymbolRefAttr symbol) {
+  auto constraint = sourceConstraint(contract);
+  if (failed(constraint)) return failure();
+  auto info = valueInfo(value);
+  auto *boundary = createOp(at, node.location(b.getContext(), source.path),
+      "ac.boundary", {value}, TypeRange{contract.type},
+      {at.getNamedAttr("constraint", *constraint),
+       at.getNamedAttr("is_signed", at.getBoolAttr(
+           info.interval && info.interval->lower.isNegative())),
+       at.getNamedAttr("ac.origin", sourceOccurrence(at, symbol, node))});
+  Value result = boundary->getResult(0);
+  rememberContract(result, contract);
+  if (contract.fixedBits) fixedValues.insert(result);
+  return result;
+}
+
 LogicalResult Importer::preflightQueryCallback(
     const AstNode &callback, FlatSymbolRefAttr symbol,
     SmallVectorImpl<Value> &helperCaptures,
@@ -5615,52 +5712,6 @@ LogicalResult Importer::preflightQueryCallback(
   auto restore = llvm::scope_exit([&] { queryArguments.pop_back(); });
   llvm::StringSet<> captured;
   llvm::DenseSet<Value> capturedHelpers(helperCaptures.begin(), helperCaptures.end());
-  llvm::DenseSet<Operation *> checkedHelpers;
-  // Check the verified IR boundary before inlining can erase identity calls or
-  // unused formals. Imported and local closures obey the same staging contract.
-  auto checkHelper = [&](auto &&self, func::FuncOp helper) -> LogicalResult {
-    std::string reason;
-    if (!queryBudget.enter(reason))
-      return diagnostic() << reason;
-    auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
-    TableQueryCharge scan;
-    TableQueryBudget::add(scan, TableQueryResource::Work, 1);
-    TableQueryBudget::add(scan, TableQueryResource::Slots, 2);
-    if (!queryBudget.reserve(scan, reason))
-      return diagnostic() << reason;
-    if (!checkedHelpers.insert(helper.getOperation()).second)
-      return success();
-    for (Type type : llvm::concat<const Type>(helper.getArgumentTypes(),
-                                             helper.getResultTypes())) {
-      TableQueryCharge charge;
-      TableQueryBudget::add(charge, TableQueryResource::Work, 1);
-      if (!queryBudget.reserve(charge, reason))
-        return diagnostic() << reason;
-      if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type))
-        return diagnostic() << "Table callback helper requires scalar or Struct boundaries";
-    }
-    auto walked = helper.walk([&](Operation *operation) -> WalkResult {
-      TableQueryCharge charge;
-      TableQueryBudget::add(charge, TableQueryResource::Work, 1);
-      if (!queryBudget.reserve(charge, reason)) {
-        diagnostic() << reason;
-        return WalkResult::interrupt();
-      }
-      if (operation == helper.getOperation() || isa<func::ReturnOp>(operation))
-        return WalkResult::advance();
-      if (auto call = dyn_cast<func::CallOp>(operation)) {
-        auto callee = dyn_cast_or_null<func::FuncOp>(
-            SymbolTable::lookupSymbolIn(*body, call.getCalleeAttr()));
-        if (!callee || failed(self(self, callee)))
-          return WalkResult::interrupt();
-      } else if (!isTableQueryScalarOperation(operation, mapAggregates)) {
-        operation->emitError() << "Table query helper operation is unsupported";
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    return failure(walked.wasInterrupted());
-  };
   auto visit = [&](auto &&self, const AstNode &node,
                    Type context) -> LogicalResult {
     std::string reason;
@@ -5721,8 +5772,7 @@ LogicalResult Importer::preflightQueryCallback(
         if (!*helper)
           return mlir::emitError(node.location(b.getContext(), source.path))
                  << "Table query callback call must resolve to a pure intrinsic or helper";
-        if (failed(lowerValueHelper(**helper)) ||
-            failed(checkHelper(checkHelper, (*helper)->function)))
+        if (failed(lowerValueHelper(**helper)))
           return failure();
         for (const auto &capture : (*helper)->captures) {
           Value original = originalCaptures.lookup(capture.second);
@@ -5856,12 +5906,6 @@ FailureOr<Value> Importer::tableValueCall(
       },
       [&](Value value, Type type, OpBuilder &inside) {
         return boundaryBitsIdentity(value, type, call, inside, symbol);
-      },
-      [&](Value original, Value mapped) {
-        mapValueFacts(original, mapped);
-      },
-      [&](Value value) {
-        forgetValueFacts(value);
       }};
   TableQueryLowering lowering(at, call.location(b.getContext(), source.path),
                               *body, queryBudget, hooks);
@@ -5916,7 +5960,7 @@ FailureOr<Value> Importer::tableValueCall(
   }
   auto lambda = call.item("args", 0);
   if (namedCallback)
-    return namedHelperMap(call, lambda, tables, lowering, hooks, at, symbol, values);
+    return namedHelperMap(call, lambda, tables, at, symbol, values);
   SmallVector<StringRef> captures;
   SmallVector<AstNode> captureSites;
   SmallVector<Value> helperCaptures;
@@ -5950,10 +5994,10 @@ FailureOr<Value> Importer::tableValueCall(
   helperCaptureBindings[block] = std::move(helperBindings);
   auto cleanup = llvm::scope_exit([&] {
     for (Value value : block->getArguments())
-      hooks.forgetFacts(value);
+      forgetValueFacts(value);
     for (Operation &operation : *block)
       for (Value value : operation.getResults())
-        hooks.forgetFacts(value);
+        forgetValueFacts(value);
     helperCaptureBindings.erase(block);
     temporary->erase();
   });
@@ -6010,7 +6054,7 @@ FailureOr<Value> Importer::tableValueCall(
   for (Value table : rawTables)
     if (chargedTables.insert(table).second && failed(lowering.capture(table)))
       return failure();
-  auto staged = lowering.stage(*block, rows, tables, {*result}, true);
+  auto staged = retainQueryMap(*block, rows, tables, {*result}, true, call, at, symbol);
   if (failed(staged))
     return failure();
   return staged->front();
@@ -6064,12 +6108,6 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
       },
       [&](Value value, Type type, OpBuilder &inside) {
         return boundaryBitsIdentity(value, type, call, inside, symbol);
-      },
-      [&](Value original, Value mapped) {
-        mapValueFacts(original, mapped);
-      },
-      [&](Value value) {
-        forgetValueFacts(value);
       }};
   TableQueryLowering lowering(at, call.location(b.getContext(), source.path),
                               *body, queryBudget, hooks);
@@ -6159,7 +6197,7 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
                << "Table argmin key requires authoritative unsigned fixed bits";
     } else if (failed(predicateView(*result, lambda.child("body"), symbol)))
       return failure();
-    auto staged = lowering.stage(*block, row, *receiver, {*result});
+    auto staged = retainQueryMap(*block, {row}, {*receiver}, {*result}, false, call, at, symbol);
     if (failed(staged))
       return failure();
     return staged->front();
@@ -6174,12 +6212,18 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
       return failure();
     keys = *result;
   }
-  auto results = lowering.choose(*predicates, keys);
-  if (failed(results))
-    return failure();
-  for (Value result : *results)
+  SmallVector<Value> operands{*predicates};
+  if (keys) operands.push_back(keys);
+  auto indexType = bits(std::max(1u, llvm::Log2_64_Ceil(extent->front())), call, symbol);
+  auto *choice = createOp(at, call.location(b.getContext(), source.path),
+      "ac.query.choose", operands, TypeRange{indexType, bits(1, call, symbol)},
+      {at.getNamedAttr("kind", at.getStringAttr(method)),
+       at.getNamedAttr("ac.location", sourceSpan(at, source.path, call)),
+       at.getNamedAttr("ac.origin", sourceOccurrence(at, symbol, call))});
+  SmallVector<Value> results(choice->getResults());
+  for (Value result : results)
     fixedValues.insert(result);
-  remember(results->front(), std::nullopt,
+  remember(results.front(), std::nullopt,
            IntegerInterval{llvm::APSInt::getUnsigned(0),
                            llvm::APSInt::getUnsigned(extent->front())});
   return results;
@@ -6401,8 +6445,7 @@ public:
     auto transport = getOperation();
     auto &bindings = getAnalysis<SourceMemoryBindingsAnalysis>();
     auto result = bindings.lower(owner, *headers);
-    if (failed(result) || failed(::acir::normalizeSourceControlFlow(**result)) ||
-        failed(verify(**result))) {
+    if (failed(result) || failed(verify(**result))) {
       signalPassFailure();
       return;
     }

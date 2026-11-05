@@ -1367,8 +1367,12 @@ no runtime captures; nested helpers remain private to their lexical module.
 Source units publish typed helper bodies through the existing interface owner.
 Consumers resolve that published closure without reading provider Python; link
 checks the owning body against the interface. Native validation checks purity,
-logical types, lexical ownership, recursion and bounded expansion before
-inlining or elimination. Source helper functions/calls do not survive in final
+logical types and lexical ownership on the retained ACIR. Recursion detection
+and expansion budgets belong to the helper inlining pass. Call sites initially
+use the declared interface; implementation-dependent range checks run after
+inlining, using the actual SSA. The [ACIR export mode](../development/source-unit-workflow.md#inspecting-acir-before-source-lowering)
+preserves calls and callbacks in printable, independently lowerable MLIR.
+Source helper functions/calls do not survive in final
 hardware IR, and neither backend interprets Python helpers.
 
 Ordinary expressions, registered Rule/Method bodies, named Table callbacks and

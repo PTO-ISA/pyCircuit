@@ -45,21 +45,36 @@ private:
 
 } // namespace
 
+FailureOr<OwningOpRef<ModuleOp>>
+compilePythonACIR(ModuleOp transport, DictionaryAttr sourceOwner,
+                        const SourceHeaderRegistry &headers,
+                        ac::detail::EmitError emitError) {
+  if (failed(ac::detail::verifySourceOwner(sourceOwner, emitError)))
+    return failure();
+  OwningOpRef<ModuleOp> body(cast<ModuleOp>(transport->clone()));
+  PassManager lowering(transport.getContext());
+  lowering.addPass(detail::createAnalyzeRuleWritesPass());
+  lowering.addPass(detail::createInferSourceBindingsPass(sourceOwner, headers));
+  lowering.addPass(detail::createLowerPythonSourcePass(sourceOwner, headers));
+  lowering.addPass(acir::createVerifyACIRPass());
+  if (failed(lowering.run(*body)))
+    return failure();
+  return std::move(body);
+}
+
 FailureOr<SourceUnitArtifacts>
 compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
                         const SourceHeaderRegistry &headers,
                         ac::detail::EmitError emitError,
                         bool retainSourceImport) {
-  if (failed(ac::detail::verifySourceOwner(sourceOwner, emitError)))
+  auto captured = compilePythonACIR(transport, sourceOwner, headers, emitError);
+  if (failed(captured))
     return failure();
-  OwningOpRef<ModuleOp> body(cast<ModuleOp>(transport->clone()));
+  auto body = std::move(*captured);
   // Capture state outlives both the run and the manager's instrumentation.
   SourceImportCapture capture;
   PassManager lowering(transport.getContext());
-  lowering.addPass(detail::createAnalyzeRuleWritesPass());
-  lowering.addPass(detail::createInferSourceBindingsPass(sourceOwner, headers));
-  lowering.addPass(detail::createLowerPythonSourcePass(sourceOwner, headers));
-  lowering.addPass(acir::createNormalizeSourceControlFlowPass());
+  acir::buildACIRToSourcePipeline(lowering);
   lowering.addPass(acir::createAnalyzeSourceMethodSummariesPass());
   if (failed(lowering.run(*body)))
     return failure();

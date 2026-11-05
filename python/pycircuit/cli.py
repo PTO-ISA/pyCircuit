@@ -55,6 +55,7 @@ def _cmd_compile(args: argparse.Namespace) -> int:
             package_prefix=args.package_prefix,
             interface_units=args.interface_units,
             replace=args.replace,
+            emit=args.emit,
         )
     except (
         _DriverError,
@@ -242,12 +243,21 @@ def main(argv: list[str] | None = None) -> int:
         help="A published managed interface unit directory (repeatable)",
     )
     compile_units.add_argument(
-        "-o", dest="output", required=True, help="Published source unit directory"
+        "--emit",
+        choices=("source", "acir"),
+        default="source",
+        help="Publish a source unit (default) or export inspectable ACIR text",
+    )
+    compile_units.add_argument(
+        "-o",
+        dest="output",
+        required=True,
+        help="Source unit directory, or ACIR file ('-' for standard output)",
     )
     compile_units.add_argument(
         "--replace",
         action="store_true",
-        help="Republish the target under the same owner and artifact kind",
+        help="Replace the ACIR file or republish the Source unit under the same owner",
     )
     compile_units.set_defaults(fn=_cmd_compile)
 

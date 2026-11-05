@@ -37,7 +37,8 @@ bool ownerLess(DictionaryAttr left, DictionaryAttr right) {
 
 FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
                                          StringRef expectedKind,
-                                         detail::EmitError emitError) {
+                                         detail::EmitError emitError,
+                                         StringRef expectedStage = "source") {
   if (!unit)
     return emitError() << "source unit is required";
   if (unit->hasAttr("ac.transactional"))
@@ -49,7 +50,7 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
   auto interfaces = unit->getAttrOfType<ArrayAttr>("ac.interfaces");
   if (failed(detail::verifySourceOwner(owner, emitError)) || !kind ||
       kind.getValue() != expectedKind || !stage ||
-      stage.getValue() != "source" || !interfaces || interfaces.empty())
+      stage.getValue() != expectedStage || !interfaces || interfaces.empty())
     return emitError() << "source " << expectedKind
                        << " unit envelope is incomplete";
   if (!unit->getAttrOfType<ArrayAttr>("ac.exports"))
@@ -128,7 +129,8 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
 }
 
 FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
-                                               detail::EmitError emitError) {
+                                               detail::EmitError emitError,
+                                               bool capture = false) {
   if (!unit)
     return emitError() << "source unit is required";
   auto forged = unit.walk([&](Operation *operation) {
@@ -175,7 +177,8 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
            << "source body unit_kind must be implementation or declarations";
   bool implementation = body && kind.getValue() == "implementation";
   auto owner =
-      verifyEnvelope(unit, body ? kind.getValue() : "interface", emitError);
+      verifyEnvelope(unit, body ? kind.getValue() : "interface", emitError,
+                     capture ? "acir" : "source");
   if (failed(owner) ||
       failed(detail::verifyNamespaceRecordShapes(unit, emitError)))
     return failure();
@@ -206,12 +209,17 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
       if (helperKind && helperKind.getValue() == "value")
         valueHelpers.push_back(helper);
     }
-  if (failed(verifySourceValueHelperClosure(
-          valueHelpers, [&](FlatSymbolRefAttr symbol) {
-            return dyn_cast_or_null<func::FuncOp>(
-                result.declarations.lookup(symbol.getValue()));
-          })))
+  auto lookup = [&](FlatSymbolRefAttr symbol) {
+    return dyn_cast_or_null<func::FuncOp>(result.declarations.lookup(symbol.getValue()));
+  };
+  if (capture) {
+    // Recursion and expansion are compatibility-pass obligations. Capture
+    // validates each declared body once, independently of its callers.
+    for (func::FuncOp helper : valueHelpers)
+      if (failed(verifySourceValueHelper(helper, lookup))) return failure();
+  } else if (failed(verifySourceValueHelperClosure(valueHelpers, lookup))) {
     return failure();
+  }
   if (failed(detail::verifyRetainedNamespaceTargets(unit, result.declarations,
                                                     emitError)))
     return failure();
@@ -283,6 +291,11 @@ LogicalResult verifyOriginDefinition(DictionaryAttr origin,
   return success();
 }
 } // namespace detail
+
+FailureOr<SourceUnitStructure>
+verifyACIRBodyStructure(mlir::ModuleOp unit, detail::EmitError emitError) {
+  return verifyStructure(unit, true, emitError, true);
+}
 
 FailureOr<SourceUnitStructure>
 verifySourceBodyStructure(mlir::ModuleOp unit, detail::EmitError emitError) {

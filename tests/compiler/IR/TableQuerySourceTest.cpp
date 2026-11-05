@@ -8,7 +8,6 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/DenseSet.h"
 #include "gtest/gtest.h"
 #include <array>
 #include <limits>
@@ -613,9 +612,8 @@ TEST(TableQueryBudget, NestingIsAnActiveDepthAndWorkRemainsCumulative) {
   EXPECT_FALSE(budget.reserveProduct(Resource::Occurrences, 1, 1, reason));
   EXPECT_EQ(budget.used(Resource::Occurrences), 4096u);
 }
-// The descriptor observes already reserved storage. Its result may be used
-// for an audit without a second ledger debit, even at exhausted Work capacity.
-class TableQueryDescriptor : public ::testing::Test {
+// Typed staging is independent of importer-local facts and clone ledgers.
+class NamedFixedStage : public ::testing::Test {
 protected:
   MLIRContext context;
   OpBuilder builder{&context};
@@ -665,100 +663,28 @@ protected:
     state.addAttribute("value", literal(0));
     return builder.create(state);
   }
-  detail::TableQueryLowering lowering() {
-    return detail::TableQueryLowering(builder, builder.getUnknownLoc(), *module,
-                                      budget, {});
-  }
-};
-
-TEST_F(TableQueryDescriptor, ReservedWideConstantAuditDoesNotDebitAnyCounter) {
-  // Cross a physical word boundary and retain all three value/known/Z planes.
-  auto *operation = constant(65);
-  auto observer = lowering();
-  Charge description;
-  const auto empty = counters(budget);
-  ASSERT_TRUE(observer.describeWithoutReservation(operation, 3, description));
-  EXPECT_EQ(counters(budget), empty);
-  EXPECT_EQ(description.amounts[static_cast<unsigned>(Resource::PayloadWords)],
-            3u * 3u * 2u);
-  EXPECT_EQ(description.amounts[static_cast<unsigned>(Resource::ConstantBytes)],
-            2u * sizeof(uint64_t));
-  std::string reason;
-  ASSERT_TRUE(budget.reserve(description, reason));
-  ASSERT_TRUE(budget.reserveProduct(
-      Resource::Work,
-      Budget::limit(Resource::Work) - budget.used(Resource::Work), 1, reason));
-  const auto reserved = counters(budget);
-  for (unsigned repeat = 0; repeat < 3; ++repeat) {
-    Charge observed;
-    ASSERT_TRUE(observer.describeWithoutReservation(operation, 3, observed));
-    EXPECT_EQ(observed.amounts, description.amounts);
-    EXPECT_EQ(counters(budget), reserved);
-  }
-}
-
-TEST_F(TableQueryDescriptor, FailedDescriptionAndReservationKeepLedgerAtomic) {
-  auto observer = lowering();
-  std::string reason;
-  ASSERT_TRUE(budget.reserveProduct(Resource::Occurrences, 7, 1, reason));
-  const auto before = counters(budget);
-  Charge zeroRows;
-  EXPECT_FALSE(observer.describeWithoutReservation(constant(65), 0, zeroRows));
-  EXPECT_EQ(counters(budget), before);
-  // A type larger than the payload contract fails width observation without
-  // materializing a payload or resetting prior source work.
-  Charge oversized;
-  EXPECT_FALSE(observer.describeWithoutReservation(
-      constant(64 * (Budget::limit(Resource::PayloadWords) + 1)), 1,
-      oversized));
-  EXPECT_EQ(counters(budget), before);
-  Charge valid;
-  ASSERT_TRUE(observer.describeWithoutReservation(constant(129), 1, valid));
-  ASSERT_TRUE(budget.reserveProduct(Resource::ConstantBytes,
-                                    Budget::limit(Resource::ConstantBytes), 1,
-                                    reason));
-  const auto full = counters(budget);
-  EXPECT_FALSE(budget.reserve(valid, reason));
-  EXPECT_EQ(counters(budget), full);
-  EXPECT_FALSE(reason.empty());
-}
-// Exercise the existing typed-stage owner. These hooks model fact-key lifetime;
-// public source tests separately exercise importer authority/publication.
-class NamedFixedStage : public TableQueryDescriptor {
-protected:
-  llvm::DenseSet<Value> facts, temporaryFacts;
-  SmallVector<Value> forgotten;
-  Operation *holder = nullptr;
   Block *scalar = nullptr;
   Value receiver, row, result;
-  void makeTemplate(bool identity = false, bool splat = false) {
+  void makeTemplate(bool identity = false) {
     auto table = acir::ac::TableType::get(
         &context, builder.getArrayAttr({literal(3)}), bits(8));
     receiver = module->getBody()->addArgument(table, builder.getUnknownLoc());
-    facts.insert(receiver);
     OperationState state(builder.getUnknownLoc(), acir::ac::RuleOp::getOperationName());
     state.addRegion();
-    holder = builder.create(state);
+    auto *holder = builder.create(state);
     scalar = new Block();
     holder->getRegion(0).push_back(scalar);
     row = scalar->addArgument(bits(8), builder.getUnknownLoc());
-    facts.insert(row);
     auto insertion = builder.saveInsertionPoint();
     builder.setInsertionPointToEnd(scalar);
-    if (identity) {
-      result = row;
-    } else {
+    result = row;
+    if (!identity) {
       auto value = constant(8)->getResult(0);
-      facts.insert(value);
-      result = value;
-      if (!splat) {
-        OperationState binary(builder.getUnknownLoc(), acir::ac::BitsBinaryOp::getOperationName());
-        binary.addOperands({row, value});
-        binary.addTypes(bits(8));
-        binary.addAttribute("opcode", builder.getStringAttr("add"));
-        result = builder.create(binary)->getResult(0);
-        facts.insert(result);
-      }
+      OperationState binary(builder.getUnknownLoc(), acir::ac::BitsBinaryOp::getOperationName());
+      binary.addOperands({row, value});
+      binary.addTypes(bits(8));
+      binary.addAttribute("opcode", builder.getStringAttr("add"));
+      result = builder.create(binary)->getResult(0);
     }
     builder.restoreInsertionPoint(insertion);
   }
@@ -766,137 +692,34 @@ protected:
     detail::TableQueryHooks hooks;
     hooks.literal = [&](uint64_t value) { return literal(value); };
     hooks.bits = [&](uint64_t width) { return bits(width); };
-    hooks.copyFacts = [&](Value original, Value copied) {
-      if (facts.contains(original)) facts.insert(copied);
-      if (copied.getParentBlock() != scalar &&
-          copied.getParentBlock()->getParentOp()->getName().getStringRef() ==
-              acir::ac::RuleOp::getOperationName())
-        temporaryFacts.insert(copied);
-    };
-    hooks.forgetFacts = [&](Value value) {
-      forgotten.push_back(value);
-      facts.erase(value);
-      temporaryFacts.erase(value);
-    };
     return detail::TableQueryLowering(builder, builder.getUnknownLoc(), *module,
                                       budget, std::move(hooks));
   }
-  unsigned publishedMaps() {
-    unsigned maps = 0;
-    for (Operation &operation : *module->getBody())
-      maps += isa<acir::ac::TableMapOp>(operation);
-    return maps;
-  }
-  void expectCallerFacts() {
-    EXPECT_TRUE(facts.contains(receiver));
-    EXPECT_TRUE(facts.contains(row));
-    for (Operation &operation : *scalar)
-      for (Value value : operation.getResults()) EXPECT_TRUE(facts.contains(value));
-    EXPECT_TRUE(temporaryFacts.empty());
-  }
 };
 
-TEST_F(NamedFixedStage, PendingHoistCountsCopiesMappingsAndTemporaryCleanup) {
+TEST_F(NamedFixedStage, StagesTypedRowExpression) {
   makeTemplate();
-  // T=2,a=1,R=4,V=15 and mapping bound 7T+2a+2=18.
-  detail::TableQueryStageEnvelope envelope{2, 1, 4, 15, 18};
   auto owner = stageOwner();
   auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
-                            ValueRange{result}, false, &envelope);
+                            ValueRange{result});
   ASSERT_TRUE(succeeded(output));
   ASSERT_EQ(output->size(), 1u);
-  EXPECT_EQ(publishedMaps(), 1u);
-  EXPECT_EQ(envelope.hoists, 1u);
-  EXPECT_EQ(envelope.pending, 1u);
-  EXPECT_EQ(envelope.inputs, 1u);
-  EXPECT_EQ(envelope.captures, 1u);
-  EXPECT_EQ(envelope.arguments, 3u);
-  EXPECT_EQ(envelope.observedValues, 12u);
-  EXPECT_EQ(envelope.mappingEntries, 12u);
-  EXPECT_EQ(forgotten.size(), 4u); // ordinal, row, capture and scalar result
-  expectCallerFacts();
-  auto map = cast<acir::ac::TableMapOp>(output->front().getDefiningOp());
-  for (Value value : map->getRegion(0).front().getArguments())
-    EXPECT_FALSE(llvm::is_contained(forgotten, value));
-  for (Operation &operation : map->getRegion(0).front())
-    for (Value value : operation.getResults()) {
-      EXPECT_TRUE(facts.contains(value));
-      EXPECT_FALSE(llvm::is_contained(forgotten, value));
-    }
+  EXPECT_EQ(output->front().getType(), receiver.getType());
+  auto map = dyn_cast_or_null<acir::ac::TableMapOp>(output->front().getDefiningOp());
+  ASSERT_TRUE(map);
+  auto yield = dyn_cast<acir::ac::YieldOp>(map.getBody().front().getTerminator());
+  ASSERT_TRUE(yield);
+  ASSERT_EQ(yield->getNumOperands(), 1u);
+  EXPECT_EQ(yield->getOperand(0).getType(), row.getType());
 }
 
-TEST_F(NamedFixedStage, EmptyIdentityPublishesNoMapOrClone) {
+TEST_F(NamedFixedStage, IdentityPreservesReceiver) {
   makeTemplate(true);
-  detail::TableQueryStageEnvelope envelope{0, 1, 2, 5, 4};
   auto owner = stageOwner();
   auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
-                            ValueRange{result}, false, &envelope);
+                            ValueRange{result});
   ASSERT_TRUE(succeeded(output));
   ASSERT_EQ(output->size(), 1u);
   EXPECT_EQ(output->front(), receiver);
-  EXPECT_EQ(publishedMaps(), 0u);
-  EXPECT_EQ(envelope.observedValues, 1u);
-  EXPECT_EQ(envelope.mappingEntries, 0u);
-  EXPECT_TRUE(forgotten.empty());
-  expectCallerFacts();
-}
-
-TEST_F(NamedFixedStage, ConstantSplatHasOnlyOneHoist) {
-  makeTemplate(false, true);
-  detail::TableQueryStageEnvelope envelope{1, 1, 3, 10, 11};
-  auto owner = stageOwner();
-  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
-                            ValueRange{result}, false, &envelope);
-  ASSERT_TRUE(succeeded(output));
-  EXPECT_TRUE(isa<acir::ac::TableSplatOp>(output->front().getDefiningOp()));
-  EXPECT_EQ(publishedMaps(), 0u);
-  EXPECT_EQ(envelope.hoists, 1u);
-  EXPECT_EQ(envelope.pending, 0u);
-  EXPECT_EQ(envelope.observedValues, 3u);
-  EXPECT_EQ(envelope.mappingEntries, 2u);
-  expectCallerFacts();
-}
-
-TEST_F(NamedFixedStage, ExhaustedPublishedOperationReservationCleansTemporary) {
-  makeTemplate();
-  std::string reason;
-  ASSERT_TRUE(budget.reserveProduct(Resource::Operations,
-                                    Budget::limit(Resource::Operations) - 1,
-                                    1, reason));
-  detail::TableQueryStageEnvelope envelope{2, 1, 4, 15, 18};
-  auto owner = stageOwner();
-  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
-                            ValueRange{result}, false, &envelope);
-  EXPECT_TRUE(failed(output));
-  EXPECT_EQ(publishedMaps(), 0u);
-  EXPECT_EQ(forgotten.size(), 4u);
-  EXPECT_EQ(budget.used(Resource::Operations), Budget::limit(Resource::Operations));
-  expectCallerFacts();
-}
-
-TEST_F(NamedFixedStage, FactEnvelopeFailureBeforePublicationCleansTemporary) {
-  makeTemplate();
-  detail::TableQueryStageEnvelope envelope{2, 1, 4, 8, 18};
-  auto owner = stageOwner();
-  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
-                            ValueRange{result}, false, &envelope);
-  EXPECT_TRUE(failed(output));
-  EXPECT_EQ(publishedMaps(), 0u);
-  EXPECT_EQ(envelope.observedValues, 8u);
-  EXPECT_EQ(forgotten.size(), 4u);
-  expectCallerFacts();
-}
-
-TEST_F(NamedFixedStage, ScalarEnvelopeFailureCreatesNoStagedCopy) {
-  makeTemplate();
-  detail::TableQueryStageEnvelope envelope{0, 1, 4, 15, 18};
-  auto owner = stageOwner();
-  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
-                            ValueRange{result}, false, &envelope);
-  EXPECT_TRUE(failed(output));
-  EXPECT_EQ(publishedMaps(), 0u);
-  EXPECT_EQ(envelope.mappingEntries, 0u);
-  EXPECT_TRUE(forgotten.empty());
-  expectCallerFacts();
 }
 } // namespace
