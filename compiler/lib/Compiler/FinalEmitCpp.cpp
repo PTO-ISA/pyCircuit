@@ -1,4 +1,5 @@
 #include "FinalEmitCpp.h"
+#include "CppWorkOutlining.h"
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "HardwareEmitCppChecks.h"
@@ -337,6 +338,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
       "<algorithm>\n"
       "#include <bit>\n#include <type_traits>\n#include <utility>\n"
       "#include <cstddef>\n#include <cstdint>\n";
+  parts.supportHeader += cppWorkRuntimeSupport().str();
   if (observes)
     parts.supportHeader +=
         "#include <gfsim/ObservationSlot.h>\n"
