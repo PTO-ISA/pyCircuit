@@ -596,15 +596,13 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
 }
 
 FailureOr<SmallVector<Value>> Importer::valueHelperCall(
-    const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
+    ValueHelperDecl &helper, const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
     bool tupleCall) {
-  auto helper = resolveValueHelper(call.child("func"), symbol, &values);
-  if (failed(helper) || !*helper) return error() << "call does not resolve to a pure helper";
-  if (((*helper)->returnShape == ReturnShape::Tuple) != tupleCall)
+  if ((helper.returnShape == ReturnShape::Tuple) != tupleCall)
     return error() << "tuple helper call requires direct Tuple unpacking";
-  if (failed(lowerValueHelper(**helper))) return failure();
-  if (!call.array("keywords").empty() || call.array("args").size() != (*helper)->inputs.size())
+  if (failed(lowerValueHelper(helper))) return failure();
+  if (!call.array("keywords").empty() || call.array("args").size() != helper.inputs.size())
     return error() << "pure helper requires its exact positional argument list";
   // Hold the source-wide nesting guard across actual-expression descent and
   // publication. Declaration typing has its own bounded closure owner above.
@@ -622,9 +620,9 @@ FailureOr<SmallVector<Value>> Importer::valueHelperCall(
     auto actual = expression(actualNode, at, symbol, values, instances);
     if (failed(actual)) return failure();
     Operation *previous = at.getBlock()->empty() ? nullptr : &at.getBlock()->back();
-    auto bound = applyBindingBoundary(*actual, BindingBoundary{(*helper)->inputs[i], true}, actualNode, at, symbol);
+    auto bound = applyBindingBoundary(*actual, BindingBoundary{helper.inputs[i], true}, actualNode, at, symbol);
     if (failed(bound)) return failure();
-    auto exact = exactHelperValue(*bound, (*helper)->inputs[i].type, actualNode, at, symbol);
+    auto exact = exactHelperValue(*bound, helper.inputs[i].type, actualNode, at, symbol);
     if (failed(exact)) return failure();
     actuals.push_back(*exact);
     if (activeLoop) {
@@ -632,23 +630,22 @@ FailureOr<SmallVector<Value>> Importer::valueHelperCall(
       for (; operation; operation = operation->getNextNode()) activeLoop->helperOwned.insert(operation);
     }
   }
-  for (const auto &capture : (*helper)->captures) {
+  for (const auto &capture : helper.captures) {
     Value value;
     if (!activeValueHelper)
       value = helperCapture(capture.second, at.getBlock(), call.location(b.getContext(), source.path));
     if (activeValueHelper) {
       // Calls between private templates use their own declaration capture
       // argument, identified by original SSA identity, never current spelling.
-      for (auto &entry : valueHelpers)
-        if (entry.second->symbol == symbol)
-          for (auto [index, ownCapture] : llvm::enumerate(entry.second->captures))
-            if (ownCapture.second == capture.second)
-              value = entry.second->function.getArgument(entry.second->inputs.size() + index);
+      if (activeHelperFrame)
+        for (auto [index, ownCapture] : llvm::enumerate(activeHelperFrame->captures))
+          if (ownCapture.second == capture.second)
+            value = activeHelperFrame->function.getArgument(activeHelperFrame->inputs.size() + index);
     }
     if (!value) return error() << "pure helper capture is not in its declaration frame";
     actuals.push_back(value);
   }
-  return instantiateValueHelper(**helper, actuals, call, at, symbol);
+  return instantiateValueHelper(helper, actuals, call, at, symbol);
 }
 
 FailureOr<bool> Importer::bindValueHelperResults(
@@ -667,7 +664,7 @@ FailureOr<bool> Importer::bindValueHelperResults(
     if (forbidden.contains(name) || instances.contains(name) ||
         (immutable && values.contains(name)))
       return error() << "tuple helper result cannot write a protected binding";
-  auto results = valueHelperCall(call, at, symbol, values, instances, true);
+  auto results = valueHelperCall(**helper, call, at, symbol, values, instances, true);
   if (failed(results) || failed(bindCallableResults(assignment, *results, at,
           symbol, values, instances, forbidden, boundaries))) return failure();
   return true;

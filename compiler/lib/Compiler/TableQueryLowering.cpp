@@ -81,6 +81,9 @@ TableQueryLowering::TableQueryLowering(OpBuilder &builder, Location location,
                                        TableQueryHooks hooks)
     : at(builder), loc(location), analysis(package), package(package),
       budget(budget), hooks(std::move(hooks)) {}
+Type TableQueryLowering::bits(uint64_t width) {
+  return ac::BitsType::get(at.getContext(), hooks.literal(width));
+}
 ArrayAttr TableQueryLowering::shape(ArrayRef<uint64_t> sizes) {
   SmallVector<Attribute> values;
   for (uint64_t size : sizes)
@@ -242,7 +245,7 @@ Value TableQueryLowering::compare(OpBuilder &builder, StringRef code, Value a,
   if (!a || !b)
     return {};
   auto operation = op(
-      builder, ac::BitsCompareOp::getOperationName(), {a, b}, {hooks.bits(1)},
+      builder, ac::BitsCompareOp::getOperationName(), {a, b}, {bits(1)},
       {builder.getNamedAttr("predicate", builder.getStringAttr(code))});
   return operation ? operation->getResult(0) : Value();
 }
@@ -475,7 +478,7 @@ FailureOr<Value> TableQueryLowering::gather(Value table, Value indices) {
                         {at.getNamedAttr("axes", shape({1, 0}))});
   if (failed(indexGrid))
     return failure();
-  auto ordinalType = hooks.bits(std::max(1u, llvm::Log2_64_Ceil(*m)));
+  auto ordinalType = bits(std::max(1u, llvm::Log2_64_Ceil(*m)));
   auto ordinals =
       map({}, {}, {*m}, {ordinalType},
           [](OpBuilder &, ValueRange args) -> FailureOr<SmallVector<Value>> {
@@ -486,11 +489,11 @@ FailureOr<Value> TableQueryLowering::gather(Value table, Value indices) {
   auto ordinalGrid = splat(ordinals->front(), {*n});
   if (failed(ordinalGrid))
     return failure();
-  auto compareType = hooks.bits(
+  auto compareType = bits(
       std::max<uint64_t>(*width, std::max(1u, llvm::Log2_64_Ceil(*m))));
   auto leaves = map(
       {*indexGrid, *ordinalGrid, *payloads}, {}, {*n, *m},
-      {hooks.bits(1), sourceType.getElementType()},
+      {bits(1), sourceType.getElementType()},
       [&](OpBuilder &nested, ValueRange args) -> FailureOr<SmallVector<Value>> {
         Value valid = compare(nested, "eq", widen(nested, args[1], compareType),
                               widen(nested, args[2], compareType));
@@ -504,12 +507,12 @@ FailureOr<Value> TableQueryLowering::gather(Value table, Value indices) {
   if (failed(reduced))
     return failure();
   auto guardType =
-      hooks.bits(std::max<uint64_t>(*width, llvm::Log2_64(*m) + 1));
+      bits(std::max<uint64_t>(*width, llvm::Log2_64(*m) + 1));
   Value sentinel = constant(at, *m, guardType);
   if (!sentinel)
     return failure();
   auto poison = op(at, ac::TableGetOp::getOperationName(), {table, sentinel},
-                   {sourceType.getElementType(), hooks.bits(1)});
+                   {sourceType.getElementType(), bits(1)});
   if (!poison)
     return failure();
   auto result = map(
@@ -536,7 +539,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
   auto size = analysis.getTableSize(type, {}, package);
   if (failed(size))
     return failure();
-  auto indexType = hooks.bits(std::max(1u, llvm::Log2_64_Ceil(*size)));
+  auto indexType = bits(std::max(1u, llvm::Log2_64_Ceil(*size)));
   std::string reason;
   TableQueryCharge logical;
   TableQueryBudget::add(logical, TableQueryResource::Work, *size - 1);
@@ -548,7 +551,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
       return emitError(loc)
              << (fits ? reason : "Table query first work budget exhausted");
     auto match = op(at, ac::TableMatchOp::getOperationName(), {predicates},
-                    {hooks.bits(*size)}, {}, 1);
+                    {bits(*size)}, {}, 1);
     if (!match)
       return failure();
     auto block = new Block();
@@ -559,7 +562,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
       return failure();
     auto choice =
         op(at, ac::TableChooseOp::getOperationName(),
-           {predicates, match->getResult(0)}, {indexType, hooks.bits(1)},
+           {predicates, match->getResult(0)}, {indexType, bits(1)},
            {at.getNamedAttr("count", at.getI64IntegerAttr(1)),
             at.getNamedAttr("policy", at.getStringAttr("first")),
             at.getNamedAttr("order", at.getStringAttr("low"))});
@@ -571,7 +574,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
     return emitError(loc) << reason;
   auto keyType = cast<ac::TableType>(keys.getType()).getElementType();
   auto leaves = map(
-      {predicates, keys}, {}, {*size}, {hooks.bits(1), keyType, indexType},
+      {predicates, keys}, {}, {*size}, {bits(1), keyType, indexType},
       [&](OpBuilder &nested, ValueRange args) -> FailureOr<SmallVector<Value>> {
         Value zero = constant(nested, 0, args[1].getType());
         Value valid = binary(nested, "or", zero, args[1]);
@@ -592,14 +595,14 @@ FailureOr<SmallVector<Value>> TableQueryLowering::choose(Value predicates,
   auto reduced = reduce(grid, 1, *size, true);
   if (failed(reduced))
     return failure();
-  Value zero = constant(at, 0, hooks.bits(1));
+  Value zero = constant(at, 0, bits(1));
   if (!zero)
     return failure();
   SmallVector<Value> scalars;
   for (Value result : *reduced) {
     auto get = op(at, ac::TableGetOp::getOperationName(), {result, zero},
                   {cast<ac::TableType>(result.getType()).getElementType(),
-                   hooks.bits(1)});
+                   bits(1)});
     if (!get)
       return failure();
     scalars.push_back(get->getResult(0));

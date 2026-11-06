@@ -180,14 +180,14 @@ for name, fixture in (("count", "COUNT_DESIGN"), ("maps", "NAMED_MAP_DESIGN")):
     ), text
     if name == "maps":
         assert re.search(r"ac\.query|ac\.table\.(?:query|callback)", text), text
-    before = set(scratch.rglob("*"))
-    stdout = compile_source(path, "-", "--emit", "acir")
-    assert stdout.stdout.encode() == exported
-    assert set(scratch.rglob("*")) == before, "stdout export published artifacts"
-    compile_source(path, acir, "--emit", "acir", success=False)
-    assert acir.read_bytes() == exported
-    compile_source(path, acir, "--emit", "acir", "--replace")
-    assert acir.read_bytes() == exported
+        before = set(scratch.rglob("*"))
+        stdout = compile_source(path, "-", "--emit", "acir")
+        assert stdout.stdout.encode() == exported
+        assert set(scratch.rglob("*")) == before, "stdout export published artifacts"
+        compile_source(path, acir, "--emit", "acir", success=False)
+        assert acir.read_bytes() == exported
+        compile_source(path, acir, "--emit", "acir", "--replace")
+        assert acir.read_bytes() == exported
     unit = scratch / (name + ".unit")
     compile_source(path, unit)
     receipt = json.loads((unit / "unit.json").read_text())
@@ -233,20 +233,17 @@ for valid, rows, selected in (
             if p.is_file()
         }
 
-# Reuse the helper-only publication fixture for one legacy-call purity boundary.
-publication_tree = ast.parse(
-    Path(__file__).with_name("source_interface_public.py").read_text()
-)
-provider_text = next(
-    node.value.value
-    for node in ast.walk(publication_tree)
-    if isinstance(node, ast.Assign)
-    and isinstance(node.value, ast.Constant)
-    and isinstance(node.value.value, str)
-    and "def chain(" in node.value.value
-)
+# Two pure helpers provide one legacy-call purity boundary.
 provider = source / "provider.py"
-provider.write_text(provider_text)
+provider.write_text(
+    """import pycircuit as ac
+def bump(value: ac.u8) -> ac.u8:
+    return value + 1
+
+def chain(value: ac.u8) -> ac.u8:
+    return bump(value)
+"""
+)
 provider_acir = scratch / "provider.acir"
 compile_source(provider, provider_acir, "--emit", "acir")
 legacy = provider_acir.read_text().replace('"ac.call"', '"func.call"')

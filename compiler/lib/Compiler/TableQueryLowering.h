@@ -53,7 +53,6 @@ mlir::FailureOr<uint64_t> measureTableStorageWords(
 
 struct TableQueryHooks {
   std::function<ac::StaticExprAttr(uint64_t)> literal;
-  std::function<mlir::Type(uint64_t)> bits;
   std::function<mlir::FailureOr<mlir::Value>(mlir::Value, mlir::Value,
                                              mlir::Value, mlir::OpBuilder &)>
       select;
@@ -80,6 +79,7 @@ public:
                                                          mlir::Value keys = {});
 
 private:
+  mlir::Type bits(uint64_t width);
   mlir::FailureOr<uint64_t> words(mlir::Type type, unsigned depth = 0);
   bool describe(mlir::Operation *operation, uint64_t rows,
                 TableQueryCharge &charge);

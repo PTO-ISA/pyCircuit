@@ -238,7 +238,7 @@ if (node.kind() == "Call") {
   auto helper = resolveValueHelper(node.child("func"), ownerSymbol, &values);
   if (failed(helper)) return failure();
   if (*helper) {
-    auto results = valueHelperCall(node, at, ownerSymbol, values, instances);
+    auto results = valueHelperCall(**helper, node, at, ownerSymbol, values, instances);
     if (failed(results)) return failure();
     if (results->size() != 1)
       return error() << "None pure helper is admitted only as a statement";

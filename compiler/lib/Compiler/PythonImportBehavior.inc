@@ -2480,10 +2480,10 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
     }
     if (stmt.kind() == "Expr" && stmt.child("value").kind() == "Call") {
       auto call = stmt.child("value");
-      auto helper = resolveValueHelper(call.child("func"), symbol);
+      auto helper = resolveValueHelper(call.child("func"), symbol, &values);
       if (failed(helper)) return failure();
       if (*helper) {
-        if (failed(valueHelperCall(call, at, symbol, values, instances))) return failure();
+        if (failed(valueHelperCall(**helper, call, at, symbol, values, instances))) return failure();
         continue;
       }
     }
@@ -2972,10 +2972,10 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
         continue;
       }
       if (call.kind() == "Call") {
-        auto helper = resolveValueHelper(call.child("func"), decl.symbol);
+        auto helper = resolveValueHelper(call.child("func"), decl.symbol, &values);
         if (failed(helper)) return failure();
         if (*helper) {
-          if (failed(valueHelperCall(call, at, decl.symbol, values,
+          if (failed(valueHelperCall(**helper, call, at, decl.symbol, values,
                                      structuralInstances)))
             return failure();
           continue;

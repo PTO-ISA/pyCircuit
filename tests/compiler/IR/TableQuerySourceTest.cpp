@@ -691,7 +691,6 @@ protected:
   detail::TableQueryLowering stageOwner() {
     detail::TableQueryHooks hooks;
     hooks.literal = [&](uint64_t value) { return literal(value); };
-    hooks.bits = [&](uint64_t width) { return bits(width); };
     return detail::TableQueryLowering(builder, builder.getUnknownLoc(), *module,
                                       budget, std::move(hooks));
   }

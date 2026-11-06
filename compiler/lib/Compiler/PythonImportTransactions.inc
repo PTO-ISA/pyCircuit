@@ -1930,11 +1930,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               rules.contains(expressionNode.child("func").string("id")) &&
               !methods.contains(expressionNode.child("func").string("id")))
             return error() << "nested Rule calls are unsupported";
-          auto helper = expressionNode.kind() == "Call" ? resolveValueHelper(expressionNode.child("func"), decl.symbol)
+          auto helper = expressionNode.kind() == "Call" ? resolveValueHelper(expressionNode.child("func"), decl.symbol, &values)
                                                       : FailureOr<ValueHelperDecl *>(static_cast<ValueHelperDecl *>(nullptr));
           if (failed(helper)) return failure();
           if (*helper) {
-            if (failed(valueHelperCall(expressionNode, inside, decl.symbol, values, instances))) return failure();
+            if (failed(valueHelperCall(**helper, expressionNode, inside, decl.symbol, values, instances))) return failure();
             continue;
           }
           auto results = sourceMethodCall(statement.child("value"), inside,

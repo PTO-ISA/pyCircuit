@@ -788,7 +788,7 @@ private:
   LogicalResult preflightValueHelper(const AstNode &node,
                                     llvm::StringSet<> &freeNames,
                                     llvm::StringSet<> &localNames);
-  FailureOr<SmallVector<Value>> valueHelperCall(const AstNode &call, OpBuilder &at,
+  FailureOr<SmallVector<Value>> valueHelperCall(ValueHelperDecl &helper, const AstNode &call, OpBuilder &at,
                                  FlatSymbolRefAttr symbol,
                                  llvm::StringMap<Value> &values,
                                  llvm::StringMap<Instance *> &instances,
@@ -5208,10 +5208,10 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       if (failed(bound)) return failure();
       if (*bound) continue;
       if (call.kind() == "Call") {
-        auto helper = resolveValueHelper(call.child("func"), decl.symbol);
+        auto helper = resolveValueHelper(call.child("func"), decl.symbol, &values);
         if (failed(helper)) return failure();
         if (*helper) {
-          if (failed(valueHelperCall(call, at, decl.symbol, values, instances))) return failure();
+          if (failed(valueHelperCall(**helper, call, at, decl.symbol, values, instances))) return failure();
           continue;
         }
       }
@@ -5900,7 +5900,6 @@ FailureOr<Value> Importer::tableValueCall(
                            "one-dimensional Table";
   TableQueryHooks hooks{
       [&](uint64_t value) { return literal(value, call, symbol); },
-      [&](uint64_t width) { return bits(width, call, symbol); },
       [&](Value guard, Value yes, Value no, OpBuilder &inside) {
         return select(guard, yes, no, call, inside, symbol);
       },
@@ -6102,7 +6101,6 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
     return diagnostic() << reason;
   TableQueryHooks hooks{
       [&](uint64_t value) { return literal(value, call, symbol); },
-      [&](uint64_t width) { return bits(width, call, symbol); },
       [&](Value guard, Value yes, Value no, OpBuilder &inside) {
         return select(guard, yes, no, call, inside, symbol);
       },

@@ -304,7 +304,6 @@ public:
       auto loc = operation->getLoc();
       TableQueryHooks hooks{
         [&](uint64_t value) { return literal(builder, value, operation); },
-        [&](uint64_t width) -> Type { return ac::BitsType::get(builder.getContext(), literal(builder, width, operation)); },
         [&](Value guard, Value yes, Value no, OpBuilder &at) -> FailureOr<Value> {
           return make(at, loc, ac::BitsSelectOp::getOperationName(), {guard, yes, no}, yes.getType())->getResult(0);
         },

@@ -58,7 +58,7 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
   auto cleanup = llvm::scope_exit([&] { temporary->erase(); });
   SmallVector<Value> arguments;
   arguments.push_back(block->addArgument(
-      hooks.bits(std::max(1u, llvm::Log2_64_Ceil(rows))), loc));
+      bits(std::max(1u, llvm::Log2_64_Ceil(rows))), loc));
   for (Value table : tables)
     arguments.push_back(block->addArgument(
         cast<ac::TableType>(table.getType()).getElementType(), loc));
