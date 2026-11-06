@@ -1,0 +1,1 @@
+# RUN: %python %inputs/work-function-outline.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --scratch %t.dir

@@ -1,3 +1,4 @@
+#include "CppWorkOutlining.h"
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "HardwareEmitCppChecks.h"
@@ -73,12 +74,15 @@ struct Leaf {
 class WorkEmitter {
 public:
   WorkEmitter(HardwareEmitContext &context, ac::ModuleOp definition,
-              raw_ostream &stream, bool resetting = false)
-      : ctx(context), out(stream), resetting(resetting) {
+              raw_ostream &stream, bool resetting = false,
+              CppWorkOutlining *outline = nullptr, bool probeSize = false)
+      : ctx(context), out(stream), resetting(resetting), outline(outline),
+        probeSize(probeSize) {
     ac::HardwareBindings b;
     b.owner = definition;
     scopes.push_back({definition, b, nullptr, nullptr, "this->", "pyc_count"});
   }
+  bool needsOutlining() const { return exceededSize; }
   LogicalResult run() {
     if (failed(collect(scopes.front())))
       return failure();
@@ -132,6 +136,7 @@ public:
       out << "    }};\n    if (pyc_work_executor_) "
              "pyc_work_executor_->run(pyc_tasks);\n"
              "    else for (auto task : pyc_tasks) task.work(task.instance);\n";
+      statement();
     }
     tasksFinished = true;
     if (failed(outputs(scopes.front())))
@@ -149,8 +154,14 @@ public:
       if (!isDelegated(scope) &&
           failed(emitCppCheckCapture(
               ctx, scope.definition, scope.object, scope.count,
-              [&](Value value) { return emit(scope, value); }, out)))
+              [&](Value value) {
+                statement();
+                return emit(scope, value);
+              },
+              out)))
         return failure();
+      else
+        statement();
     // Native observations stage into the system-owned slots inside Work, so
     // `SimSystem::Precommit(cycle_)`/`Xfer(cycle_ + 1)` publish exactly the
     // epoch that evaluated them. A subtree that observes is never delegated
@@ -160,12 +171,28 @@ public:
       if (!isDelegated(scope) &&
           failed(cppObservationStaging(
               ctx, scope.definition, scope.bindings, scope.object, scope.count,
-              [&](Value value) { return emit(scope, value); }, out)))
+              [&](Value value) {
+                statement();
+                return emit(scope, value);
+              },
+              out)))
         return failure();
+      else
+        statement();
     return success();
   }
 
 private:
+  void statement() {
+    if (outline)
+      outline->finishStatement();
+  }
+  std::string planeDeclaration(StringRef type, StringRef name) {
+    if (outline)
+      return outline->plane(type, name).value;
+    out << "    " << type << " " << name << ";\n";
+    return name.str();
+  }
   bool isDelegated(Scope &scope) const {
     for (Scope *current = &scope; current->parent; current = current->parent)
       if (current->parent == &scopes.front())
@@ -405,6 +432,7 @@ private:
           << plan->source("pyc_pin") << ").assignSlice("
           << plan->low("pyc_pin") << ", " << value
           << ".element(pyc_pin).packed());\n";
+    statement();
     return success();
   }
   FailureOr<std::string> kernelInputs(Leaf &leaf, StringRef lane) {
@@ -507,6 +535,7 @@ private:
     }
     out << (gather ? token : plane) << " = " << (gather ? plane : token)
         << ";\n    }\n";
+    statement();
     return success();
   }
   LogicalResult sample(Leaf &leaf) {
@@ -533,6 +562,7 @@ private:
     leaf.sampled = true;
     if (ctx.analysis.getPrimitiveKind(leaf.bindings.owner) == "byte_mem")
       leaf.readComputed = true;
+    statement();
     return success();
   }
   std::string name() { return "pyc_value_" + std::to_string(nextName++); }
@@ -540,6 +570,10 @@ private:
     memo.push_back({&s, v, p, std::move(text)});
   }
   FailureOr<std::string> emit(Scope &s, Value v, Path path = {}) {
+    if (probeSize && out.tell() > CppWorkOutlining::partBytes) {
+      exceededSize = true;
+      return failure();
+    }
     for (auto &n : memo)
       if (n.scope == &s && n.value == v && n.path == path)
         return n.name;
@@ -576,6 +610,7 @@ private:
             << relative->low("pyc_field") << ", " << *field
             << ".element(pyc_lane * (" << relative->count
             << ") + pyc_field).packed());\n";
+        statement();
       }
       result = *temp;
     } else
@@ -599,13 +634,13 @@ private:
     auto p = payload(plan->element, s, s.definition);
     if (failed(t) || failed(w) || failed(count) || failed(p))
       return failure();
-    auto result = name();
-    out << "    " << *t << " " << result << ";\n";
+    auto result = planeDeclaration(*t, name());
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
         << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
         << *p << ">::fromPacked(gfsim::extract<" << *w << ">(" << source
         << ".element(" << plan->source("pyc_lane") << ").packed(), "
         << plan->low("pyc_lane") << "));\n";
+    statement();
     return result;
   }
   std::string knownInteger(ac::MathIntAttr integer, StringRef width) {
@@ -1095,6 +1130,13 @@ private:
     out << "    static const " << *exactType << " " << result << " = [] {\n"
         << initializerText << "      return " << *constructed
         << ";\n    }();\n";
+    if (outline) {
+      auto borrowed = outline->plane(*exactType, result, true);
+      out << "    " << borrowed.storage << " = &" << result << ";\n";
+      statement();
+      return borrowed.value;
+    }
+    statement();
     return result;
   }
   FailureOr<std::string> declarePlane(Scope &s, Value v, Path path = {}) {
@@ -1102,9 +1144,7 @@ private:
                        v.getDefiningOp() ? v.getDefiningOp() : s.definition);
     if (failed(p))
       return failure();
-    auto temp = name();
-    out << "    " << *p << " " << temp << ";\n";
-    return temp;
+    return planeDeclaration(*p, name());
   }
   FailureOr<std::string> scalarPlane(Scope &s, Value v, Path path) {
     auto result = declarePlane(s, v, path);
@@ -1142,6 +1182,7 @@ private:
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
         << "; ++pyc_lane) " << *result << ".element(pyc_lane) = gfsim::wire<"
         << *p << ">::fromPacked(" << *expr << ");\n";
+    statement();
     return *result;
   }
   FailureOr<std::string> build(Scope &s, Value v, Path path) {
@@ -1160,6 +1201,7 @@ private:
               << "; ++pyc_lane) " << *result
               << ".element(pyc_lane) = gfsim::wire<" << *p
               << ">::known(" << *p << "{pyc_lane % (" << *n << ")});\n";
+          statement();
           return *result;
         }
         unsigned operand = arg.getArgNumber() - 1;
@@ -1178,6 +1220,7 @@ private:
             << *source << ".element((pyc_lane / ((" << *n << ") * ("
             << plan->count << "))) * (" << plan->count
             << ") + pyc_lane % (" << plan->count << "));\n";
+        statement();
         return *result;
       }
       if (auto rule = dyn_cast<ac::RuleOp>(arg.getOwner()->getParentOp()))
@@ -1238,6 +1281,7 @@ private:
           out << ");\n";
           if (port == 2 && failed(queueTokenCopy(leaf, false)))
             return failure();
+          statement();
           leaf.queueRead[port] = true;
         }
         auto pin = pinObject(s, op, port, true);
@@ -1284,6 +1328,7 @@ private:
                   << leaf.count << "; ++pyc_lane) " << leaf.kernel << "::read("
                   << leaf.prefix << "state->current(pyc_lane), " << leaf.prefix
                   << "raddr.element(pyc_lane), " << *pins << ");\n";
+              statement();
               leaf.readComputed = true;
             }
           }
@@ -1393,7 +1438,9 @@ private:
             << i << ") * (" << inputPlan->count << ") + pyc_field) = "
             << *text << ".element(pyc_lane * (" << inputPlan->count
             << ") + pyc_field);\n";
+        statement();
       }
+      statement();
       return *result;
     }
     if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
@@ -1405,6 +1452,7 @@ private:
           << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *input
           << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
           << in->count << ") + pyc_lane % (" << in->count << "));\n";
+      statement();
       return *result;
     }
     if (auto view = dyn_cast<ac::TableViewOp>(op)) {
@@ -1424,6 +1472,7 @@ private:
           << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
           << in->count << ") + (" << *index << ") * ("
           << suffix << ") + pyc_lane % (" << suffix << "));\n";
+      statement();
       return *result;
     }
     if (auto map = dyn_cast<ac::TableMapOp>(op)) {
@@ -1444,6 +1493,7 @@ private:
       out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
           << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *source
           << ".element(pyc_lane);\n";
+      statement();
       return *result;
     }
     if (auto match = dyn_cast<ac::TableMatchOp>(op)) {
@@ -1476,6 +1526,7 @@ private:
       out << "        " << *result
           << ".element(pyc_lane).assignSlice(pyc_element, " << *expr
           << ");\n      }\n    }\n";
+      statement();
       return *result;
     }
     if (isa<ac::TableReadOp, ac::TableGetOp>(op)) {
@@ -1498,6 +1549,7 @@ private:
             << "; ++pyc_lane) " << *result
             << ".element(pyc_lane) = gfsim::wire<" << *p << ">::fromPacked("
             << range << ");\n";
+        statement();
         return *result;
       }
       auto input = emit(s, tableInput, path);
@@ -1516,6 +1568,7 @@ private:
           << ".element((pyc_lane * (" << *n << ") + " << *index
           << ".element(pyc_lane).packed().value().value()) * ("
           << resultPlan->count << ") + pyc_field);\n      }\n    }\n";
+      statement();
       return *result;
     }
     if (auto index = dyn_cast<ac::TableIndexOp>(op)) {
@@ -1573,6 +1626,7 @@ private:
           << ">::fromPacked(gfsim::select(pyc_bounds, gfsim::truncate<" << *w
           << ">(pyc_sum), gfsim::FourState<" << *w << ">::known(gfsim::Bits<"
           << *w << ">{" << *n << "})));\n    }\n";
+      statement();
       return *result;
     }
     if (auto choose = dyn_cast<ac::TableChooseOp>(op)) {
@@ -1643,6 +1697,7 @@ private:
             << (i % uint64_t(c)) << "].packed());\n";
       }
       out << "    }\n";
+      statement();
       return results[cast<OpResult>(v).getResultNumber()];
     }
     if (auto fold = dyn_cast<ac::TableFoldOp>(op)) {
@@ -1684,6 +1739,7 @@ private:
              "= pyc_tree[pyc_nodes - 1];\n      }\n      "
           << *result << ".element(pyc_lane) = gfsim::wire<" << *p
           << ">::fromPacked(pyc_tree[0].packed());\n    }\n";
+      statement();
       return *result;
     }
     return op->emitOpError() << "operation lacks table C++ emission";
@@ -1701,12 +1757,16 @@ private:
       out << "    for (std::size_t pyc_pin = 0; pyc_pin < " << *count
           << "; ++pyc_pin) " << s.object << *name
           << ".element(pyc_pin) = " << *text << ".element(pyc_pin);\n";
+      statement();
     }
+    statement();
     return success();
   }
   HardwareEmitContext &ctx;
   raw_ostream &out;
   bool resetting;
+  CppWorkOutlining *outline = nullptr;
+  bool probeSize = false, exceededSize = false;
   bool promoteConstantPlanes = true;
   llvm::DenseMap<ConstantKey, ConstantState> constantMemo;
   bool tasksFinished = false;
@@ -1960,12 +2020,23 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
         << " + pyc_site, pyc_value, pyc_event_bool, pyc_valid, pyc_path, "
            "pyc_sink_->system->cycle());\n"
            "  }\n";
-  out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try "
-         "{\n";
-  WorkEmitter work(ctx, definition, out);
-  if (failed(work.run()))
+  std::string workBody;
+  llvm::raw_string_ostream workStream(workBody);
+  WorkEmitter work(ctx, definition, workStream, false, nullptr, true);
+  auto emitted = work.run();
+  if (failed(emitted) && !work.needsOutlining())
     return failure();
-  out << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
+  workStream.flush();
+  if (work.needsOutlining() || workBody.size() > CppWorkOutlining::partBytes) {
+    CppWorkOutlining outline;
+    WorkEmitter outlined(ctx, definition, outline.stream, false, &outline);
+    if (failed(outlined.run()))
+      return failure();
+    outline.emit(out);
+  } else {
+    out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try {\n"
+        << workBody << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
+  }
   for (StringRef method : {"Xfer", "DiscardNext"}) {
     out << "  void " << method << "() noexcept {\n";
     if (method == "DiscardNext")
