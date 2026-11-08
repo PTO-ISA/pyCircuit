@@ -1,5 +1,3 @@
-# component-split: interim tool link lines. The conversion targets (opt) join
-# with pr/conversion.
 add_executable(pycircuit-source-unit source-unit.cpp)
 target_link_libraries(pycircuit-source-unit PRIVATE
   pycircuit_project_options
@@ -50,6 +48,8 @@ target_link_libraries(pycircuit-opt PRIVATE
   GFIRValidation
   HWIRValidation
   GFIRDialect
+  ACIRToGFIR
+  GFIRToHWIR
   ACIRSourceCompiler
   ACIRTransforms
   MLIRArithDialect

@@ -13,6 +13,8 @@
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Conversion/ACIRToGFIR.h"
+#include "pycircuit/Conversion/GFIRToHWIR.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
