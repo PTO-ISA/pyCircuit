@@ -10,6 +10,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
@@ -37,6 +38,7 @@ protected:
   std::unique_ptr<ScopedDiagnosticHandler> handler;
   void SetUp() override {
     context.loadDialect<ac::ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
     ASSERT_FALSE(llvm::sys::fs::createUniqueDirectory("module-scalar-results",
                                                       directory));
     handler =

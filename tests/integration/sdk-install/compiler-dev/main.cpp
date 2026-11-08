@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/SourceUnit.h"
 #include "mlir/IR/Diagnostics.h"
@@ -7,7 +8,7 @@
 
 int main() {
   mlir::DialectRegistry registry;
-  registry.insert<acir::ac::ACIRDialect>();
+  registry.insert<acir::ac::ACIRDialect, acir::gfir::GFIRDialect>();
   mlir::MLIRContext context(registry);
   auto *dialect = context.getOrLoadDialect<acir::ac::ACIRDialect>();
 

@@ -4,6 +4,7 @@
 #include "Compiler/SourceRuleWrites.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/SourceControlFlow.h"
@@ -75,6 +76,7 @@ protected:
 
   void SetUp() override {
     context.loadDialect<acir::ac::ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
     ASSERT_FALSE(llvm::sys::fs::createUniqueDirectory("source-memory-bindings", directory));
     handler = std::make_unique<ScopedDiagnosticHandler>(&context, [&](Diagnostic &d) {
       llvm::raw_string_ostream out(diagnostics);

@@ -6,6 +6,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"

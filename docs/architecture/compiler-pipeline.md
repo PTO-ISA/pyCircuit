@@ -22,6 +22,15 @@ Runtime-only CMake exports `pycircuit::pyc6_runtime` without LLVM discovery.
 CompilerDev includes native compiler development targets and requires exact
 LLVM/MLIR 22.1.8.
 
+Verification is owned per stage: `GFIRValidation` verifies routed anchors
+(`pycircuit-opt --ac-verify-routed`, `verifyRoutedPackage`), and
+`HWIRValidation` verifies final hardware (`pycircuit-opt --ac-verify-hardware`,
+`verifyHardwarePackage`); both consume the shared staged analysis in
+`ACIRAnalysis` and are enforced independent by the configure-time layering
+walk. The ACIR→GFIR and GFIR→HWIR conversions live in
+`lib/Conversion/ACIRToGFIR/` and `lib/Conversion/GFIRToHWIR/` with their own
+pass registration.
+
 The common source and final hardware representation is ACIR. Its `ac` dialect
 name is an IR identifier, not another Python frontend. Unsupported source or
 backend capabilities fail before output publication; see

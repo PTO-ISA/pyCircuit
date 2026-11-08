@@ -51,7 +51,12 @@ compiler/
   include/pycircuit/             public compiler headers and TableGen definitions
   lib/Compiler/                 source resolution, lowering, link and emit
   lib/Dialect/ACIR/              common hardware types, operations and verification
-  lib/Transforms/               MLIR transformations
+  lib/Dialect/GFIR/              routed logical-state operations (gfir.state)
+  lib/Analysis/                  logical-state validation shared by the verifiers
+  lib/Conversion/                ACIR→GFIR and GFIR→HWIR conversion targets
+  lib/Transforms/               source/graph MLIR transformations
+  lib/Dialect/ACIR/GFIRPackageValidation.cpp and HWIRPackageValidation.cpp
+                                 GFIR/HWIR verifier entrypoints and passes
   tools/                        source-unit.cpp, link.cpp, emit.cpp, opt.cpp
   cmake/AddACIR.cmake            compiler-private library helper
 include/

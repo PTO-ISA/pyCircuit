@@ -221,6 +221,28 @@ def test_compiler_dev_install_links_a_native_consumer() -> None:
             os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "4"),
         ]
     )
+    gfir_build = build / "gfir-core-only-consumer"
+    _checked(
+        [
+            cmake,
+            "-S",
+            str(FIXTURES / "compiler-dev" / "gfir-core-only"),
+            "-B",
+            str(gfir_build),
+            "-G",
+            "Ninja",
+            "-DCMAKE_PREFIX_PATH=" + str(install),
+            "-DLLVM_DIR=" + _cache_path(cache, "LLVM_DIR"),
+            "-DMLIR_DIR=" + _cache_path(cache, "MLIR_DIR"),
+            "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF",
+            "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
+        ]
+    )
+    _checked([cmake, "--build", str(gfir_build)])
+    gfir_executable = gfir_build / "gfir_core_only"
+    if os.name == "nt":
+        gfir_executable = gfir_executable.with_suffix(".exe")
+    _checked([str(gfir_executable)])
     executable = consumer_build / "compiler_dev_consumer"
     if os.name == "nt":
         executable = executable.with_suffix(".exe")
