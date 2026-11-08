@@ -2,6 +2,8 @@
 #define PYCIRCUIT_DIALECT_ACIR_HARDWAREANALYSIS_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "pycircuit/Dialect/ACIR/HardwareAnalysisContext.h"
+#include "pycircuit/Dialect/ACIR/HardwarePackedWidth.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -17,7 +19,6 @@ namespace acir::ac {
 /// The empty array means no authored sequence; present sequences are nonempty.
 mlir::FailureOr<mlir::ArrayAttr> getSystemSamples(mlir::Operation *declaration);
 
-enum class HardwareResetSemantics { Strict, IfOne };
 /// Read the closed policy on the single root selection and reject overrides.
 /// A saved package without the attribute means strict; this never mutates IR.
 mlir::FailureOr<HardwareResetSemantics>
@@ -44,17 +45,6 @@ struct ModulePortLayout {
 /// port belongs to the source boundary and rootInputDefaults is an empty array.
 mlir::FailureOr<ModulePortLayout>
 getModulePortLayout(mlir::Operation *declaration);
-
-struct EnumMember {
-  mlir::StringAttr name;
-  MathIntAttr code;
-};
-/// Validated declaration data shared by analysis and both emitters.
-struct EnumDefinitionView {
-  uint64_t width;
-  mlir::StringAttr encoding;
-  llvm::SmallVector<EnumMember> members;
-};
 
 enum class QueueReadyPolicy { LocalOccupancy, DownstreamPop };
 /// Recognize the canonical FIFO allocation; schema and bindings are verified
@@ -91,13 +81,6 @@ struct ResolvedQueueConfig {
   // D*K + K + pointerWidth + countWidth, separate from payload storage.
   // Zero for latency one or an unresolved depth/latency; checked before use.
   uint64_t timingStorageBitCount;
-};
-
-/// Bindings describe an occurrence of an existing definition, not cloned IR.
-struct HardwareBindings {
-  mlir::Operation *owner = nullptr;
-  llvm::StringMap<mlir::Attribute> integers;
-  llvm::StringMap<mlir::Type> types;
 };
 
 /// Checked pin roles for the existing canonical Memory primitive. Payloads
@@ -175,9 +158,6 @@ struct HardwareCheckCommitEndpoint {
   mlir::StringAttr primitiveKind;
   HardwareCheckCommitEndpointForm form = HardwareCheckCommitEndpointForm::Physical;
 };
-struct HardwareSourceCheckLimits {
-  uint64_t maxWorkUnits = 4 * 1024 * 1024;
-};
 struct HardwareSourceCheckPlan {
   HardwareResetSemantics resetSemantics = HardwareResetSemantics::Strict;
   llvm::SmallVector<HardwareCheckBinding> bindings;
@@ -193,13 +173,8 @@ struct HardwarePhysicalProjection {
   ModuleOp root;
   unsigned clockInput = 0, resetInput = 0;
 };
-using FieldPath = llvm::SmallVector<mlir::StringAttr>;
-struct PackedLeaf {
-  FieldPath path;
-  mlir::Type type;
-  uint64_t low = 0;
-  uint64_t width = 0;
-};
+/// Field paths and packed leaf records moved to HardwareAnalysisContext.h:
+/// the shared packed-width core (r8 review) uses the same value types.
 struct PortEndpoint {
   unsigned port = 0;
   FieldPath path;
@@ -237,19 +212,22 @@ struct ModuleAnalysis {
 };
 
 /// All facts refer to the one verified module package and its original SSA.
-class HardwareAnalysis {
+/// The class is the binding-aware PackedWidthResolver: the packed-width core
+/// runs through these members, and the shared core lives in
+/// HardwarePackedWidth.cpp (r8 review).
+class HardwareAnalysis : public detail::PackedWidthResolver {
 public:
   explicit HardwareAnalysis(mlir::ModuleOp package);
   explicit HardwareAnalysis(mlir::Operation *operation)
       : HardwareAnalysis(mlir::cast<mlir::ModuleOp>(operation)) {}
-  mlir::ModuleOp getPackage() const { return package; }
+  mlir::ModuleOp getPackage() const override { return package; }
   llvm::SmallVector<ModuleOp> getDefinitions() const;
   llvm::SmallVector<StructOp> getStructs() const;
-  mlir::Operation *lookupDefinition(llvm::StringRef name) const;
-  StructOp lookupStruct(StructType type) const;
+  mlir::Operation *lookupDefinition(llvm::StringRef name) const override;
+  StructOp lookupStruct(StructType type) const override;
   EnumOp lookupEnum(EnumType type) const;
   mlir::FailureOr<EnumDefinitionView> resolveEnum(EnumType type,
-                                                  mlir::Operation *site) const;
+                                                  mlir::Operation *site) const override;
   mlir::Operation *resolveCallee(InstanceOp instance) const;
   mlir::Operation *resolveCallee(CollectionOp collection) const;
   mlir::FailureOr<llvm::SmallVector<uint64_t>>
@@ -267,7 +245,7 @@ public:
   llvm::StringRef getPrimitiveKind(mlir::Operation *definition) const;
   mlir::FailureOr<mlir::Attribute>
   evaluateStatic(StaticExprAttr expression, const HardwareBindings &bindings,
-                 mlir::Operation *site) const;
+                 mlir::Operation *site) const override;
   /// Substitute static actuals without changing immutable source provenance.
   mlir::Attribute substituteAttribute(mlir::Attribute attribute,
                                       const HardwareBindings &bindings) const;
@@ -275,10 +253,15 @@ public:
                          const HardwareBindings &bindings) const;
   mlir::FailureOr<mlir::Type> resolveType(mlir::Type type,
                                           const HardwareBindings &bindings,
-                                          mlir::Operation *site) const;
+                                          mlir::Operation *site) const override;
   mlir::FailureOr<uint64_t> getPackedWidth(mlir::Type type,
                                            const HardwareBindings &bindings,
-                                           mlir::Operation *site) const;
+                                           mlir::Operation *site) const override;
+  /// The resolver's shared demanded-expression cycle guard (r8 review).
+  llvm::SmallVector<std::pair<mlir::Attribute, mlir::Operation *>> &
+  activeStatic() const override {
+    return demandedStatic;
+  }
   /// Shape-only paths retain opaque type formals and symbolic bit widths.
   mlir::FailureOr<llvm::SmallVector<FieldPath>> getFieldPaths(
       mlir::Type type, const HardwareBindings &bindings, mlir::Operation *site,
@@ -333,6 +316,26 @@ public:
   verifyCollectionOperation(mlir::Operation *operation,
                             const HardwareBindings &bindings,
                             bool requireResolved = false) const;
+  mlir::LogicalResult
+  verifyStructOperation(mlir::Operation *operation,
+                        const HardwareBindings &bindings,
+                        bool requireResolved = false) const;
+  mlir::LogicalResult
+  verifyBitsSymbolicWidths(mlir::Operation *operation) const;
+  mlir::LogicalResult
+  verifyModuleDeclaration(mlir::Operation *operation,
+                          const HardwareBindings &bindings,
+                          bool requireResolved = false) const;
+  /// Verify the staged transaction-surface bound checks: state
+  /// selector/payload resolution, Method contract constraints and formal
+  /// proposals, Method call resolution with bound-signature agreement,
+  /// transaction/branch control predicates and the guard-yield predicate.
+  /// The moved bodies keep the lexical owner-scope call shape of the native
+  /// verifiers they moved from.
+  mlir::LogicalResult
+  verifyTransactionSurfaceOperation(mlir::Operation *operation,
+                                    const HardwareBindings &bindings,
+                                    bool requireResolved = false) const;
   /// Normalize the complete writer tuples together before building merge IR.
   mlir::LogicalResult normalizeMergeOperands(
       mlir::Type baseType, llvm::SmallVectorImpl<mlir::ArrayAttr> &paths,
@@ -366,15 +369,8 @@ private:
   llvm::SmallVector<StructOp> structures;
   mutable llvm::DenseMap<mlir::Type, llvm::SmallVector<PackedLeaf>> layouts;
   mutable llvm::SmallVector<std::pair<mlir::Attribute, mlir::Operation *>>
-      activeStatic;
+      demandedStatic;
 };
-
-/// Verify common hardware shape, binding, dependency and execution contracts.
-mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
-/// Verify the versioned routed graph without requiring physical state refinement
-/// or an implementation for a declared ordinary external combinational module.
-mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
-                                       HardwareSourceCheckLimits limits = {});
 
 } // namespace acir::ac
 #endif

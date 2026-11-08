@@ -2,6 +2,8 @@
 #define ACIR_DIALECT_ACIR_ACIROPS_TD
 
 include "pycircuit/Dialect/ACIR/ACIRTypes.td"
+include "pycircuit/Interfaces/LogicalStateInterfaces.td"
+include "pycircuit/Interfaces/ModuleChildInterfaces.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/RegionKindInterface.td"
@@ -276,7 +278,8 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let hasVerifier = 1;
 }
 
-def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
+def ACIR_ModuleOp : ACIR_Op<"module", [
+    OwningModuleOpInterface,Symbol, SymbolTable,
     IsolatedFromAbove, SingleBlock, RegionKindInterface,
     HasOnlyGraphRegion]> {
   let summary = "Define reusable hardware structure and its Work rules";
@@ -330,6 +333,10 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
   let regions = (region AnyRegion:$body);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::StringAttr getOwnerSymName() { return getSymNameAttr(); }
+  }];
+
 }
 
 def ACIR_RuleOp : ACIR_Op<"rule", [IsolatedFromAbove, SingleBlock, Pure]> {
@@ -356,12 +363,18 @@ def ACIR_RuleOp : ACIR_Op<"rule", [IsolatedFromAbove, SingleBlock, Pure]> {
   let hasRegionVerifier = 1;
 }
 
-// Typed source effects remain explicit until routing; logical declarations and
-// their updates remain until state refinement. None is executable final
-// hardware, and state effects are never marked Pure.
+// Typed source effects remain explicit until routing; logical declarations
+// remain source-owned until routing replaces them by gfir.state. None is
+// executable final hardware, and state effects are never marked Pure.
 def ACIR_SourceStateOp : ACIR_Op<"state", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Declare one source-owned state and its old-Q value";
+  let description = [{
+    A source-stage declaration. Routing authenticates each declaration and
+    constructs its routed gfir.state replacement; this class never enters a
+    routed package and does not implement the routed logical-state
+    interface (B1-boundary.md).
+  }];
   let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
       ACIR_HardwareType:$initial, StrAttr:$instance_name,
       DictionaryAttr:$occurrence);
@@ -372,24 +385,6 @@ def ACIR_SourceStateOp : ACIR_Op<"state", [
       return (*this)->getAttrOfType<::mlir::DictionaryAttr>("ac.payload_constraint");
     }
   }];
-}
-
-def ACIR_StateUpdateOp : ACIR_Op<"state.update", [
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-  let summary = "Bind one routed logical state's candidate and write intent";
-  let description = [{
-    A declarative binding in the owning module graph of a routed package.
-    state is the direct old-Q result of one same-block ac.state declaration;
-    candidate has exactly that payload type and intent resolves to one bit.
-    Every routed logical state has exactly one update. This operation has no
-    attributes, results or regions and is not a Work-time state mutation.
-    False intent holds old Q; commit, reset and failure retain the package's
-    verified transaction semantics. Hardware refinement removes the logical
-    declaration and update together before final verification and emission.
-  }];
-  let arguments = (ins ACIR_HardwareType:$state,
-      ACIR_HardwareType:$candidate, ACIR_BitsType:$intent);
-  let hasVerifier = 1;
 }
 
 def ACIR_SourceStateReadOp : ACIR_Op<"state.read", [
@@ -582,10 +577,10 @@ def ACIR_SourceExpectOp : ACIR_Op<"expect", [
   let arguments = (ins ACIR_BitsType:$condition, ACIR_BitsType:$path,
       Variadic<ACIR_BitsType>:$sampling, StrAttr:$kind,
       DictionaryAttr:$location);
-  let hasVerifier = 1;
 }
 
 def ACIR_InstanceOp : ACIR_Op<"instance", [
+    ModuleChildOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Instantiate one module with typed SSA input and output wires";
   let description = [{
@@ -623,6 +618,11 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [
   let results = (outs Variadic<ACIR_StructuralValueType>:$outputs);
   let hasVerifier = 1;
   let hasCustomAssemblyFormat = 1;
+  let extraClassDeclaration = [{
+    ::mlir::StringAttr getDeclaredInstanceName() { return getInstanceNameAttr(); }
+    ::mlir::DictionaryAttr getDeclaredOccurrence() { return getOccurrence(); }
+  }];
+
 }
 
 def ACIR_YieldOp : ACIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
@@ -654,6 +654,7 @@ def ACIR_InstanceRefOp : ACIR_Op<"instance.ref", [Pure]> {
 }
 
 def ACIR_CollectionOp : ACIR_Op<"collection", [
+    ModuleChildOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Compact family of independent instances with table wires";
   let arguments = (ins Variadic<ACIR_HardwareType>:$inputs,
@@ -664,6 +665,11 @@ def ACIR_CollectionOp : ACIR_Op<"collection", [
       DictionaryAttr:$occurrence);
   let results = (outs Variadic<ACIR_HardwareType>:$outputs);
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::StringAttr getDeclaredInstanceName() { return getInstanceNameAttr(); }
+    ::mlir::DictionaryAttr getDeclaredOccurrence() { return getOccurrence(); }
+  }];
+
 }
 
 def ACIR_QueueOp : ACIR_Op<"queue"> {
@@ -690,12 +696,10 @@ def ACIR_QueueOp : ACIR_Op<"queue"> {
 def ACIR_TableCreateOp : ACIR_Op<"table.create", [Pure]> {
   let arguments = (ins Variadic<ACIR_ScalarHardwareType>:$inputs);
   let results = (outs ACIR_TableType:$result);
-  let hasVerifier = 1;
 }
 def ACIR_TableSplatOp : ACIR_Op<"table.splat", [Pure]> {
   let arguments = (ins ACIR_HardwareType:$input, ArrayAttr:$shape);
   let results = (outs ACIR_TableType:$result);
-  let hasVerifier = 1;
 }
 def ACIR_TableMapOp : ACIR_Op<"table.map", [Pure, IsolatedFromAbove,
     SingleBlock, AttrSizedOperandSegments]> {
@@ -703,19 +707,16 @@ def ACIR_TableMapOp : ACIR_Op<"table.map", [Pure, IsolatedFromAbove,
       Variadic<ACIR_ScalarHardwareType>:$captures, ArrayAttr:$shape);
   let results = (outs Variadic<ACIR_TableType>:$results);
   let regions = (region AnyRegion:$body);
-  let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }
 def ACIR_TableViewOp : ACIR_Op<"table.view", [Pure]> {
   let arguments = (ins ACIR_TableType:$input, StrAttr:$kind,
       DictionaryAttr:$parameters);
   let results = (outs ACIR_TableType:$result);
-  let hasVerifier = 1;
 }
 def ACIR_TableIndexOp : ACIR_Op<"table.index", [Pure]> {
   let arguments = (ins Variadic<ACIR_BitsType>:$coords, ArrayAttr:$shape);
   let results = (outs ACIR_BitsType:$result);
-  let hasVerifier = 1;
 }
 def ACIR_TableReadOp : ACIR_Op<"table.read", [Pure]> {
   let summary = "Read one statically checked source Table element";
@@ -727,12 +728,10 @@ def ACIR_TableReadOp : ACIR_Op<"table.read", [Pure]> {
   }];
   let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
   let results = (outs ACIR_ScalarHardwareType:$value);
-  let hasVerifier = 1;
 }
 def ACIR_TableGetOp : ACIR_Op<"table.get", [Pure]> {
   let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
   let results = (outs ACIR_ScalarHardwareType:$value, ACIR_BitsType:$in_range);
-  let hasVerifier = 1;
 }
 def ACIR_TableMatchOp : ACIR_Op<"table.match", [Pure, IsolatedFromAbove,
     SingleBlock]> {
@@ -740,19 +739,16 @@ def ACIR_TableMatchOp : ACIR_Op<"table.match", [Pure, IsolatedFromAbove,
       Variadic<ACIR_ScalarHardwareType>:$captures);
   let results = (outs ACIR_BitsType:$mask);
   let regions = (region AnyRegion:$body);
-  let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }
 def ACIR_TableChooseOp : ACIR_Op<"table.choose", [Pure]> {
   let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$mask,
       I64Attr:$count, StrAttr:$policy, StrAttr:$order);
   let results = (outs Variadic<ACIR_BitsType>:$results);
-  let hasVerifier = 1;
 }
 def ACIR_TableFoldOp : ACIR_Op<"table.fold", [Pure]> {
   let arguments = (ins ACIR_TableType:$input, StrAttr:$kind);
   let results = (outs ACIR_BitsType:$result);
-  let hasVerifier = 1;
 }
 def ACIR_ValueMergeOp : ACIR_Op<"value.merge", [Pure,
     AttrSizedOperandSegments]> {
@@ -760,7 +756,6 @@ def ACIR_ValueMergeOp : ACIR_Op<"value.merge", [Pure,
       Variadic<ACIR_BitsType>:$guards,
       Variadic<ACIR_HardwareType>:$values, ArrayAttr:$paths);
   let results = (outs ACIR_HardwareType:$next, ACIR_BitsType:$en);
-  let hasVerifier = 1;
 }
 
 def ACIR_EnumOp : ACIR_Op<"enum", [Symbol]> {
@@ -780,14 +775,12 @@ def ACIR_EnumCreateOp : ACIR_Op<"enum.create", [Pure]> {
   let summary = "Create the declared code of one nominal enum member";
   let arguments = (ins StrAttr:$member);
   let results = (outs ACIR_EnumType:$result);
-  let hasVerifier = 1;
 }
 
 def ACIR_EnumToBitsOp : ACIR_Op<"enum.to_bits", [Pure]> {
   let summary = "Expose an enum carrier without changing its four-state bits";
   let arguments = (ins ACIR_EnumType:$input);
   let results = (outs ACIR_BitsType:$result);
-  let hasVerifier = 1;
 }
 
 def ACIR_EnumFromBitsOp : ACIR_Op<"enum.from_bits", [Pure]> {
@@ -800,7 +793,6 @@ def ACIR_EnumFromBitsOp : ACIR_Op<"enum.from_bits", [Pure]> {
   }];
   let arguments = (ins ACIR_BitsType:$input);
   let results = (outs ACIR_EnumType:$value, ACIR_BitsType:$member);
-  let hasVerifier = 1;
 }
 
 def ACIR_StructOp : ACIR_Op<"struct", [Symbol]> {
@@ -837,7 +829,6 @@ def ACIR_StructCreateOp : ACIR_Op<"struct.create", [Pure]> {
   }];
   let arguments = (ins Variadic<ACIR_HardwareType>:$values);
   let results = (outs ACIR_StructType:$result);
-  let hasVerifier = 1;
   let assemblyFormat =
       "`(` $values `)` attr-dict `:` functional-type($values, results)";
 }
@@ -852,7 +843,6 @@ def ACIR_StructGetOp : ACIR_Op<"struct.get", [Pure]> {
   }];
   let arguments = (ins ACIR_StructType:$value, StrAttr:$field);
   let results = (outs ACIR_HardwareType:$result);
-  let hasVerifier = 1;
   let assemblyFormat =
       "$value `[` $field `]` attr-dict `:` functional-type(operands, results)";
 }

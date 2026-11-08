@@ -17,11 +17,45 @@ namespace acir::ac {
 class HardwareAnalysis;
 struct HardwareBindings;
 class ModuleImportOp;
+class ModuleOp;
+class SourceObserveOp;
 } // namespace acir::ac
 
+namespace acir::ac {
+class EnumOp;
+struct EnumDefinitionView;
+/// Enum declaration grammar validation shared by EnumOp::verify (ops) and
+/// resolveEnum (analysis).
+mlir::FailureOr<EnumDefinitionView>
+validateEnumDeclaration(EnumOp declaration, mlir::Operation *site);
+} // namespace acir::ac
+
+
 namespace acir::ac::detail {
+// Table shape grammar shared by the type verifier (core) and the
+// collection operation verifiers (ops layer).
+mlir::LogicalResult shapeSchema(mlir::ArrayAttr shape,
+                                llvm::function_ref<mlir::InFlightDiagnostic()> error);
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
+
+// Observation grammar shared by the native SourceObserveOp and ModuleOp
+// verifiers (ops layer, where these are defined) and the staged check-plan
+// tier, which re-runs the structure before resolving the observation owner.
+struct ObservationLocalKey {
+  mlir::DictionaryAttr identity;
+  mlir::DictionaryAttr owner;
+  mlir::StringAttr reportName;
+};
+/// Statement Method/transaction bodies own source-effect placement; every
+/// other region owner (including guards and pure helpers) never acquires it.
+mlir::Operation *sourceEffectCallable(mlir::Operation *operation);
+mlir::LogicalResult verifySourceObservationStructure(SourceObserveOp observe);
+mlir::LogicalResult verifySourceObservationSpec(mlir::StringAttr kind,
+                                                mlir::DictionaryAttr spec,
+                                                uint64_t valueCount,
+                                                EmitError emitError);
+mlir::LogicalResult verifyModuleObservationIdentities(mlir::Operation *module);
 
 // Implementation storage for common small static-expression grammars, not an
 // admission limit. The source closure preflight accounts for this same storage.
@@ -42,10 +76,14 @@ mlir::LogicalResult verifySourceTemplateType(
     bool *concrete = nullptr);
 
 // Existing source-state initializer grammar, also used to prove physical
-// elaboration initialization under each actual storage binding.
+// elaboration initialization under each actual storage binding. Pass a
+// budget to charge the per-operation DAG traversal when the caller runs
+// inside the bounded source-check plan; native verification passes none.
+class SourceCheckBudget;
 mlir::LogicalResult verifyClosedStateInitializer(
     const HardwareAnalysis &analysis, mlir::Value initial,
-    const HardwareBindings &bindings, mlir::Operation *site);
+    const HardwareBindings &bindings, mlir::Operation *site,
+    SourceCheckBudget *budget = nullptr);
 
 // Optional source-call authority on existing hardware module declarations.
 mlir::LogicalResult verifyModuleSourceCallContract(mlir::Operation *owner);
@@ -213,7 +251,6 @@ mlir::LogicalResult verifyStateRef(mlir::DictionaryAttr value,
 // Total structural order for attributes admitted by closed source identity
 // schemas. Callers must verify the enclosing Occurrence or StateRef first.
 int compareClosedSourceStructure(mlir::Attribute left, mlir::Attribute right);
-
 } // namespace acir::ac::detail
 
 #endif // ACIR_LIB_DIALECT_ACIR_ACIRSOURCECONTRACTS_H

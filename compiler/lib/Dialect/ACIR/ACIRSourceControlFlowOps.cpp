@@ -1,6 +1,5 @@
 #include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
-#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 
 using namespace mlir;
 
@@ -14,14 +13,10 @@ LogicalResult SourceIndexOp::verify() {
   return success();
 }
 
+// Grammar-only native verify (r3 ACIRSourceControlFlowOps row): the
+// width-one predicate check runs from the staged predicate row (source-unit
+// walk and resolved dispatch).
 LogicalResult SourcePredicateOp::verify() {
-  auto package = (*this)->getParentOfType<mlir::ModuleOp>();
-  HardwareAnalysis analysis(package);
-  HardwareBindings bindings;
-  bindings.owner = (*this)->getParentOfType<ModuleOp>();
-  auto width = analysis.getPackedWidth(getInput().getType(), bindings, *this);
-  if (failed(width) || *width != 1)
-    return emitOpError() << "source SCF predicate requires width-one Bits";
   for (OpOperand &use : getResult().getUses()) {
     auto name = use.getOwner()->getName().getStringRef();
     if (use.getOperandNumber() != 0 ||

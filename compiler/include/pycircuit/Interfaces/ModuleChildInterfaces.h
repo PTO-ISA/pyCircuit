@@ -1,0 +1,8 @@
+#ifndef PYCIRCUIT_INTERFACES_MODULECHILDINTERFACES_H
+#define PYCIRCUIT_INTERFACES_MODULECHILDINTERFACES_H
+
+#include "mlir/IR/OpDefinition.h"
+
+#include "pycircuit/Interfaces/ModuleChildInterfaces.h.inc"
+
+#endif // PYCIRCUIT_INTERFACES_MODULECHILDINTERFACES_H

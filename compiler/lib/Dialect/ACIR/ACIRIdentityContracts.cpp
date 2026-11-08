@@ -1,6 +1,6 @@
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/MLIRContext.h"
-#include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/GrammarCacheHost.h"
 
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/STLExtras.h"
@@ -15,82 +15,73 @@
 using namespace mlir;
 
 namespace acir::ac::detail {
-// Context ownership gives the memo exactly the lifetime of its immutable keys.
 // Only grammar successes are retained; owner/source checks stay with callers.
+// The memos live on the dialect-registered GrammarCacheHost interface, so the
+// cache keeps the dialect's (context's) lifetime without typed dialect lookup.
 struct OccurrenceGrammarMemoAccess {
+  static GrammarCacheHost *host(MLIRContext *context) {
+    auto *dialect = context ? context->getLoadedDialect("ac") : nullptr;
+    return dialect ? dialect->getRegisteredInterface<GrammarCacheHost>()
+                   : nullptr;
+  }
   static bool containsSpan(DictionaryAttr value) {
-    auto *dialect =
-        value ? value.getContext()->getLoadedDialect<ACIRDialect>() : nullptr;
-    if (!dialect)
-      return false;
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    return dialect->verifiedSourceSpanGrammars.contains(value);
+    auto *cache = host(value ? value.getContext() : nullptr);
+    if (!cache) return false;
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    return cache->cache().verifiedSourceSpanGrammars.contains(value);
   }
   static void rememberSpan(DictionaryAttr value) {
-    auto *dialect = value.getContext()->getLoadedDialect<ACIRDialect>();
-    if (!dialect)
-      return;
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    dialect->verifiedSourceSpanGrammars.insert(value);
+    auto *cache = host(value.getContext());
+    if (!cache) return;
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    cache->cache().verifiedSourceSpanGrammars.insert(value);
   }
   static std::pair<uint64_t, uint64_t> spanShape(MLIRContext *context) {
-    auto *dialect =
-        context ? context->getLoadedDialect<ACIRDialect>() : nullptr;
-    if (!dialect)
-      return {0, 0};
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    return {dialect->verifiedSourceSpanGrammars.size(),
-            dialect->verifiedSourceSpanGrammars.getMemorySize() /
+    auto *cache = host(context);
+    if (!cache) return {0, 0};
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    return {cache->cache().verifiedSourceSpanGrammars.size(),
+            cache->cache().verifiedSourceSpanGrammars.getMemorySize() /
                 sizeof(DictionaryAttr)};
   }
   static bool containsStatic(DictionaryAttr value) {
-    auto *dialect =
-        value ? value.getContext()->getLoadedDialect<ACIRDialect>() : nullptr;
-    if (!dialect)
-      return false;
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    return dialect->verifiedStaticExpressionGrammars.contains(value);
+    auto *cache = host(value ? value.getContext() : nullptr);
+    if (!cache) return false;
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    return cache->cache().verifiedStaticExpressionGrammars.contains(value);
   }
   static void rememberStatic(DictionaryAttr value) {
-    auto *dialect = value.getContext()->getLoadedDialect<ACIRDialect>();
-    if (!dialect)
-      return;
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    dialect->verifiedStaticExpressionGrammars.insert(value);
+    auto *cache = host(value.getContext());
+    if (!cache) return;
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    cache->cache().verifiedStaticExpressionGrammars.insert(value);
   }
   static std::pair<uint64_t, uint64_t> staticShape(MLIRContext *context) {
-    auto *dialect =
-        context ? context->getLoadedDialect<ACIRDialect>() : nullptr;
-    if (!dialect)
-      return {0, 0};
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    return {dialect->verifiedStaticExpressionGrammars.size(),
-            dialect->verifiedStaticExpressionGrammars.getMemorySize() /
+    auto *cache = host(context);
+    if (!cache) return {0, 0};
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    return {cache->cache().verifiedStaticExpressionGrammars.size(),
+            cache->cache().verifiedStaticExpressionGrammars.getMemorySize() /
                 sizeof(DictionaryAttr)};
   }
   static bool contains(DictionaryAttr value) {
-    auto *dialect =
-        value ? value.getContext()->getLoadedDialect<ACIRDialect>() : nullptr;
-    if (!dialect)
-      return false;
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    return dialect->verifiedOccurrenceGrammars.contains(value);
+    auto *cache = host(value ? value.getContext() : nullptr);
+    if (!cache) return false;
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    return cache->cache().verifiedOccurrenceGrammars.contains(value);
   }
   static void remember(DictionaryAttr value) {
-    auto *dialect = value.getContext()->getLoadedDialect<ACIRDialect>();
-    if (!dialect)
-      return;
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    dialect->verifiedOccurrenceGrammars.insert(value);
+    auto *cache = host(value.getContext());
+    if (!cache) return;
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    cache->cache().verifiedOccurrenceGrammars.insert(value);
   }
   static std::pair<uint64_t, uint64_t> shape(MLIRContext *context) {
-    auto *dialect =
-        context ? context->getLoadedDialect<ACIRDialect>() : nullptr;
-    if (!dialect)
-      return {0, 0};
-    std::lock_guard<std::mutex> lock(dialect->occurrenceGrammarMutex);
-    return {dialect->verifiedOccurrenceGrammars.size(),
-            dialect->verifiedOccurrenceGrammars.getMemorySize() /
+    auto *cache = host(context);
+    if (!cache) return {0, 0};
+    std::lock_guard<std::mutex> lock(cache->cache().mutex);
+    return {cache->cache().verifiedOccurrenceGrammars.size(),
+            cache->cache().verifiedOccurrenceGrammars.getMemorySize() /
                 sizeof(DictionaryAttr)};
   }
 };
@@ -509,4 +500,17 @@ LogicalResult verifyStateRef(DictionaryAttr value, EmitError emitError) {
   return emitError() << "StateRef kind must be 'owned' or 'formal'";
 }
 
+LogicalResult verifyOriginDefinition(DictionaryAttr origin,
+                                     FlatSymbolRefAttr expected,
+                                     StringRef description,
+                                     EmitError emitError) {
+  auto site = origin ? origin.getAs<DictionaryAttr>("site") : DictionaryAttr();
+  auto definition =
+      site ? site.getAs<FlatSymbolRefAttr>("definition") : FlatSymbolRefAttr();
+  if (!expected || !definition || definition != expected)
+    return emitError()
+           << description
+           << " occurrence definition does not match its canonical symbol";
+  return success();
+}
 } // namespace acir::ac::detail

@@ -1,1 +1,2 @@
 add_subdirectory(ACIR)
+add_subdirectory(GFIR)
