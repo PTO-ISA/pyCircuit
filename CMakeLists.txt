@@ -30,10 +30,9 @@ if(PYC_BUILD_COMPILER_DEV)
   find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
   set(PYCIRCUIT_BUILD_TESTING "${PYC_BUILD_TESTING}" CACHE BOOL "Build native tests" FORCE)
   add_subdirectory(compiler)
-  # component-split: the validation (GFIRValidation/HWIRValidation) and
-  # conversion (ACIRConversionCommon/ACIRToGFIR/GFIRToHWIR) exports join from
-  # pr/validation and pr/conversion; this state exports every target it builds.
-  install(TARGETS ACIRDialect GFIRDialect ACIRCore ACIRAnalysis ACIRTransforms ACIRSourceCompiler ACIRCodegen PycircuitStateInterfaces pycircuit_project_options
+  # component-split: superseded by pr/validation (GFIRValidation/HWIRValidation)
+  # and pr/conversion (ACIRConversionCommon/ACIRToGFIR/GFIRToHWIR).
+  install(TARGETS ACIRDialect GFIRDialect ACIRCore ACIRAnalysis PycircuitStateInterfaces ACIRSourceCompiler ACIRCodegen ACIRTransforms pycircuit_project_options
     EXPORT pycircuitCompilerTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")

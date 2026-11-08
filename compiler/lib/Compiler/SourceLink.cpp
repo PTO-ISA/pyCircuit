@@ -3,7 +3,7 @@
 #include "SourceEntryBoundary.h"
 #include "LiteralPayloadWires.h"
 #include "SourceHeaderHelpers.h"
-#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/SourceCheckBudget.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"

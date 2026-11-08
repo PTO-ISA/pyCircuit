@@ -23,6 +23,8 @@ add_acir_library(ACIRSourceCompiler SOURCES
   TableQueryStages.cpp
   LINK_LIBRARIES
     ACIRDialect
+    # component-split: interim staged-analysis link. GFIRValidation/HWIRValidation
+    # join with pr/validation; ACIRToGFIR/GFIRToHWIR join with pr/conversion.
     ACIRAnalysis
     ACIRTransforms
     MLIRArithDialect

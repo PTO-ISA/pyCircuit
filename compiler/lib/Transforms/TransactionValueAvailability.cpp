@@ -1,5 +1,6 @@
 #include "TransactionValueAvailability.h"
-#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/SourceCheckBudget.h"
+#include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 #include "Dialect/ACIR/HardwareValueAvailability.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -448,7 +449,9 @@ class ValueAvailabilityMaterializer {
     }
     auto *operation = value.getDefiningOp();
     if (!operation) return failure();
-    if (isa<ac::SourceStateOp, ac::EnumCreateOp>(operation)) return UniformResult(Value());
+    if (isa<ac::EnumCreateOp>(operation) ||
+        isa<acir::LogicalStateOpInterface>(operation))
+      return UniformResult(Value());
     if (isa<ac::InstanceOp>(operation)) return scalar();
     if (auto collection = dyn_cast<ac::CollectionOp>(operation)) {
       if (!hardware.getPrimitiveKind(hardware.resolveCallee(collection)).empty())
@@ -1110,9 +1113,9 @@ class ValueAvailabilityMaterializer {
     if (!operation) return failure();
     if (inRow(value) && operation->getNumRegions())
       return (void)error(site, "availability has unsupported nested row regions"), failure();
-    if (isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::EnumCreateOp,
-            ac::SourceStateOp>(
-            operation))
+    if (isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::EnumCreateOp>(
+            operation) ||
+        isa<acir::LogicalStateOpInterface>(operation))
       return Value();
     if (auto rule = dyn_cast<ac::RuleOp>(operation)) {
       auto sampled = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");

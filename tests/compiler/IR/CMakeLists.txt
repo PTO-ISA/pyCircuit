@@ -12,8 +12,10 @@ function(add_acir_api_test target)
   add_executable(${target} ${API_TEST_UNPARSED_ARGUMENTS})
   target_include_directories(${target} PRIVATE "${PYCIRCUIT_SOURCE_DIR}/lib")
   # API tests exercise staged behavior; the dedicated layer-containment
-  # probes (ACIROps/ACIRAnalysis/GFIRStandalone) own the link-line checks.
-  # The GFIR/HWIR validation targets join with pr/validation.
+  # probes (ACIRCore/ACIROps/ACIRAnalysis/GFIRStandalone) own the link-line
+  # checks. component-split: superseded by pr/validation (GFIRValidation/
+  # HWIRValidation join the shared link line with the package-verification
+  # component).
   target_link_libraries(${target} PRIVATE ACIRDialect ACIRAnalysis MLIRParser MLIRFuncDialect GTest::gtest_main)
   if(NOT API_TEST_FILTER)
     set(API_TEST_FILTER "*")
@@ -30,7 +32,49 @@ function(add_acir_api_test target)
 endfunction()
 
 add_acir_api_test(ACIRSourceValueSemanticsTests SourceValueSemanticsTest.cpp)
-add_acir_api_test(ACIRRoutedAnchorTests RoutedAnchorTest.cpp)
+add_acir_api_test(ACIRSourceStaticEvaluationTests SourceStaticEvaluationTest.cpp)
+add_acir_api_test(ACIRSourceIdentifierTests SourceIdentifierTest.cpp SourceIdentifierOracleTest.cpp
+  SourceIdentityContractsTest.cpp)
+target_link_libraries(ACIRSourceIdentifierTests PRIVATE Threads::Threads)
+target_compile_definitions(ACIRSourceIdentifierTests PRIVATE
+  ACIR_UNICODE_RECIPE_PYTHON="${Python3_EXECUTABLE}")
+add_acir_api_test(ACIRExactIntegerLoweringTests ExactIntegerLoweringTest.cpp)
+target_link_libraries(ACIRExactIntegerLoweringTests PRIVATE ACIRSourceCompiler)
+add_acir_api_test(ACIRFixedUnsignedDivRemLoweringTests FixedUnsignedDivRemLoweringTest.cpp)
+target_link_libraries(ACIRFixedUnsignedDivRemLoweringTests PRIVATE ACIRSourceCompiler)
+add_acir_api_test(ACIRRecordProjectionSimplificationTests RecordProjectionSimplificationTest.cpp)
+target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
+  ACIRTransforms MLIRPass)
+add_acir_api_test(ACIRQueueContractsTests QueueContractsTest.cpp)
+target_link_libraries(ACIRQueueContractsTests PRIVATE
+  ACIRSourceCompiler ACIRCodegen ACIRTransforms MLIRPass MLIRTransforms)
+target_compile_definitions(ACIRQueueContractsTests PRIVATE
+  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
+  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}"
+  PYCIRCUIT_TEST_LINKER="$<TARGET_FILE:pycircuit-link>"
+  PYCIRCUIT_TEST_EMITTER="$<TARGET_FILE:pycircuit-emit>")
+add_dependencies(ACIRQueueContractsTests pycircuit-link pycircuit-emit)
+add_acir_api_test(ACIRTableDependencySummaryTests TableDependencySummaryTest.cpp)
+target_link_libraries(ACIRTableDependencySummaryTests PRIVATE
+  ACIRTransforms MLIRPass)
+add_acir_api_test(ACIRSourceSymbolicBoundaryTests SourceSymbolicBoundaryTest.cpp)
+add_acir_api_test(ACIRLogicalStateInterfacesTests LogicalStateInterfacesTest.cpp)
+target_link_libraries(ACIRLogicalStateInterfacesTests PRIVATE PycircuitStateInterfaces GFIRDialect ACIRAnalysis)
+add_acir_api_test(ACIREnumHardwareAnalysisTests EnumHardwareAnalysisTest.cpp)
+target_link_libraries(ACIREnumHardwareAnalysisTests PRIVATE ACIRAnalysis)
+add_acir_api_test(ACIRFinalSourceUnitsTests FinalSourceUnitsTest.cpp)
+target_link_libraries(ACIRFinalSourceUnitsTests PRIVATE ACIRAnalysis)
+add_acir_api_test(ACIREnumSourceUnitAuthorityTests EnumSourceUnitAuthorityTest.cpp)
+target_link_libraries(ACIREnumSourceUnitAuthorityTests PRIVATE
+  ACIRSourceCompiler ACIRTransforms MLIRPass)
+target_compile_definitions(ACIREnumSourceUnitAuthorityTests PRIVATE
+  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
+  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
+# component-split: the anchor, interface-pass, transaction-effect, tier,
+# source-check and routed-anchor clusters return with the package-verification
+# component (pr/validation) and the transaction conversion component
+# (pr/conversion) together with their adapted fixtures.
+
 # Containment probes: each links exactly one layer target; no archives
 # above that layer may appear on the resolved link line (verify-layering).
 add_executable(ACIRGFIRStandaloneTests GFIRStandaloneTest.cpp)
@@ -68,54 +112,10 @@ target_link_libraries(ACIRCoreStandaloneTests PRIVATE
 add_test(NAME ACIRCoreStandaloneTests COMMAND ACIRCoreStandaloneTests)
 set_tests_properties(ACIRCoreStandaloneTests PROPERTIES LABELS "api;gate;nightly")
 
-# The routed anchor tests parse GFIR state operations produced by routing, so
-# the GFIR dialect joins the shared api link closure here explicitly (it
-# reaches the final tree through the validation targets with pr/validation).
-target_link_libraries(ACIRRoutedAnchorTests PRIVATE ACIRSourceCompiler GFIRDialect)
-add_acir_api_test(ACIRAnchorArtifactTests AnchorArtifactTest.cpp)
-target_link_libraries(ACIRAnchorArtifactTests PRIVATE ACIRSourceCompiler GFIRDialect ACIRTransforms MLIRPass)
-add_acir_api_test(ACIRExactIntegerLoweringTests ExactIntegerLoweringTest.cpp)
-target_link_libraries(ACIRExactIntegerLoweringTests PRIVATE ACIRSourceCompiler)
-add_acir_api_test(ACIRFixedUnsignedDivRemLoweringTests FixedUnsignedDivRemLoweringTest.cpp)
-target_link_libraries(ACIRFixedUnsignedDivRemLoweringTests PRIVATE ACIRSourceCompiler)
-add_acir_api_test(ACIRSourceInterfacePassTests SourceInterfacePassTest.cpp
-  SourceModuleScalarResultsTest.cpp
-  SourcePrimitiveValueResultsTest.cpp
-  SourceMemoryBindingsTest.cpp TableQuerySourceTest.cpp
-  SourceTransactionCaptureTest.cpp SourceHelperAuthorityTest.cpp
-  SourceControlFlowTest.cpp)
-target_compile_definitions(ACIRSourceInterfacePassTests PRIVATE
-  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
-  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
-target_link_libraries(ACIRSourceInterfacePassTests PRIVATE
-  ACIRCodegen ACIRSourceCompiler GFIRDialect ACIRTransforms MLIRPass)
-add_acir_api_test(ACIRRecordProjectionSimplificationTests RecordProjectionSimplificationTest.cpp)
-target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
-  ACIRTransforms MLIRPass)
-add_acir_api_test(ACIRQueueContractsTests QueueContractsTest.cpp)
-add_acir_api_test(ACIRTransactionEffectsTests TransactionEffectsTest.cpp
-  MethodSummaryAuthorityTest.cpp TransactionStateSSATest.cpp
-  TransactionLoweringTest.cpp SampledTransactionLoweringTest.cpp
-  SourceFormalOwnerBindingTest.cpp SourceRegistrationEntryTest.cpp
-  HardwareWriteDomainsTest.cpp HardwareResourceDemandTest.cpp)
-target_link_libraries(ACIRTransactionEffectsTests PRIVATE
-  ACIRSourceCompiler GFIRDialect ACIRTransforms MLIRPass)
-target_compile_definitions(ACIRTransactionEffectsTests PRIVATE
-  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
-  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
-target_link_libraries(ACIRQueueContractsTests PRIVATE
-  ACIRSourceCompiler ACIRCodegen ACIRTransforms MLIRPass MLIRTransforms)
-target_compile_definitions(ACIRQueueContractsTests PRIVATE
-  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
-  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}"
-  PYCIRCUIT_TEST_LINKER="$<TARGET_FILE:pycircuit-link>"
-  PYCIRCUIT_TEST_EMITTER="$<TARGET_FILE:pycircuit-emit>")
-add_dependencies(ACIRQueueContractsTests pycircuit-link pycircuit-emit)
-add_acir_api_test(ACIRTableDependencySummaryTests TableDependencySummaryTest.cpp)
-add_acir_api_test(ACIRSourceStaticEvaluationTests SourceStaticEvaluationTest.cpp)
-add_acir_api_test(ACIRSourceIdentifierTests SourceIdentifierTest.cpp SourceIdentifierOracleTest.cpp
-  SourceIdentityContractsTest.cpp)
-target_link_libraries(ACIRSourceIdentifierTests PRIVATE Threads::Threads)
+# component-split: superseded by pr/validation (GFIRValidationStandaloneTests
+# and HWIRValidationStandaloneTests join with the package-verification
+# component).
+
 set(_module_loop_ir "${CMAKE_BINARY_DIR}/tests/compiler/module_loop.ac")
 file(GLOB _source_driver_files CONFIGURE_DEPENDS "${PYCIRCUIT_REPO_ROOT}/python/pycircuit/*.py")
 add_custom_command(OUTPUT "${_module_loop_ir}"
@@ -132,8 +132,6 @@ add_acir_api_test(ACIRWorkPartitionTests WorkPartitionTest.cpp)
 add_dependencies(ACIRWorkPartitionTests PycircuitModuleLoopIR)
 set_tests_properties(ACIRWorkPartitionTests PROPERTIES
   ENVIRONMENT "PYCIRCUIT_TEST_MODULE_LOOP_FINAL=${_module_loop_ir}")
-target_compile_definitions(ACIRSourceIdentifierTests PRIVATE
-  ACIR_UNICODE_RECIPE_PYTHON="${Python3_EXECUTABLE}")
 
 function(add_gfsim_test target)
   add_executable(${target} ${ARGN})
@@ -159,68 +157,8 @@ add_gfsim_test(ACIRSimExecutorTests "${_runtime_tests}/SimExecutorTest.cpp"
   "${PYCIRCUIT_REPO_ROOT}/runtime/model_input.cpp"
   "${PYCIRCUIT_REPO_ROOT}/runtime/sim_executor.cpp")
 
-add_acir_api_test(ACIRHardwareSourceChecksTests
-  GUARD "${CMAKE_CURRENT_SOURCE_DIR}/run_source_checks_guarded.py"
-  FILTER "-HardwareSourceChecksExecution.*"
-  HardwareSourceChecksTest.cpp HardwareSourceCheckOccurrencesTest.cpp
-  HardwareQueueResourcesTest.cpp HardwareGrantProofTest.cpp
-  HardwareSampledAdmissionTest.cpp HardwareSampledAdmissionWiringTest.cpp
-  ObservationIdentityTest.cpp
-  HardwareSourceCheckCapacityTest.cpp HardwareSourceCheckValidationBudgetTest.cpp
-  HardwareDependencyModeReuseTest.cpp HardwareValueAvailabilityTest.cpp
-  HardwareSourceChecksExecutionTest.cpp)
-set_tests_properties(ACIRHardwareSourceChecksTests PROPERTIES TIMEOUT 90)
-target_link_libraries(ACIRHardwareSourceChecksTests PRIVATE ACIRCodegen ACIRSourceCompiler)
-target_compile_definitions(ACIRHardwareSourceChecksTests PRIVATE
-  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
-  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}"
-  PYCIRCUIT_TEST_SOURCE_COMPILER="$<TARGET_FILE:pycircuit-source-unit>"
-  PYCIRCUIT_TEST_LINKER="$<TARGET_FILE:pycircuit-link>"
-  PYCIRCUIT_TEST_CXX="${CMAKE_CXX_COMPILER}"
-  PYCIRCUIT_TEST_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}")
-add_dependencies(ACIRHardwareSourceChecksTests pycircuit-source-unit pycircuit-link)
-add_test(NAME ACIRHardwareSourceChecksExecution
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/run_source_checks_guarded.py"
-    --timeout 900 --rss-mib 1536 -- "$<TARGET_FILE:ACIRHardwareSourceChecksTests>"
-    --gtest_filter=HardwareSourceChecksExecution.*)
-set_tests_properties(ACIRHardwareSourceChecksExecution PROPERTIES
-  LABELS "api;nightly" TIMEOUT 930)
-
-add_acir_api_test(ACIREnumHardwareAnalysisTests EnumHardwareAnalysisTest.cpp)
-target_link_libraries(ACIREnumHardwareAnalysisTests PRIVATE ACIRAnalysis)
-add_acir_api_test(ACIRFinalSourceUnitsTests FinalSourceUnitsTest.cpp)
-target_link_libraries(ACIRFinalSourceUnitsTests PRIVATE ACIRAnalysis)
-add_acir_api_test(ACIREnumSourceUnitAuthorityTests EnumSourceUnitAuthorityTest.cpp)
-target_link_libraries(ACIREnumSourceUnitAuthorityTests PRIVATE
-  ACIRSourceCompiler ACIRTransforms MLIRPass)
-target_compile_definitions(ACIREnumSourceUnitAuthorityTests PRIVATE
-  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
-  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
-target_link_libraries(ACIRTableDependencySummaryTests PRIVATE
-  ACIRTransforms MLIRPass)
-
-set(LLVM_EXTERNAL_LIT "" CACHE FILEPATH "Path to the executable LLVM lit test runner")
-if(NOT LLVM_EXTERNAL_LIT)
-  find_program(PYCIRCUIT_LIT_EXECUTABLE NAMES llvm-lit lit HINTS "${LLVM_TOOLS_BINARY_DIR}")
-  if(NOT PYCIRCUIT_LIT_EXECUTABLE)
-    message(FATAL_ERROR "PYC_BUILD_TESTING requires lit; set LLVM_EXTERNAL_LIT to its executable")
-  endif()
-  set(LLVM_EXTERNAL_LIT "${PYCIRCUIT_LIT_EXECUTABLE}")
-endif()
-find_program(PYCIRCUIT_FILECHECK NAMES FileCheck HINTS "${LLVM_TOOLS_BINARY_DIR}" REQUIRED)
-set(_lit_binary "${CMAKE_BINARY_DIR}/tests/compiler/lit")
-file(MAKE_DIRECTORY "${_lit_binary}")
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../lit/lit.site.cfg.py.in"
-  "${_lit_binary}/lit.site.cfg.py" @ONLY)
-# Complementary filters preserve the complete lit inventory without duplicates.
-# Fast verifier/pass tests plus source diagnostics and publication protection.
-set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission)\\.test)")
-add_test(NAME ACIRLitGateTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
-  --filter "${_lit_gate_filter}" "${_lit_binary}")
-add_test(NAME ACIRLitNightlyTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
-  --filter-out "${_lit_gate_filter}" "${_lit_binary}")
-set_tests_properties(ACIRLitGateTests PROPERTIES LABELS "api;gate;nightly" TIMEOUT 300)
-set_tests_properties(ACIRLitNightlyTests PROPERTIES LABELS "api;nightly" TIMEOUT 3600)
+# component-split: superseded by pr/conversion (the lit gate returns with the
+# component-split IR text expectations and the final tool inventory).
 set(PYC_TEST_TIER "gate" CACHE STRING "API test selection: gate or nightly")
 set_property(CACHE PYC_TEST_TIER PROPERTY STRINGS gate nightly)
 if(NOT PYC_TEST_TIER MATCHES "^(gate|nightly)$")
@@ -231,15 +169,14 @@ add_custom_target(check-pycircuit
     -L "^api$" -L "^${PYC_TEST_TIER}$" --output-junit "api-${PYC_TEST_TIER}.xml"
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
   DEPENDS pycircuit-opt pycircuit-emit pycircuit-source-unit pycircuit-link
-    ACIRRoutedAnchorTests ACIRAnchorArtifactTests ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
+    ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
     ACIRExactIntegerLoweringTests
     ACIRFixedUnsignedDivRemLoweringTests
-    ACIRSourceInterfacePassTests
     ACIRRecordProjectionSimplificationTests
-  ACIRQueueContractsTests
-  ACIRTransactionEffectsTests
+    ACIRQueueContractsTests
     ACIRTableDependencySummaryTests
-    ACIRHardwareSourceChecksTests
+    ACIRSourceSymbolicBoundaryTests
+    ACIRLogicalStateInterfacesTests
     ACIREnumHardwareAnalysisTests
     ACIRFinalSourceUnitsTests ACIREnumSourceUnitAuthorityTests
     ACIRRegRuntimeTests ACIRCollectionRuntimeTests ACIRFifoRuntimeTests ACIRSystemLifecycleTests ACIRObservationTests ACIRSimExecutorTests
