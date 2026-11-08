@@ -2,6 +2,8 @@
 #include "Dialect/ACIR/SourceCheckBudget.h"
 #include "Dialect/ACIR/HardwareSourceChecks.h"
 #include "Transforms/LowerTransactions.h"
+#include "pycircuit/Dialect/ACIR/GFIRPackageValidation.h"
+#include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Interfaces/LogicalStateInterfaces.h"

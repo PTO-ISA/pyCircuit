@@ -152,6 +152,22 @@ target_include_directories(ACIRAnalysis PRIVATE
   "${PYCIRCUIT_SOURCE_DIR}/lib"
 )
 
-# component-split: superseded by pr/validation (the GFIRValidation and
-# HWIRValidation target definitions return with the package-verification
-# component).
+# GFIRValidation / HWIRValidation: the two package-verification entrypoints
+# (C-package design §2). Each links ACIRAnalysis plus MLIRPass — never each
+# other and never GFIRDialect: the closed routed admission compares REGISTERED
+# op NAME strings, so the shared walk needs no GFIR types. The sibling
+# independence and the upper edges are enforced by pycircuit_verify_layering
+# and the two standalone probes in tests/compiler/IR.
+add_acir_library(GFIRValidation SOURCES
+  GFIRPackageValidation.cpp
+  LINK_LIBRARIES
+    ACIRAnalysis
+    MLIRPass
+)
+
+add_acir_library(HWIRValidation SOURCES
+  HWIRPackageValidation.cpp
+  LINK_LIBRARIES
+    ACIRAnalysis
+    MLIRPass
+)

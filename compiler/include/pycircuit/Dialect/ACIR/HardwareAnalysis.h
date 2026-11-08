@@ -376,16 +376,5 @@ private:
       demandedStatic;
 };
 
-// The package-verification entrypoints stay declared beside the staged
-// analysis until the package-verification component splits them into
-// GFIRValidation and HWIRValidation (component-split: superseded by
-// pr/validation).
-/// Verify common hardware shape, binding, dependency and execution contracts.
-mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
-/// Verify the versioned routed graph without requiring physical state refinement
-/// or an implementation for a declared ordinary external combinational module.
-mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
-                                       HardwareSourceCheckLimits limits = {});
-
 } // namespace acir::ac
 #endif

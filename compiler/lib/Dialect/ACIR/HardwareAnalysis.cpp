@@ -1,6 +1,5 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "AnalysisResolver.h"
-#include "HardwareSourceCheckPreflight.h"
 #include "HardwareSourceChecks.h"
 #include "SourceCheckBudget.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
@@ -825,22 +824,5 @@ getMemoryPrimitiveLayout(InstanceOp instance,
   result.maskType = *mask;
   result.predicateType = *bit;
   return result;
-}
-
-// The package-verification entrypoints stay beside the staged analysis until
-// the package-verification component splits them into GFIRValidation and
-// HWIRValidation (component-split: superseded by pr/validation).
-LogicalResult verifyHardwarePackage(mlir::ModuleOp package) {
-  if (!package)
-    return failure();
-  return HardwareAnalysis(package).verify();
-}
-LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
-                                  HardwareSourceCheckLimits limits) {
-  if (!package)
-    return failure();
-  HardwareAnalysis analysis(package);
-  return success(succeeded(detail::buildSourceCheckPlan(
-      analysis, limits, detail::PackageStagePolicy::routed())));
 }
 } // namespace acir::ac
