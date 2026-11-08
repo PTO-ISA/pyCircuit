@@ -658,6 +658,80 @@ TEST_F(HardwareSourceCheckCapacityTest,
 }
 
 TEST_F(HardwareSourceCheckCapacityTest,
+       LiteralWidthStaysClosedWithSharedIterationProvenance) {
+  begin();
+  root = module("Root");
+  check(root);
+  // Iteration identities retain their complete static values. Reusing each
+  // immutable child makes this a provenance DAG; none of those children is a
+  // numerical operand of the literal width.
+  DictionaryAttr value = literal(1).getTree().getAs<DictionaryAttr>("value");
+  for (unsigned depth = 0; depth < 8; ++depth)
+    value = d({f("kind", b.getStringAttr("list")),
+               f("values", b.getArrayAttr({value, value}))});
+  auto site = occurrence("Root", 29).getAs<DictionaryAttr>("site");
+  auto frame = d({f("kind", b.getStringAttr("iteration")), f("site", site),
+                  f("ordinal", b.getI64IntegerAttr(0)), f("value", value)});
+  auto origin = d({f("site", site), f("expansion", b.getArrayAttr({frame}))});
+  NamedAttrList tree(literal(37).getTree());
+  tree.set("origin", origin);
+  auto width = capture([&] {
+    return ac::StaticExprAttr::getChecked(
+        [&] { return emitError(loc()); }, &context, tree.getDictionary(&context));
+  });
+  ASSERT_TRUE(width) << diagnostics;
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = root;
+  EXPECT_TRUE(analysis.isStaticEvaluable(width, bindings));
+  auto evaluated = capture([&] {
+    return analysis.evaluateStatic(width, bindings, root);
+  });
+  ASSERT_TRUE(succeeded(evaluated)) << diagnostics;
+  EXPECT_EQ(cast<ac::MathIntAttr>(*evaluated).getCanonicalValue(), "37");
+  EXPECT_EQ(analysis.substituteAttribute(width, bindings), width);
+  b.setInsertionPoint(root.getBody().front().getTerminator());
+  constant(0, ac::BitsType::get(&context, width));
+  select(root);
+  auto accepted = plan();
+  ASSERT_TRUE(succeeded(accepted)) << diagnostics;
+  ASSERT_EQ(accepted->checks.size(), 1u);
+  ASSERT_EQ(accepted->bindings.size(), 1u);
+  EXPECT_EQ(accepted->bindings.front().checkID, checkID(root));
+  EXPECT_TRUE(succeeded(finalVerify())) << diagnostics;
+  EXPECT_EQ(width.getTree().getAs<DictionaryAttr>("origin"), origin);
+}
+
+TEST_F(HardwareSourceCheckCapacityTest,
+       ClosedUnsupportedStaticWidthCannotSurviveAsUnbound) {
+  begin();
+  root = module("Root");
+  // A source StaticExpr list is valid grammar and has no free parameters.
+  // Hardware width evaluation does not support it, so type resolution must
+  // reject it rather than retain it as if it were an unbound width.
+  NamedAttrList tree(literal(37).getTree());
+  tree.set("kind", b.getStringAttr("list"));
+  tree.erase("value");
+  tree.set("elements", b.getArrayAttr({literal(37)}));
+  auto width = capture([&] {
+    return ac::StaticExprAttr::getChecked(
+        [&] { return emitError(loc()); }, &context, tree.getDictionary(&context));
+  });
+  ASSERT_TRUE(width) << diagnostics;
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = root;
+  EXPECT_TRUE(analysis.isStaticEvaluable(width, bindings));
+  EXPECT_TRUE(failed(capture([&] {
+    return analysis.evaluateStatic(width, bindings, root);
+  })));
+  EXPECT_TRUE(failed(capture([&] {
+    return analysis.resolveType(ac::BitsType::get(&context, width), bindings,
+                                root);
+  })));
+}
+
+TEST_F(HardwareSourceCheckCapacityTest,
        BoundDefinitionCacheDistinguishesActualParameters) {
   begin();
   leaf = module("Generic");

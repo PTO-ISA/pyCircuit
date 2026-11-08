@@ -496,35 +496,49 @@ LogicalResult detail::verifyRoutedRegistration(
   if (rule->getAttr("occurrence") != expected)
     return error() << "routed registration identity differs from its lexical path";
 
-  // Check and observation identities must use the same lexical prefix. The
-  // ordinary effect-owner proof subsequently resolves every remaining frame
-  // and its physical domain independently.
-  SmallVector<Attribute> pending;
-  for (StringRef key : {"ac.sampled_admission", "ac.required_checks"})
-    if (Attribute attr = rule->getAttr(key)) {
-      if (failed(metadata(attr)))
-        return failure();
-      pending.push_back(attr);
-    }
-  while (!pending.empty()) {
-    Attribute attr = pending.pop_back_val();
-    if (failed(pay(1)))
+  // Only the three declared identity carriers contain invocation frames.
+  // Their complete closed schemas remain with sampled admission validation.
+  if (failed(pay(SourceCheckBudget::add(1, rule->getAttrs().size()))))
+    return failure();
+  auto sampled = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  if (!sampled || sampled.size() < 6 || sampled.size() > 11)
+    return error() << "routed registration requires sampled identity carriers";
+  auto checkPrefix = [&](DictionaryAttr carrier,
+                    uint64_t fields) -> LogicalResult {
+    if (!carrier || carrier.size() != fields)
+      return error() << "routed registration requires a typed identity carrier";
+    // Bound the field lookup before reading the invocation array. The grammar
+    // owner separately checks every frame and all non-invocation fields.
+    if (failed(pay(fields + 1)))
       return failure();
-    if (auto dict = dyn_cast<DictionaryAttr>(attr)) {
-      if (Attribute raw = dict.get("invocation")) {
-        auto frames = dyn_cast<ArrayAttr>(raw);
-        if (!frames || frames.size() < invocation.size() ||
-            !llvm::equal(frames.getValue().take_front(invocation.size()), invocation))
-          return error() << "routed invocation omits or changes its lexical allocation prefix";
+    auto frames = carrier.getAs<ArrayAttr>("invocation");
+    if (!frames || frames.size() < invocation.size())
+      return error() << "routed invocation omits or changes its lexical allocation prefix";
+    if (failed(pay(invocation.size())))
+      return failure();
+    if (!llvm::equal(frames.getValue().take_front(invocation.size()), invocation))
+      return error() << "routed invocation omits or changes its lexical allocation prefix";
+    return success();
+  };
+  for (StringRef key : {"controls", "body_checks", "observations"}) {
+    if (failed(pay(sampled.size() + 1)))
+      return failure();
+    auto rows = sampled.getAs<ArrayAttr>(key);
+    if (!rows)
+      return error() << "routed registration requires sampled identity arrays";
+    for (Attribute raw : rows) {
+      if (failed(pay(1)))
+        return failure();
+      auto carrier = dyn_cast<DictionaryAttr>(raw);
+      if (key == "observations") {
+        if (!carrier || carrier.size() != 3)
+          return error() << "routed registration requires an observation row";
+        if (failed(pay(carrier.size() + 1)))
+          return failure();
+        carrier = carrier.getAs<DictionaryAttr>("id");
       }
-      if (failed(pay(SourceCheckBudget::multiply(dict.size(), 2))))
+      if (failed(checkPrefix(carrier, key == "body_checks" ? 3 : 5)))
         return failure();
-      for (NamedAttribute field : dict)
-        pending.push_back(field.getValue());
-    } else if (auto array = dyn_cast<ArrayAttr>(attr)) {
-      if (failed(pay(SourceCheckBudget::multiply(array.size(), 2))))
-        return failure();
-      llvm::append_range(pending, array);
     }
   }
   return success();

@@ -697,6 +697,188 @@ TEST_F(HardwareSampledAdmissionTest,
 }
 
 TEST_F(HardwareSampledAdmissionTest,
+       RoutedSharedMetadataRechecksNestedInvocationAndAllocationPrefix) {
+  // Exercise lexical prefixes through the sampled schema parser as well as
+  // its registration helper. Physical effect wiring has separate owners.
+  buildMixedEffects();
+  auto child = addPlainDefinition();
+  auto allocate = [&](unsigned index) {
+    b.setInsertionPoint(definition.getBody().front().getTerminator());
+    return cast<ac::InstanceOp>(op(
+        ac::InstanceOp::getOperationName(), {}, {},
+        {f("instance_name", b.getStringAttr("child" + std::to_string(index))),
+         f("callee", FlatSymbolRefAttr::get(child.getSymNameAttr())),
+         f("parameters", b.getArrayAttr({})),
+         f("type_arguments", b.getArrayAttr({})),
+         f("occurrence", occurrence(index))}));
+  };
+  auto first = allocate(30), second = allocate(31);
+  DictionaryAttr value = literal(1).getTree().getAs<DictionaryAttr>("value");
+  for (unsigned depth = 0; depth < 7; ++depth)
+    value = d({f("kind", b.getStringAttr("list")),
+               f("values", b.getArrayAttr({value, value}))});
+  auto lexicalSite = occurrence(2, "Other").getAs<DictionaryAttr>("site");
+  auto iteration = d({f("kind", b.getStringAttr("iteration")),
+                      f("site", lexicalSite), f("ordinal", b.getI64IntegerAttr(0)),
+                      f("value", value)});
+  auto original = d({f("site", lexicalSite),
+                     f("expansion", b.getArrayAttr({iteration}))});
+  rule->setAttr("ac.lexical_registration", original);
+  rule->setAttr("ac.registration_owner",
+                FlatSymbolRefAttr::get(child.getSymNameAttr()));
+  auto route = [&](ac::InstanceOp allocation) {
+    auto call = allocation.getOccurrence();
+    auto path = b.getArrayAttr({call});
+    auto frame = d({f("call", call),
+                    f("receiver", d({f("instance_path", path)}))});
+    auto expansionCall = [&](DictionaryAttr site) {
+      return d({f("kind", b.getStringAttr("call")), f("site", site),
+                f("callee", FlatSymbolRefAttr::get(child.getSymNameAttr()))});
+    };
+    auto identity = d(
+        {f("site", call.get("site")),
+         f("expansion", b.getArrayAttr({expansionCall(call.getAs<DictionaryAttr>("site")),
+                                        iteration, expansionCall(lexicalSite)}))});
+    rule->setAttr("occurrence", identity);
+    rule->setAttr("ac.registration_path", path);
+    return b.getArrayAttr({frame});
+  };
+  auto prefix = route(first);
+  NamedAttrList metadata(rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+  for (StringRef key : {"controls", "body_checks", "observations"}) {
+    SmallVector<Attribute> rows;
+    for (Attribute raw : cast<ArrayAttr>(metadata.get(key))) {
+      NamedAttrList row(cast<DictionaryAttr>(raw));
+      NamedAttrList id(cast<DictionaryAttr>(row.get("id")));
+      id.set("registration", rule.getOccurrence());
+      if (key == "observations") {
+        id.set("invocation", prefix);
+        id.set("owner", cast<DictionaryAttr>(prefix[0]).get("receiver"));
+      } else {
+        row.set("invocation", prefix);
+      }
+      row.set("id", id.getDictionary(&context));
+      rows.push_back(row.getDictionary(&context));
+    }
+    metadata.set(key, b.getArrayAttr(rows));
+  }
+  auto valid = metadata.getDictionary(&context);
+  rule->setAttr("ac.sampled_admission", valid);
+  SmallVector<Attribute> required;
+  for (Attribute raw : rule->getAttrOfType<ArrayAttr>("ac.required_checks")) {
+    NamedAttrList row(cast<DictionaryAttr>(raw));
+    NamedAttrList id(cast<DictionaryAttr>(row.get("id")));
+    id.set("registration", rule.getOccurrence());
+    row.set("id", id.getDictionary(&context));
+    required.push_back(row.getDictionary(&context));
+  }
+  rule->setAttr("ac.required_checks", b.getArrayAttr(required));
+  ac::HardwareAnalysis analysis(*package);
+  auto verify = [&](ac::HardwareSourceCheckLimits limits = {}) {
+    detail::SourceCheckBudget budget(limits);
+    return capture([&] {
+      return detail::verifyRoutedRegistration(
+          analysis, rule, [&](uint64_t units, Operation *site) {
+            return budget.debit(units, site);
+          });
+    });
+  };
+  auto parse = [&] {
+    detail::SourceCheckBudget budget({});
+    ac::HardwareBindings bindings;
+    bindings.owner = definition;
+    return capture([&] {
+      return detail::parseSampledAdmission(rule, analysis, bindings, budget);
+    });
+  };
+  ASSERT_TRUE(succeeded(verify())) << diagnostics;
+  ASSERT_TRUE(succeeded(parse())) << diagnostics;
+  auto before = printPackage();
+  EXPECT_TRUE(failed(verify({1})));
+  EXPECT_EQ(before, printPackage());
+  auto otherPrefix = route(second);
+  route(first);
+  for (StringRef key : {"controls", "body_checks", "observations"}) {
+    SCOPED_TRACE(key.str());
+    auto originalRows = valid.getAs<ArrayAttr>(key);
+    SmallVector<Attribute> rows(originalRows.begin(), originalRows.end());
+    NamedAttrList row(cast<DictionaryAttr>(rows[0]));
+    if (key == "observations") {
+      NamedAttrList id(cast<DictionaryAttr>(row.get("id")));
+      id.set("invocation", otherPrefix);
+      id.set("owner", cast<DictionaryAttr>(otherPrefix[0]).get("receiver"));
+      ASSERT_TRUE(succeeded(capture([&] {
+        return detail::verifyObservationID(id.getDictionary(&context),
+                                            [&] { return emitError(loc()); });
+      }))) << diagnostics;
+      row.set("id", id.getDictionary(&context));
+    } else {
+      row.set("invocation", otherPrefix);
+    }
+    rows[0] = row.getDictionary(&context);
+    NamedAttrList changed(valid);
+    changed.set(key, b.getArrayAttr(rows));
+    rule->setAttr("ac.sampled_admission", changed.getDictionary(&context));
+    EXPECT_TRUE(failed(parse())) << "every carrier requires its routed prefix";
+  }
+  NamedAttrList unknown(valid);
+  unknown.set("unexpected_optional", b.getBoolAttr(true));
+  rule->setAttr("ac.sampled_admission", unknown.getDictionary(&context));
+  EXPECT_TRUE(failed(parse())) << "schema parser must reject unknown fields";
+  rule->setAttr("ac.sampled_admission", valid);
+  route(second);
+  EXPECT_TRUE(failed(parse())) << "shared metadata cannot authorize another route";
+  route(first);
+  EXPECT_TRUE(succeeded(parse())) << diagnostics;
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       SameInvocationAvailabilityControlsRetainEveryObligation) {
+  // Exercise the sampled schema boundary. Physical resource and proposal
+  // wiring are checked separately by HardwareQueueResourcesTest.
+  constexpr unsigned controlCount = 64;
+  build(false, std::nullopt, controlCount);
+  auto original = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  SmallVector<Attribute> controls, resources;
+  controls.push_back(guard());
+  auto owner = d({f("instance_path", b.getArrayAttr({}))});
+  for (unsigned ordinal = 1; ordinal < controlCount; ++ordinal) {
+    NamedAttrList control(guard(ordinal, ordinal - 1));
+    control.set("kind", b.getStringAttr("resource_available"));
+    controls.push_back(control.getDictionary(&context));
+    resources.push_back(d(
+        {f("control", b.getI64IntegerAttr(ordinal)),
+         f("kind", b.getStringAttr("queue_valid")), f("owner", owner),
+         f("declaration", occurrence(100)),
+         f("occurrence", checkID(ordinal).get("check")),
+         f("location", span())}));
+  }
+  NamedAttrList metadata(original);
+  metadata.set("controls", b.getArrayAttr(controls));
+  metadata.set("resources", b.getArrayAttr(resources));
+  rule->setAttr("ac.sampled_admission", metadata.getDictionary(&context));
+  auto before = printPackage();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({});
+  auto parsed = capture([&] {
+    return detail::parseSampledAdmission(rule, analysis, bindings, budget);
+  });
+  ASSERT_TRUE(succeeded(parsed)) << diagnostics;
+  ASSERT_EQ(parsed->controls.size(), controlCount);
+  ASSERT_EQ(parsed->resources.size(), controlCount - 1);
+  for (unsigned ordinal = 1; ordinal < controlCount; ++ordinal) {
+    EXPECT_EQ(parsed->controls[ordinal].kind,
+              detail::SampledControlKind::ResourceAvailable);
+    EXPECT_TRUE(parsed->controls[ordinal].invocation.empty());
+    EXPECT_EQ(parsed->controls[ordinal].id, checkID(ordinal));
+    EXPECT_EQ(parsed->resources[ordinal - 1].control, ordinal);
+  }
+  EXPECT_EQ(before, printPackage());
+}
+
+TEST_F(HardwareSampledAdmissionTest,
        SampledCatalogOrdinalIndexPreservesSemanticCheckIdentity) {
   build(false, {}, 2);
   ASSERT_TRUE(succeeded(capture([&] { return verifyDefinition(); }))) << diagnostics;
@@ -1465,6 +1647,26 @@ TEST_F(HardwareSampledAdmissionTest,
           << diagnostics;
     }
   }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       DistinctRuleCapturesOfOneInputShareKnownEitherIdentity) {
+  buildConditional();
+  auto &body = rule.getBody().front();
+  auto input = rule.getOperand(2);
+  SmallVector<Value> captures(rule.getOperands());
+  captures.append({input, input});
+  rule->setOperands(captures);
+  auto first = body.addArgument(input.getType(), loc());
+  auto second = body.addArgument(input.getType(), loc());
+  // Distinct Rule SSA arguments normalize to the same captured input. Both
+  // comparisons must still authenticate the original selection's raw value.
+  conditional.knownZero.getDefiningOp()->setOperand(0, first);
+  conditional.knownOne.getDefiningOp()->setOperand(0, second);
+  auto before = printPackage();
+  EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+      << diagnostics;
+  EXPECT_EQ(before, printPackage());
 }
 
 TEST_F(HardwareSampledAdmissionTest,

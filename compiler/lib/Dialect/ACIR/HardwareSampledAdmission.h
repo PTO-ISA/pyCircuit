@@ -3,6 +3,8 @@
 
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Interfaces/LogicalStateInterfaces.h"
+#include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -145,6 +147,7 @@ struct HardwareIdentityStopPolicy {
   HardwareIdentityTraversal traversal;
   llvm::ArrayRef<HardwareIdentityEndpoint> boundaries;
 };
+using HardwareIdentityStopIndex = std::multimap<const void *, std::size_t>;
 
 /// Complete definition-local identity boundaries for one read-only validation.
 /// The borrowed IR must outlive this result and remain unchanged. This is not
@@ -162,6 +165,7 @@ public:
   llvm::ArrayRef<HardwareIdentityEndpoint> getBoundaries() const {
     return boundaries;
   }
+  const HardwareIdentityStopIndex &getStopIndex() const { return stopIndex; }
   mlir::LogicalResult verifyFor(ModuleOp definition,
                                 const HardwareBindings &bindings,
                                 SourceCheckBudget &budget) const;
@@ -169,7 +173,10 @@ public:
 private:
   PreparedSampledBoundaries(
       HardwareIdentityScope &&scope,
-      llvm::SmallVector<HardwareIdentityEndpoint> &&boundaries);
+      llvm::SmallVector<HardwareIdentityEndpoint> &&boundaries,
+      HardwareIdentityStopIndex &&stopIndex,
+      std::unique_ptr<TransactionWiringView> &&wiring);
+  friend class SampledAdmissionValidation;
   friend mlir::FailureOr<std::optional<PreparedSampledBoundaries>>
   prepareSampledBoundaries(ModuleOp definition,
                            const HardwareAnalysis &analysis,
@@ -178,6 +185,12 @@ private:
 
   HardwareIdentityScope scope;
   llvm::SmallVector<HardwareIdentityEndpoint> boundaries;
+  // Complete candidate enumeration only; each lookup still checks the full
+  // boundary endpoint. Ordinals remain valid when preparation is moved.
+  HardwareIdentityStopIndex stopIndex;
+  // Retain the schema used to establish these immutable boundaries. Stable
+  // ownership avoids moving nested inline vectors when preparation is returned.
+  std::unique_ptr<TransactionWiringView> wiring;
 };
 
 mlir::FailureOr<std::optional<PreparedSampledBoundaries>>

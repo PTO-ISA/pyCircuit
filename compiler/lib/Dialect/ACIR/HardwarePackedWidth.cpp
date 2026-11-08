@@ -122,8 +122,16 @@ bool evaluable(Attribute attr, const HardwareBindings &bindings,
     return true; // Invalid closed expressions must not look merely unbound.
   active.push_back(attr);
   llvm::scope_exit cleanup([&] { active.pop_back(); });
-  if (auto expression = dyn_cast_or_null<StaticExprAttr>(attr))
-    return evaluable(expression.getTree(), bindings, active, resolver);
+  if (auto expression = dyn_cast_or_null<StaticExprAttr>(attr)) {
+    auto tree = expression.getTree();
+    auto kind = tree.getAs<StringAttr>("kind");
+    // Closure depends only on expression operands. Literal provenance may be
+    // a shared DAG and has no bearing on whether a binding is required. The
+    // owning evaluator still diagnoses malformed literal values.
+    if (kind && kind.getValue() == "literal")
+      return true;
+    return evaluable(tree, bindings, active, resolver);
+  }
   if (auto dictionary = dyn_cast_or_null<DictionaryAttr>(attr)) {
     auto kind = dictionary.getAs<StringAttr>("kind");
     if (kind && kind.getValue() == "reference") {

@@ -15,6 +15,10 @@ class SampledAdmissionValidation;
 mlir::LogicalResult verifySourceObservationWidths(
     const HardwareAnalysis &analysis, SourceObserveOp observe,
     const HardwareBindings &bindings);
+/// Authenticate the physical route and lexical invocation prefixes in the
+/// declared control, body-check and observation identity carriers. This does
+/// not admit their complete metadata schemas: sampled admission's owning
+/// parser/native entry must validate those before accepting the definition.
 mlir::LogicalResult verifyRoutedRegistration(
     const HardwareAnalysis &analysis, RuleOp rule,
     const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
