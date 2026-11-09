@@ -374,13 +374,13 @@ private:
   mutable llvm::DenseMap<mlir::Type, llvm::SmallVector<PackedLeaf>> layouts;
   mutable llvm::SmallVector<std::pair<mlir::Attribute, mlir::Operation *>>
       demandedStatic;
+};
+
+} // namespace acir::ac
 
 namespace acir::ac {
 mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
                                         HardwareSourceCheckLimits limits = {});
 mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
-} // namespace acir::ac
-};
-
 } // namespace acir::ac
 #endif
