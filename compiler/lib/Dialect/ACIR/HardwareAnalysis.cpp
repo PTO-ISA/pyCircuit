@@ -1282,4 +1282,18 @@ getMemoryPrimitiveLayout(InstanceOp instance,
   result.predicateType = *bit;
   return result;
 }
+
+mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
+                                        HardwareSourceCheckLimits limits) {
+  if (!package)
+    return failure();
+  HardwareAnalysis analysis(package);
+  return success(succeeded(detail::buildSourceCheckPlan(
+      analysis, limits, detail::PackageVerificationProfile::Routed)));
+}
+mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package) {
+  if (!package)
+    return failure();
+  return HardwareAnalysis(package).verify();
+}
 } // namespace acir::ac

@@ -347,7 +347,7 @@ FailureOr<SmallVector<FinalSourceMap>>
 emitFinalSourceMaps(ModuleOp package,
                     ArrayRef<FinalSourceMembership> membership,
                     ac::detail::EmitError emitError) {
-  if (!package || failed(ac::verifyHardwarePackage(package)))
+  if (!package || failed(ac::HardwareAnalysis(package).verifyHardwarePackage(package)))
     return emitError() << "final source maps require verified hardware IR";
   auto units = ac::collectFinalSourceUnits(package, emitError);
   if (failed(units))

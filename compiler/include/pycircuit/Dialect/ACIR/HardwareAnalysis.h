@@ -348,9 +348,10 @@ public:
   getIndependentWorkSubtrees(ModuleOp definition) const;
   mlir::FailureOr<HardwareSourceCheckPlan>
   getSourceCheckPlan(HardwareSourceCheckLimits limits = {}) const;
-  mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
-                                          HardwareSourceCheckLimits limits = {});
-  mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
+
+  /// Free-function entrypoints kept at the analysis layer for callers that
+  /// construct their own analysis (transitions to member form happen when
+  /// the validation component takes ownership).
   mlir::LogicalResult
   verifySourceCheckPlan(const HardwareSourceCheckPlan &plan,
                         HardwareSourceCheckLimits limits = {}) const;
@@ -373,6 +374,10 @@ private:
   mutable llvm::DenseMap<mlir::Type, llvm::SmallVector<PackedLeaf>> layouts;
   mutable llvm::SmallVector<std::pair<mlir::Attribute, mlir::Operation *>>
       demandedStatic;
+
+mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
+                                        HardwareSourceCheckLimits limits = {});
+mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
 };
 
 } // namespace acir::ac
