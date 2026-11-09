@@ -12,11 +12,7 @@ class SampledAdmissionValidation;
 mlir::LogicalResult verifySourceObservationSpec(
     mlir::StringAttr kind, mlir::DictionaryAttr spec, uint64_t valueCount,
     EmitError emitError);
-struct ObservationLocalKey {
-  mlir::DictionaryAttr identity;
-  mlir::DictionaryAttr owner;
-  mlir::StringAttr reportName;
-};
+
 mlir::LogicalResult verifySourceObservationStructure(SourceObserveOp observe);
 mlir::LogicalResult verifyModuleObservationIdentities(ModuleOp definition);
 mlir::LogicalResult verifyRoutedRegistration(
