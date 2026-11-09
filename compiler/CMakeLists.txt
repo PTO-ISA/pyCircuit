@@ -50,9 +50,7 @@ endif()
 
 add_subdirectory(include)
 add_subdirectory(lib)
-# component-split: superseded by pr/integration (the tool executables return
-# with the compiler/codegen/test adaptation component).
-# add_subdirectory(tools)
+add_subdirectory(tools)
 
 if(PYCIRCUIT_BUILD_TESTING)
   add_subdirectory(
