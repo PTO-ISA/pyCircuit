@@ -168,7 +168,11 @@ if(NOT LLVM_EXTERNAL_LIT)
   if(NOT PYCIRCUIT_LIT_EXECUTABLE)
     message(FATAL_ERROR "PYC_BUILD_TESTING requires lit; set LLVM_EXTERNAL_LIT to its executable")
   endif()
-  set(LLVM_EXTERNAL_LIT "${PYCIRCUIT_LIT_EXECUTABLE}")
+  # The gate entrypoint validates the configured runner from CMakeCache.txt.
+  # Persist auto-discovery there instead of only shadowing the empty cache
+  # entry with a directory-local variable.
+  set(LLVM_EXTERNAL_LIT "${PYCIRCUIT_LIT_EXECUTABLE}" CACHE FILEPATH
+    "Path to the executable LLVM lit test runner" FORCE)
 endif()
 # A successful CTest invocation is not evidence if the configured command is a
 # no-op such as /usr/bin/true.  Validate the runner before registering any lit

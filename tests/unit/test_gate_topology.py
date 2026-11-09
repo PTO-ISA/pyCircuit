@@ -199,6 +199,15 @@ def test_api_and_example_entrypoints_are_separate_and_tiered() -> None:
             assert text.count(f"bash tools/{script} --tier nightly") == 1
 
 
+def test_auto_discovered_lit_is_persisted_for_the_api_gate() -> None:
+    cmake = _read("tests/compiler/IR/CMakeLists.txt")
+    gate_helpers = _read("tools/lib.sh")
+
+    assert 'set(LLVM_EXTERNAL_LIT "${PYCIRCUIT_LIT_EXECUTABLE}" CACHE FILEPATH' in cmake
+    assert "pyc_require_real_lit" in gate_helpers
+    assert "LLVM_EXTERNAL_LIT:FILEPATH=" in gate_helpers
+
+
 @pytest.mark.parametrize("script", FULL_CLOSURE_SCRIPTS)
 def test_entrypoints_reject_invalid_selection_before_toolchain_access(
     script: str,
