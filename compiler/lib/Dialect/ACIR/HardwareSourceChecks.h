@@ -6,15 +6,19 @@
 #include <functional>
 
 namespace acir::ac::detail {
+enum class PackageVerificationProfile { Routed, Hardware };
 class SourceCheckBudget;
 class SampledAdmissionValidation;
-// The observation grammar (structure/spec/identity duplicates) and the
-// source-effect placement walk are declared in ACIRSourceContracts.h and
-// defined in the operations layer; this tier owns the bound-width hook and
-// the check-plan entries.
-mlir::LogicalResult verifySourceObservationWidths(
-    const HardwareAnalysis &analysis, SourceObserveOp observe,
-    const HardwareBindings &bindings);
+mlir::LogicalResult verifySourceObservationSpec(
+    mlir::StringAttr kind, mlir::DictionaryAttr spec, uint64_t valueCount,
+    EmitError emitError);
+struct ObservationLocalKey {
+  mlir::DictionaryAttr identity;
+  mlir::DictionaryAttr owner;
+  mlir::StringAttr reportName;
+};
+mlir::LogicalResult verifySourceObservationStructure(SourceObserveOp observe);
+mlir::LogicalResult verifyModuleObservationIdentities(ModuleOp definition);
 mlir::LogicalResult verifyRoutedRegistration(
     const HardwareAnalysis &analysis, RuleOp rule,
     const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
@@ -38,6 +42,13 @@ mlir::FailureOr<ResolvedSourceEffectOwner> resolveObservationOwner(
     const HardwareBindings &physicalBindings,
     const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)>
         &debit);
+mlir::LogicalResult
+verifyHardwarePackageStage(const HardwareAnalysis &analysis,
+                           PackageVerificationProfile profile);
+mlir::LogicalResult
+verifyHardwarePackageEnvelope(
+    const HardwareAnalysis &analysis, PackageVerificationProfile profile,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
 mlir::LogicalResult verifySourceCheckDependencies(
     const HardwareAnalysis &analysis,
     llvm::ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes,
