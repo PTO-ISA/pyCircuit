@@ -152,9 +152,30 @@ def check_text(design_ac, rtl_dir, cpp_dir):
     }
     fields = [definitions.get(value) for value in packed.groups()]
     if fields != [
-        (next(owner for owner, role in definitions.values() if role == "in_ready" and owner.endswith("5f30")), "in_ready"),
-        (next(owner for owner, role in definitions.values() if role == "out_valid" and owner.endswith("5f35")), "out_valid"),
-        (next(owner for owner, role in definitions.values() if role == "out_data" and owner.endswith("5f35")), "out_data"),
+        (
+            next(
+                owner
+                for owner, role in definitions.values()
+                if role == "in_ready" and owner.endswith("5f30")
+            ),
+            "in_ready",
+        ),
+        (
+            next(
+                owner
+                for owner, role in definitions.values()
+                if role == "out_valid" and owner.endswith("5f35")
+            ),
+            "out_valid",
+        ),
+        (
+            next(
+                owner
+                for owner, role in definitions.values()
+                if role == "out_data" and owner.endswith("5f35")
+            ),
+            "out_data",
+        ),
     ]:
         raise AssertionError(f"could not attribute the result fields: {fields}")
     ready_owner, valid_owner, data_owner = (field[0] for field in fields)

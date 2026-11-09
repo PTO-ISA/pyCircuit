@@ -1193,9 +1193,7 @@ for helper in HELPERS:
             assert "ObservationDescriptor" in observe_system
             assert "Configure(descriptors," in observe_system
         else:
-            assert "design_top.sv" in {
-                row["path"] for row in observe_receipt["files"]
-            }
+            assert "design_top.sv" in {row["path"] for row in observe_receipt["files"]}
         cli(
             "emit",
             linked,

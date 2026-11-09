@@ -140,8 +140,7 @@ DEPENDENT_OUTPUT = (
 # A concrete child proves that returning an instance output is admissible at
 # all; the dependent variant isolates the width comparison.
 CONCRETE_CHILD = (
-    HEADER +
-    "@ac.struct\n"
+    HEADER + "@ac.struct\n"
     "class ChildResult:\n"
     "    y: ac.u8\n"
     "@ac.module\n"
@@ -154,8 +153,7 @@ CONCRETE_CHILD = (
 )
 
 DEPENDENT_CHILD = (
-    ANN + HEADER +
-    "@ac.struct\n"
+    ANN + HEADER + "@ac.struct\n"
     "class ChildResult:\n"
     "    y: ac.bits[4 + 4]\n"
     "@ac.module\n"

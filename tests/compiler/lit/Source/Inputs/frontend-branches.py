@@ -688,7 +688,9 @@ for top, names, rows, expected, state in (
         cli("emit", final, "--target", target, "-o", output / target)
     cpp = [
         output / "structural-cpp" / row["path"]
-        for row in json.loads((output / "structural-cpp/generated.json").read_text())["files"]
+        for row in json.loads((output / "structural-cpp/generated.json").read_text())[
+            "files"
+        ]
         if row["path"].endswith(".cpp")
     ]
     runner = output / "runner"

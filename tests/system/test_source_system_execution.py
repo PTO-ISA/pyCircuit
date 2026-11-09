@@ -158,9 +158,7 @@ def _bundle(final: Path, tmp_path: Path, target: str) -> Path:
     receipt = json.loads((generated / "generated.json").read_text())
     names = {item["path"] for item in receipt["files"]}
     harness = (
-        "simulation_main.cpp"
-        if target == "structural-cpp"
-        else "simulation_top.sv"
+        "simulation_main.cpp" if target == "structural-cpp" else "simulation_top.sv"
     )
     assert harness in names
     build = tmp_path / f"build-{target}"
@@ -496,8 +494,7 @@ def _conditional_probe_rtl_observation_oracle(generated):
         groups, expected, strict=True
     ):
         descriptor = re.search(
-            r'\$write\("\{\\"kind\\":\\"([^"]+)\\",'
-            r'\\"instance\\":\\"([^"]+)\\",',
+            r'\$write\("\{\\"kind\\":\\"([^"]+)\\",' r'\\"instance\\":\\"([^"]+)\\",',
             body,
         )
         assert descriptor is not None
@@ -1681,11 +1678,7 @@ endmodule
     )
     binary = tmp_path / "method_effects_four_state"
     manifest = json.loads((generated / "generated.json").read_text())
-    rtl = [
-        generated / row["path"]
-        for row in manifest["files"]
-        if row["role"] == "rtl"
-    ]
+    rtl = [generated / row["path"] for row in manifest["files"] if row["role"] == "rtl"]
     assert generated / "design_top.sv" in rtl
     _ok(
         _run(
@@ -3530,11 +3523,7 @@ endmodule
     binary = tmp_path / "atomic_rtl"
     runtime = _install() / "include/verilog/dffe.v"
     manifest = json.loads((generated / "generated.json").read_text())
-    rtl = [
-        generated / row["path"]
-        for row in manifest["files"]
-        if row["role"] == "rtl"
-    ]
+    rtl = [generated / row["path"] for row in manifest["files"] if row["role"] == "rtl"]
     assert generated / "design_top.sv" in rtl
     _ok(
         _run(

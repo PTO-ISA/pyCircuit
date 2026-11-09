@@ -171,7 +171,7 @@ def execution_tools(
             ]
         if latent:
             cpp += [
-                'void replayLatentTuples(unsigned workers){pyc_dut probe(workers);auto &root=probe.root();',
+                "void replayLatentTuples(unsigned workers){pyc_dut probe(workers);auto &root=probe.root();",
                 "for(unsigned row=0;row<row_count;++row)for(unsigned pattern=0;pattern<4;++pattern){",
             ]
             cpp += [
@@ -310,9 +310,9 @@ def execution_tools(
         # recreates one monolithic source must fail before invoking the host
         # optimizer.
         max_generated_tu_bytes = 1024 * 1024
-        assert cpp and all(path.stat().st_size <= max_generated_tu_bytes for path in cpp), {
-            str(path): path.stat().st_size for path in cpp
-        }
+        assert cpp and all(
+            path.stat().st_size <= max_generated_tu_bytes for path in cpp
+        ), {str(path): path.stat().st_size for path in cpp}
         defines = ["-DENUM_SOURCE_STATE"] if state else []
         if latent:
             defines.append("-DENUM_SOURCE_LATENT")
@@ -358,9 +358,7 @@ def execution_tools(
             )
         else:
             compiler_build = Path(args.source_compiler).resolve().parent.parent
-            runtime_package = (
-                compiler_build.parent / "install/share/pycircuit/cmake"
-            )
+            runtime_package = compiler_build.parent / "install/share/pycircuit/cmake"
         assert (
             runtime_package / "pycircuitRuntimeTargets.cmake"
         ).is_file(), f"installed Runtime CMake package missing: {runtime_package}"
@@ -388,7 +386,9 @@ def execution_tools(
                 "4",
             ]
         )
-        runner = native_build / ("enum_source_runner.exe" if os.name == "nt" else "enum_source_runner")
+        runner = native_build / (
+            "enum_source_runner.exe" if os.name == "nt" else "enum_source_runner"
+        )
         assert runner.is_file(), build_result
 
         # Ninja records start/end milliseconds for every independent command.
@@ -404,7 +404,9 @@ def execution_tools(
                 compile_durations[artifact] = (int(end) - int(start)) / 1000
         assert compile_durations, "native CMake build recorded no translation units"
         max_tu_compile_seconds = 90
-        assert max(compile_durations.values()) <= max_tu_compile_seconds, compile_durations
+        assert (
+            max(compile_durations.values()) <= max_tu_compile_seconds
+        ), compile_durations
         config = output / "config.json"
         config.write_text(
             json.dumps(

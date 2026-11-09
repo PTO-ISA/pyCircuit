@@ -200,9 +200,7 @@ def _write_generated_bundle(directory, target):
     generated = directory / target
     generated.mkdir(parents=True, exist_ok=True)
     harness = (
-        "simulation_main.cpp"
-        if target == "structural-cpp"
-        else "simulation_top.sv"
+        "simulation_main.cpp" if target == "structural-cpp" else "simulation_top.sv"
     )
     (generated / harness).write_text(f"generated {target} simulation harness\n")
     (generated / "generated.json").write_text(

@@ -635,8 +635,7 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     assert policies == {0}, policies
     assert latencies == {1}, latencies
     assert all(
-        "Token_t" in params or ".T(logic [63:0])" in params
-        for _, params, _ in fifos
+        "Token_t" in params or ".T(logic [63:0])" in params for _, params, _ in fifos
     ), [p for _, p, _ in fifos]
     ok(
         "V2-rtl-fifo",

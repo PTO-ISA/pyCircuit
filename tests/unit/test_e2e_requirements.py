@@ -16,7 +16,10 @@ def test_e2e_requirement_manifest_is_closed() -> None:
     payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
     assert payload["schema"] == "pycircuit-e2e-requirements-v1"
     assert set(payload["entrypoints"]) == {
-        "gate", "nightly", "examples_gate", "examples_nightly"
+        "gate",
+        "nightly",
+        "examples_gate",
+        "examples_nightly",
     }
     requirements = payload["requirements"]
     assert requirements

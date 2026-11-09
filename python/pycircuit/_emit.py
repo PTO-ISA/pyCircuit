@@ -27,7 +27,6 @@ from ._publication_fs import _PublicationFileSystem
 from ._source_capture import _read_stable_file_bytes
 from ._source_map import _validate_emitted_bundle
 
-
 _VERILATOR_POLICY_PATH = Path(__file__).with_name("verilator_policy.json")
 _STRUCTURAL_CPP_MAX_TU_BYTES = 1024 * 1024
 
@@ -152,7 +151,7 @@ target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
         text += "find_package(verilator REQUIRED)\n"
         text += 'set(PYCIRCUIT_VERILATOR_DIR "${CMAKE_CURRENT_BINARY_DIR}/verilator")\n'
         text += (
-            'set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS\n'
+            "set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS\n"
             '  "${CMAKE_CURRENT_SOURCE_DIR}/generated.json"\n'
             '  "${CMAKE_CURRENT_SOURCE_DIR}/verilator_policy.json")\n'
         )
@@ -160,10 +159,10 @@ target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
             'execute_process(COMMAND "${Python3_EXECUTABLE}" '
             '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py" '
             '--check-verilator-policy "${CMAKE_CURRENT_SOURCE_DIR}" '
-            'RESULT_VARIABLE PYCIRCUIT_POLICY_STATUS)\n'
-            'if(NOT PYCIRCUIT_POLICY_STATUS EQUAL 0)\n'
+            "RESULT_VARIABLE PYCIRCUIT_POLICY_STATUS)\n"
+            "if(NOT PYCIRCUIT_POLICY_STATUS EQUAL 0)\n"
             '  message(FATAL_ERROR "generated Verilator policy validation failed")\n'
-            'endif()\n'
+            "endif()\n"
         )
         text += "verilate(pycircuit_modules SOURCES\n"
         for path in standard_sources:
@@ -176,7 +175,9 @@ target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
             text += '  "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}/' + quoted + '"\n'
         text += "".join("  " + _cmake_quote(path) + "\n" for path in rtl_sources)
         text += "  TOP_MODULE " + _cmake_quote(root_rtl_name) + "\n"
-        text += '  PREFIX Vpycircuit_modules\n  DIRECTORY "${PYCIRCUIT_VERILATOR_DIR}"\n'
+        text += (
+            '  PREFIX Vpycircuit_modules\n  DIRECTORY "${PYCIRCUIT_VERILATOR_DIR}"\n'
+        )
         text += (
             "  VERILATOR_ARGS --Wno-fatal"
             f" --output-split {split}"
@@ -188,16 +189,16 @@ target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
             '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py" '
             '--check-verilator-generated "${CMAKE_CURRENT_SOURCE_DIR}" '
             '--mdir "${PYCIRCUIT_VERILATOR_DIR}" '
-            'RESULT_VARIABLE PYCIRCUIT_GENERATED_STATUS)\n'
-            'if(NOT PYCIRCUIT_GENERATED_STATUS EQUAL 0)\n'
+            "RESULT_VARIABLE PYCIRCUIT_GENERATED_STATUS)\n"
+            "if(NOT PYCIRCUIT_GENERATED_STATUS EQUAL 0)\n"
             '  message(FATAL_ERROR "generated Verilator C++ validation failed")\n'
-            'endif()\n'
-            'add_custom_command(TARGET pycircuit_modules PRE_LINK\n'
+            "endif()\n"
+            "add_custom_command(TARGET pycircuit_modules PRE_LINK\n"
             '  COMMAND "${Python3_EXECUTABLE}" '
             '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py"\n'
             '    --check-verilator-generated "${CMAKE_CURRENT_SOURCE_DIR}"\n'
             '    --mdir "${PYCIRCUIT_VERILATOR_DIR}" VERBATIM)\n'
-            'add_custom_command(TARGET pycircuit_modules POST_BUILD\n'
+            "add_custom_command(TARGET pycircuit_modules POST_BUILD\n"
             '  COMMAND "${Python3_EXECUTABLE}" '
             '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py"\n'
             '    --check-verilator-symbols "${CMAKE_CURRENT_SOURCE_DIR}"\n'
@@ -257,8 +258,7 @@ def _target_files(payload: dict, target: str):
         if "port_availability" in payload:
             add(
                 "ports.json",
-                json.dumps(payload["port_availability"], separators=(",", ":"))
-                + "\n",
+                json.dumps(payload["port_availability"], separators=(",", ":")) + "\n",
                 "runtime-glue",
             )
     simulation = bool(
@@ -412,11 +412,7 @@ def emit_command(
                         str(hwir),
                         "--target",
                         target,
-                        *(
-                            ["--rtl-mode", rtl_mode]
-                            if target == "verilog"
-                            else []
-                        ),
+                        *(["--rtl-mode", rtl_mode] if target == "verilog" else []),
                     ],
                     capture_output=True,
                     text=True,

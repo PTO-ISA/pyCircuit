@@ -686,9 +686,10 @@ def test_first_final_and_generated_publications_recover_five_reachable_crashes(
                 if committed:
                     assert result.returncode == 0, result.stdout + result.stderr
                     assert _snapshot(destination) == expected
-                    assert _snapshot(verified_output) == generated_bytes[
-                        ("new", "structural-cpp")
-                    ]
+                    assert (
+                        _snapshot(verified_output)
+                        == generated_bytes[("new", "structural-cpp")]
+                    )
                     assert _journal(destination)["phase"] == "committed"
                     _checked(_replace(_link(unit, destination)), env=env, cwd=tmp_path)
                 else:

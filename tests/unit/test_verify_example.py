@@ -59,9 +59,7 @@ def case(tmp_path: Path) -> dict[str, Path]:
         files = [{"path": name, "role": role}]
         if target == "verilog":
             (directory / "verilator_policy.json").write_bytes(POLICY.read_bytes())
-            files.append(
-                {"path": "verilator_policy.json", "role": "runtime-glue"}
-            )
+            files.append({"path": "verilator_policy.json", "role": "runtime-glue"})
         (directory / "generated.json").write_text(
             json.dumps(
                 {
@@ -133,9 +131,7 @@ def test_compile_system_uses_whitespace_free_verilator_stage(
     source.mkdir()
     (include / "verilog").mkdir(parents=True)
     (source / "design_top.sv").write_text("module design_top; endmodule\n")
-    (source / "simulation_top.sv").write_text(
-        "module pycircuit_sim; endmodule\n"
-    )
+    (source / "simulation_top.sv").write_text("module pycircuit_sim; endmodule\n")
     (source / "verilator_policy.json").write_bytes(POLICY.read_bytes())
     (source / "generated.json").write_text(
         json.dumps(
@@ -186,8 +182,15 @@ def test_compile_system_uses_whitespace_free_verilator_stage(
     arguments = json.loads(invocation.read_text())
     mdir = Path(arguments[arguments.index("--Mdir") + 1])
     emitted = Path(arguments[arguments.index("-o") + 1])
-    compiler_paths = [mdir, emitted, *map(Path, arguments[arguments.index("-Wno-fatal") + 1 :])]
-    assert all(not any(character.isspace() for character in str(path)) for path in compiler_paths)
+    compiler_paths = [
+        mdir,
+        emitted,
+        *map(Path, arguments[arguments.index("-Wno-fatal") + 1 :]),
+    ]
+    assert all(
+        not any(character.isspace() for character in str(path))
+        for path in compiler_paths
+    )
     assert arguments[arguments.index("-j") + 1] == "3"
     for name, value in (
         ("--output-split", "10000"),
@@ -284,8 +287,7 @@ def test_generated_cpp_and_header_size_limits_fail_before_compilation(
     mdir.mkdir()
     (mdir / "small.cpp").write_text("int generated;\n")
     (mdir / "Vprobe__verFiles.dat").write_text(
-        'C "--output-split 10000 --output-split-cfuncs 10000 '
-        '--output-groups 0"\n'
+        'C "--output-split 10000 --output-split-cfuncs 10000 ' '--output-groups 0"\n'
     )
     oversized = mdir / ("oversized" + suffix)
     with oversized.open("wb") as stream:
@@ -858,8 +860,7 @@ def test_system_changed_candidate_cannot_publish_success(
         "toolchain": system_case["toolchain"] / "bin/pycircuit-emit",
         "cpp_payload": system_case["build"]
         / "structural-cpp/structural-cpp/model.payload",
-        "cpp_unit": system_case["build"]
-        / "structural-cpp/units/model/model.ac",
+        "cpp_unit": system_case["build"] / "structural-cpp/units/model/model.ac",
     }[component]
 
     def mutate(index):

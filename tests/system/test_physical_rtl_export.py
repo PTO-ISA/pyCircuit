@@ -49,18 +49,26 @@ def FourStateInitial(incoming: ac.u8) -> {"first_q": ac.bits[65], "second_q": ac
     second: ac.bits[130] = ac.four_state("__WIDE130__")
     hold_wide(first, second)
     return {"first_q": first, "second_q": second}
-""".replace("__WIDE65__", WIDE65).replace("__WIDE130__", WIDE130)
+""".replace(
+    "__WIDE65__", WIDE65
+).replace(
+    "__WIDE130__", WIDE130
+)
 
 
 def _environment() -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONPATH"] = os.pathsep.join(
-        item for item in (str(ROOT / "python"), environment.get("PYTHONPATH", "")) if item
+        item
+        for item in (str(ROOT / "python"), environment.get("PYTHONPATH", ""))
+        if item
     )
     return environment
 
 
-def _run(arguments: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+def _run(
+    arguments: list[str], *, timeout: int = 180
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         arguments,
         cwd=ROOT,
@@ -86,20 +94,46 @@ def _toolchain_root() -> Path:
     if configured:
         return Path(configured).resolve()
     candidate = ROOT / ".pycircuit_out/toolchain/install"
-    assert (candidate / "share/pycircuit/cmake/pycircuitConfig.cmake").is_file(), candidate
+    assert (
+        candidate / "share/pycircuit/cmake/pycircuitConfig.cmake"
+    ).is_file(), candidate
     return candidate
 
 
 def _build_structural_cpp(generated: Path, tmp_path: Path) -> Path:
     """Build a generated structural bundle and return its static library."""
     build = tmp_path / "cpp-build"
-    configured = _run([
-        "cmake", "-S", str(generated), "-B", str(build), "-G", "Ninja",
-        "-DCMAKE_PREFIX_PATH=" + str(_toolchain_root()),
-    ], timeout=180)
+    configured = _run(
+        [
+            "cmake",
+            "-S",
+            str(generated),
+            "-B",
+            str(build),
+            "-G",
+            "Ninja",
+            "-DCMAKE_PREFIX_PATH=" + str(_toolchain_root()),
+        ],
+        timeout=180,
+    )
     _ok(configured)
-    _ok(_run(["cmake", "--build", str(build), "--target", "pycircuit_modules", "--parallel", "4"], timeout=900))
-    library = build / ("pycircuit_modules.lib" if os.name == "nt" else "libpycircuit_modules.a")
+    _ok(
+        _run(
+            [
+                "cmake",
+                "--build",
+                str(build),
+                "--target",
+                "pycircuit_modules",
+                "--parallel",
+                "4",
+            ],
+            timeout=900,
+        )
+    )
+    library = build / (
+        "pycircuit_modules.lib" if os.name == "nt" else "libpycircuit_modules.a"
+    )
     assert library.is_file(), library
     return library
 
@@ -110,8 +144,15 @@ def _compile_final(tmp_path: Path, source_text: str, top: str) -> Path:
     unit = tmp_path / "negative-unit"
     _ok(
         _cli(
-            "compile", "-c", str(source), "--source-root", str(tmp_path),
-            "--package-prefix", "negative", "-o", str(unit),
+            "compile",
+            "-c",
+            str(source),
+            "--source-root",
+            str(tmp_path),
+            "--package-prefix",
+            "negative",
+            "-o",
+            str(unit),
         )
     )
     final = tmp_path / "negative.ac"
@@ -122,10 +163,19 @@ def _compile_final(tmp_path: Path, source_text: str, top: str) -> Path:
 def _physical_rejected(final: Path, tmp_path: Path, diagnostic: str) -> None:
     output = tmp_path / "protected-output"
     _ok(_cli("emit", str(final), "--target", "verilog", "-o", str(output)))
-    before = {p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()}
+    before = {
+        p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
+    }
     rejected = _cli(
-        "emit", str(final), "--target", "verilog", "--rtl-mode", "physical",
-        "-o", str(output), "--replace",
+        "emit",
+        str(final),
+        "--target",
+        "verilog",
+        "--rtl-mode",
+        "physical",
+        "-o",
+        str(output),
+        "--replace",
     )
     assert rejected.returncode != 0
     assert diagnostic in rejected.stdout + rejected.stderr
@@ -142,19 +192,36 @@ def physical_designs(tmp_path_factory: pytest.TempPathFactory):
     unit = root / "unit"
     _ok(
         _cli(
-            "compile", "-c", str(source), "--source-root", str(root),
-            "--package-prefix", "physical", "-o", str(unit),
+            "compile",
+            "-c",
+            str(source),
+            "--source-root",
+            str(root),
+            "--package-prefix",
+            "physical",
+            "-o",
+            str(unit),
         )
     )
     result = {}
     for name in ("Pair", "WideInitial", "FourStateInitial"):
         final = root / f"{name}.ac"
-        _ok(_cli("link", str(unit), "--top", f"physical.design.{name}", "-o", str(final)))
+        _ok(
+            _cli(
+                "link", str(unit), "--top", f"physical.design.{name}", "-o", str(final)
+            )
+        )
         output = root / name
         _ok(
             _cli(
-                "emit", str(final), "--target", "verilog", "--rtl-mode",
-                "physical", "-o", str(output),
+                "emit",
+                str(final),
+                "--target",
+                "verilog",
+                "--rtl-mode",
+                "physical",
+                "-o",
+                str(output),
             )
         )
         result[name] = (final, output)
@@ -173,9 +240,9 @@ def _simulate(output: Path, tmp_path: Path, body: str, *, reset: bool = True) ->
     domains = ports["domains"]
     for row in ports["inputs"]:
         name = (
-            "clk" if row["ordinal"] == domains["clock"]
-            else "rst" if row["ordinal"] == domains["reset"]
-            else row["name"]
+            "clk"
+            if row["ordinal"] == domains["clock"]
+            else "rst" if row["ordinal"] == domains["reset"] else row["name"]
         )
         declarations.append(f"logic [{row['width'] - 1}:0] {name};")
         bindings.append(f".{row['wire']}({name})")
@@ -186,24 +253,44 @@ def _simulate(output: Path, tmp_path: Path, body: str, *, reset: bool = True) ->
         bindings.append(f".{row['wire']}(result_{index})")
     tb = tmp_path / "physical_tb.sv"
     initial_values = {
-        "first": "8'h12", "second": "8'h34", "enable_first": "1",
-        "enable_second": "1", "incoming": "8'h3c", "value": "8'h3c",
-        "valid": "1", "take": "0", "address": "0",
-        "raddr": "0", "raddr0": "0", "raddr1": "0", "ren0": "0",
-        "ren1": "0", "wvalid": "0", "waddr": "0", "wdata": "0",
-        "wstrb": "0", "gauge": "8'h01",
+        "first": "8'h12",
+        "second": "8'h34",
+        "enable_first": "1",
+        "enable_second": "1",
+        "incoming": "8'h3c",
+        "value": "8'h3c",
+        "valid": "1",
+        "take": "0",
+        "address": "0",
+        "raddr": "0",
+        "raddr0": "0",
+        "raddr1": "0",
+        "ren0": "0",
+        "ren1": "0",
+        "wvalid": "0",
+        "waddr": "0",
+        "wdata": "0",
+        "wstrb": "0",
+        "gauge": "8'h01",
     }
     initialization = "".join(
         f"{name}={initial_values[name]};" for name in sorted(data_names)
     )
     tb.write_text(
-        "module tb;\n" + "\n".join(declarations) + "\n" +
-        "pyc_root dut(" + ",".join(bindings) + ");\n" +
-        "task edge_up; #2;clk=1;#2;endtask\n"
+        "module tb;\n"
+        + "\n".join(declarations)
+        + "\n"
+        + "pyc_root dut("
+        + ",".join(bindings)
+        + ");\n"
+        + "task edge_up; #2;clk=1;#2;endtask\n"
         "task edge_down; #2;clk=0;#2;endtask\n"
-        "initial begin clk=0;rst=1;" + initialization + "\n" +
-        ("edge_up();edge_down();rst=0;\n" if reset else "#1;rst=0;\n") + body +
-        '\n$display("PHYSICAL_TEST_COMPLETE");$finish;end\nendmodule\n',
+        "initial begin clk=0;rst=1;"
+        + initialization
+        + "\n"
+        + ("edge_up();edge_down();rst=0;\n" if reset else "#1;rst=0;\n")
+        + body
+        + '\n$display("PHYSICAL_TEST_COMPLETE");$finish;end\nendmodule\n',
         encoding="utf-8",
     )
     rtl = [
@@ -214,11 +301,22 @@ def _simulate(output: Path, tmp_path: Path, body: str, *, reset: bool = True) ->
     binary = tmp_path / "physical.vvp"
     _ok(
         _run(
-            ["iverilog", "-g2012", "-s", "tb", "-o", str(binary), *rtl,
-             str(ROOT / "include/verilog/dff.v"), str(ROOT / "include/verilog/dffe.v"),
-             str(ROOT / "include/verilog/fifo.v"), str(ROOT / "include/verilog/byte_mem.v"),
-             str(ROOT / "include/verilog/sync_mem.v"),
-             str(ROOT / "include/verilog/sync_mem_dp.v"), str(tb)]
+            [
+                "iverilog",
+                "-g2012",
+                "-s",
+                "tb",
+                "-o",
+                str(binary),
+                *rtl,
+                str(ROOT / "include/verilog/dff.v"),
+                str(ROOT / "include/verilog/dffe.v"),
+                str(ROOT / "include/verilog/fifo.v"),
+                str(ROOT / "include/verilog/byte_mem.v"),
+                str(ROOT / "include/verilog/sync_mem.v"),
+                str(ROOT / "include/verilog/sync_mem_dp.v"),
+                str(tb),
+            ]
         )
     )
     transcript = _ok(_run(["vvp", str(binary)]))
@@ -235,13 +333,35 @@ def _synthesis_elaborates(output: Path, tmp_path: Path) -> None:
     ]
     primitives = [
         str(ROOT / "include/verilog" / name)
-        for name in ("dff.v", "dffe.v", "fifo.v", "byte_mem.v", "sync_mem.v", "sync_mem_dp.v")
+        for name in (
+            "dff.v",
+            "dffe.v",
+            "fifo.v",
+            "byte_mem.v",
+            "sync_mem.v",
+            "sync_mem_dp.v",
+        )
     ]
-    _ok(_run(["iverilog", "-g2012", "-DSYNTHESIS", "-s", "pyc_root",
-              "-o", str(tmp_path / "synthesis.vvp"), *rtl, *primitives]))
+    _ok(
+        _run(
+            [
+                "iverilog",
+                "-g2012",
+                "-DSYNTHESIS",
+                "-s",
+                "pyc_root",
+                "-o",
+                str(tmp_path / "synthesis.vvp"),
+                *rtl,
+                *primitives,
+            ]
+        )
+    )
 
 
-def test_physical_reset_hold_and_four_state_payload(physical_designs, tmp_path: Path) -> None:
+def test_physical_reset_hold_and_four_state_payload(
+    physical_designs, tmp_path: Path
+) -> None:
     transcript = _simulate(
         physical_designs["Pair"][1],
         tmp_path,
@@ -270,7 +390,9 @@ def test_physical_fault_is_sticky_and_prevents_partial_commit(
     transcript = _simulate(
         physical_designs["Pair"][1],
         tmp_path,
-        "edge_up();edge_down();first=8'haa;second=8'hbb;" + inject + """
+        "edge_up();edge_down();first=8'haa;second=8'hbb;"
+        + inject
+        + """
 if(result_0!==8'h12 || result_1!==8'h34)$fatal(1,"partial commit");
 clk=0;rst=0;enable_first=1;enable_second=1;#2;edge_up();
 if(result_0!==8'h12 || result_1!==8'h34)$fatal(1,"sticky failure");
@@ -279,7 +401,9 @@ if(result_0!==8'h12 || result_1!==8'h34)$fatal(1,"sticky failure");
     assert transcript.count("PYCIRCUIT_PHYSICAL_FAULT") == 1
 
 
-def test_wide_static_initializer_precedes_clock_and_reset(physical_designs, tmp_path: Path) -> None:
+def test_wide_static_initializer_precedes_clock_and_reset(
+    physical_designs, tmp_path: Path
+) -> None:
     transcript = _simulate(
         physical_designs["WideInitial"][1],
         tmp_path,
@@ -355,7 +479,9 @@ def FourState() -> {{'one': ac.u1, 'wide65': ac.bits[65],
     assert " === " in rtl_text
 
 
-def test_python_four_state_structural_cpp_runs_from_generated_bundle(tmp_path: Path) -> None:
+def test_python_four_state_structural_cpp_runs_from_generated_bundle(
+    tmp_path: Path,
+) -> None:
     final = _compile_final(
         tmp_path,
         "import pycircuit as ac\n"
@@ -368,18 +494,18 @@ def test_python_four_state_structural_cpp_runs_from_generated_bundle(tmp_path: P
     generated = tmp_path / "cpp"
     _ok(_cli("emit", str(final), "--target", "structural-cpp", "-o", str(generated)))
     _build_structural_cpp(generated, tmp_path)
-    header = generated / "design.hpp"
     driver = generated / "four_state_driver.cpp"
     driver.write_text(
         '#include "design.hpp"\n'
-        '#include <iostream>\n'
-        'int main(){ pyc_dut dut; dut.system().Build(); dut.system().Reset(); '
-        'if(dut.system().Step()==gfsim::SimStepResult::InvalidState) return 1; '
-        'auto out=dut.sample(); if(out.value.packed().value().value()!=8 || '
-        'out.value.packed().knownMask().value()!=12 || '
-        'out.value.packed().zMask().value()!=1 || '
-        'out.known.packed().value().value()!=0) return 2; '
-        'std::cout << "FOUR_STATE_CPP_OK\\n"; }\n', encoding="utf-8"
+        "#include <iostream>\n"
+        "int main(){ pyc_dut dut; dut.system().Build(); dut.system().Reset(); "
+        "if(dut.system().Step()==gfsim::SimStepResult::InvalidState) return 1; "
+        "auto out=dut.sample(); if(out.value.packed().value().value()!=8 || "
+        "out.value.packed().knownMask().value()!=12 || "
+        "out.value.packed().zMask().value()!=1 || "
+        "out.known.packed().value().value()!=0) return 2; "
+        'std::cout << "FOUR_STATE_CPP_OK\\n"; }\n',
+        encoding="utf-8",
     )
     build = tmp_path / "cpp-driver-build"
     cmake = tmp_path / "driver.cmake"
@@ -395,10 +521,41 @@ def test_python_four_state_structural_cpp_runs_from_generated_bundle(tmp_path: P
     # together, using the installed Runtime package exactly like public users.
     generated_cmake = generated / "CMakeLists.txt"
     original = generated_cmake.read_text(encoding="utf-8")
-    generated_cmake.write_text(original + "\nadd_executable(four_state_driver four_state_driver.cpp)\ntarget_link_libraries(four_state_driver PRIVATE pycircuit_modules)\n", encoding="utf-8")
+    generated_cmake.write_text(
+        original
+        + "\nadd_executable(four_state_driver four_state_driver.cpp)\ntarget_link_libraries(four_state_driver PRIVATE pycircuit_modules)\n",
+        encoding="utf-8",
+    )
     try:
-        _ok(_run(["cmake", "-S", str(generated), "-B", str(build), "-G", "Ninja", "-DCMAKE_PREFIX_PATH=" + str(_toolchain_root())], timeout=180))
-        _ok(_run(["cmake", "--build", str(build), "--target", "four_state_driver", "--parallel", "4"], timeout=900))
+        _ok(
+            _run(
+                [
+                    "cmake",
+                    "-S",
+                    str(generated),
+                    "-B",
+                    str(build),
+                    "-G",
+                    "Ninja",
+                    "-DCMAKE_PREFIX_PATH=" + str(_toolchain_root()),
+                ],
+                timeout=180,
+            )
+        )
+        _ok(
+            _run(
+                [
+                    "cmake",
+                    "--build",
+                    str(build),
+                    "--target",
+                    "four_state_driver",
+                    "--parallel",
+                    "4",
+                ],
+                timeout=900,
+            )
+        )
         executable = build / "four_state_driver"
         if os.name == "nt":
             executable = executable.with_suffix(".exe")
@@ -407,7 +564,9 @@ def test_python_four_state_structural_cpp_runs_from_generated_bundle(tmp_path: P
         generated_cmake.write_text(original, encoding="utf-8")
 
 
-def test_synthesis_preprocessing_has_no_sticky_fault_history(physical_designs, tmp_path: Path) -> None:
+def test_synthesis_preprocessing_has_no_sticky_fault_history(
+    physical_designs, tmp_path: Path
+) -> None:
     output = physical_designs["Pair"][1]
     manifest = json.loads((output / "generated.json").read_text(encoding="utf-8"))
     rtl = [
@@ -416,7 +575,9 @@ def test_synthesis_preprocessing_has_no_sticky_fault_history(physical_designs, t
         if row["path"].endswith((".v", ".sv"))
     ] + [str(ROOT / "include/verilog/dff.v"), str(ROOT / "include/verilog/dffe.v")]
     preprocessed = tmp_path / "synthesis.sv"
-    _ok(_run(["iverilog", "-g2012", "-DSYNTHESIS", "-E", "-o", str(preprocessed), *rtl]))
+    _ok(
+        _run(["iverilog", "-g2012", "-DSYNTHESIS", "-E", "-o", str(preprocessed), *rtl])
+    )
     assert "pyc_physical_fault" not in preprocessed.read_text(encoding="utf-8")
 
 
@@ -426,28 +587,44 @@ def test_physical_mode_rejects_non_verilog_without_replacing_output(
     final, _ = physical_designs["Pair"]
     output = tmp_path / "structural-cpp"
     _ok(_cli("emit", str(final), "--target", "structural-cpp", "-o", str(output)))
-    before = {p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()}
+    before = {
+        p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
+    }
     rejected = _cli(
-        "emit", str(final), "--target", "structural-cpp", "--rtl-mode",
-        "physical", "-o", str(output), "--replace",
+        "emit",
+        str(final),
+        "--target",
+        "structural-cpp",
+        "--rtl-mode",
+        "physical",
+        "-o",
+        str(output),
+        "--replace",
     )
     assert rejected.returncode != 0
-    assert before == {p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()}
+    assert before == {
+        p.relative_to(output): p.read_bytes() for p in output.rglob("*") if p.is_file()
+    }
 
 
-def test_physical_rejects_closed_system_and_preserves_managed_output(tmp_path: Path) -> None:
+def test_physical_rejects_closed_system_and_preserves_managed_output(
+    tmp_path: Path,
+) -> None:
     final = _compile_final(
         tmp_path,
         "import pycircuit as ac\n@ac.system\ndef Closed():\n    value: ac.u8 = 0\n",
         "Closed",
     )
     _physical_rejected(
-        final, tmp_path,
+        final,
+        tmp_path,
         "physical RTL requires an externally driven ordinary module root",
     )
 
 
-def test_physical_observation_channel_has_metadata_and_committed_payload(tmp_path: Path) -> None:
+def test_physical_observation_channel_has_metadata_and_committed_payload(
+    tmp_path: Path,
+) -> None:
     final = _compile_final(
         tmp_path,
         "import pycircuit as ac\n"
@@ -460,8 +637,18 @@ def test_physical_observation_channel_has_metadata_and_committed_payload(tmp_pat
         "Observed",
     )
     output = tmp_path / "observed-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode",
-             "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     ports = json.loads((output / "ports.json").read_text(encoding="utf-8"))
     channel = ports["observation_channel"]
     assert channel == {
@@ -477,7 +664,8 @@ def test_physical_observation_channel_has_metadata_and_committed_payload(tmp_pat
     }
     assert ports["observations"][0]["kind"] == "log"
     transcript = _simulate(
-        output, tmp_path,
+        output,
+        tmp_path,
         """
 edge_up();#1;
 if(dut.pyc_observation_valid!==1'b1)$fatal(1,"observation valid");
@@ -514,8 +702,18 @@ def test_physical_fifo_and_memory_storage(
 ) -> None:
     final = _compile_final(tmp_path, source_text, top)
     output = tmp_path / f"{top}-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode",
-             "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     body = (
         """
 if(result_0!==0)$fatal(1,"fifo reset");
@@ -526,8 +724,8 @@ edge_down();valid=1;take=0;value=8'hxx;edge_up();#1;
 if(dut.pyc_root_commit_ok!==1'b1)$fatal(1,"fifo unknown payload permit");
 if(result_0!==8'hxx)$fatal(1,"fifo unknown payload preservation");
 """
-        if top == "Queued" else
-        """
+        if top == "Queued"
+        else """
 edge_up();edge_down();value=8'ha5;address=1;edge_up();edge_down();edge_up();#1;
 if(result_0!==8'ha5)$fatal(1,"memory round trip");
 """
@@ -561,15 +759,27 @@ def test_physical_memory_unknown_control_is_sticky(
 ) -> None:
     final = _compile_final(tmp_path, source_text, top)
     output = tmp_path / f"{top}-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode", "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     injected = "address=2'bxx;" if signal == "address" else "wvalid=1'bx;"
     transcript = _simulate(
         output,
         tmp_path,
-        "wvalid=1;address=1;value=8'h5a;edge_up();edge_down();" + injected
-        + "edge_up();#1;if(dut.pyc_root_commit_ok!==1'b0)$fatal(1,\"memory fault permit\");"
+        "wvalid=1;address=1;value=8'h5a;edge_up();edge_down();"
+        + injected
+        + 'edge_up();#1;if(dut.pyc_root_commit_ok!==1\'b0)$fatal(1,"memory fault permit");'
         + "clk=0;wvalid=0;address=1;#2;edge_up();#1;"
-        + "if(result_0!==0)$fatal(1,\"sticky memory commit\");",
+        + 'if(result_0!==0)$fatal(1,"sticky memory commit");',
     )
     assert transcript.count("PYCIRCUIT_PHYSICAL_FAULT") == 1
 
@@ -583,7 +793,18 @@ def test_physical_fifo_depth_two_latency_and_full_replace(tmp_path: Path) -> Non
         "QueuePolicy",
     )
     output = tmp_path / "queue-policy-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode", "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     transcript = _simulate(
         output,
         tmp_path,
@@ -631,8 +852,18 @@ def test_physical_byte_and_dual_port_memory(
 ) -> None:
     final = _compile_final(tmp_path, source_text, top)
     output = tmp_path / f"{top}-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode",
-             "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     transcript = _simulate(output, tmp_path, body)
     _synthesis_elaborates(output, tmp_path)
     if top == "ByteMemory":
@@ -641,7 +872,9 @@ def test_physical_byte_and_dual_port_memory(
         assert "PYCIRCUIT_PHYSICAL_FAULT" not in transcript
 
 
-def test_physical_observation_group_four_state_and_fault_discard(tmp_path: Path) -> None:
+def test_physical_observation_group_four_state_and_fault_discard(
+    tmp_path: Path,
+) -> None:
     final = _compile_final(
         tmp_path,
         "import pycircuit as ac\n"
@@ -655,13 +888,24 @@ def test_physical_observation_group_four_state_and_fault_discard(tmp_path: Path)
         "ObservedGroup",
     )
     output = tmp_path / "observed-group-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode",
-             "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     ports = json.loads((output / "ports.json").read_text(encoding="utf-8"))
     assert ports["observation_channel"]["count"] == 3
     assert [row["group_size"] for row in ports["observations"]] == [2, 2, 1]
     transcript = _simulate(
-        output, tmp_path,
+        output,
+        tmp_path,
         """
 edge_up();#1;
 if(dut.pyc_observation_valid!==3'b111)$fatal(1,"group publish");
@@ -694,21 +938,34 @@ def test_physical_wide_observation_preserves_130_bit_planes(tmp_path: Path) -> N
         "WideObserved",
     )
     output = tmp_path / "wide-observed-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode", "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     ports = json.loads((output / "ports.json").read_text(encoding="utf-8"))
     assert ports["observation_channel"]["slot_width"] == 130
     transcript = _simulate(
         output,
         tmp_path,
-        f"edge_up();#1;if(dut.pyc_observation_valid!==1'b1)$fatal(1,\"wide valid\");"
-        f"if(dut.pyc_observation_value!==130'b{value_plane})$fatal(1,\"wide value\");"
-        f"if(dut.pyc_observation_known!==130'b{known_plane})$fatal(1,\"wide known\");"
-        f"if(dut.pyc_observation_z!==130'b{z_plane})$fatal(1,\"wide z\");",
+        f'edge_up();#1;if(dut.pyc_observation_valid!==1\'b1)$fatal(1,"wide valid");'
+        f'if(dut.pyc_observation_value!==130\'b{value_plane})$fatal(1,"wide value");'
+        f'if(dut.pyc_observation_known!==130\'b{known_plane})$fatal(1,"wide known");'
+        f'if(dut.pyc_observation_z!==130\'b{z_plane})$fatal(1,"wide z");',
     )
     assert "PYCIRCUIT_PHYSICAL_FAULT" not in transcript
 
 
-def test_physical_nested_observation_routes_through_explicit_sideband(tmp_path: Path) -> None:
+def test_physical_nested_observation_routes_through_explicit_sideband(
+    tmp_path: Path,
+) -> None:
     final = _compile_final(
         tmp_path,
         "import pycircuit as ac\n"
@@ -723,17 +980,33 @@ def test_physical_nested_observation_routes_through_explicit_sideband(tmp_path: 
         "NestedObserved",
     )
     output = tmp_path / "nested-observed-physical"
-    _ok(_cli("emit", str(final), "--target", "verilog", "--rtl-mode",
-             "physical", "-o", str(output)))
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(output),
+        )
+    )
     ports = json.loads((output / "ports.json").read_text(encoding="utf-8"))
     assert ports["observations"][0]["instance"].startswith("root/")
     source = "\n".join(
         (output / row["path"]).read_text(encoding="utf-8")
-        for row in json.loads((output / "generated.json").read_text(encoding="utf-8"))["files"]
+        for row in json.loads((output / "generated.json").read_text(encoding="utf-8"))[
+            "files"
+        ]
         if row["path"].endswith((".sv", ".v"))
     )
     assert ".pyc_observation_path_raw(" in source
     assert "dut.pyc_net_" not in source
-    transcript = _simulate(output, tmp_path, "edge_up();#1;if(dut.pyc_observation_value!==8'h3c)$fatal(1,\"nested observation\");")
+    transcript = _simulate(
+        output,
+        tmp_path,
+        'edge_up();#1;if(dut.pyc_observation_value!==8\'h3c)$fatal(1,"nested observation");',
+    )
     _synthesis_elaborates(output, tmp_path)
     assert "PYCIRCUIT_PHYSICAL_FAULT" not in transcript

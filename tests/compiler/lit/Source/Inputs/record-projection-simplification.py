@@ -643,7 +643,9 @@ assert [
 
 protected_unit = snapshot(unit)
 protected_final = final.read_bytes()
-protected_products = {target: snapshot(build / target) for target in ("structural-cpp", "verilog")}
+protected_products = {
+    target: snapshot(build / target) for target in ("structural-cpp", "verilog")
+}
 cases = {
     "original-boolean-alias-arithmetic": original.replace(
         "arithmetic=box.bit + 1", "arithmetic=original_alias + 1"

@@ -1133,10 +1133,7 @@ for name, declarations, owner, diagnostic in guard_cases:
         )
         rtl = [
             output / target / "design_top.sv",
-            *[
-                output / target / group["path"]
-                for group in bundle["rtl_source_groups"]
-            ],
+            *[output / target / group["path"] for group in bundle["rtl_source_groups"]],
         ]
         primitives = [repo / path for path in bundle["rtl_standard_sources"]]
         run(

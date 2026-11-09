@@ -155,9 +155,10 @@ def test_generated_system_runner_has_no_authored_module_oracle(cmake_case):
     _, build, configure, tools = cmake_case
     result = configure(system_args="", authored_driver=False)
     assert result.returncode == 0, result.stderr
-    assert str(build / "structural-cpp/simulation_main.cpp") in (
-        build / "build.ninja"
-    ).read_text()
+    assert (
+        str(build / "structural-cpp/simulation_main.cpp")
+        in (build / "build.ninja").read_text()
+    )
     result = subprocess.run(
         [tools["ctest"], "--test-dir", str(build), "--show-only=json-v1"],
         capture_output=True,

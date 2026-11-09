@@ -553,9 +553,7 @@ if not args.four_state:
                     + '.Instrument"',
                     "arguments": [],
                 }
-                assert "design.hpp" in {
-                    row["path"] for row in receipt["files"]
-                }
+                assert "design.hpp" in {row["path"] for row in receipt["files"]}
             else:
                 receipt = json.loads((published / "generated.json").read_text())
                 assert "design_top.sv" in {row["path"] for row in receipt["files"]}
@@ -570,7 +568,9 @@ if not args.four_state:
                 accepted=False,
             )
             if target == "structural-cpp":
-                assert "generated.json entry does not match its owner" in rejected.stderr
+                assert (
+                    "generated.json entry does not match its owner" in rejected.stderr
+                )
                 assert snapshot(products / target) == emitted_before[target]
                 continue
             assert "generated.json entry does not match its owner" in rejected.stderr

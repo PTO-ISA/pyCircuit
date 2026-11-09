@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pycircuit import module, rule, struct, u8
+from pycircuit import module, struct, u8
 
 
 @struct

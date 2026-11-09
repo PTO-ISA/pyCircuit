@@ -508,9 +508,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     captured = _capture_source_file(design, source_root=source)
     transport = retained / "design.transport.mlir"
     transport.write_text(_emit_source_transport(captured), encoding="utf-8")
-    reproduced = Path(
-        tempfile.mkdtemp(prefix="native-reproduction-", dir=retained)
-    )
+    reproduced = Path(tempfile.mkdtemp(prefix="native-reproduction-", dir=retained))
     run(
         [
             args.source_compiler,

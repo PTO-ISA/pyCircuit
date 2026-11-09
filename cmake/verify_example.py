@@ -12,7 +12,6 @@ import tempfile
 import time
 from pathlib import Path
 
-
 _POLICY_NAME = "verilator_policy.json"
 _POLICY_SCHEMA = "pycircuit-verilator-build-policy-v1"
 _POLICY_FIELDS = {
@@ -24,6 +23,8 @@ _POLICY_FIELDS = {
     "max_generated_header_bytes",
     "max_text_symbol_bytes",
 }
+
+
 def _strict_json(path):
     def reject_duplicate_keys(pairs):
         value = {}
@@ -52,10 +53,7 @@ def load_verilator_policy(bundle):
     installed_path = Path(__file__).resolve().with_name(_POLICY_NAME)
     if not installed_path.is_file():
         installed_path = (
-            Path(__file__).resolve().parents[1]
-            / "python"
-            / "pycircuit"
-            / _POLICY_NAME
+            Path(__file__).resolve().parents[1] / "python" / "pycircuit" / _POLICY_NAME
         )
     bundled = _strict_json(bundled_path)
     installed = _strict_json(installed_path)
@@ -86,8 +84,7 @@ def load_verilator_policy(bundle):
         matches = [
             item
             for item in receipt["files"]
-            if item.get("path") == _POLICY_NAME
-            and item.get("role") == "runtime-glue"
+            if item.get("path") == _POLICY_NAME and item.get("role") == "runtime-glue"
         ]
     except (KeyError, TypeError) as error:
         raise ValueError("generated receipt cannot bind Verilator policy") from error
@@ -133,7 +130,7 @@ def check_verilator_generated(bundle, mdir, *, require_split=False):
         if len(command_lines) != 1:
             raise ValueError("Verilator command record is missing or ambiguous")
         command = command_lines[0]
-        for name, value in zip(expected_args[::2], expected_args[1::2]):
+        for name, value in zip(expected_args[::2], expected_args[1::2], strict=True):
             token = f"{name} {value}"
             if command.count(token) != 1:
                 raise ValueError(
@@ -167,9 +164,7 @@ def check_verilator_generated(bundle, mdir, *, require_split=False):
         "cpp_files": len(cpp),
         "header_files": len(headers),
         "max_cpp_bytes": max(path.stat().st_size for path in cpp),
-        "max_header_bytes": max(
-            (path.stat().st_size for path in headers), default=0
-        ),
+        "max_header_bytes": max((path.stat().st_size for path in headers), default=0),
         "command_records": len(command_records),
     }
 
@@ -185,13 +180,13 @@ def _text_symbol_spans(binary):
         check=False,
     )
     if result.returncode:
-        raise ValueError(f"cannot inspect linked ARM64 symbols: {result.stderr.strip()}")
+        raise ValueError(
+            f"cannot inspect linked ARM64 symbols: {result.stderr.strip()}"
+        )
     sections = []
     current = None
     for line in result.stdout.splitlines():
-        if ":\tfile format " in line or ":\tfile format " in line.replace(
-            "  ", "\t"
-        ):
+        if ":\tfile format " in line or ":\tfile format " in line.replace("  ", "\t"):
             name = line.partition(":")[0]
             current = {"name": name, "start": None, "size": None, "symbols": []}
             sections.append(current)
@@ -231,7 +226,9 @@ def _text_symbol_spans(binary):
         for index, address in enumerate(addresses):
             following = addresses[index + 1] if index + 1 < len(addresses) else end
             if start <= address < following <= end:
-                spans.append((following - address, by_address[address], section["name"]))
+                spans.append(
+                    (following - address, by_address[address], section["name"])
+                )
     return spans
 
 
@@ -897,9 +894,7 @@ def main():
         parser.add_argument("--check-verilator-symbols", required=True)
         parser.add_argument("--binary", required=True)
         args = parser.parse_args()
-        check_verilator_symbols(
-            Path(args.check_verilator_symbols), Path(args.binary)
-        )
+        check_verilator_symbols(Path(args.check_verilator_symbols), Path(args.binary))
         return
     if "--compile-system" in sys.argv[1:]:
         parser = argparse.ArgumentParser()

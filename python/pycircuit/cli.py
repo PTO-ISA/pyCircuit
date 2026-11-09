@@ -186,12 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     link_program.set_defaults(fn=_cmd_link)
 
-    emit = sub.add_parser("emit", help="Emit a native bundle from a saved final design.")
+    emit = sub.add_parser(
+        "emit", help="Emit a native bundle from a saved final design."
+    )
     emit.add_argument("final")
     emit.add_argument("--target", choices=("verilog", "structural-cpp"), required=True)
-    emit.add_argument(
-        "--rtl-mode", choices=("managed", "physical"), default="managed"
-    )
+    emit.add_argument("--rtl-mode", choices=("managed", "physical"), default="managed")
     emit.add_argument("-o", dest="output", required=True)
     emit.add_argument("--replace", action="store_true")
     emit.set_defaults(fn=_cmd_emit)

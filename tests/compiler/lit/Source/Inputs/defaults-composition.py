@@ -562,7 +562,8 @@ def Caller(value: ac.u5) -> {"out": ac.u5}:
         cli("emit", table_final, "--target", target, "-o", build / ("table-" + target))
     protected_final = table_final.read_bytes()
     protected_targets = {
-        target: snapshot(build / ("table-" + target)) for target in ("structural-cpp", "verilog")
+        target: snapshot(build / ("table-" + target))
+        for target in ("structural-cpp", "verilog")
     }
     protected_caller = snapshot(table_caller)
 

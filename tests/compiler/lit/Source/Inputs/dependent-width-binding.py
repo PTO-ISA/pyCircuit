@@ -395,8 +395,7 @@ header = (
 )
 generated = header.read_text()
 assert (
-    generated.count("gfsim::dffe<gfsim::Bits<8>> pyc_count;")
-    == 1
+    generated.count("gfsim::dffe<gfsim::Bits<8>> pyc_count;") == 1
 ), "the module definition must own exactly one register storage"
 instance_members = re.findall(
     r"\b(?:pyc_[0-9a-f]+__h[0-9a-f]+) (pyc_pyc_[0-9a-f]+);",

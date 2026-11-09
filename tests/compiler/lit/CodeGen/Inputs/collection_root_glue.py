@@ -127,7 +127,9 @@ module {
 """
     )
     huge_memory = root / "memory-resource.ac"
-    huge_memory.write_text(mark_merged(memory_source, ['{package = "", path = "root.py"}']))
+    huge_memory.write_text(
+        mark_merged(memory_source, ['{package = "", path = "root.py"}'])
+    )
     huge_final = root / "memory-resource.final.ac"
     lower(huge_memory, huge_final)
     valid = root / "valid.ac"

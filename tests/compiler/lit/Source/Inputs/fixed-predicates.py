@@ -425,7 +425,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as tem
 
     before = snapshot(unit)
     final_before = final.read_bytes()
-    emitted_before = {target: snapshot(build / target) for target in ("structural-cpp", "verilog")}
+    emitted_before = {
+        target: snapshot(build / target) for target in ("structural-cpp", "verilog")
+    }
     cases = {
         "boolean-arithmetic": (
             DESIGN.replace("selected: ac.u2", "selected: ac.u1").replace(

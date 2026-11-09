@@ -332,7 +332,7 @@ for mode, width, initial, first, second, bias, last in cases:
     assert len(native_states) == len(rtl_states) == len(owners)
     # The independent HWIR backends use target-native injective names: C++
     # preserves authored storage names while RTL uses stable lane ordinals.
-    def native_storage_name(name):
+    def native_storage_name(name, native_states=native_states):
         candidates = {"pyc_" + name, "pyc_pyc_" + name.encode().hex()}
         found = native_states & candidates
         assert len(found) == 1, (name, native_states, found)
@@ -407,7 +407,7 @@ for mode, width, initial, first, second, bias, last in cases:
                            if name not in managed_inputs]
         assert physical_inputs[:2] == ["pyc_7079635f636c6b", "pyc_7079635f727374"]
         assert len(physical_inputs) > 2
-        for port in physical_inputs[2:]:
+        for _port in physical_inputs[2:]:
             # Root-owned relay ports are implementation inputs in the
             # structural bundle and may be initialized by the generated
             # schedule before the first probe; their defaults are covered by

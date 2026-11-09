@@ -131,9 +131,7 @@ def run_command(
     generated = build / target
     receipt = json.loads((generated / "generated.json").read_text())
     required = (
-        "simulation_main.cpp"
-        if target == "structural-cpp"
-        else "simulation_top.sv"
+        "simulation_main.cpp" if target == "structural-cpp" else "simulation_top.sv"
     )
     if required not in {row["path"] for row in receipt["files"]}:
         raise _DriverError(

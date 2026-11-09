@@ -835,15 +835,13 @@ def _structural_cpp_payload(source_text: str = "int generated;\n") -> dict:
 
 
 def test_structural_cpp_cmake_compiles_shards_independently_with_shared_pch() -> None:
-    files, receipt = emit._target_files(
-        _structural_cpp_payload(), "structural-cpp"
-    )
+    files, receipt = emit._target_files(_structural_cpp_payload(), "structural-cpp")
 
     cmake = files["CMakeLists.txt"][0]
     assert '"source_unit_0.cpp"' in cmake
     assert '"work_unit_0_0.cpp"' in cmake
     assert (
-        'target_precompile_headers(pycircuit_modules PRIVATE '
+        "target_precompile_headers(pycircuit_modules PRIVATE "
         '"${CMAKE_CURRENT_SOURCE_DIR}/design.hpp")'
     ) in cmake
     assert {row["path"] for row in receipt["files"] if row["role"] == "source"} == {

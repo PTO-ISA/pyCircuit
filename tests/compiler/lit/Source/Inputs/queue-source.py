@@ -344,7 +344,7 @@ def fault_checks():
         root_type = re.search(r"\b(pyc_\w+)\s+root_;", header)[1]
         owners = []
 
-        def children(type_name):
+        def children(type_name, classes=classes):
             body = classes[type_name]
             return [
                 match.groups()
@@ -352,7 +352,7 @@ def fault_checks():
                 if match.group(1) in classes
             ]
 
-        def visit(type_name, path=(), rtl_path=()):
+        def visit(type_name, path=(), rtl_path=(), classes=classes, owners=owners):
             body = classes[type_name]
             for index, (child_type, member) in enumerate(children(type_name)):
                 visit(
@@ -405,9 +405,7 @@ def fault_checks():
             if match.group(1) == "dffe"
         )
         sibling_rtl_path = f"dut.dut.pyc_instance_{sibling_index}"
-        sibling_value_rtl = (
-            f"{sibling_rtl_path}.pyc_instance_{sibling_value_index}"
-        )
+        sibling_value_rtl = f"{sibling_rtl_path}.pyc_instance_{sibling_value_index}"
         sibling_queue_rtl = f"{sibling_rtl_path}.pyc_instance_0"
         pipeline_rtl_path = f"dut.dut.pyc_instance_{pipeline_index}"
         output_bits = (

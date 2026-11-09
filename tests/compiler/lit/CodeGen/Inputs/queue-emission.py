@@ -343,7 +343,9 @@ if args.only in ("all", "capacity"):
                 receipt = prior["generated.json"]
                 control = work / ("." + seed.name + ".pycircuit-publication")
                 control_prior = snapshot(control)
-                emit(lowered, target, seed, name + "-" + target + "-replacement", reject)
+                emit(
+                    lowered, target, seed, name + "-" + target + "-replacement", reject
+                )
                 assert (
                     snapshot(seed) == prior
                 ), "failed replacement altered prior generated bundle"

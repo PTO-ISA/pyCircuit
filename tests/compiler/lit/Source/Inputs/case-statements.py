@@ -305,7 +305,7 @@ def make_vectors(
         ]
     if latent:
         cpp += [
-            'void replayLatentTuples(unsigned workers){pyc_dut probe(workers);auto &root=probe.root();',
+            "void replayLatentTuples(unsigned workers){pyc_dut probe(workers);auto &root=probe.root();",
             "for(unsigned row=0;row<row_count;++row)for(unsigned pattern=0;pattern<4;++pattern){",
         ]
         cpp += [

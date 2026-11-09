@@ -598,7 +598,9 @@ def main():
             "arguments": [],
         }
         names = {row["path"] for row in checked_receipt["files"]}
-        assert ("design.hpp" if target == "structural-cpp" else "design_top.sv") in names
+        assert (
+            "design.hpp" if target == "structural-cpp" else "design_top.sv"
+        ) in names
         checked_products.append(checked)
         published = root / ("published-" + target)
         cli("emit", root / "unchecked.ac", "--target", target, "-o", published)
