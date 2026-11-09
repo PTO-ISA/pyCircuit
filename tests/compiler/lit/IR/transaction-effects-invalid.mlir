@@ -100,4 +100,3 @@ module {
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
-
