@@ -1,6 +1,6 @@
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 
 // Decode the typed result while retaining value, known and Z planes.
 struct ObservedOutputs {

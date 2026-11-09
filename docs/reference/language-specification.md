@@ -24,7 +24,7 @@ Verilog emitter 中另建一套设计语义编译器。
 
 公开流程是：每个源文件独立 `pycircuit compile`，使用完整显式单元集合
 `pycircuit link`，再从同一个已验证 final artifact 执行
-`pycircuit emit --target cpp` 或 `--target verilog`。接口提取不是先编译整个
+`pycircuit emit --target structural-cpp` 或 `--target verilog`。接口提取不是先编译整个
 系统再拆文件。消费者编译依赖已发布接口，不能偷偷读取 provider Python。
 
 ## 源文件、名字与声明

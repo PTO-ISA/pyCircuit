@@ -562,9 +562,10 @@ def instances(text, primitive):
 
 FIFO_DEPTH = re.compile(r"\.DEPTH\((\d+)\)")
 FIFO_POLICY = re.compile(r"\.READY_POLICY\((\d+)\)")
-FIFO_LATENCY = re.compile(r"\.AVAILABILITY_LATENCY\(64'd(\d+)\)")
+FIFO_LATENCY = re.compile(r"\.AVAILABILITY_LATENCY\((?:64'd)?(\d+)\)")
 CPP_KERNEL = re.compile(
-    r"fifo_kernel<([^,]+),\s*(\d+),\s*gfsim::QueueReadyPolicy::(\w+),\s*(\d+)ULL>"
+    r"(?:fifo_kernel|fifo)<([^,]+),\s*(\d+),\s*"
+    r"gfsim::QueueReadyPolicy::(\w+),\s*(\d+)(?:ULL)?>"
 )
 
 
@@ -633,7 +634,10 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     assert depths == (IN_DEPTH, OUT_DEPTH), depths
     assert policies == {0}, policies
     assert latencies == {1}, latencies
-    assert all("Token_t" in params for _, params, _ in fifos), [p for _, p, _ in fifos]
+    assert all(
+        "Token_t" in params or ".T(logic [63:0])" in params
+        for _, params, _ in fifos
+    ), [p for _, p, _ in fifos]
     ok(
         "V2-rtl-fifo",
         f"RTL: two fifo instances in source order, DEPTH {depths}, "
@@ -642,29 +646,25 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     )
 
     dffes = instances(blob, "dffe")
-    assert len(dffes) == 2, [name for name, _, _ in dffes]
-    entry = next((item for item in dffes if "Entry_t" in item[1]), None)
-    pointer = next((item for item in dffes if "(64)-1:0" in item[1]), None)
-    assert entry is not None, "no Entry table register"
-    assert pointer is not None, "no 64-bit pointer register"
-    lane = re.match(r"(\w+)", entry[2]["q"]).group(1)
-    extent = re.search(
-        r"wire logic \[\(\(\(1 \* \((\d+)\)\) \* \(\$bits\(pycircuit_types::\w+\)\)\)\)-1:0\] "
-        + lane
-        + r";",
-        blob,
-    )
-    assert extent and int(extent.group(1)) == CAPACITY, (lane, extent)
-    assert (
-        re.search(r"\.clk\(pyc_7079635f636c6b\)", entry[2]["clk"] and "" or "") is None
-    )
-    init = re.search(r"wire logic \[\(64\)-1:0\] (\w+);", blob)
-    assert init, "no 64-bit wire for the pointer init value"
+    # Independent HWIR materializes a table state as one primitive occurrence
+    # per lane.  Verify the same physical state geometry instead of requiring
+    # the retired final-ACIR aggregate primitive shape.
+    entries = [item for item in dffes if "logic [128:0]" in item[1]]
+    pointers = [item for item in dffes if "logic [63:0]" in item[1]]
+    assert len(entries) == CAPACITY, [name for name, _, _ in entries]
+    assert len(pointers) == 1, [name for name, _, _ in pointers]
+    assert len(dffes) == CAPACITY + 1, [name for name, _, _ in dffes]
+    q_slices = []
+    for _name, _params, ports in entries:
+        match = re.search(r"\[(\d+) \+: 129\]", ports["q"])
+        assert match, ports["q"]
+        q_slices.append(int(match.group(1)))
+    assert sorted(q_slices) == [129 * lane for lane in range(CAPACITY)], q_slices
+    pointer = pointers[0]
     ok(
         "V3-rtl-state",
-        f"RTL: one Entry table register ({entry[0]}) with a "
-        f"{extent.group(1)}-lane table, one 64-bit pointer register "
-        f"({pointer[0]}); no third state element",
+        f"RTL: {len(entries)} independent 129-bit Entry lane registers, "
+        f"one 64-bit pointer register ({pointer[0]}); no third state element",
     )
 
     cpp = sorted(cpp_dir.rglob("*.hpp"))
@@ -685,31 +685,23 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     assert {row[0] for row in kernels} == {"Token"}, kernels
     assert {row[2] for row in kernels} == {"LocalOccupancy"}, kernels
     assert {row[3] for row in kernels} == {1}, kernels
-    structs = struct_definitions(header)
-    payload = structs["Token"]
-    assert payload == [("pyc_73657175656e6365", 32, None), ("value", 32, None)], payload
-    assert payload_bits(structs, "Token") == INPUT_BITS
-    result = structs["ReorderResult"]
-    assert [field for field, _bits, _type in result] == [
-        "ready",
-        "available",
-        "head",
-        "next_key",
-        "fault",
-    ], result
-    widths = [
-        bits if bits else payload_bits(structs, type_name)
-        for _field, bits, type_name in result
-    ]
-    assert widths == [1, 1, INPUT_BITS, 64, 1], (result, widths)
-    assert sum(widths) == OUTPUT_BITS
+    # ConcreteDesignPlan deliberately exposes nominal aggregates as packed
+    # Runtime aliases. Field order remains verified below from the RTL typedef
+    # and observation fan-out; here the C++ ABI must preserve exact widths.
+    aliases = {
+        name: int(width)
+        for name, width in re.findall(
+            r"using\s+(\w+)\s*=\s*gfsim::Bits<(\d+)>;", header
+        )
+    }
+    assert aliases["Token"] == INPUT_BITS, aliases
+    assert aliases["ReorderResult"] == OUTPUT_BITS, aliases
     ok(
         "V4-cpp-kernel",
         f"C++: {len(kernels)} fifo kernels, DEPTH "
         f"{tuple(r[1] for r in kernels)}, payload Token = 32+32 = "
-        f"{payload_bits(structs, 'Token')} bits, all LocalOccupancy, "
-        f"latency 1; ReorderResult packs {sum(widths)} bits in field "
-        f"order {[f for f, _b, _t in result]}",
+        f"{aliases['Token']} bits, all LocalOccupancy, latency 1; "
+        f"ReorderResult packed ABI is {aliases['ReorderResult']} bits",
     )
     return blob
 
@@ -908,8 +900,26 @@ def observation_cone(blob, structs):
     pointer_owner = [
         name
         for name, _params, ports in instances(blob, "dffe")
-        if ports.get("q", "").strip() == pointer_net
+        if (
+            ports.get("q", "").strip() == pointer_net
+            or pointer_net.startswith(ports.get("q", "").strip() + "[")
+        )
     ]
+    if not pointer_owner:
+        packed = re.fullmatch(r"(\w+)\[\d+ \+: 64\]", pointer_net)
+        sources = graph.get(packed.group(1), []) if packed else []
+        pointer_owner = [
+            name
+            for name, params, ports in instances(blob, "dffe")
+            if "logic [63:0]" in params
+            and any(
+                re.search(
+                    r"\b" + re.escape(ports.get("q", "").strip()) + r"\b",
+                    source,
+                )
+                for source in sources
+            )
+        ]
     assert len(pointer_owner) == 1, (pointer_net, pointer_owner)
     ok(
         "V6-next-key-tap",
@@ -934,6 +944,8 @@ module tb;
   wire [130:0] result;
   logic [2:0] pyc_phase = 0;
   logic pyc_root_commit_ok = 0;
+  wire pyc_check_complete;
+  wire pyc_sampling_error;
   wire pyc_local_error;
   logic failed = 0;
   logic [130:0] sampled_result;
@@ -1237,6 +1249,8 @@ module tb;
   wire [130:0] result;
   logic [2:0] pyc_phase = 0;
   logic pyc_root_commit_ok = 0;
+  wire pyc_check_complete;
+  wire pyc_sampling_error;
   wire pyc_local_error;
   logic failed = 0;
   integer unknowns = 0;

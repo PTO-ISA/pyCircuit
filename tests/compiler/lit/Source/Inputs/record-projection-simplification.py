@@ -91,6 +91,7 @@ def run(command, accepted=True, file_size_limit=None):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -527,7 +528,7 @@ else:
 
 final = build / "design.ac"
 cli("link", unit, "--top", "record_probe.design.Top", "-o", final)
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", build / target)
 toolroot = Path(args.source_compiler).resolve().parent.parent
 runtime = next(
@@ -542,9 +543,9 @@ runtime = next(
     None,
 )
 assert runtime is not None, "Runtime archive missing from this build/install"
-cpp_receipt = json.loads((build / "cpp/generated.json").read_text())
+cpp_receipt = json.loads((build / "structural-cpp/generated.json").read_text())
 cpp = [
-    build / "cpp" / row["path"]
+    build / "structural-cpp" / row["path"]
     for row in cpp_receipt["files"]
     if row["path"].endswith(".cpp")
 ]
@@ -556,7 +557,7 @@ run(
         "-std=c++20",
         "-pthread",
         "-I" + str(repo / "include"),
-        "-I" + str(build / "cpp"),
+        "-I" + str(build / "structural-cpp"),
         "-I" + str(build),
         fixtures / "record-projection-simplification.cpp",
         *cpp,
@@ -642,7 +643,7 @@ assert [
 
 protected_unit = snapshot(unit)
 protected_final = final.read_bytes()
-protected_products = {target: snapshot(build / target) for target in ("cpp", "verilog")}
+protected_products = {target: snapshot(build / target) for target in ("structural-cpp", "verilog")}
 cases = {
     "original-boolean-alias-arithmetic": original.replace(
         "arithmetic=box.bit + 1", "arithmetic=original_alias + 1"

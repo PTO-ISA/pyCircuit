@@ -219,8 +219,9 @@ TEST_F(RegContractsTest, V08_RejectsForgedClockAndWrongProposalArity) {
   auto *reg = findOnly(*forged, "ac.reg");
   mlir::OpBuilder builder(&context);
   builder.setInsertionPointToStart(&module->getRegion(0).front());
-  auto fakeClock = builder.create<mlir::arith::ConstantOp>(
-      module->getLoc(), builder.getI1Type(), builder.getBoolAttr(false));
+  auto fakeClock = mlir::arith::ConstantOp::create(
+      builder, module->getLoc(), builder.getI1Type(),
+      builder.getBoolAttr(false));
   reg->setOperand(0, fakeClock.getResult());
   EXPECT_TRUE(mlir::failed(mlir::verify(*forged)));
 

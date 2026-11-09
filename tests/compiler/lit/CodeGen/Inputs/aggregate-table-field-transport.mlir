@@ -20,7 +20,7 @@
 !packets = !ac.table<[#w3], !packet>
 !projected = !ac.table<[#w3, #w3], !inner>
 !sample_rows = !ac.table<[#w3, #w5], !b5>
-module {
+module attributes {ac.source_units = [{package = "", path = "top.py"}, {package = "", path = "transport.py"}]} {
   // 5 + 3*(4 + 5*5) = 92 packed bits. First field/element is MSB.
   ac.struct "SampleGroup" fields [{name = "tag", type = !b4}, {name = "samples", type = !samples}]
   ac.struct "SamplePacket" fields [{name = "marker", type = !b5}, {name = "groups", type = !groups}]

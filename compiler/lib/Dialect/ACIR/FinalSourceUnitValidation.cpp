@@ -49,7 +49,8 @@ collectFinalSourceUnits(mlir::ModuleOp package, detail::EmitError emitError) {
   // Module imports, including canonical primitives, are never owner
   // definitions.
   for (Operation &operation : package.getBody()->getOperations()) {
-    bool module = isa<ac::ModuleOp>(operation);
+    bool module = isa<ac::ModuleOp>(operation) ||
+                  operation.getName().getStringRef() == "hwir.module";
     if (!module && !isa<StructOp, EnumOp>(operation))
       continue;
     Attribute rawOwner =

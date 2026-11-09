@@ -18,7 +18,10 @@ from pycircuit._source_map import _validate_emitted_bundle
 pytestmark = pytest.mark.system
 
 OWNER = _publication_owner_generated(
-    package="demo", path="root.py", definition='@"demo.root.Root"', target="cpp"
+    package="demo",
+    path="root.py",
+    definition='@"demo.root.Root"',
+    target="structural-cpp",
 )
 SOURCE = {"package": "demo", "path": "root.py"}
 MAP_PATH = "sources/demo/root.source-map.json"
@@ -52,7 +55,7 @@ def _receipt(
     )
     return {
         "kind": "pycircuit-generated",
-        "target": "cpp",
+        "target": "structural-cpp",
         "entry": {"definition": '@"demo.root.Root"', "arguments": []},
         "entry_source": SOURCE,
         "files": sorted(files, key=lambda item: item["path"].encode("utf-8")),

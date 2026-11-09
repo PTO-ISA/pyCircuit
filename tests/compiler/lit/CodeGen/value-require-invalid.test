@@ -1,0 +1,5 @@
+# RUN: not %pycircuit_opt %inputs/value-require-invalid-metadata.mlir --hwir-verify 2>&1 | %FileCheck %s --check-prefix=METADATA
+# RUN: not %pycircuit_opt %inputs/value-require-source-stage.mlir --hwir-verify 2>&1 | %FileCheck %s --check-prefix=SOURCE
+
+# METADATA: 'ac.value.require' op Occurrence must contain exactly 2 fields
+# SOURCE: 'ac.value.require' op is compiler-owned final availability evidence

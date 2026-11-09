@@ -62,6 +62,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -349,11 +350,11 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
         output.mkdir()
         final = output / "design_top.ac"
         cli("link", unit, "--top", "unsigned_shifts.design." + top, "-o", final)
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
-        receipt = json.loads((output / "cpp/generated.json").read_text())
+        receipt = json.loads((output / "structural-cpp/generated.json").read_text())
         cpp = [
-            output / "cpp" / row["path"]
+            output / "structural-cpp" / row["path"]
             for row in receipt["files"]
             if row["path"].endswith(".cpp")
         ]
@@ -367,7 +368,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
                 "-pthread",
                 *defines,
                 "-I" + str(repo / "include"),
-                "-I" + str(output / "cpp"),
+                "-I" + str(output / "structural-cpp"),
                 fixtures / "fixed-unsigned-shifts.cpp",
                 *cpp,
                 runtime,
@@ -440,7 +441,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
             assert [
                 row for row in four.splitlines() if row.startswith(("WORK ", "MASK "))
             ] == traces[0]
-        products.extend([final, output / "cpp", output / "verilog"])
+        products.extend([final, output / "structural-cpp", output / "verilog"])
         receipts.append(
             {
                 "top": top,
@@ -451,7 +452,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
                         name: hashlib.sha256(value).hexdigest()
                         for name, value in snapshot(output / target).items()
                     }
-                    for target in ("cpp", "verilog")
+                    for target in ("structural-cpp", "verilog")
                 },
             }
         )

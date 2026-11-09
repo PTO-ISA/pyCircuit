@@ -1931,8 +1931,7 @@ TEST_F(MethodSummaryAuthorityTest,
   auto zero = *std::next(constants.begin());
   const mlir::Type invalidTypes[] = {
       StructType::get(&context, builder.getStringAttr("MissingStruct")),
-      EnumType::get(&context, builder.getStringAttr("MissingEnum")),
-      BitsType::get(&context, zero.getValueAttr())};
+      EnumType::get(&context, builder.getStringAttr("MissingEnum"))};
   const Path unusedTypes[] = {
       {std::string("owners"), 0u, std::string("type")},
       {std::string("autonomous"), 1u, std::string("captures"), 1u,
@@ -1942,6 +1941,14 @@ TEST_F(MethodSummaryAuthorityTest,
     for (auto type : invalidTypes)
       structureRejects(
           root, dict(replace(published, path, mlir::TypeAttr::get(type))));
+  auto invalidBits = capture([&] {
+    return BitsType::getChecked(
+        [&] { return mlir::emitError(mlir::UnknownLoc::get(&context)); },
+        &context, zero.getValueAttr());
+  });
+  EXPECT_FALSE(invalidBits);
+  EXPECT_NE(diagnostics.find("bits width must be positive"), std::string::npos)
+      << diagnostics;
 }
 
 TEST_F(MethodSummaryAuthorityTest,

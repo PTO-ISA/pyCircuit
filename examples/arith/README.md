@@ -57,7 +57,7 @@ IR and generated outputs are byte-identical.
 
 ```sh
 export CMAKE_BUILD_TYPE=Release
-pycircuit run examples/arith --target cpp --cycles 10
+pycircuit run examples/arith --target structural-cpp --cycles 10
 pycircuit run examples/arith --target verilog --cycles 10
 ```
 

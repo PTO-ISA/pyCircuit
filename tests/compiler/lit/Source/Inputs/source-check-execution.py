@@ -99,6 +99,7 @@ def main():
         return result
 
     def cli(*arguments):
+        arguments = list(arguments)
         return run([sys.executable, "-m", "pycircuit.cli", *arguments])
 
     def compile_unit(name, imports=()):

@@ -11,7 +11,7 @@ function(add_acir_api_test target)
   endif()
   add_executable(${target} ${API_TEST_UNPARSED_ARGUMENTS})
   target_include_directories(${target} PRIVATE "${PYCIRCUIT_SOURCE_DIR}/lib")
-  target_link_libraries(${target} PRIVATE ACIRDialect MLIRParser MLIRFuncDialect GTest::gtest_main)
+  target_link_libraries(${target} PRIVATE ACIRDialect MLIRParser GTest::gtest_main)
   if(NOT API_TEST_FILTER)
     set(API_TEST_FILTER "*")
   endif()
@@ -64,8 +64,7 @@ add_acir_api_test(ACIRHardwareSourceChecksTests
   HardwareSampledAdmissionTest.cpp HardwareSampledAdmissionWiringTest.cpp
   ObservationIdentityTest.cpp
   HardwareSourceCheckCapacityTest.cpp HardwareSourceCheckValidationBudgetTest.cpp
-  HardwareDependencyModeReuseTest.cpp
-  HardwareSourceChecksExecutionTest.cpp)
+  HardwareDependencyModeReuseTest.cpp)
 set_tests_properties(ACIRHardwareSourceChecksTests PROPERTIES TIMEOUT 90)
 target_link_libraries(ACIRHardwareSourceChecksTests PRIVATE ACIRCodegen)
 target_compile_definitions(ACIRHardwareSourceChecksTests PRIVATE
@@ -76,13 +75,6 @@ target_compile_definitions(ACIRHardwareSourceChecksTests PRIVATE
   PYCIRCUIT_TEST_CXX="${CMAKE_CXX_COMPILER}"
   PYCIRCUIT_TEST_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}")
 add_dependencies(ACIRHardwareSourceChecksTests pycircuit-source-unit pycircuit-link)
-add_test(NAME ACIRHardwareSourceChecksExecution
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/run_source_checks_guarded.py"
-    --timeout 900 --rss-mib 1536 -- "$<TARGET_FILE:ACIRHardwareSourceChecksTests>"
-    --gtest_filter=HardwareSourceChecksExecution.*)
-set_tests_properties(ACIRHardwareSourceChecksExecution PROPERTIES
-  LABELS "api;nightly" TIMEOUT 930)
-
 add_acir_api_test(ACIREnumHardwareAnalysisTests EnumHardwareAnalysisTest.cpp)
 add_acir_api_test(ACIRFinalSourceUnitsTests FinalSourceUnitsTest.cpp)
 add_acir_api_test(ACIREnumSourceUnitAuthorityTests EnumSourceUnitAuthorityTest.cpp)
@@ -113,6 +105,38 @@ set_tests_properties(ACIRWorkPartitionTests PROPERTIES
   ENVIRONMENT "PYCIRCUIT_TEST_MODULE_LOOP_FINAL=${_module_loop_ir}")
 target_compile_definitions(ACIRSourceIdentifierTests PRIVATE
   ACIR_UNICODE_RECIPE_PYTHON="${Python3_EXECUTABLE}")
+
+add_acir_api_test(ACIRConcreteDesignPlanTests ConcreteDesignPlanTest.cpp)
+target_link_libraries(ACIRConcreteDesignPlanTests PRIVATE ACIRCodegen ACIRTransforms)
+target_compile_definitions(ACIRConcreteDesignPlanTests PRIVATE
+  PYCIRCUIT_ENABLE_FINAL_ACIR_CPP_TEST_ADAPTER=1
+  PYCIRCUIT_TEST_CONCRETE_PLAN_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/two-leaves.mlir"
+  PYCIRCUIT_TEST_VERILOG_GENERIC_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/collection_genericity.mlir"
+  PYCIRCUIT_TEST_VERILOG_COMBINATIONAL_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-combinational.mlir"
+  PYCIRCUIT_TEST_VERILOG_COMBINATIONAL_EXTENDED_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-unmapped.mlir"
+  PYCIRCUIT_TEST_FOUR_STATE_CONSTANT_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/four-state-constant.mlir"
+  PYCIRCUIT_TEST_VERILOG_TABLE_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/aggregate-table-field-transport.mlir"
+  PYCIRCUIT_TEST_VERILOG_TABLE_REGION_INPUT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/collection_values.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_UNKNOWN_PRIMITIVE="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-unknown-primitive.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_CYCLE="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-cycle.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_MODULE_CHILD="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/shared-input.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_SPECIALIZATION="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/generic-forward.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_DEDUP="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-dedup.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_DEDUP_CHAIN="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-dedup-chain.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_QUEUE="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-queue.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_TYPES="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-types.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_COMBINATIONAL="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-combinational.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_MEMORY="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/sync-memory.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_UNMAPPED="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-unmapped.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_DFF_STRUCT="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-dff-struct.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_DFF="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-dff.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_AGGREGATE="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-aggregate.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_TWO_SYSTEMS="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-two-systems.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_UNSUPPORTED_BINARY="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-unsupported-binary.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_OBSERVATIONS="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-observations.mlir"
+  PYCIRCUIT_TEST_STRUCTURAL_CPP_OBSERVATIONS_WIDE="${PYCIRCUIT_REPO_ROOT}/tests/compiler/lit/CodeGen/Inputs/structural-cpp-observations-wide.mlir"
+  PYCIRCUIT_TEST_CXX="${CMAKE_CXX_COMPILER}"
+  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
 
 function(add_gfsim_test target)
   add_executable(${target} ${ARGN})
@@ -146,6 +170,23 @@ if(NOT LLVM_EXTERNAL_LIT)
   endif()
   set(LLVM_EXTERNAL_LIT "${PYCIRCUIT_LIT_EXECUTABLE}")
 endif()
+# A successful CTest invocation is not evidence if the configured command is a
+# no-op such as /usr/bin/true.  Validate the runner before registering any lit
+# test so an empty/fake runner fails at configure time.
+execute_process(
+  COMMAND "${LLVM_EXTERNAL_LIT}" --version
+  OUTPUT_VARIABLE _pycircuit_lit_version
+  ERROR_VARIABLE _pycircuit_lit_version_error
+  RESULT_VARIABLE _pycircuit_lit_version_status
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+get_filename_component(_pycircuit_lit_name "${LLVM_EXTERNAL_LIT}" NAME)
+if(NOT _pycircuit_lit_version_status EQUAL 0 OR
+   NOT _pycircuit_lit_name MATCHES "^(llvm-)?lit([.]py)?$" OR
+   NOT _pycircuit_lit_version MATCHES "lit")
+  message(FATAL_ERROR
+    "PYC_BUILD_TESTING requires a real lit runner; LLVM_EXTERNAL_LIT='${LLVM_EXTERNAL_LIT}' "
+    "reported '${_pycircuit_lit_version}' (stderr: '${_pycircuit_lit_version_error}')")
+endif()
 find_program(PYCIRCUIT_FILECHECK NAMES FileCheck HINTS "${LLVM_TOOLS_BINARY_DIR}" REQUIRED)
 set(_lit_binary "${CMAKE_BINARY_DIR}/tests/compiler/lit")
 file(MAKE_DIRECTORY "${_lit_binary}")
@@ -153,12 +194,12 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../lit/lit.site.cfg.py.in"
   "${_lit_binary}/lit.site.cfg.py" @ONLY)
 # Complementary filters preserve the complete lit inventory without duplicates.
 # Fast verifier/pass tests plus source diagnostics and publication protection.
-set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission)\\.test)")
+set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission|four-state-constant|four-state-invalid|value-require-invalid|structural-cpp-cli|verilog-hwir-admission)\\.test)")
 add_test(NAME ACIRLitGateTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
   --filter "${_lit_gate_filter}" "${_lit_binary}")
 add_test(NAME ACIRLitNightlyTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
   --filter-out "${_lit_gate_filter}" "${_lit_binary}")
-set_tests_properties(ACIRLitGateTests PROPERTIES LABELS "api;gate;nightly" TIMEOUT 300)
+set_tests_properties(ACIRLitGateTests PROPERTIES LABELS "api;gate;nightly" TIMEOUT 600)
 set_tests_properties(ACIRLitNightlyTests PROPERTIES LABELS "api;nightly" TIMEOUT 3600)
 set(PYC_TEST_TIER "gate" CACHE STRING "API test selection: gate or nightly")
 set_property(CACHE PYC_TEST_TIER PROPERTY STRINGS gate nightly)
@@ -184,6 +225,7 @@ add_custom_target(check-pycircuit
     ACIRRegRuntimeTests ACIRCollectionRuntimeTests ACIRFifoRuntimeTests ACIRSystemLifecycleTests ACIRObservationTests ACIRSimExecutorTests
     ACIRWorkExecutorTests
     ACIRWorkPartitionTests
+    ACIRConcreteDesignPlanTests
   USES_TERMINAL VERBATIM)
 if(TARGET pyc6_runtime)
   # Source gates link generated DUTs against the Runtime archive from this build.

@@ -6,7 +6,7 @@
 !b8 = !ac.bits<#w8>
 #w70 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<70>}}>
 !b70 = !ac.bits<#w70>
-module {
+module attributes {ac.source_units = [{package = "", path = "child.py"}, {package = "", path = "top.py"}]} {
   ac.struct "Pair" fields [{name = "a", type = !b8}, {name = "b", type = !b8}]
   "ac.module"() ({
   ^bb0(%x: !ac.struct<"Pair">):

@@ -356,9 +356,9 @@ VariableAddFixture buildVariableAddFixture(mlir::MLIRContext &context,
   proofState.addAttribute("checks", builder.getArrayAttr({}));
   proofState.addAttribute("origin", resultOrigin);
   f.proof = mlir::cast<NumericProofOp>(builder.create(proofState));
-  builder.create<YieldOp>(location, mlir::ValueRange{});
+  YieldOp::create(builder, location, mlir::ValueRange{});
   builder.setInsertionPointToEnd(moduleBody);
-  builder.create<YieldOp>(location, mlir::ValueRange{});
+  YieldOp::create(builder, location, mlir::ValueRange{});
   return f;
 }
 

@@ -40,7 +40,7 @@ cmake -S examples/array_reductions -B .pycircuit_out/array-reductions -G Ninja \
   -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build .pycircuit_out/array-reductions --parallel 4
 ctest --test-dir .pycircuit_out/array-reductions --output-on-failure --no-tests=error
-pycircuit run examples/array_reductions --target cpp --cycles 16
+pycircuit run examples/array_reductions --target structural-cpp --cycles 16
 pycircuit run examples/array_reductions --target verilog --cycles 16
 ```
 

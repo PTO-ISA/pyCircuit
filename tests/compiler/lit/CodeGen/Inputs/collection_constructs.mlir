@@ -43,7 +43,7 @@
 !query_pair_guard = !ac.table<[#w5, #w1], !b1>
 !query_outputs = !ac.table<[#w5], !query_payload>
 !query_output_guards = !ac.table<[#w5], !b1>
-module {
+module attributes {ac.source_units = [{package = "", path = "top.py"}]} {
   ac.struct "QueryInner" fields [{name = "tag", type = !b4}, {name = "data", type = !b8}]
   "ac.enum"() {sym_name = "QueryMark", width = #ac.math_int<2>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}, {name = "ONE", code = #ac.math_int<1>}, {name = "TWO", code = #ac.math_int<2>}, {name = "THREE", code = #ac.math_int<3>}]} : () -> ()
   ac.struct "QueryPayload" fields [{name = "nested", type = !record}, {name = "mark", type = !query_mark}]

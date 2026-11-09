@@ -61,6 +61,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -124,7 +125,7 @@ def NamedFixed(value: ac.u3) -> {"out": ac.bits[9]}:
 """
 
 CPP = r"""#include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -450,11 +451,11 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
         output.mkdir()
         final = output / "design_top.ac"
         cli("link", unit, "--top", "widening.design." + top, "-o", final)
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
-        receipt = json.loads((output / "cpp/generated.json").read_text())
+        receipt = json.loads((output / "structural-cpp/generated.json").read_text())
         cpp = [
-            output / "cpp" / row["path"]
+            output / "structural-cpp" / row["path"]
             for row in receipt["files"]
             if row["path"].endswith(".cpp")
         ]
@@ -470,7 +471,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
                 "-pthread",
                 *defines,
                 "-I" + str(repo / "include"),
-                "-I" + str(output / "cpp"),
+                "-I" + str(output / "structural-cpp"),
                 runner_source,
                 *cpp,
                 runtime,
@@ -549,7 +550,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
             assert [
                 row for row in four_state_trace.splitlines() if row.startswith("MASK ")
             ] == mask_traces[0]
-        products.extend([final, output / "cpp", output / "verilog"])
+        products.extend([final, output / "structural-cpp", output / "verilog"])
 
     protected_unit = snapshot(unit)
     protected_products = {

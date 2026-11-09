@@ -747,7 +747,7 @@ def main():
         "compile_exit_status": 0,
         "link_exit_status": 0,
     }
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         emitted = cli(
             "emit",
             chain_final,

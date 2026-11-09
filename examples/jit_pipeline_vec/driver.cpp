@@ -1,6 +1,6 @@
 // Independent three-stage scoreboard: expected values never come from a DUT.
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>

@@ -7,7 +7,10 @@ import tempfile
 import lit.formats
 
 config.name = "pycircuit"
-config.test_format = lit.formats.ShTest(execute_external=True)
+# LLVM 23 deprecated the old boolean spelling.  The internal shell is enough
+# for these portable substitutions and keeps this suite runnable by both the
+# pinned LLVM 22 lit and newer diagnostic runners.
+config.test_format = lit.formats.ShTest(execute_external=False)
 config.suffixes = [".mlir", ".test"]
 config.excludes = ["Inputs", "lit.cfg.py", "lit.site.cfg.py"]
 config.test_source_root = os.path.dirname(__file__)

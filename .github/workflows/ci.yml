@@ -74,6 +74,9 @@ jobs:
       - name: Run API hygiene gate
         run: python tools/check_api_hygiene.py python/pycircuit examples docs README.md
 
+      - name: Validate end-to-end requirement registration
+        run: python -m pytest -q tests/unit/test_e2e_requirements.py
+
   capture-publication-gates:
     name: "G0: Capture and Publication Unit Gates"
     runs-on: ubuntu-latest

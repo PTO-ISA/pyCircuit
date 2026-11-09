@@ -17,7 +17,7 @@ semantic repairs. Identify affected contracts and meaningful negative tests.
 
 ## Development setup
 
-Use Python 3.10 or newer (3.11+ recommended), CMake 3.25+, Ninja, a C++20
+Use Python 3.11 or newer, CMake 3.25+, Ninja, a C++20
 compiler and exact LLVM/MLIR 22.1.8. RTL checks use Verilator; four-state tests
 also use Icarus where supported.
 

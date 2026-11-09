@@ -1,7 +1,7 @@
 #include "HardwareEmitCommon.h"
 #include "../Dialect/ACIR/ACIRSourceContracts.h"
 #include "../Dialect/ACIR/HardwareSourceChecks.h"
-#include "FinalCppNames.h"
+#include "FinalEmissionNames.h"
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -164,8 +164,7 @@ staticTree(HardwareEmitContext const &context, DictionaryAttr tree,
           return staticTree(context, expression.getTree(), site, rtl, bindings);
       }
     }
-    return rtl ? context.rtlFormalName(name.getValue(), site)
-               : context.cppFormalName(name.getValue(), site);
+    return context.rtlFormalName(name.getValue(), site);
   }
   if (tag == "type_width") {
     auto type = tree.getAs<TypeAttr>("type");
@@ -178,13 +177,10 @@ staticTree(HardwareEmitContext const &context, DictionaryAttr tree,
         return failure();
       payload = *resolved;
     }
-    auto rendered = rtl ? context.rtlType(payload, site)
-                        : (bindings ? context.cppType(payload, *bindings, site)
-                                    : context.cppType(payload, site));
+    auto rendered = context.rtlType(payload, site);
     if (failed(rendered))
       return failure();
-    return rtl ? ("$bits(" + *rendered + ")")
-               : ("gfsim::hardware_traits<" + *rendered + ">::width");
+    return "$bits(" + *rendered + ")";
   }
   if (tag == "select") {
     auto a = staticTree(context,
@@ -914,21 +910,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     if (failed(capabilities(definition, bindings, 1)))
       return failure();
   }
-  llvm::StringSet<> cpp, cppNamespaces, rtl, rtlTypes;
-  auto reserveCppName = [&](StringRef name, Operation *site) -> LogicalResult {
-    SmallVector<StringRef> parts;
-    name.drop_front(2).split(parts, "::");
-    std::string prefix;
-    for (size_t i = 0; i + 1 < parts.size(); ++i) {
-      prefix += "::" + parts[i].str();
-      if (cpp.contains(prefix))
-        return site->emitOpError() << "emitted hardware name collision";
-      cppNamespaces.insert(prefix);
-    }
-    if (cppNamespaces.contains(name) || !cpp.insert(name).second)
-      return site->emitOpError() << "emitted hardware name collision";
-    return success();
-  };
+  llvm::StringSet<> rtl, rtlTypes;
   // Every nominal declaration is emitted, even when no executable wire uses
   // it. Check the same target capacity and spelling rules for that closure.
   for (Operation &op : package.getBody()->getOperations()) {
@@ -941,9 +923,8 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
       continue;
     if (failed(checkWidth(type, {}, &op, 1)))
       return failure();
-    auto cppName = cppType(type, &op), rtlName = rtlType(type, &op);
-    if (failed(cppName) || failed(rtlName) ||
-        failed(reserveCppName(*cppName, &op)))
+    auto rtlName = rtlType(type, &op);
+    if (failed(rtlName))
       return failure();
     // RTL typedefs share pycircuit_types, separately from global module names.
     if (!rtlTypes.insert(*rtlName).second)
@@ -952,43 +933,20 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   for (auto definition : analysis.getDefinitions()) {
     Operation *site = definition;
     auto symbol = definition.getSymName();
-    auto q = qualified(symbol, site, "::");
     auto r = qualified(symbol, site, "_");
-    if (failed(q) || failed(r))
+    if (failed(r))
       return failure();
-    SmallVector<StringRef> pieces;
-    StringRef(*q).split(pieces, "::");
     EmitNames names;
-    names.cppQualified = "::" + *q;
-    names.cppClass = pieces.back().str();
-    names.cppNamespace = q->substr(0, q->size() - pieces.back().size());
-    if (names.cppNamespace.ends_with("::"))
-      names.cppNamespace.resize(names.cppNamespace.size() - 2);
-    // Source identifiers beginning with pyc_ are encoded by the shared
-    // legalizer. Generated symbols live in that disjoint, non-hex subdomain.
-    names.cppFamilyClass = "pyc_family_" + names.cppClass;
-    names.cppFamilyQualified =
-        "::" + (names.cppNamespace.empty() ? "" : names.cppNamespace + "::") +
-        names.cppFamilyClass;
     names.rtl = "ac_" + *r;
     auto owner = sourceOwnerComponents(definition.getSourceOwner(),
                                        [&] { return site->emitOpError(); });
     if (failed(owner))
       return failure();
-    auto header = sourcePathName(owner->filePath, ".hpp",
-                                 [&] { return site->emitOpError(); });
-    auto source = sourcePathName(owner->filePath, ".cpp",
-                                 [&] { return site->emitOpError(); });
     auto v = sourcePathName(owner->filePath, ".v",
                             [&] { return site->emitOpError(); });
-    if (failed(header) || failed(source) || failed(v))
+    if (failed(v))
       return failure();
-    names.header = *header;
-    names.source = *source;
     names.verilog = *v;
-    if (failed(reserveCppName(names.cppQualified, site)) ||
-        failed(reserveCppName(names.cppFamilyQualified, site)))
-      return failure();
     if (!rtl.insert(names.rtl).second)
       return site->emitOpError() << "emitted hardware name collision";
     // Owners may intentionally share a basename; grouping checks unequal
@@ -1002,22 +960,11 @@ const EmitNames &HardwareEmitContext::names(Operation *definition) const {
   return names_.find(definition)->second;
 }
 FailureOr<std::string>
-HardwareEmitContext::cppFormalName(StringRef name, Operation *site) const {
-  auto legalized = identifier(name, site);
-  if (failed(legalized))
-    return failure();
-  return "pyc_formal_" + *legalized;
-}
-FailureOr<std::string>
 HardwareEmitContext::rtlFormalName(StringRef name, Operation *site) const {
   auto legalized = identifier(name, site);
   if (failed(legalized))
     return failure();
   return "pyc_parameter_" + *legalized;
-}
-FailureOr<std::string> HardwareEmitContext::staticValue(ac::StaticExprAttr expr,
-                                                        Operation *site) const {
-  return staticTree(*this, expr.getTree(), site, false);
 }
 bool HardwareEmitContext::isClosedStatic(
     ac::StaticExprAttr expr, const ac::HardwareBindings &bindings) const {
@@ -1030,10 +977,10 @@ HardwareEmitContext::staticRtlValue(ac::StaticExprAttr expr,
   return staticTree(*this, expr.getTree(), site, true);
 }
 FailureOr<std::string>
-HardwareEmitContext::staticValue(ac::StaticExprAttr expr,
-                                 const ac::HardwareBindings &bindings,
-                                 Operation *site) const {
-  return staticTree(*this, expr.getTree(), site, false, &bindings);
+HardwareEmitContext::staticRtlValue(ac::StaticExprAttr expr,
+                                    const ac::HardwareBindings &bindings,
+                                    Operation *site) const {
+  return staticTree(*this, expr.getTree(), site, true, &bindings);
 }
 FailureOr<std::string> HardwareEmitContext::unsignedStaticValue(
     ac::StaticExprAttr expression, Operation *site, bool rtl,
@@ -1061,214 +1008,44 @@ FailureOr<std::string> HardwareEmitContext::unsignedStaticValue(
     return failure();
   return rtl ? "$unsigned(64'(" + *text + "))" : "std::uint64_t(" + *text + ")";
 }
-FailureOr<std::string>
-HardwareEmitContext::cppType(Type type, const ac::HardwareBindings &bindings,
-                             Operation *site) const {
-  auto resolved = analysis.resolveType(type, bindings, site);
-  if (failed(resolved))
-    return failure();
-  if (auto bits = dyn_cast<ac::BitsType>(*resolved)) {
-    auto value = staticValue(bits.getWidth(), bindings, site);
-    if (failed(value))
-      return failure();
-    return "gfsim::Bits<" + *value + ">";
-  }
-  return cppType(*resolved, site);
-}
-FailureOr<std::string> HardwareEmitContext::cppType(Type type,
-                                                    Operation *site) const {
-  if (auto bits = dyn_cast<ac::BitsType>(type)) {
-    auto width = staticValue(bits.getWidth(), site);
-    if (failed(width))
-      return failure();
-    return "gfsim::Bits<" + *width + ">";
-  }
-  if (auto table = dyn_cast<ac::TableType>(type)) {
-    auto element = cppType(table.getElementType(), site);
-    if (failed(element))
-      return failure();
-    std::string result = "gfsim::table<" + *element;
-    for (auto raw : table.getShape()) {
-      auto extent = staticValue(cast<ac::StaticExprAttr>(raw), site);
-      if (failed(extent))
-        return failure();
-      result += ", " + *extent;
-    }
-    return result + ">";
-  }
-  if (auto param = dyn_cast<ac::TypeParamType>(type))
-    return cppFormalName(param.getName().getValue(), site);
-  if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
-    if (failed(analysis.resolveEnum(enumeration, site)))
-      return failure();
-    auto q = qualified(enumeration.getName().getValue(), site, "::");
-    if (failed(q))
-      return failure();
-    return "::" + *q;
-  }
-  if (auto record = dyn_cast<ac::StructType>(type)) {
-    auto q = qualified(record.getName().getValue(), site, "::");
-    if (failed(q))
-      return failure();
-    return "::" + *q;
-  }
-  return site->emitOpError() << "unsupported C++ hardware type";
-}
 FailureOr<std::string> HardwareEmitContext::rtlType(Type type,
                                                     Operation *site) const {
-  if (auto bits = dyn_cast<ac::BitsType>(type)) {
-    auto width = staticTree(*this, bits.getWidth().getTree(), site, true);
-    if (failed(width))
-      return failure();
-    return "logic [(" + *width + ")-1:0]";
-  }
-  if (auto table = dyn_cast<ac::TableType>(type)) {
-    auto width = payloadWidth(table, site, true);
-    if (failed(width))
-      return failure();
-    return "logic [(" + *width + ")-1:0]";
-  }
-  if (auto param = dyn_cast<ac::TypeParamType>(type))
-    return rtlFormalName(param.getName().getValue(), site);
-  if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
-    if (failed(analysis.resolveEnum(enumeration, site)))
-      return failure();
-    auto q = qualified(enumeration.getName().getValue(), site, "_");
-    if (failed(q))
-      return failure();
-    return "pycircuit_types::ac_" + *q + "_t";
-  }
-  if (auto record = dyn_cast<ac::StructType>(type)) {
-    auto q = qualified(record.getName().getValue(), site, "_");
-    if (failed(q))
-      return failure();
-    return "pycircuit_types::ac_" + *q + "_t";
-  }
-  return site->emitOpError() << "unsupported RTL hardware type";
-}
-FailureOr<std::string>
-HardwareEmitContext::cppInstanceType(ac::InstanceOp instance) const {
-  auto *callee = analysis.resolveCallee(instance);
-  if (!callee)
-    return instance.emitOpError() << "unresolved C++ callee";
-  std::string result;
-  auto kind = analysis.getPrimitiveKind(callee);
-  if (!kind.empty())
-    result = "::gfsim::" + kind.str();
-  else
-    result = names(callee).cppQualified;
-  SmallVector<std::string> actuals;
-  auto appendTypes = [&]() -> LogicalResult {
-    for (auto raw : instance.getTypeArguments()) {
-      auto type = cppType(cast<TypeAttr>(raw).getValue(), instance);
-      if (failed(type))
+  if (auto cached = rtlTypeCache_.find(type); cached != rtlTypeCache_.end())
+    return cached->second;
+  FailureOr<std::string> rendered = [&]() -> FailureOr<std::string> {
+    if (auto bits = dyn_cast<ac::BitsType>(type)) {
+      auto width = staticTree(*this, bits.getWidth().getTree(), site, true);
+      if (failed(width))
         return failure();
-      actuals.push_back(*type);
+      return "logic [(" + *width + ")-1:0]";
     }
-    return success();
-  };
-  if (!kind.empty() && failed(appendTypes()))
-    return failure();
-  ac::HardwareBindings parent;
-  parent.owner = instance->getParentOp();
-  auto bindings = analysis.bindInstance(instance, parent);
-  if (failed(bindings))
-    return failure();
-  for (auto raw : callee->getAttrOfType<ArrayAttr>("parameters")) {
-    auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
-    auto value = bindings->integers.lookup(name.getValue());
-    if (auto integer = dyn_cast<ac::MathIntAttr>(value))
-      actuals.push_back(integer.getCanonicalValue().str());
-    else {
-      auto rendered =
-          staticValue(cast<ac::StaticExprAttr>(value), *bindings, instance);
-      if (failed(rendered))
+    if (auto table = dyn_cast<ac::TableType>(type)) {
+      auto width = payloadWidth(table, site, true);
+      if (failed(width))
         return failure();
-      actuals.push_back(*rendered);
+      return "logic [(" + *width + ")-1:0]";
     }
-  }
-  if (kind.empty() && failed(appendTypes()))
-    return failure();
-  if (!actuals.empty())
-    result += "<" + join(actuals, ",") + ">";
-  return result;
-}
-template <class Occurrence>
-static FailureOr<std::string>
-rtlOccurrenceParameters(const HardwareEmitContext &context,
-                        Occurrence instance) {
-  SmallVector<std::string> assignments;
-  Operation *callee = context.analysis.resolveCallee(instance);
-  const bool primitive = !context.analysis.getPrimitiveKind(callee).empty();
-  auto formals = callee->getAttrOfType<ArrayAttr>("parameters");
-  if (primitive) {
-    for (auto [i, raw] : llvm::enumerate(instance.getParameters())) {
-      DictionaryAttr formal = cast<DictionaryAttr>(formals[i]);
-      auto name = formal.getAs<StringAttr>("name");
-      auto value = staticTree(context, cast<ac::StaticExprAttr>(raw).getTree(),
-                              instance, true);
-      auto id = identifier(name.getValue(), instance);
-      if (failed(value) || failed(id))
+    if (auto param = dyn_cast<ac::TypeParamType>(type))
+      return rtlFormalName(param.getName().getValue(), site);
+    if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
+      if (failed(analysis.resolveEnum(enumeration, site)))
         return failure();
-      assignments.push_back("." + *id + "(" + *value + ")");
-    }
-  } else {
-    // Generated definitions declare value parameters before type parameters.
-    // Positional overrides avoid a named override colliding with a local type
-    // name. Reuse binding/substitution to materialize every declared default;
-    // empty positional parameter slots are not portable SystemVerilog.
-    ac::HardwareBindings parent;
-    parent.owner = instance->getParentOp();
-    auto bindings = context.analysis.bindInstance(instance, parent);
-    if (failed(bindings))
-      return failure();
-    for (auto raw : formals) {
-      auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
-      auto value = bindings->integers.lookup(name.getValue());
-      if (auto integer = dyn_cast<ac::MathIntAttr>(value)) {
-        assignments.push_back(integer.getCanonicalValue().str());
-      } else {
-        auto rendered =
-            staticTree(context, cast<ac::StaticExprAttr>(value).getTree(),
-                       instance, true, &*bindings);
-        if (failed(rendered))
-          return failure();
-        assignments.push_back(*rendered);
-      }
-    }
-  }
-  auto typeFormals = callee->getAttrOfType<ArrayAttr>("type_parameters");
-  for (auto [i, raw] : llvm::enumerate(instance.getTypeArguments())) {
-    auto type = context.rtlType(cast<TypeAttr>(raw).getValue(), instance);
-    if (failed(type))
-      return failure();
-    auto formalName = cast<StringAttr>(typeFormals[i]).getValue();
-    if (primitive) {
-      auto id = identifier(formalName, instance);
-      if (failed(id))
+      auto q = qualified(enumeration.getName().getValue(), site, "_");
+      if (failed(q))
         return failure();
-      assignments.push_back("." + *id + "(" + *type + ")");
-    } else {
-      assignments.push_back(*type);
+      return "pycircuit_types::ac_" + *q + "_t";
     }
-  }
-  return assignments.empty() ? std::string()
-                             : " #( " + join(assignments, ", ") + " )";
-}
-FailureOr<std::string>
-HardwareEmitContext::rtlInstanceParameters(ac::InstanceOp instance) const {
-  return rtlOccurrenceParameters(*this, instance);
-}
-FailureOr<std::string>
-HardwareEmitContext::rtlInstanceParameters(ac::CollectionOp collection) const {
-  return rtlOccurrenceParameters(*this, collection);
-}
-FailureOr<std::string> HardwareEmitContext::cppWireExpression(
-    Value value, const ac::HardwareBindings &, Operation *site) const {
-  auto type = cppType(value.getType(), site);
-  if (failed(type))
-    return failure();
-  return "gfsim::wire<" + *type + ">";
+    if (auto record = dyn_cast<ac::StructType>(type)) {
+      auto q = qualified(record.getName().getValue(), site, "_");
+      if (failed(q))
+        return failure();
+      return "pycircuit_types::ac_" + *q + "_t";
+    }
+    return site->emitOpError() << "unsupported RTL hardware type";
+  }();
+  if (succeeded(rendered))
+    rtlTypeCache_[type] = *rendered;
+  return rendered;
 }
 } // namespace acir::compiler
 namespace acir::compiler {
@@ -1298,32 +1075,6 @@ FailureOr<ac::HardwareBindings> HardwareEmitContext::rootBindings() const {
     bindings.integers[formal.getAs<StringAttr>("name").getValue()] = *value;
   }
   return bindings;
-}
-FailureOr<std::string> HardwareEmitContext::rootCppType() const {
-  auto bindings = rootBindings();
-  if (failed(bindings))
-    return failure();
-  auto *root = bindings->owner;
-  SmallVector<std::string> arguments;
-  for (auto raw : root->getAttrOfType<ArrayAttr>("parameters"))
-    arguments.push_back(
-        cast<ac::MathIntAttr>(
-            bindings->integers.lookup(
-                cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue()))
-            .getCanonicalValue()
-            .str());
-  for (auto raw : root->getAttrOfType<ArrayAttr>("type_parameters")) {
-    auto type =
-        cppType(bindings->types.lookup(cast<StringAttr>(raw).getValue()),
-                *bindings, root);
-    if (failed(type))
-      return failure();
-    arguments.push_back(*type);
-  }
-  auto result = names(root).cppQualified;
-  if (!arguments.empty())
-    result += "<" + join(arguments, ", ") + ">";
-  return result;
 }
 FailureOr<std::string> HardwareEmitContext::rootRtlParameters() const {
   auto bindings = rootBindings();
@@ -1393,56 +1144,10 @@ HardwareEmitContext::payloadWidth(Type type, Operation *site, bool rtl,
       return failure();
     return std::to_string(*width);
   }
-  auto text = rtl ? rtlType(type, site) : cppType(type, bindings, site);
+  auto text = rtlType(type, site);
   if (failed(text))
     return failure();
-  return rtl ? "$bits(" + *text + ")"
-             : "gfsim::hardware_traits<" + *text + ">::width";
-}
-FailureOr<std::string>
-HardwareEmitContext::cppBoundModuleType(Operation *definition,
-                                        const ac::HardwareBindings &bindings,
-                                        Operation *site, bool kernel) const {
-  StringRef kind = analysis.getPrimitiveKind(definition);
-  if (kernel && kind.empty())
-    return site->emitOpError()
-           << "only standard storage leaves have a kernel type";
-  std::string name =
-      kind.empty() ? names(definition).cppQualified : "::gfsim::" + kind.str();
-  if (kernel)
-    name = "::gfsim::" + (kind == "sync_mem_dp" ? "sync_mem" : kind.str()) +
-           "_kernel";
-  SmallVector<std::string> actuals;
-  auto types = [&]() -> LogicalResult {
-    for (auto raw : definition->getAttrOfType<ArrayAttr>("type_parameters")) {
-      auto type = bindings.types.lookup(cast<StringAttr>(raw).getValue());
-      auto text = cppType(type, bindings, site);
-      if (failed(text))
-        return failure();
-      actuals.push_back(*text);
-    }
-    return success();
-  };
-  if (!kind.empty() && failed(types()))
-    return failure();
-  for (auto raw : definition->getAttrOfType<ArrayAttr>("parameters")) {
-    auto attr = bindings.integers.lookup(
-        cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue());
-    if (auto integer = dyn_cast<ac::MathIntAttr>(attr))
-      actuals.push_back(integer.getCanonicalValue().str());
-    else if (auto expr = dyn_cast<ac::StaticExprAttr>(attr)) {
-      auto text = staticValue(expr, bindings, site);
-      if (failed(text))
-        return failure();
-      actuals.push_back(*text);
-    } else
-      return site->emitOpError() << "missing bound module integer parameter";
-  }
-  if (kind.empty() && failed(types()))
-    return failure();
-  if (kernel && kind == "sync_mem_dp")
-    actuals.push_back("2");
-  return actuals.empty() ? name : name + "<" + join(actuals, ", ") + ">";
+  return "$bits(" + *text + ")";
 }
 FailureOr<std::string>
 HardwareEmitContext::viewIndex(ac::TableViewOp view, StringRef ordinal,
@@ -1587,194 +1292,6 @@ HardwareEmitContext::viewIndex(ac::TableViewOp view, StringRef ordinal,
 } // namespace acir::compiler
 
 namespace acir::compiler {
-FailureOr<std::string> HardwareEmitContext::cppBoundFamilyType(
-    Operation *definition, const ac::HardwareBindings &bindings,
-    Operation *site, StringRef count) const {
-  if (!analysis.getPrimitiveKind(definition).empty())
-    return site->emitOpError()
-           << "standard leaves use collection_storage of their kernel";
-  auto type = cppBoundModuleType(definition, bindings, site);
-  if (failed(type))
-    return failure();
-  auto base = names(definition).cppQualified;
-  auto arguments = StringRef(*type).drop_front(base.size());
-  std::string result = names(definition).cppFamilyQualified + "<" + count.str();
-  if (!arguments.empty())
-    result += ", " + arguments.drop_front().drop_back().str();
-  return result + ">";
-}
-
-static uint64_t nativeObservationWidth(const ac::HardwareAnalysis &analysis,
-                                       Type type,
-                                       const ac::HardwareBindings &bindings,
-                                       Operation *site,
-                                       llvm::DenseSet<Type> &active) {
-  auto resolved = analysis.resolveType(type, bindings, site);
-  if (failed(resolved))
-    return 0;
-  type = *resolved;
-  if (auto bits = dyn_cast<ac::BitsType>(type)) {
-    auto value = analysis.evaluateStatic(bits.getWidth(), bindings, site);
-    if (failed(value))
-      return 0;
-    auto integer = dyn_cast<ac::MathIntAttr>(*value);
-    if (!integer)
-      return 0;
-    return llvm::APSInt(integer.getCanonicalValue()).getZExtValue();
-  }
-  if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
-    auto view = analysis.resolveEnum(enumeration, site);
-    return failed(view) ? 0 : view->width;
-  }
-  if (auto record = dyn_cast<ac::StructType>(type)) {
-    if (!active.insert(record).second)
-      return 0;
-    uint64_t total = 0;
-    for (Attribute raw : analysis.lookupStruct(record).getFields()) {
-      auto field = cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue();
-      uint64_t width =
-          nativeObservationWidth(analysis, field, bindings, site, active);
-      if (width == 0)
-        return 0;
-      total += width;
-    }
-    active.erase(record);
-    return total;
-  }
-  return 0;
-}
-FailureOr<std::string>
-cppObservationDescriptorTable(HardwareEmitContext &context) {
-  auto plan = buildObservationPlan(context);
-  if (failed(plan))
-    return failure();
-  // An unobserved design keeps the empty configuration and emits no table at
-  // all, so its generated glue stays byte-identical to the previous emitter.
-  if (plan->table.empty())
-    return std::string();
-  std::string text;
-  llvm::raw_string_ostream out(text);
-  out << "static constexpr gfsim::ObservationDescriptor "
-         "pyc_observation_descriptors["
-      << plan->table.size() << "] = {";
-  for (auto [index, entry] : llvm::enumerate(plan->table)) {
-    const auto &occurrence = plan->occurrences[index];
-    auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
-    out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
-        << entry[3]
-        << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
-        << ", " << occurrence.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << "},";
-  }
-  out << "\n};\n";
-  out.flush();
-  return text;
-}
-FailureOr<std::string>
-cppObservationConfigureCall(HardwareEmitContext &context) {
-  auto plan = buildObservationPlan(context);
-  if (failed(plan))
-    return failure();
-  if (plan->table.empty())
-    return std::string("observations_.Configure({}, 0)");
-  return "observations_.Configure(pyc_observation_descriptors, " +
-         std::to_string(plan->events) + ")";
-}
-FailureOr<std::string> cppObservationChildBase(HardwareEmitContext &context,
-                                               ac::ModuleOp definition,
-                                               unsigned childIndex) {
-  auto plan = buildObservationPlan(context);
-  if (failed(plan))
-    return failure();
-  auto bases = plan->childBaseUnits.find(definition);
-  if (bases == plan->childBaseUnits.end() || childIndex >= bases->second.size())
-    return definition.emitOpError() << "native observation child is unplanned";
-  return std::to_string(bases->second[childIndex]);
-}
-FailureOr<uint64_t> cppObservationLaneStride(HardwareEmitContext &context,
-                                             ac::ModuleOp definition) {
-  auto plan = buildObservationPlan(context);
-  if (failed(plan))
-    return failure();
-  auto sites = plan->definitions.find(definition);
-  return sites == plan->definitions.end()
-             ? uint64_t{0}
-             : static_cast<uint64_t>(sites->second.size());
-}
-FailureOr<uint64_t> cppObservationSubtreeWidth(HardwareEmitContext &context,
-                                               ac::ModuleOp definition) {
-  auto plan = buildObservationPlan(context);
-  if (failed(plan))
-    return failure();
-  return plan->subtreeWidth.lookup(definition);
-}
-LogicalResult
-cppObservationStaging(HardwareEmitContext &context, ac::ModuleOp definition,
-                      const ac::HardwareBindings &bindings,
-                      llvm::StringRef object, llvm::StringRef count,
-                      const std::function<FailureOr<std::string>(Value)> &value,
-                      llvm::raw_ostream &out) {
-  auto plan = buildObservationPlan(context);
-  if (failed(plan))
-    return failure();
-  auto sites = plan->definitions.find(definition);
-  if (sites == plan->definitions.end() || sites->second.empty())
-    return success();
-  // One staged value per descriptor, so every observed operand keeps its own
-  // `ObservationDescriptor` and therefore its own globally unique ordinal.
-  for (auto [index, site] : llvm::enumerate(sites->second)) {
-    auto observe = cast<ac::SourceObserveOp>(site.op);
-    auto path = value(observe.getPath());
-    if (failed(path))
-      return failure();
-    auto staged =
-        site.carriesValue ? value(observe.getValues()[site.valueIndex]) : path;
-    if (failed(staged))
-      return failure();
-    Value observed = site.carriesValue ? observe.getValues()[site.valueIndex]
-                                       : observe.getPath();
-    llvm::DenseSet<Type> active;
-    uint64_t width = nativeObservationWidth(
-        context.analysis, observed.getType(), bindings, observe, active);
-    if (width == 0)
-      return observe.emitOpError()
-             << "native observation value type is unresolved";
-    if (width > 64)
-      return observe.emitOpError()
-             << "native observation value exceeds the 64-bit single-plane "
-                "slot; publish one scalar field per observation";
-    auto payload = context.cppType(observed.getType(), bindings, observe);
-    if (failed(payload))
-      return failure();
-    // A Gauge is published as the raw unsigned bit pattern because
-    // `ObservationSlots::Precommit` accepts only `Unsigned` gauges; a one-bit
-    // Event keeps the source `bool` shape the runner protocol carries.
-    out << "    static_assert(gfsim::hardware_traits<" << *payload
-        << ">::width == " << width
-        << ", \"native observation width must be resolved at emission\");\n"
-        << "    for (std::size_t pyc_lane = 0; pyc_lane < " << count
-        << "; ++pyc_lane) {\n"
-        << "      const auto pyc_observed = " << *staged
-        << ".element(pyc_lane).packed();\n"
-        << "      const auto pyc_observed_path = " << *path
-        << ".element(pyc_lane).packed();\n"
-        << "      " << object << (object.empty() ? "" : "template ")
-        << "__pyc_stage_observation<"
-        << (site.gauge
-                ? "false"
-                : "(gfsim::hardware_traits<" + *payload + ">::width == 1)")
-        << ">(pyc_lane, " << index
-        << ", pyc_observed.value().value(), pyc_observed.isFullyKnown() && "
-           "pyc_observed_path.isFullyKnown(), "
-        << "pyc_observed_path.isFullyKnown() && "
-           "static_cast<bool>(pyc_observed_path.value().value() & 1u));\n"
-        << "    }\n";
-  }
-  return success();
-}
-} // namespace acir::compiler
-
-namespace acir::compiler {
 bool HardwareEmitContext::isSystem() {
   auto entries = package.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(entries))
@@ -1786,12 +1303,27 @@ bool HardwareEmitContext::isSystem() {
       root ? root->getAttrOfType<StringAttr>("ac.root_kind") : StringAttr();
   return kind && kind.getValue() == "system";
 }
+FailureOr<const ObservationEmissionPlan *> HardwareEmitContext::observationPlan() {
+  if (!observationPlanPrepared_) {
+    auto plan = buildObservationPlan(*this);
+    if (succeeded(plan))
+      observationPlan_.emplace(std::move(*plan));
+    observationPlanPrepared_ = true;
+  }
+  if (!observationPlan_)
+    return failure();
+  return &*observationPlan_;
+}
+
 FailureOr<ObservationEmissionPlan>
 observationEmissionPlan(HardwareEmitContext &context) {
-  return buildObservationPlan(context);
+  auto plan = context.observationPlan();
+  if (failed(plan))
+    return failure();
+  return **plan;
 }
 namespace {
-FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
+FailureOr<llvm::json::Value> legacyMetadataValue(Attribute value, Operation *site) {
   if (auto item = dyn_cast<StringAttr>(value))
     return llvm::json::Value(item.getValue());
   if (auto item = dyn_cast<FlatSymbolRefAttr>(value))
@@ -1808,7 +1340,7 @@ FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
   if (auto items = dyn_cast<ArrayAttr>(value)) {
     llvm::json::Array result;
     for (Attribute item : items) {
-      auto converted = metadataValue(item, site);
+      auto converted = legacyMetadataValue(item, site);
       if (failed(converted))
         return failure();
       result.push_back(std::move(*converted));
@@ -1818,7 +1350,7 @@ FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
   if (auto items = dyn_cast<DictionaryAttr>(value)) {
     llvm::json::Object result;
     for (auto item : items) {
-      auto converted = metadataValue(item.getValue(), site);
+      auto converted = legacyMetadataValue(item.getValue(), site);
       if (failed(converted))
         return failure();
       result[item.getName().strref()] = std::move(*converted);
@@ -1827,85 +1359,5 @@ FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
   }
   return site->emitOpError() << "unsupported emission metadata attribute";
 }
-std::string cppMetadataString(StringRef value) {
-  std::string text;
-  llvm::raw_string_ostream out(text);
-  out << '"';
-  out.write_escaped(value, false);
-  out << '"';
-  return text;
-}
 } // namespace
-FailureOr<std::string> emissionMetadataJson(Attribute value, Operation *site) {
-  auto converted = metadataValue(value, site);
-  if (failed(converted))
-    return failure();
-  std::string text;
-  llvm::raw_string_ostream out(text);
-  out << *converted;
-  return text;
-}
-FailureOr<std::string>
-observationSiteMetadataJson(ac::SourceObserveOp observe) {
-  auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
-  if (failed(ac::detail::verifyObservationID(
-          identity, [&] { return observe.emitOpError(); })))
-    return failure();
-  Builder builder(observe.getContext());
-  return emissionMetadataJson(
-      builder.getDictionaryAttr(
-          {builder.getNamedAttr("site", identity.get("site")),
-           builder.getNamedAttr("invocation", identity.get("invocation")),
-           builder.getNamedAttr("ordinal", identity.get("ordinal"))}),
-      observe);
-}
-FailureOr<std::string>
-cppObservationRunnerMetadata(HardwareEmitContext &context) {
-  auto plan = buildObservationPlan(context);
-  auto root = observationRoot(context);
-  if (failed(plan) || failed(root))
-    return failure();
-  std::string text;
-  llvm::raw_string_ostream out(text);
-  out << "inline std::span<const gfsim::RunnerObservation> "
-         "pyc_observation_metadata() {\n";
-  if (plan->occurrences.empty()) {
-    out << "  return {};\n}\n";
-    return text;
-  }
-  out << "  static const gfsim::RunnerObservation entries[] = {\n";
-  for (const auto &entry : plan->occurrences) {
-    auto observe = cast<ac::SourceObserveOp>(entry.site.op);
-    auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
-    if (!identity)
-      return observe.emitOpError() << "observation identity is missing";
-    auto registration =
-        emissionMetadataJson(identity.get("registration"), observe);
-    auto site = observationSiteMetadataJson(observe);
-    auto spec = emissionMetadataJson(observe.getSpec(), observe);
-    if (failed(registration) || failed(site) || failed(spec))
-      return failure();
-    std::string instance = "root";
-    for (auto [operation, lane] : entry.logicalOwnerPath) {
-      auto name = operation->getAttrOfType<StringAttr>("instance_name");
-      if (!name)
-        return operation->emitOpError() << "instance has no name";
-      instance += "/" + name.getValue().str();
-      if (isa<ac::CollectionOp>(operation))
-        instance += "[" + std::to_string(lane) + "]";
-    }
-    auto report = observe.getSpec().getAs<StringAttr>("name");
-    out << "    {" << entry.ordinal << ", "
-        << cppMetadataString(observe.getKind()) << ", "
-        << cppMetadataString(instance) << ", "
-        << cppMetadataString(*registration) << ", " << cppMetadataString(*site)
-        << ", " << cppMetadataString(*spec) << ", "
-        << (entry.site.carriesValue ? "true" : "false") << ", "
-        << cppMetadataString(report ? report.getValue() : StringRef()) << ", "
-        << entry.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << "},\n";
-  }
-  out << "  };\n  return entries;\n}\n";
-  return text;
-}
 } // namespace acir::compiler

@@ -76,6 +76,7 @@ def run(command, code=0, diagnostic=None):
 
 
 def cli(*arguments, code=0, diagnostic=None):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], code, diagnostic)
 
 
@@ -346,7 +347,7 @@ protected = []
 for receipt in receipts:
     output = Path(receipt["output"])
     protected.extend(
-        (output / "unit", output / "design.ac", output / "cpp", output / "verilog")
+        (output / "unit", output / "design.ac", output / "structural-cpp", output / "verilog")
     )
 for receipt in control_receipts:
     protected.extend((Path(receipt["unit"]), Path(receipt["final"])))

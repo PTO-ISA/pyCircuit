@@ -73,7 +73,7 @@ design and are deliberately **not** used as a golden.
 pycircuit compile -c calculator.py --source-root . \
   --package-prefix example_calculator -o unit
 pycircuit link unit --top example_calculator.calculator.Calculator -o top.ac
-pycircuit emit top.ac --target cpp     -o cpp
+pycircuit emit top.ac --target structural-cpp     -o cpp
 pycircuit emit top.ac --target verilog -o verilog
 ```
 
@@ -168,6 +168,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/calculator --target cpp --cycles 237
+pycircuit run examples/calculator --target structural-cpp --cycles 237
 pycircuit run examples/calculator --target verilog --cycles 237
 ```

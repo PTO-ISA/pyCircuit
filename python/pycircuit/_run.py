@@ -130,7 +130,11 @@ def run_command(
     )
     generated = build / target
     receipt = json.loads((generated / "generated.json").read_text())
-    required = "simulation_main.cpp" if target == "cpp" else "simulation_top.sv"
+    required = (
+        "simulation_main.cpp"
+        if target == "structural-cpp"
+        else "simulation_top.sv"
+    )
     if required not in {row["path"] for row in receipt["files"]}:
         raise _DriverError(
             "run requires a source @system root; a module emits a reusable design"
@@ -161,8 +165,15 @@ def run_command(
         / ("pycircuit_sim.exe" if os.name == "nt" else "pycircuit_sim")
     )
     arguments = (
-        ["--cycles", str(cycles), "--workers", str(workers)]
-        if target == "cpp"
+        [
+            "--cycles",
+            str(cycles),
+            "--workers",
+            str(workers),
+            "--events",
+            "-",
+        ]
+        if target == "structural-cpp"
         else [f"+cycles={cycles}"]
     )
     candidates = [executable]

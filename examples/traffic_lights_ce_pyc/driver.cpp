@@ -1,7 +1,7 @@
 // Independent eleven-tick table, not the DUT's ordered next-state expressions.
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdlib>
 #include <iostream>

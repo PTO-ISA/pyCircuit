@@ -962,13 +962,11 @@ def Top(value: u8) -> Out:
   for (auto &field : treeFields)
     if (field.getName() == "origin")
       field = builder.getNamedAttr("origin", malformedOrigin);
-  malformed->setAttr(
-      "value",
-      ac::StaticExprAttr::get(&context, builder.getDictionaryAttr(treeFields)));
   diagnostics.clear();
-  EXPECT_TRUE(failed(ac::verifySourceBodyStructure(**lowered, error())));
+  auto rejected = ac::StaticExprAttr::getChecked(
+      error(), &context, builder.getDictionaryAttr(treeFields));
+  EXPECT_FALSE(rejected);
   EXPECT_NE(diagnostics.find("ordinal"), std::string::npos) << diagnostics;
-  malformed->setAttr("value", savedExpression);
   EXPECT_TRUE(succeeded(ac::verifySourceBodyStructure(**lowered, error())));
 }
 

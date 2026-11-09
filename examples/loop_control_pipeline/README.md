@@ -78,7 +78,7 @@ superseded records remain retained, and all original Work traces are unchanged.
 `bench.py` exports `example_loop_control_pipeline.bench.ExerciseLoopControlPipeline`. Compile
 `loop_control_pipeline.py`, then `bench.py`, import the published DUT interface, and link
 that explicit system root through the public compile/link/emit flow. Run
-`pycircuit run examples/loop_control_pipeline --target cpp --cycles 635` or select
+`pycircuit run examples/loop_control_pipeline --target structural-cpp --cycles 635` or select
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 

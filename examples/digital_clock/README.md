@@ -125,7 +125,7 @@ See [generated excerpts and verification inputs](GENERATED.md) for the module.
 The catalog selects the long root. With the environment above, run it with:
 
 ```sh
-pycircuit run examples/digital_clock --target cpp --cycles 100000001
+pycircuit run examples/digital_clock --target structural-cpp --cycles 100000001
 pycircuit run examples/digital_clock --target verilog --cycles 100000001
 ```
 

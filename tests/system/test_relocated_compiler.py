@@ -380,9 +380,9 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
 
     shutil.rmtree(source)
     shutil.rmtree(work / "units")
-    cpp = tmp_path / "generated-cpp"
+    cpp = tmp_path / "generated-structural-cpp"
     verilog = tmp_path / "generated-verilog"
-    for target, output in (("cpp", cpp), ("verilog", verilog)):
+    for target, output in (("structural-cpp", cpp), ("verilog", verilog)):
         _checked(
             [str(driver), "emit", str(final), "--target", target, "-o", str(output)],
             cwd=tmp_path,
@@ -391,7 +391,7 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
         assert (output / "CMakeLists.txt").is_file()
 
     runners: list[tuple[str, Path]] = []
-    for target, output in (("cpp", cpp), ("verilog", verilog)):
+    for target, output in (("structural-cpp", cpp), ("verilog", verilog)):
         build = tmp_path / f"runtime-only-{target}-build"
         _checked(
             [
@@ -430,7 +430,7 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
         assert Path(package_dir).resolve().is_relative_to(moved_prefix.resolve())
         generated_graph = (build / "build.ninja").read_text(encoding="utf-8")
         assert str(moved_prefix) in generated_graph
-        if target == "cpp":
+        if target == "structural-cpp":
             assert "libpyc6_runtime" in generated_graph
         else:
             assert "include/verilog" in generated_graph
@@ -460,7 +460,11 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
     shutil.copyfile(FIXTURE / "three-ticks.json", config)
     for index, (target, runner) in enumerate(runners):
         events = tmp_path / f"events-{index}.jsonl"
-        arguments = ["--cycles", "3"] if target == "cpp" else ["+cycles=3"]
+        arguments = (
+            ["--cycles", "3", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=3"]
+        )
         run = _checked(
             [str(runner), *arguments],
             cwd=tmp_path,

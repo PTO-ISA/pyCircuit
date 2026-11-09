@@ -526,8 +526,8 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         [driver, "link", unit, "--top", "sdk.design_top.DesignTop", "-o", final],
         cwd=workspace,
     )
-    for target in ("cpp", "verilog"):
-        destination = workspace / target
+    for target, destination_name in (("structural-cpp", "cpp"), ("verilog", "verilog")):
+        destination = workspace / destination_name
         command = [driver, "emit", final, "--target", target, "-o", destination]
         run(command, cwd=workspace)
         before = tree_snapshot(destination)

@@ -72,6 +72,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -107,14 +108,14 @@ cli(*compile_unit("computed_child.py", child))
 cli(*compile_unit("computed_parent.py", parent, [child]))
 final = root / "computed.ac"
 cli("link", child, parent, "--top", "computed.computed_parent.Top", "-o", final)
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", root / target)
 
 # All rejected replacements have the already-published parent's source owner.
 # Unit, linked artifact and generated products must survive each failure.
 before = snapshot(parent)
 final_before = final.read_bytes()
-products = {target: snapshot(root / target) for target in ("cpp", "verilog")}
+products = {target: snapshot(root / target) for target in ("structural-cpp", "verilog")}
 rejections = (
     ()
     if args.four_state
@@ -135,9 +136,9 @@ for name, diagnostic in rejections:
     assert final.read_bytes() == final_before
     assert all(snapshot(root / t) == products[t] for t in products)
 
-receipt = json.loads((root / "cpp/generated.json").read_text())
+receipt = json.loads((root / "structural-cpp/generated.json").read_text())
 cpp = [
-    root / "cpp" / entry["path"]
+    root / "structural-cpp" / entry["path"]
     for entry in receipt["files"]
     if entry["path"].endswith(".cpp")
 ]
@@ -157,7 +158,7 @@ run(
         "-std=c++20",
         "-pthread",
         "-I" + str(repo / "include"),
-        "-I" + str(root / "cpp"),
+        "-I" + str(root / "structural-cpp"),
         fixtures / (stem + ".cpp"),
         *cpp,
         runtime,

@@ -43,16 +43,15 @@ READY_POLICY_LOCAL_OCCUPANCY = 0  # RTL enum encoding of `local_occupancy`
 EXPECTED_AVAILABILITY_LATENCY = 1
 
 FIFO_RTL = re.compile(
-    r"fifo\s*#\(\s*\.T\(logic \[\((\d+)\)-1:0\]\)\s*,"
+    r"fifo\s*#\(\s*\.T\(logic \[(\d+):0\]\)\s*,"
     r"\s*\.DEPTH\((\d+)\)\s*,"
     r"\s*\.READY_POLICY\((\d+)\)\s*,"
-    r"\s*\.AVAILABILITY_LATENCY\(64'd(\d+)\)\s*,"
+    r"\s*\.AVAILABILITY_LATENCY\((?:64'd)?(\d+)\)\s*,"
     r"\s*\.pyc_managed\(1'b([01])\)\s*\)"
 )
 FIFO_CPP = re.compile(
-    r"pyc_queue_pyc_[0-9a-f]+_state\(std::make_shared<"
-    r"gfsim::collection_storage<gfsim::fifo_kernel<gfsim::Bits<(\d+)>,\s*(\d+),\s*"
-    r"gfsim::QueueReadyPolicy::(\w+),\s*(\d+)ULL>{2,3}"
+    r"gfsim::fifo<gfsim::Bits<(\d+)>,\s*(\d+),\s*"
+    r"gfsim::QueueReadyPolicy::(\w+),\s*(\d+)>"
 )
 
 
@@ -72,7 +71,10 @@ def check_text(design_ac, rtl_dir, cpp_dir):
     fifos = []
     for path in rtl:
         for match in FIFO_RTL.finditer(path.read_text()):
-            fifos.append(tuple(int(group) for group in match.groups()))
+            upper, depth, policy, latency, managed = (
+                int(group) for group in match.groups()
+            )
+            fifos.append((upper + 1, depth, policy, latency, managed))
     if not fifos:
         raise AssertionError(f"no `fifo #(...)` instantiation found under {rtl_dir}")
     widths, depths, policies, latencies, managed = zip(
@@ -100,7 +102,7 @@ def check_text(design_ac, rtl_dir, cpp_dir):
     )
 
     cpp = []
-    for path in sorted(cpp_dir.rglob("*.hpp")):
+    for path in sorted(cpp_dir.rglob("*.hpp")) + sorted(cpp_dir.rglob("*.cpp")):
         for match in FIFO_CPP.finditer(path.read_text()):
             cpp.append(match.groups())
     if len(cpp) != EXPECTED_QUEUE_COUNT:
@@ -132,22 +134,30 @@ def check_text(design_ac, rtl_dir, cpp_dir):
             "result struct packing expression not found in emitted cpp"
         )
     tail = blob[blob.index(marker) :][:800]
-    order = {name: tail.index(name) for name in ("in_ready", "out_valid", "out_data")}
-    if not order["in_ready"] < order["out_valid"] < order["out_data"]:
+    packed = re.search(
+        r"fromPacked\(gfsim::concat\(value_(\d+)\.packed\(\),\s*"
+        r"gfsim::concat\(value_(\d+)\.packed\(\),\s*value_(\d+)\.packed\(\)\)\)\)",
+        tail,
+    )
+    if not packed:
         raise AssertionError(
             f"packed order is not {{ready, available, head}}: {tail[:400]}"
         )
-    fields = re.findall(
-        r"pyc_queue_pyc_([0-9a-f]+)_(in_ready|out_valid|out_data)", tail
-    )
-    try:
-        ready_owner = next(q for q, role in fields if role == "in_ready")
-        valid_owner = next(q for q, role in fields if role == "out_valid")
-        data_owner = next(q for q, role in fields if role == "out_data")
-    except StopIteration as error:  # pragma: no cover - defensive
-        raise AssertionError(
-            f"could not attribute the result fields: {fields}"
-        ) from error
+    definitions = {
+        value: (owner, role)
+        for value, owner, role in re.findall(
+            r"value_(\d+)\s*=\s*pyc_pyc_([0-9a-f]+)\.(in_ready|out_valid|out_data)",
+            blob,
+        )
+    }
+    fields = [definitions.get(value) for value in packed.groups()]
+    if fields != [
+        (next(owner for owner, role in definitions.values() if role == "in_ready" and owner.endswith("5f30")), "in_ready"),
+        (next(owner for owner, role in definitions.values() if role == "out_valid" and owner.endswith("5f35")), "out_valid"),
+        (next(owner for owner, role in definitions.values() if role == "out_data" and owner.endswith("5f35")), "out_data"),
+    ]:
+        raise AssertionError(f"could not attribute the result fields: {fields}")
+    ready_owner, valid_owner, data_owner = (field[0] for field in fields)
     # hex ...5f30 == "__pyc_queue_0" (the source-side input queue) and
     # hex ...5f35 == "__pyc_queue_5" (the last queue, i.e. `merged`).
     if not ready_owner.endswith("5f30"):

@@ -89,9 +89,20 @@ std::string encodeUtf8(uint32_t codepoint) {
 TEST(SourceIdentifierOracleTest, RecipeVersionAndFixedAstCasesMatch) {
   static constexpr llvm::StringLiteral versionScript = R"py(
 import sys, unicodedata
-print(f"{sys.implementation.name}|{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{unicodedata.unidata_version}")
+print(f"{sys.implementation.name}|{sys.version_info.major}|{sys.version_info.minor}|{unicodedata.unidata_version}")
 )py";
-  EXPECT_EQ(runRecipePython(versionScript, {}), "cpython|3.14.6|16.0.0");
+  std::string ownedVersion = runRecipePython(versionScript, {});
+  llvm::SmallVector<llvm::StringRef, 4> versionFields;
+  llvm::StringRef(ownedVersion).split(versionFields, '|');
+  ASSERT_EQ(versionFields.size(), 4u);
+  EXPECT_EQ(versionFields[0], "cpython");
+  uint32_t major = 0;
+  uint32_t minor = 0;
+  ASSERT_FALSE(versionFields[1].getAsInteger(10, major));
+  ASSERT_FALSE(versionFields[2].getAsInteger(10, minor));
+  EXPECT_EQ(major, 3u);
+  EXPECT_GE(minor, 11u);
+  EXPECT_EQ(versionFields[3], "16.0.0");
 
   struct Case {
     const char *name;

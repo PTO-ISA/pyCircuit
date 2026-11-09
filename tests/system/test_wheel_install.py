@@ -21,6 +21,7 @@ SOURCES = ("child.py", "module_loop.py")
 BUILD_HELPERS = {
     "share/pycircuit/cmake/prepare_output.py",
     "share/pycircuit/cmake/verify_example.py",
+    "share/pycircuit/cmake/verilator_policy.json",
 }
 ACTIVE_EXPORTS = {
     "module",

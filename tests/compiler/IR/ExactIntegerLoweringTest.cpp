@@ -330,12 +330,12 @@ TEST_F(ExactIntegerLoweringTest,
   auto module = mlir::ModuleOp::create(builder.getUnknownLoc());
   mlir::OwningOpRef<mlir::ModuleOp> owned(module);
   builder.setInsertionPointToStart(module.getBody());
-  auto function = builder.create<mlir::func::FuncOp>(
-      builder.getUnknownLoc(), "numeric.Test",
+  auto function = mlir::func::FuncOp::create(
+      builder, builder.getUnknownLoc(), "numeric.Test",
       builder.getFunctionType({computedType}, {}));
   auto *body = function.addEntryBlock();
   builder.setInsertionPointToEnd(body);
-  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc());
   builder.setInsertionPointToStart(body);
   NumericValue argument{body->getArgument(0), ValueKind::Integer,
                         IntegerInterval{integer("0"), integer("256")}};
@@ -559,13 +559,13 @@ TEST_F(ExactIntegerLoweringTest,
   auto module = mlir::ModuleOp::create(builder.getUnknownLoc());
   mlir::OwningOpRef<mlir::ModuleOp> owned(module);
   builder.setInsertionPointToStart(module.getBody());
-  auto function = builder.create<mlir::func::FuncOp>(
-      builder.getUnknownLoc(), "numeric.Test",
+  auto function = mlir::func::FuncOp::create(
+      builder, builder.getUnknownLoc(), "numeric.Test",
       builder.getFunctionType({type(1), computedOne, computedEight, type(8)},
                               {}));
   auto *body = function.addEntryBlock();
   builder.setInsertionPointToEnd(body);
-  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc());
   builder.setInsertionPointToStart(body);
   NumericValue condition{body->getArgument(0), ValueKind::Boolean,
                          std::nullopt};
@@ -713,12 +713,12 @@ TEST_F(ExactIntegerLoweringTest,
   auto module = mlir::ModuleOp::create(builder.getUnknownLoc());
   mlir::OwningOpRef<mlir::ModuleOp> owned(module);
   builder.setInsertionPointToStart(module.getBody());
-  auto function = builder.create<mlir::func::FuncOp>(
-      builder.getUnknownLoc(), "numeric.Test",
+  auto function = mlir::func::FuncOp::create(
+      builder, builder.getUnknownLoc(), "numeric.Test",
       builder.getFunctionType({computedType}, {}));
   auto *body = function.addEntryBlock();
   builder.setInsertionPointToEnd(body);
-  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc());
   builder.setInsertionPointToStart(body);
   NumericValue argument{body->getArgument(0), ValueKind::Integer,
                         IntegerInterval{integer("17"), integer("1025")}};

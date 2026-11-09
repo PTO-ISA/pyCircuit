@@ -1,11 +1,12 @@
 #include "FinalSourceMap.h"
 
 #include "Dialect/ACIR/ACIRSourceContracts.h"
-#include "FinalCppNames.h"
+#include "FinalEmissionNames.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/HWIR/HWIRVerification.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -128,8 +129,15 @@ collectOrigins(ArrayRef<Operation *> definitions,
         result = failure();
         return;
       }
-      rows.push_back({operation->getName().getStringRef().str(),
-                      std::move(*origin), std::move(*location)});
+      auto sourceOperation =
+          operation->getAttrOfType<StringAttr>("hwir.source_operation");
+      auto sourceLocation =
+          operation->getAttrOfType<StringAttr>("hwir.source_location");
+      rows.push_back({sourceOperation ? sourceOperation.getValue().str()
+                                     : operation->getName().getStringRef().str(),
+                      std::move(*origin),
+                      sourceLocation ? sourceLocation.getValue().str()
+                                     : std::move(*location)});
     });
   if (failed(result))
     return failure();
@@ -310,7 +318,10 @@ FailureOr<SmallVector<FinalSourceMap>>
 emitFinalSourceMaps(ModuleOp package,
                     ArrayRef<FinalSourceMembership> membership,
                     ac::detail::EmitError emitError) {
-  if (!package || failed(ac::verifyHardwarePackage(package)))
+  if (!package ||
+      (package->hasAttr("hwir.contract")
+           ? failed(hwir::verifyHWIRPackage(package))
+           : failed(ac::verifyHardwarePackage(package))))
     return emitError() << "final source maps require verified hardware IR";
   auto units = ac::collectFinalSourceUnits(package, emitError);
   if (failed(units))

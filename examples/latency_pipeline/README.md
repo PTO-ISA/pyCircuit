@@ -118,6 +118,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/latency_pipeline --target cpp --cycles 158
+pycircuit run examples/latency_pipeline --target structural-cpp --cycles 158
 pycircuit run examples/latency_pipeline --target verilog --cycles 158
 ```

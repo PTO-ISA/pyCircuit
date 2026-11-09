@@ -2605,7 +2605,7 @@ def identity(value: ac.u8) -> ac.u8:
       auto input = block->addArgument(bit, helper.getLoc());
       OpBuilder operations(&context);
       operations.setInsertionPointToEnd(block);
-      operations.create<mlir::func::ReturnOp>(helper.getLoc(), input);
+      mlir::func::ReturnOp::create(operations, helper.getLoc(), input);
       ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
     }
     if (mutation == 2) helper->setAttr("ac.capture_types", b.getArrayAttr({TypeAttr::get(helper.getFunctionType().getInput(0))}));

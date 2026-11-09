@@ -19,7 +19,7 @@
 !as = !ac.table<[#w2, #w2], !b8>
 !af = !ac.table<[#w6], !b8>
 !apair = !ac.table<[#w2], !b8>
-module {
+module attributes {ac.source_units = [{package = "", path = "top.py"}]} {
   ac.struct "Pair" fields [{name = "a", type = !b8}, {name = "b", type = !b8}]
   "ac.module"() ({
   ^bb0(%input: !b8):

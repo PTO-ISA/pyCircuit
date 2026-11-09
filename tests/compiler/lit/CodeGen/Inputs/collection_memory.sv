@@ -5,7 +5,7 @@ module tb;
   logic [0:1][12:0] wdata;
   logic [0:1][1:0] wstrb;
   wire [0:1][12:0] q;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   task expect_data(input logic [12:0] a,b);
     if(q[0]!==a || q[1]!==b) $fatal(1,"old-data independent memory oracle failed");
   endtask

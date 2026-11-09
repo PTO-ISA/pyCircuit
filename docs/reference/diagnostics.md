@@ -26,8 +26,8 @@ pycircuit compile -c src/top.py --source-root src \
   --package-prefix demo -o .pycircuit_out/units/top
 pycircuit link .pycircuit_out/units/top --top demo.top.Top \
   -o .pycircuit_out/design_top.ac
-pycircuit emit .pycircuit_out/design_top.ac --target cpp \
-  -o .pycircuit_out/cpp
+pycircuit emit .pycircuit_out/design_top.ac --target structural-cpp \
+  -o .pycircuit_out/structural-cpp
 ```
 
 See the [source-unit workflow](../development/source-unit-workflow.md) for imports,

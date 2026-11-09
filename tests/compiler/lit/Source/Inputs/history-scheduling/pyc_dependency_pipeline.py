@@ -32,7 +32,6 @@ class Deadline:
     value: u64
 
 
-@rule
 def execution_deadline(epoch: u64, cost: bits[4]) -> Deadline:
     extended: u64 = cost
     return Deadline(value=epoch + extended)

@@ -140,6 +140,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/multi_input_rule_pipeline --target cpp --cycles 158
+pycircuit run examples/multi_input_rule_pipeline --target structural-cpp --cycles 158
 pycircuit run examples/multi_input_rule_pipeline --target verilog --cycles 158
 ```

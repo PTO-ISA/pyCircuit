@@ -21,12 +21,13 @@ bool equivalentTypes(TypeRange lhs, TypeRange rhs) {
 } // namespace
 namespace detail {
 bool isCombinationalHardwareOperation(Operation *operation) {
-  return isa<BitsConstantOp, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
+  return isa<BitsConstantOp, BitsConstant4Op, BitsUnaryOp, BitsBinaryOp,
+             BitsCompareOp,
              BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
              StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
              EnumFromBitsOp, TableCreateOp, TableSplatOp, TableMapOp,
              TableViewOp, TableIndexOp, TableGetOp, TableMatchOp, TableChooseOp,
-             TableFoldOp, ValueMergeOp>(operation);
+             TableFoldOp, ValueMergeOp, ValueRequireOp>(operation);
 }
 
 LogicalResult verifyHardwareTypeScope(Type type, Operation *owner);

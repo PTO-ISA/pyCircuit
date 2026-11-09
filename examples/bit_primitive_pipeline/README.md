@@ -86,7 +86,7 @@ from that extraction. The original independent drivers retain their full
 physical-clock, midstream-reset and four-state scenarios.
 
 ```bash
-pycircuit run examples/bit_primitive_pipeline --target cpp --cycles 344 --build-dir .pycircuit_out/bit_primitive_pipeline/system-cpp
+pycircuit run examples/bit_primitive_pipeline --target structural-cpp --cycles 344 --build-dir .pycircuit_out/bit_primitive_pipeline/system-structural-cpp
 pycircuit run examples/bit_primitive_pipeline --target verilog --cycles 344 --build-dir .pycircuit_out/bit_primitive_pipeline/system-verilog
 ```
 

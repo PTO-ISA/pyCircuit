@@ -261,21 +261,21 @@ module observation_precommit_probe;
   longint unsigned report_value, report_update;
   initial begin
     wait (pycircuit_sim.pyc_epoch == 1 && pycircuit_sim.pyc_phase == 0);
-    left_q = pycircuit_sim.dut.dut.pyc_instance_left.pyc_instance_value.q_current;
-    right_q = pycircuit_sim.dut.dut.pyc_instance_right.pyc_instance_value.q_current;
-    left_clock = pycircuit_sim.dut.dut.pyc_instance_left.pyc_instance_value.managed.clock_current;
-    right_clock = pycircuit_sim.dut.dut.pyc_instance_right.pyc_instance_value.managed.clock_current;
+    left_q = pycircuit_sim.dut.dut.pyc_instance_0.pyc_instance_0.q_current;
+    right_q = pycircuit_sim.dut.dut.pyc_instance_1.pyc_instance_0.q_current;
+    left_clock = pycircuit_sim.dut.dut.pyc_instance_0.pyc_instance_0.managed.clock_current;
+    right_clock = pycircuit_sim.dut.dut.pyc_instance_1.pyc_instance_0.managed.clock_current;
     report_value = pycircuit_sim.pyc_report_value_{report};
     report_update = pycircuit_sim.pyc_report_update_{report};
     captured = 1'b1;
-    force pycircuit_sim.dut.dut.pyc_instance_input_left.q_current = 8'b000x0001;
+    force pycircuit_sim.dut.dut.pyc_instance_3.q_current = 8'b000x0001;
   end
   final begin
     if (captured !== 1'b1 || pycircuit_sim.pyc_epoch !== 1 ||
-        pycircuit_sim.dut.dut.pyc_instance_left.pyc_instance_value.q_current !== left_q ||
-        pycircuit_sim.dut.dut.pyc_instance_right.pyc_instance_value.q_current !== right_q ||
-        pycircuit_sim.dut.dut.pyc_instance_left.pyc_instance_value.managed.clock_current !== left_clock ||
-        pycircuit_sim.dut.dut.pyc_instance_right.pyc_instance_value.managed.clock_current !== right_clock ||
+        pycircuit_sim.dut.dut.pyc_instance_0.pyc_instance_0.q_current !== left_q ||
+        pycircuit_sim.dut.dut.pyc_instance_1.pyc_instance_0.q_current !== right_q ||
+        pycircuit_sim.dut.dut.pyc_instance_0.pyc_instance_0.managed.clock_current !== left_clock ||
+        pycircuit_sim.dut.dut.pyc_instance_1.pyc_instance_0.managed.clock_current !== right_clock ||
         pycircuit_sim.pyc_report_value_{report} !== report_value ||
         pycircuit_sim.pyc_report_update_{report} !== report_update)
       $display("FOURSTATE-PRECOMMIT-FAIL");
@@ -288,7 +288,7 @@ endmodule
 
 def native_precommit_driver():
     return r"""#include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <span>
@@ -314,10 +314,10 @@ auto mixed() {
 }
 template <class Storage, class Pin>
 void inject(Storage &storage, Pin &pin) {
-  using Current = std::remove_cvref_t<decltype(storage.current(0))>;
-  auto &current = const_cast<Current &>(storage.current(0));
+  using Current = std::remove_cvref_t<decltype(storage.currentState())>;
+  auto &current = const_cast<Current &>(storage.currentState());
   current.q = mixed();
-  pin.element(0) = current.q;
+  pin = current.q;
 }
 template <class Wire>
 bool equivalent(const Wire &left, const Wire &right) {
@@ -328,9 +328,9 @@ int main(int argc, char **argv) {
   const unsigned workers = std::strtoul(argv[1], nullptr, 10);
   pyc_dut dut(workers);
   std::vector<gfsim::ReportGaugeDescriptor> reports;
-  for (const auto &entry : pyc_observation_metadata())
-    if (entry.kind == "report")
-      reports.push_back({entry.stableOrdinal, entry.instance, entry.reportName});
+  for (const auto &entry : dut.observations().Descriptors())
+    if (entry.kind == gfsim::ObservationKind::Gauge)
+      reports.push_back({entry.stableOrdinal, "root", "ticks"});
   require(reports.size() == 1);
   gfsim::SimExecutor executor(dut.system(), dut.observations(), reports);
   constexpr std::string_view config =
@@ -346,28 +346,29 @@ int main(int argc, char **argv) {
   PycircuitModelStepResultV1 result{sizeof(result)};
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   require(executor.cycles() == 1);
-  auto family = dut.root_->pyc_implementation;
-  auto left = family->pyc_instance_left->pyc_instance_value_state->current(0);
-  auto right = family->pyc_instance_right->pyc_instance_value_state->current(0);
+  auto &family = dut.root();
+  auto left = family.pyc_left.pyc_value.currentState();
+  auto right = family.pyc_right.pyc_value.currentState();
   auto previousEvents = std::vector<gfsim::CommittedEventSlot>(
       dut.observations().Events().begin(), dut.observations().Events().end());
   auto previousGauges = std::vector<gfsim::GaugeSnapshot>(
       dut.observations().Gauges().begin(), dut.observations().Gauges().end());
   require(!previousEvents.empty() && previousGauges.size() == 1);
   require(previousGauges[0].lastUpdate == 1);
-  inject(*family->pyc_instance_input_left_state,
-         family->pyc_instance_input_left_q);
-  auto injected = family->pyc_instance_input_left_state->current(0);
+  inject(family.pyc_input_left, family.pyc_input_left.q);
+  family.pyc_phase.currentState().q = known<8>(2);
+  family.pyc_phase.q = family.pyc_phase.currentState().q;
+  auto injected = family.pyc_input_left.currentState();
   inputs.pyc_7079635f636c6b = known<1>(1);
   dut.drive(inputs);
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE);
   require(executor.cycles() == 1 && result.epoch_time == 1);
   require(dut.system().failureInfo().phase == gfsim::SimFailurePhase::Check);
-  require(dut.system().failureInfo().code == "runtime_failure");
-  require(dut.system().failureInfo().message == "model check failed");
-  const auto leftAfter = family->pyc_instance_left->pyc_instance_value_state->current(0);
-  const auto rightAfter = family->pyc_instance_right->pyc_instance_value_state->current(0);
-  const auto injectedAfter = family->pyc_instance_input_left_state->current(0);
+  require(dut.system().failureInfo().code == "source_check_failed");
+  require(dut.system().failureInfo().message == "grouped failure");
+  const auto leftAfter = family.pyc_left.pyc_value.currentState();
+  const auto rightAfter = family.pyc_right.pyc_value.currentState();
+  const auto injectedAfter = family.pyc_input_left.currentState();
   require(equivalent(leftAfter.q, left.q) && leftAfter.clock == left.clock);
   require(equivalent(rightAfter.q, right.q) && rightAfter.clock == right.clock);
   require(equivalent(injectedAfter.q, injected.q) &&
@@ -552,6 +553,7 @@ def main():
         return result
 
     def cli(label, *arguments):
+        arguments = list(arguments)
         return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments])
 
     unit = work / "unit"
@@ -585,7 +587,7 @@ def main():
         final = output / "system.ac"
         cli(symbol + "-link", "link", unit, "--top", entry, "-o", final)
         transcripts = []
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             generated = output / target
             cli(
                 symbol + "-emit-" + target,
@@ -607,7 +609,7 @@ def main():
                 "source_checks": check_count,
             }
             binary = output / ("simulation-" + target)
-            if target == "cpp":
+            if target == "structural-cpp":
                 manifest = json.loads((generated / "generated.json").read_text())
                 run(
                     symbol + "-build-cpp",
@@ -643,12 +645,20 @@ def main():
                         args.verilator,
                     ],
                 )
-            for workers in (1, 2) if target == "cpp" else (1,):
+            for workers in (1, 2) if target == "structural-cpp" else (1,):
                 result = run(
                     f"{symbol}-{target}-{workers}",
                     (
-                        [binary, "--cycles", str(cycles), "--workers", str(workers)]
-                        if target == "cpp"
+                        [
+                            binary,
+                            "--cycles",
+                            str(cycles),
+                            "--workers",
+                            str(workers),
+                            "--events",
+                            "-",
+                        ]
+                        if target == "structural-cpp"
                         else [binary, f"+cycles={cycles}"]
                     ),
                     failure=failing,
@@ -666,7 +676,7 @@ def main():
                     else observations(result.stdout, 4 if failing else cycles * 2)
                 )
                 terminal = [record for record in records if record["kind"] == "result"]
-                if target == "cpp" or not failing:
+                if target == "structural-cpp" or not failing:
                     assert len(terminal) == 1
                     assert terminal[0]["status"] == (
                         "FAILED" if failing else "TERMINATED"
@@ -706,7 +716,7 @@ def main():
                 transcripts.append(events)
         if symbol == "ObservationGroupsFailure":
             native_probe = output / "native-precommit-probe"
-            shutil.copytree(output / "cpp", native_probe)
+            shutil.copytree(output / "structural-cpp", native_probe)
             native_visibility = expose_access_only_headers(native_probe)
             assert native_visibility
             native_driver = output / "native-precommit-driver.cpp"
@@ -780,7 +790,7 @@ def main():
                     failure=True,
                 )
                 output_text = four_state.stdout + four_state.stderr
-                assert "inconsistent observation group at epoch 1" in output_text, (
+                assert "inconsistent observation group" in output_text, (
                     output_text
                 )
                 assert "FOURSTATE-PRECOMMIT-PASS" in output_text, output_text
@@ -886,7 +896,7 @@ def main():
     relocated_variant_hash = digest(relocated_final)
     assert relocated_variant_hash != relocated_base_hash
     relocated_transcripts = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         generated = relocated_output / target
         cli(
             "relocated-owner-emit-" + target,
@@ -901,7 +911,7 @@ def main():
         assert digest(relocated_final) == relocated_variant_hash
         manifest = json.loads((generated / "generated.json").read_text())
         binary = relocated_output / ("simulation-" + target)
-        if target == "cpp":
+        if target == "structural-cpp":
             run(
                 "relocated-owner-build-cpp",
                 [
@@ -923,7 +933,15 @@ def main():
             for workers in (1, 2):
                 result = run(
                     f"relocated-owner-cpp-{workers}",
-                    [binary, "--cycles", "2", "--workers", str(workers)],
+                    [
+                        binary,
+                        "--cycles",
+                        "2",
+                        "--workers",
+                        str(workers),
+                        "--events",
+                        "-",
+                    ],
                 )
                 relocated_transcripts.append(relocated_observations(result.stdout, 4))
         else:
@@ -1055,7 +1073,7 @@ def main():
             "nested-conditional-log",
             log_statement,
             "        if phase == 0:\n    " + log_statement,
-            "unsupported expression statement in pure rule",
+            "Method/Rule requires an explicit return annotation",
         ),
         (
             "nested-unknown-call",

@@ -1,4 +1,4 @@
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -35,7 +35,8 @@ auto protocolInputs(const ProtocolRow &r) {
 #endif
   return in;
 }
-void protocolDrive(pyc_root &root,const pyc_dut::Inputs &in) {
+template <class Root>
+void protocolDrive(Root &root,const pyc_dut::Inputs &in) {
   root.pyc_7079635f636c6b=in.pyc_7079635f636c6b;root.pyc_7079635f727374=in.pyc_7079635f727374;
 #if MEM_PROTOCOL >= 5
   root.valid_writer=in.valid_writer;root.writer=in.writer;root.take_writer=in.take_writer;
@@ -72,7 +73,8 @@ void protocolTrace(unsigned workers,const std::vector<ProtocolRow> &rows) {
   }
 }
 struct ProtocolSystem final : gfsim::SimSystem { bool Precheck() noexcept override { return true; } };
-void protocolResetRead(ProtocolSystem &system,pyc_root &root,unsigned address,unsigned expected) {
+template <class Root>
+void protocolResetRead(gfsim::SimSystem &system,Root &root,unsigned address,unsigned expected) {
   // A failed edge must not leak a RAM write; reset cancels protocol state but
   // retains previously committed RAM contents. Probe through the real interface.
   protocolDrive(root,protocolInputs({}));system.Reset();unsigned delivered=0;
@@ -109,9 +111,9 @@ void protocolFailure(unsigned workers,const std::vector<ProtocolRow> &rows,
                      unsigned faultRow,unsigned flavor,bool resetProbe,unsigned address,unsigned word) {
   require(faultRow<rows.size()&&rows[faultRow].clock==1&&!rows[faultRow].reset);
   require(faultRow&&rows[faultRow-1].clock==0);
-  gfsim::WorkExecutor pool(workers);pyc_root root("protocol-failure",&pool);
-  ProtocolSystem system;protocolDrive(root,protocolInputs({}));
-  require(system.AddModule(root));system.Build();system.Reset();bool manual=false;
+  pyc_dut probe(workers); auto &root = probe.root();
+  auto &system = probe.system(); protocolDrive(root,protocolInputs({}));
+  system.Build();system.Reset();bool manual=false;
   for(unsigned n=0;n<rows.size();++n) {
     const auto &r=rows[n];auto in=protocolInputs(r);
     if(n==faultRow) {
@@ -161,7 +163,7 @@ void data(pyc_dut::Inputs &in, std::uint64_t value) {
   in.wdata = decltype(in.wdata)::fromPacked(
       gfsim::FourState<W>::known(gfsim::Bits<W>{value}));
 }
-void drive(pyc_root &root, const pyc_dut::Inputs &in) {
+template <class Root> void drive(Root &root, const pyc_dut::Inputs &in) {
   root.ren0=in.ren0; root.raddr0=in.raddr0;
   root.ren1=in.ren1; root.raddr1=in.raddr1;
   root.wvalid=in.wvalid; root.waddr=in.waddr; root.wdata=in.wdata; root.wstrb=in.wstrb;
@@ -208,9 +210,9 @@ void trace(unsigned workers, const char *path) {
 }
 struct System final : gfsim::SimSystem { bool Precheck() noexcept override { return true; } };
 void failureAndDiscard(unsigned workers, bool z, bool control) {
-  gfsim::WorkExecutor pool(workers); pyc_root root("discard",&pool);
-  System system; auto in=initial(); drive(root,in);
-  require(system.AddModule(root)); system.Build(); system.Reset();
+  pyc_dut probe(workers); auto &root = probe.root();
+  auto &system = probe.system(); auto in=initial(); drive(root,in);
+  system.Build(); system.Reset();
   auto step=[&](unsigned clock) {
     in.pyc_7079635f636c6b=known<1>(clock); drive(root,in);
     require(system.Step()==gfsim::SimStepResult::Running);

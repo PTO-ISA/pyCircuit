@@ -1,6 +1,6 @@
 // Independent fixed-position and four-state oracles for generated source slices.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdlib>
 #include <iostream>

@@ -1,7 +1,7 @@
 // Instance-identity oracle. Stimulus and expected values are independent of
 // the DUT: the golden model below re-derives each counter from the raw driven
 // epoch sequence, never from a DUT sample.
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -19,8 +19,8 @@ int main(int argc, char **argv) {
   require(argc == 2);
   const unsigned workers = std::strtoul(argv[1], nullptr, 10);
   require(workers == 1 || workers == 2);
-  gfsim::WorkExecutor pool(workers);
-  pyc_root root("width-identity", &pool);
+  pyc_dut probe(workers);
+  auto &root = probe.root();
   root.clk = root.rst = known<1>(0); root.d = known<8>(0);
   root.Reset(); root.Xfer();
   const auto pattern = gfsim::FourState<8>::fromMasks(
@@ -59,8 +59,8 @@ int main(int argc, char **argv) {
   require(argc == 2);
   unsigned workers = std::strtoul(argv[1], nullptr, 10);
   require(workers == 1 || workers == 2);
-  gfsim::WorkExecutor pool(workers);
-  pyc_root root("instance-identity", &pool);
+  pyc_dut probe(workers);
+  auto &root = probe.root();
   root.en_a = root.en_b = known<1>(0);
   root.da = root.db = known<8>(0);
   root.pyc_7079635f636c6b = root.pyc_7079635f727374 = known<1>(0);

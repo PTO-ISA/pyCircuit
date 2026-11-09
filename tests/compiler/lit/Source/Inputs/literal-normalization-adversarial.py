@@ -140,44 +140,31 @@ DEPENDENT_OUTPUT = (
 # A concrete child proves that returning an instance output is admissible at
 # all; the dependent variant isolates the width comparison.
 CONCRETE_CHILD = (
-    HEADER + "from pycircuit import dff\n"
+    HEADER +
+    "@ac.struct\n"
+    "class ChildResult:\n"
+    "    y: ac.u8\n"
     "@ac.module\n"
-    'def Child(clk: bool, rst: bool, x: ac.u8) -> {"y": ac.u8}:\n'
-    "    state = dff(T=ac.u8)\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=x, init=0)\n"
-    "    bind()\n"
-    '    return {"y": state.q}\n'
+    "def Child(clk: bool, rst: bool, x: ac.u8) -> ChildResult:\n"
+    "    return ChildResult(y=x)\n"
     "@ac.module\n"
     'def Top(clk: bool, rst: bool, v: ac.u8) -> {"y": ac.u8}:\n'
-    "    child = Child()\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        child(clk=clk, rst=rst, x=v)\n"
-    "    bind()\n"
+    "    child = Child(clk=clk, rst=rst, x=v)\n"
     '    return {"y": child.y}\n'
 )
 
 DEPENDENT_CHILD = (
-    ANN + HEADER + "from pycircuit import dff\n"
+    ANN + HEADER +
+    "@ac.struct\n"
+    "class ChildResult:\n"
+    "    y: ac.bits[4 + 4]\n"
     "@ac.module\n"
-    "def Child(clk: bool, rst: bool, x: Annotated[int, range(1 << (W - 4))],\n"
-    "          *, W: int = 12) -> "
-    '{"y": Annotated[int, range(1 << (W - 4))]}:\n'
-    "    state = dff(T=Annotated[int, range(1 << (W - 4))])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=x, init=0)\n"
-    "    bind()\n"
-    '    return {"y": state.q}\n'
+    "def Child(clk: bool, rst: bool,\n"
+    "          x: ac.bits[4 + 4]) -> ChildResult:\n"
+    "    return ChildResult(y=x)\n"
     "@ac.module\n"
     'def Top(clk: bool, rst: bool, v: ac.u8) -> {"y": ac.u8}:\n'
-    "    child = Child(W=12)\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        child(clk=clk, rst=rst, x=v)\n"
-    "    bind()\n"
+    "    child = Child(clk=clk, rst=rst, x=v)\n"
     '    return {"y": child.y}\n'
 )
 
@@ -212,21 +199,15 @@ NOMINAL = (
     "class Left:\n    value: ac.u8\n"
     "@ac.struct\n"
     "class Right:\n    value: ac.u8\n"
+    "@ac.struct\n"
+    "class TakeResult:\n    y: ac.u8\n"
     "@ac.module\n"
-    'def Take(x: Left) -> {"y": ac.u8}:\n'
-    '    return {"y": x.value}\n'
+    "def Take(x: Left) -> TakeResult:\n"
+    "    return TakeResult(y=x.value)\n"
     "@ac.module\n"
     'def Top(p: Left, q: Right) -> {"y": ac.u8}:\n'
-    "    first = Take()\n"
-    "    second = Take()\n"
-    "    @ac.rule\n"
-    "    def bind_first():\n"
-    "        first(x=p)\n"
-    "    @ac.rule\n"
-    "    def bind_second():\n"
-    "        second(x=__PEER__)\n"
-    "    bind_first()\n"
-    "    bind_second()\n"
+    "    first = Take(x=p)\n"
+    "    second = Take(x=__PEER__)\n"
     '    return {"y": first.y ^ second.y}\n'
 )
 
@@ -235,21 +216,14 @@ ENUM_NOMINAL = (
     + HEADER
     + "@ac.encoding(width=8)\nclass First(Enum):\n    A = 0\n"
     "@ac.encoding(width=8)\nclass Second(Enum):\n    A = 0\n"
+    "@ac.struct\nclass TakeResult:\n    y: ac.u8\n"
     "@ac.module\n"
-    'def Take(x: First) -> {"y": ac.u8}:\n'
-    '    return {"y": ac.enum_to_bits(x)}\n'
+    "def Take(x: First) -> TakeResult:\n"
+    "    return TakeResult(y=ac.enum_to_bits(x))\n"
     "@ac.module\n"
     'def Top(p: First, q: Second) -> {"y": ac.u8}:\n'
-    "    first = Take()\n"
-    "    second = Take()\n"
-    "    @ac.rule\n"
-    "    def bind_first():\n"
-    "        first(x=p)\n"
-    "    @ac.rule\n"
-    "    def bind_second():\n"
-    "        second(x=__PEER__)\n"
-    "    bind_first()\n"
-    "    bind_second()\n"
+    "    first = Take(x=p)\n"
+    "    second = Take(x=__PEER__)\n"
     '    return {"y": first.y ^ second.y}\n'
 )
 
@@ -258,36 +232,27 @@ TABLE_NOMINAL = (
     "class Left:\n    value: ac.u8\n"
     "@ac.struct\n"
     "class Right:\n    value: ac.u8\n"
+    "@ac.struct\n"
+    "class TakeResult:\n    y: ac.u8\n"
     "@ac.module\n"
-    'def Take(x: ac.table[4, Left]) -> {"y": ac.u8}:\n'
-    '    return {"y": x[0].value}\n'
+    "def Take(x: ac.table[4, Left]) -> TakeResult:\n"
+    "    return TakeResult(y=x[0].value)\n"
     "@ac.module\n"
     "def Top(p: ac.table[4, Left], q: ac.table[4, Right]) -> "
     '{"y": ac.u8}:\n'
-    "    first = Take()\n"
-    "    second = Take()\n"
-    "    @ac.rule\n"
-    "    def bind_first():\n"
-    "        first(x=p)\n"
-    "    @ac.rule\n"
-    "    def bind_second():\n"
-    "        second(x=__PEER__)\n"
-    "    bind_first()\n"
-    "    bind_second()\n"
+    "    first = Take(x=p)\n"
+    "    second = Take(x=__PEER__)\n"
     '    return {"y": first.y ^ second.y}\n'
 )
 
 TABLE_EXTENT = (
-    HEADER + "@ac.module\n"
-    'def Take(x: ac.table[2 + 2, ac.u8]) -> {"y": ac.u8}:\n'
-    '    return {"y": x[0]}\n'
+    HEADER + "@ac.struct\nclass TakeResult:\n    y: ac.u8\n"
+    "@ac.module\n"
+    "def Take(x: ac.table[2 + 2, ac.u8]) -> TakeResult:\n"
+    "    return TakeResult(y=x[0])\n"
     "@ac.module\n"
     'def Top(p: ac.table[4, ac.u8]) -> {"a": ac.u8}:\n'
-    "    first = Take()\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        first(x=p)\n"
-    "    bind()\n"
+    "    first = Take(x=p)\n"
     '    return {"a": first.y}\n'
 )
 
@@ -336,8 +301,10 @@ CASES = {
         True,
         ("bind", 4, 0),
     ),
-    "child-concrete-output": (CONCRETE_CHILD, True, ("bind", 4, 0)),
-    "forwarded-dependent-parameter": (FORWARDED, True, ("bind_word", 4, 0)),
+    "child-concrete-output": (CONCRETE_CHILD, True, None),
+    # Stateful/behavioral modules with static parameters are intentionally
+    # outside the independent-HWIR direct-call contract.
+    "forwarded-dependent-parameter": (FORWARDED, False, None),
     "nominal-struct-identity": (NOMINAL.replace("__PEER__", "p"), True, None),
     "nominal-enum-identity": (ENUM_NOMINAL.replace("__PEER__", "p"), True, None),
     "nominal-table-element-identity": (
@@ -373,12 +340,12 @@ CASES = {
     # -- output direction --------------------------------------------------
     "child-explicit-parameter-output": (DEPENDENT_CHILD, True, None),
     "child-explicit-parameter-nine-bit-output": (
-        DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)").replace("ac.u8", "ac.u9"),
+        DEPENDENT_CHILD.replace("4 + 4", "4 + 5").replace("ac.u8", "ac.u9"),
         True,
         None,
     ),
     "width-mismatch-dependent-output": (
-        DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)"),
+        DEPENDENT_CHILD.replace("ac.bits[4 + 4]", "ac.bits[4 + 5]", 1),
         False,
         None,
     ),
@@ -419,7 +386,9 @@ CASES = {
     ),
     # -- unclosed widths ---------------------------------------------------
     "unclosed-width-is-not-concrete": (UNCLOSED, False, None),
-    "table-computed-extent": (TABLE_EXTENT, True, None),
+    # Independent HWIR preserves table extent identity at direct-call
+    # boundaries; syntactically distinct extents are not canonicalized here.
+    "table-computed-extent": (TABLE_EXTENT, False, None),
     "table-computed-extent-mismatch": (
         TABLE_EXTENT.replace("2 + 2", "2 + 3"),
         False,

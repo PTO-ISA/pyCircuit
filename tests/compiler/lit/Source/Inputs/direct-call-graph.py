@@ -63,6 +63,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -565,11 +566,11 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
                 assert sum(".Constant" in line for line in calls) == 1
             if top == "Graph":
                 assert len(calls) == 2 and all(".Side" in line for line in calls), calls
-            for target in ("cpp", "verilog"):
+            for target in ("structural-cpp", "verilog"):
                 cli("emit", final, "--target", target, "-o", output / target)
-            receipt = json.loads((output / "cpp/generated.json").read_text())
+            receipt = json.loads((output / "structural-cpp/generated.json").read_text())
             cpp = [
-                output / "cpp" / row["path"]
+                output / "structural-cpp" / row["path"]
                 for row in receipt["files"]
                 if row["path"].endswith(".cpp")
             ]
@@ -581,7 +582,7 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
                     "-pthread",
                     "-D" + define,
                     "-I" + str(repo / "include"),
-                    "-I" + str(output / "cpp"),
+                    "-I" + str(output / "structural-cpp"),
                     fixtures / "direct-call-graph.cpp",
                     *cpp,
                     runtime,
@@ -666,7 +667,7 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
                     for row in four.splitlines()
                     if row.startswith(("WORK ", "MASK "))
                 ] == traces[0]
-            products.extend([final, output / "cpp", output / "verilog"])
+            products.extend([final, output / "structural-cpp", output / "verilog"])
             summaries.append(
                 {"top": top, "variant": variant, "frames": frames, "masks": masks}
             )

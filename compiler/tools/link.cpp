@@ -211,9 +211,11 @@ bool parseOptions(int argc, char **argv, Options &options) {
     }
   } else if (!options.bodies.empty() || !options.headers.empty() ||
              options.top ||
-             (*options.target != "cpp" && *options.target != "verilog")) {
-    llvm::errs() << "error: emit mode requires --design and --target cpp or "
-                    "verilog\n";
+             (*options.target != "structural-cpp" &&
+              *options.target != "verilog")) {
+    llvm::errs()
+        << "error: emit mode requires --design and --target structural-cpp "
+           "or verilog\n";
     return false;
   }
   if (options.entryOwnerOutput && !hasLink) {

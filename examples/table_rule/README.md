@@ -43,7 +43,7 @@ transport. Generated excerpts and bound execution receipts are published in
 `bench.py` exports `example_table_rule.bench.ExerciseTableRule`. Compile
 `table_rule.py`, then `bench.py`, import the published DUT interface, and link
 that explicit system root through the public compile/link/emit flow. Run
-`pycircuit run examples/table_rule --target cpp --cycles 1343` or select
+`pycircuit run examples/table_rule --target structural-cpp --cycles 1343` or select
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 

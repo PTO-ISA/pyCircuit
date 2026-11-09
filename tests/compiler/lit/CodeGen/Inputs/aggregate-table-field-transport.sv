@@ -6,7 +6,7 @@ module tb;
   wire [0:2][0:4][4:0] samples;
   logic [0:1][0:2][7:0] nested_input;
   wire [0:1][0:2][7:0] nested_saved;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     // Known, distinct values in every field and lane.
     nested_input[0][0]=8'b00010010;

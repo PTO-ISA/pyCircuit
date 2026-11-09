@@ -327,10 +327,32 @@ def main() -> int:
     require(
         "LinxISA" not in packaging, "wheel metadata must not reference LinxISA", errors
     )
+    require(
+        'python_requires=">=3.11"' in packaging,
+        "platform wheel must require Python 3.11+",
+        errors,
+    )
+
+    project = read("pyproject.toml")
+    require(
+        'requires-python = ">=3.11"' in project,
+        "project metadata must require Python 3.11+",
+        errors,
+    )
+    require(
+        '"Programming Language :: Python :: 3.10"' not in project,
+        "project metadata must not advertise Python 3.10",
+        errors,
+    )
+    require(
+        "PyYAML" in project,
+        "development dependencies must declare PyYAML used by unit checks",
+        errors,
+    )
 
     contributing = read("CONTRIBUTING.md")
     require(
-        "Python 3.10" in contributing, "CONTRIBUTING must require Python 3.10+", errors
+        "Python 3.11" in contributing, "CONTRIBUTING must require Python 3.11+", errors
     )
     require(
         "LLVM/MLIR 22" in contributing, "CONTRIBUTING must require LLVM/MLIR 22", errors
@@ -340,14 +362,14 @@ def main() -> int:
         "CONTRIBUTING must describe the pyCircuit source surface",
         errors,
     )
-    for path in (
+    for documentation_path in (
         "docs/reference/language.md",
         "docs/development/known-limitations.md",
         "docs/development/testing-and-gates.md",
     ):
         require(
-            (ROOT / path).is_file(),
-            f"missing current product documentation: {path}",
+            (ROOT / documentation_path).is_file(),
+            f"missing current product documentation: {documentation_path}",
             errors,
         )
 

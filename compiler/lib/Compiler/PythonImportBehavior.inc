@@ -500,11 +500,17 @@ Importer::preflightForCapabilities(const AstNode &statement,
       if (failed(chargeSourceWalk(function, inspected)) ||
           !pureCheckedAdd(summary.nodes, 1))
         return failure();
+      if (intrinsic(function, "four_state")) {
+        auto pattern = fourStatePattern(node);
+        return success(succeeded(pattern));
+      }
       auto binding = lookupBinding(function);
       bool constructor =
           binding && binding->category == BindingCategory::Struct;
       if (!constructor && !concatCall(node) &&
-          !intrinsic(function, "enum_to_bits")) {
+          !intrinsic(function, "enum_to_bits") &&
+          !intrinsic(function, "case_eq") &&
+          !intrinsic(function, "is_known")) {
         auto helper = resolveValueHelper(function, activeBehavioralDecl ?
             activeBehavioralDecl->symbol : FlatSymbolRefAttr());
         if (failed(helper) || !*helper)
@@ -872,6 +878,23 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
   }
   if (node.kind() == "Call") {
     auto function = node.child("func");
+    if (intrinsic(function, "four_state")) {
+      auto pattern = fourStatePattern(node);
+      if (failed(pattern) || !operation(1) ||
+          !TableQueryBudget::add(envelope.reservation,
+                                 TableQueryResource::ConstantBytes,
+                                 pattern->size()))
+        return failure();
+      return scalar(pattern->size());
+    }
+    if (intrinsic(function, "case_eq") || intrinsic(function, "is_known")) {
+      for (size_t i = 0; i < node.array("args").size(); ++i)
+        if (failed(visit(node.item("args", i))))
+          return failure();
+      if (!operation(3))
+        return failure();
+      return scalar(1);
+    }
     auto binding = lookupBinding(function);
     if (binding && binding->category == BindingCategory::Struct) {
       auto type = ac::StructType::get(
@@ -1336,7 +1359,12 @@ Importer::auditLoopStatement(Block &block, Operation *previous,
     for (Value result : operation.getResults())
       if (failed(inspectValue(result, rows)))
         return failure();
-    if (isa<ac::BitsConstantOp>(operation))
+    if (auto pattern = dyn_cast<ac::BitsConstant4Op>(operation)) {
+      if (!TableQueryBudget::addProduct(
+              measured, TableQueryResource::ConstantBytes,
+              pattern.getPattern().size(), rows))
+        return failure();
+    } else if (isa<ac::BitsConstantOp>(operation))
       for (Value result : operation.getResults()) {
         auto weight = loopStorageWords(result.getType(), analysis, site);
         if (failed(weight) ||

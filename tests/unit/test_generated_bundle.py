@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from multiprocessing.queues import Queue
 from pathlib import Path
 
+import pycircuit._emit as emit
 import pycircuit._generated_bundle as generated_bundle
 import pytest
 from pycircuit._generated_bundle import (
@@ -37,7 +38,10 @@ from pycircuit._publication_fs import _PublicationFileSystem
 pytestmark = pytest.mark.unit
 
 OWNER = _publication_owner_generated(
-    package="demo", path="root.py", definition='@"demo.root.Root"', target="cpp"
+    package="demo",
+    path="root.py",
+    definition='@"demo.root.Root"',
+    target="structural-cpp",
 )
 
 # Roles are intentionally not inferred from suffixes or target in this private
@@ -146,7 +150,7 @@ def _publish(
     )
 
 
-@pytest.mark.parametrize("target", ["cpp", "verilog"])
+@pytest.mark.parametrize("target", ["structural-cpp", "verilog"])
 def test_valid_receipt_accepts_header_only_group_and_preserves_snapshot_bytes(
     tmp_path: Path, target: str
 ) -> None:
@@ -246,13 +250,13 @@ def test_owner_argument_binds_source_definition_and_target(tmp_path: Path) -> No
             package="demo",
             path="other.py",
             definition='@"demo.root.Root"',
-            target="cpp",
+            target="structural-cpp",
         ),
         _publication_owner_generated(
             package="demo",
             path="root.py",
             definition='@"demo.other.Other"',
-            target="cpp",
+            target="structural-cpp",
         ),
         _publication_owner_generated(
             package="demo",
@@ -535,13 +539,13 @@ def test_replace_rejects_foreign_generated_owner_without_changing_old_bundle(
             package="demo",
             path="root.py",
             definition='@"demo.other.Other"',
-            target="cpp",
+            target="structural-cpp",
         ),
         _publication_owner_generated(
             package="demo",
             path="other.py",
             definition='@"demo.root.Root"',
-            target="cpp",
+            target="structural-cpp",
         ),
     ]
 
@@ -582,7 +586,7 @@ def test_managed_read_recovers_old_bundle_after_previous_was_saved(
     old_receipt = (destination / "generated.json").read_bytes()
     old_file = (destination / "a.data").read_bytes()
     new_receipt = _receipt()
-    new_receipt["target"] = "cpp"
+    new_receipt["target"] = "structural-cpp"
     changed_files = dict(FILE_BYTES)
     changed_files["a.data"] = b"uncommitted new bytes"
 
@@ -771,7 +775,7 @@ def test_managed_bundle_reader_holds_shared_lock_against_validating_writer(
     assert (destination / "a.data").read_bytes() == b"writer bytes"
 
 
-@pytest.mark.parametrize("target", ["cpp", "verilog"])
+@pytest.mark.parametrize("target", ["structural-cpp", "verilog"])
 def test_map_only_facade_group_needs_no_fake_generated_source(
     tmp_path: Path, target: str
 ) -> None:
@@ -781,7 +785,7 @@ def test_map_only_facade_group_needs_no_fake_generated_source(
     # Private receipt consistency only; opaque map bytes prove no source history.
     files = {"root.data": b"root", "root-map.data": b"map", "facade-map.data": b"map"}
     roles = {
-        "root.data": "header" if target == "cpp" else "rtl",
+        "root.data": "header" if target == "structural-cpp" else "rtl",
         "root-map.data": "source-map",
         "facade-map.data": "source-map",
     }
@@ -805,3 +809,67 @@ def test_map_only_facade_group_needs_no_fake_generated_source(
     _validate_generated_bundle(bundle, owner)
     snapshot = _read_generated_bundle(bundle, owner, _PublicationFileSystem())
     assert dict(snapshot.files) == files
+
+
+def _structural_cpp_payload(source_text: str = "int generated;\n") -> dict:
+    return {
+        "entry": {"definition": '@"demo.root.Root"', "arguments": []},
+        "entry_source": {"package": "demo", "path": "root.py"},
+        "structural_cpp_header": "#pragma once\n",
+        "structural_cpp_groups": [
+            {
+                "source": {"package": "demo", "path": "root.py"},
+                "path": "source_unit_0.cpp",
+                "text": source_text,
+            },
+            {
+                "source": {"package": "demo", "path": "root.py"},
+                "path": "work_unit_0_0.cpp",
+                "text": '#include "design.hpp"\n',
+            },
+        ],
+        "manifest": {},
+        "source_maps": [],
+        "simulation_main": "",
+    }
+
+
+def test_structural_cpp_cmake_compiles_shards_independently_with_shared_pch() -> None:
+    files, receipt = emit._target_files(
+        _structural_cpp_payload(), "structural-cpp"
+    )
+
+    cmake = files["CMakeLists.txt"][0]
+    assert '"source_unit_0.cpp"' in cmake
+    assert '"work_unit_0_0.cpp"' in cmake
+    assert (
+        'target_precompile_headers(pycircuit_modules PRIVATE '
+        '"${CMAKE_CURRENT_SOURCE_DIR}/design.hpp")'
+    ) in cmake
+    assert {row["path"] for row in receipt["files"] if row["role"] == "source"} == {
+        "source_unit_0.cpp",
+        "work_unit_0_0.cpp",
+    }
+
+
+def test_structural_cpp_publication_rejects_translation_unit_over_one_mib() -> None:
+    with pytest.raises(
+        emit._DriverError, match="translation unit exceeds the 1 MiB limit"
+    ):
+        emit._target_files(
+            _structural_cpp_payload("x" * (1024 * 1024 + 1)),
+            "structural-cpp",
+        )
+
+
+def test_structural_cpp_publication_rejects_oversize_simulation_glue() -> None:
+    payload = _structural_cpp_payload()
+    payload.update(
+        simulation_main="x" * (1024 * 1024 + 1),
+        simulation_config="{}\n",
+        source_check_count=0,
+    )
+    with pytest.raises(
+        emit._DriverError, match="translation unit exceeds the 1 MiB limit"
+    ):
+        emit._target_files(payload, "structural-cpp")

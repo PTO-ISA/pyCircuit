@@ -95,7 +95,7 @@ The closed system also passes native workers one/two and Verilator for 96 cycles
 bind the module's actual execution and source/artifact fingerprints.
 
 ```sh
-pycircuit run examples/bounded_integer_operations --target cpp --cycles 96
+pycircuit run examples/bounded_integer_operations --target structural-cpp --cycles 96
 pycircuit run examples/bounded_integer_operations --target verilog --cycles 96
 ```
 

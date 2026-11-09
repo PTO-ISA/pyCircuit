@@ -280,7 +280,7 @@ def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtim
     shutil.rmtree(source)
     shutil.rmtree(workspace / "units")
     cpp, rtl = tmp_path / "generated-cpp", tmp_path / "generated-verilog"
-    _emit(final, "cpp", cpp)
+    _emit(final, "structural-cpp", cpp)
     _emit(final, "verilog", rtl)
     _assert_source_maps_match(cpp, rtl)
 
@@ -290,7 +290,7 @@ def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtim
             f"source compiler generated CMake needs the installed Runtime package at {install}"
         )
     runners: dict[str, Path] = {}
-    for target, generated in (("cpp", cpp), ("verilog", rtl)):
+    for target, generated in (("structural-cpp", cpp), ("verilog", rtl)):
         build = tmp_path / f"build-{target}"
         command = [
             "cmake",
@@ -327,7 +327,7 @@ def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtim
             runner = runner.with_suffix(".exe")
         assert runner.is_file()
         runners[target] = runner
-        if target == "cpp":
+        if target == "structural-cpp":
             library = build / (
                 "pycircuit_modules.lib" if os.name == "nt" else "libpycircuit_modules.a"
             )
@@ -335,7 +335,21 @@ def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtim
 
     for target, runner in runners.items():
         events = tmp_path / f"{target}-events.jsonl"
-        arguments = ["--cycles", "3"] if target == "cpp" else ["+cycles=3"]
+        if target == "structural-cpp":
+            silent = subprocess.run(
+                [str(runner), "--cycles", "1"],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=120,
+            )
+            assert silent.returncode == 0, f"{silent.stdout}\n{silent.stderr}"
+            assert silent.stdout == ""
+        arguments = (
+            ["--cycles", "3", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=3"]
+        )
         run = subprocess.run(
             [str(runner), *arguments],
             text=True,
@@ -355,12 +369,12 @@ def test_emit_rejections_preserve_managed_and_unmanaged_outputs(tmp_path: Path) 
     shutil.copytree(FIXTURE / "src", source)
     final = _compile_link(source, tmp_path / "primary", "source_public")
     cpp = tmp_path / "managed-cpp"
-    _emit(final, "cpp", cpp)
+    _emit(final, "structural-cpp", cpp)
     baseline = _tree(cpp)
 
     corrupt = tmp_path / "invalid-final.ac"
     corrupt.write_text("this is not verified final MLIR\n", encoding="utf-8")
-    _emit(corrupt, "cpp", cpp, replace=True, expected=1)
+    _emit(corrupt, "structural-cpp", cpp, replace=True, expected=1)
     assert _tree(cpp) == baseline
 
     # The same generated owner includes the target in its publication identity.
@@ -370,14 +384,14 @@ def test_emit_rejections_preserve_managed_and_unmanaged_outputs(tmp_path: Path) 
     alternate = tmp_path / "alternate-source"
     shutil.copytree(FIXTURE / "src", alternate)
     other_final = _compile_link(alternate, tmp_path / "alternate", "source_other")
-    _emit(other_final, "cpp", cpp, replace=True, expected=1)
+    _emit(other_final, "structural-cpp", cpp, replace=True, expected=1)
     assert _tree(cpp) == baseline
 
     unmanaged = tmp_path / "unmanaged"
     unmanaged.mkdir()
     (unmanaged / "keep.txt").write_text("user data", encoding="utf-8")
     unmanaged_before = _tree(unmanaged)
-    _emit(final, "cpp", unmanaged, replace=True, expected=1)
+    _emit(final, "structural-cpp", unmanaged, replace=True, expected=1)
     assert _tree(unmanaged) == unmanaged_before
 
     target = tmp_path / "symlink-target"
@@ -385,7 +399,7 @@ def test_emit_rejections_preserve_managed_and_unmanaged_outputs(tmp_path: Path) 
     (target / "keep.txt").write_text("linked user data", encoding="utf-8")
     symlink = tmp_path / "symlink-output"
     symlink.symlink_to(target, target_is_directory=True)
-    _emit(final, "cpp", symlink, replace=True, expected=1)
+    _emit(final, "structural-cpp", symlink, replace=True, expected=1)
     assert symlink.is_symlink()
     assert _tree(target) == {"keep.txt": b"linked user data"}
 
@@ -400,7 +414,7 @@ def test_emit_rejects_a_non_replace_unmanaged_destination(tmp_path: Path) -> Non
     marker.write_text("leave intact", encoding="utf-8")
     before = hashlib.sha256(marker.read_bytes()).digest()
 
-    _emit(final, "cpp", destination, expected=1)
+    _emit(final, "structural-cpp", destination, expected=1)
 
     assert hashlib.sha256(marker.read_bytes()).digest() == before
 
@@ -415,12 +429,12 @@ def test_emit_rejects_nested_output_without_poisoning_final_publication_control(
     before = _tree(final_control)
     nested_output = final_control / "evil"
 
-    _emit(final, "cpp", nested_output, expected=1)
+    _emit(final, "structural-cpp", nested_output, expected=1)
 
     assert _tree(final_control) == before
     assert not nested_output.exists()
     assert not (final_control / ".evil.pycircuit-publication").exists()
 
     normal_output = tmp_path / "normal-generated"
-    _emit(final, "cpp", normal_output)
+    _emit(final, "structural-cpp", normal_output)
     assert (normal_output / "generated.json").is_file()

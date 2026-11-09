@@ -1,6 +1,6 @@
 # Table values and module collections
 
-The verified ACIR and the `cpp`/`verilog` emitters support the approved
+The verified common HWIR and the `structural-cpp`/`verilog` emitters support the approved
 collection contract B (historical local record).
 This adds an IR/runtime capability; it does not restore the retired Python
 module-family/QueueGraph API or introduce a new Python collection syntax.
@@ -62,8 +62,9 @@ loops with the existing `include/verilog` leaves. The selected root wrapper
 retains the system's integer and type bindings.
 
 Generated CMake builds `pycircuit_modules` against the Runtime component.
-The C++ aggregate header is `pycircuit_system.hpp`, with `pyc_root` naming the
-selected bound module type. The RTL build selects the bound `pyc_root` wrapper.
+The Structural C++ aggregate header is `design.hpp`, with `pyc_dut` providing
+the typed host API and `pyc_root` naming the selected bound module type. The RTL
+build selects the bound `pyc_root` wrapper.
 Clock/input stimulation belongs to the caller; no runner or DUT C ABI is emitted
 by this module-source packet.
 

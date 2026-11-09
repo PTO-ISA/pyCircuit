@@ -42,7 +42,7 @@
 !generic_result = !ac.table<[#n], !b8>
 !generic_inputs = !ac.table<[#w2], !b8>
 !generic_outputs = !ac.table<[#w2, #w3], !b8>
-module {
+module attributes {ac.source_units = [{package = "", path = "constant.py"}]} {
   "ac.enum"() {sym_name = "ConstantMode", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<1>}, {name = "RUN", code = #ac.math_int<4>}, {name = "DONE", code = #ac.math_int<7>}]} : () -> ()
   ac.struct "ConstantRow" fields [{name = "flag", type = !b1}, {name = "wide", type = !b130}, {name = "nested", type = !inner}, {name = "dynamic", type = !b8}]
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()

@@ -59,7 +59,7 @@ its existing failure and whole-system discard contract.
 `bench.py` exports `example_rob.bench.ExerciseRob`. The explicit source
 closure is `rob.py`, then `bench.py`; link the system root and emit either
 backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/rob --target cpp --cycles 284` or select
+`pycircuit run examples/rob --target structural-cpp --cycles 284` or select
 `--target verilog`. Each managed cycle uses the same stimulus in its low/high
 sampling pair and advances fixture state on the generated edge.
 

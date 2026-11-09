@@ -150,6 +150,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/traffic_lights_ce_pyc --target cpp --cycles 209
+pycircuit run examples/traffic_lights_ce_pyc --target structural-cpp --cycles 209
 pycircuit run examples/traffic_lights_ce_pyc --target verilog --cycles 209
 ```

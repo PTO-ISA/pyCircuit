@@ -1,7 +1,7 @@
 // The original coerced comparison chain: eight known values, any unknown ->
 // 0xxxxxxx.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <source_location>

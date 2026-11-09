@@ -11,7 +11,7 @@ license = { file = "LICENSE" }
 authors = [
     { name = "PTO-ISA Contributors" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = ["hardware", "rtl", "verilog", "mlir", "hdl", "fpga", "asic"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -22,7 +22,6 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -43,6 +42,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-xdist>=3.8.0",
     "pytest-cov>=4.0.0",
+    "PyYAML>=6.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -63,11 +63,11 @@ include = ["pycircuit", "pycircuit.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-pycircuit = ["**/*.py", "**/*.md"]
+pycircuit = ["**/*.py", "**/*.md", "**/*.json"]
 
 [tool.black]
 line-length = 88
-target-version = ["py310", "py311", "py312", "py313"]
+target-version = ["py311", "py312", "py313"]
 # Static compiler sources are byte/line-sensitive diagnostic fixtures. Keep
 # executable fixture generators and verification helpers formatted.
 force-exclude = '''
@@ -87,7 +87,7 @@ static-divrem|table-queries/table_query_(?:admission|cases)
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py311"
 extend-exclude = ["docs/gates/logs"]
 
 [tool.ruff.lint]
@@ -117,7 +117,7 @@ ignore = ["E501"]
 "packaging/wheel/get_wheel_plat_name.py" = ["T201"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

@@ -33,7 +33,7 @@ IR and actual generated C++ and RTL.
 `bench.py` exports `example_decode_rules.bench.ExerciseDecodeRules`. Compile sources in
 order `decode_rules.py`, `bench.py`, then link that system root and emit C++ or
 Verilog through the public `pycircuit compile`, `link`, and `emit` commands.
-Run `pycircuit run examples/decode_rules --target cpp --cycles 257` or select
+Run `pycircuit run examples/decode_rules --target structural-cpp --cycles 257` or select
 `--target verilog`. Each managed cycle checks one original known-input row
 in both sampling epochs; all 257 original rows are represented.
 

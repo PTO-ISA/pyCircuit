@@ -1,4 +1,4 @@
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <gfsim/SystemRunner.h>
 #include <functional>
 #include <iostream>

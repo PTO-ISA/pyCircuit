@@ -10,7 +10,7 @@ module tb;
   wire [7:0] selected, add, mul, and_value, or_value, xor_value, min_value, max_value, merged;
   wire in_range, lowvalid0, lowvalid1, highvalid0, highvalid1, merge_en;
   wire [5:0] mask;
-  ac_top dut(.a(a), .threshold(threshold), .row(row), .col(col), .get_index(get_index),
+  pyc_root dut(.a(a), .threshold(threshold), .row(row), .col(col), .get_index(get_index),
     .guard(guard), .base(base), .candidate(candidate), .mapped(mapped), .transposed(transposed),
     .sliced(sliced), .rotated(rotated), .reshaped(reshaped), .broadcast(broadcast), .created(created),
     .ordinal(ordinal), .selected(selected), .in_range(in_range), .mask(mask),

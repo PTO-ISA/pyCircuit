@@ -75,6 +75,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -506,7 +507,7 @@ cli(
     "-o",
     final,
 )
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", scratch / target)
 toolroot = Path(args.source_compiler).resolve().parent.parent
 runtime = next(
@@ -521,9 +522,9 @@ runtime = next(
     None,
 )
 assert runtime, "Runtime archive missing"
-receipt = json.loads((scratch / "cpp/generated.json").read_text())
+receipt = json.loads((scratch / "structural-cpp/generated.json").read_text())
 cpp = [
-    scratch / "cpp" / row["path"]
+    scratch / "structural-cpp" / row["path"]
     for row in receipt["files"]
     if row["path"].endswith(".cpp")
 ]
@@ -534,7 +535,7 @@ run(
         "-std=c++20",
         "-pthread",
         "-I" + str(repo / "include"),
-        "-I" + str(scratch / "cpp"),
+        "-I" + str(scratch / "structural-cpp"),
         "-I" + str(scratch),
         fixtures / "static-divrem.cpp",
         *cpp,
@@ -758,7 +759,7 @@ controls["conditional-authority"] = scalar(
 if args.historical:
     # Existing static/runtime invocations retain the complete rejection matrix.
     cases, controls = {}, {}
-protected_paths = [unit, final, scratch / "cpp", scratch / "verilog"]
+protected_paths = [unit, final, scratch / "structural-cpp", scratch / "verilog"]
 protected = {p: snapshot(p) if p.is_dir() else p.read_bytes() for p in protected_paths}
 for name, text in controls.items():
     source_path.write_text(text)
@@ -812,7 +813,7 @@ if args.historical:
                     name: hashlib.sha256(value).hexdigest()
                     for name, value in snapshot(p).items()
                 }
-                for p in (scratch / "cpp", scratch / "verilog")
+                for p in (scratch / "structural-cpp", scratch / "verilog")
             },
         },
         indent=2,

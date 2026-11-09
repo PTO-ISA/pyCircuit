@@ -1,6 +1,6 @@
 module tb;
   wire [129:0] q;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     #1;
     if (q !== 130'h20000000000000000000000000000007b)

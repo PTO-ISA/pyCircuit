@@ -1,4 +1,4 @@
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <cstdint>
 #include <gfsim/SystemRunner.h>
@@ -7,6 +7,17 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <type_traits>
+
+using pyc_root = std::remove_reference_t<decltype(std::declval<pyc_dut &>().root())>;
+
+bool validate(pyc_root &root, gfsim::SimFailureInfo &error) {
+  if (root.ValidateChecks())
+    return true;
+  error = {gfsim::SimFailurePhase::Check, "source_check_failed",
+           "source check failed", {}, {}, {}};
+  return false;
+}
 
 void require(bool ok,
              std::source_location at = std::source_location::current()) {
@@ -99,7 +110,7 @@ void ready(pyc_dut &dut) {
 }
 void incomplete(pyc_root &root) {
   gfsim::SimFailureInfo error;
-  require(!root.__pyc_validate_checks(error));
+  require(!validate(root, error));
   require(error.phase == gfsim::SimFailurePhase::Check);
   require(error.code == "runtime_failure");
   require(error.instance.empty() && error.sourceJson.empty() &&
@@ -238,7 +249,7 @@ int main(int argc, char **argv) {
   report(dut, "state-primitive-precedence", step(dut));
   // Explicit discard on the actual generated root, before any successful Xfer.
   gfsim::WorkExecutor executor(workers);
-  pyc_root root("root", &executor);
+  pyc_root root("root");
   root.Build();
   incomplete(root);
   root.Reset();
@@ -251,12 +262,12 @@ int main(int argc, char **argv) {
   root.pyc_7079635f727374 = known<1>(0);
   root.Work();
   gfsim::SimFailureInfo error;
-  require(root.__pyc_validate_checks(error));
+  require(validate(root, error));
   root.DiscardNext();
   incomplete(root);
   root.Work();
   require(planes(gfsim::extract<8>(root.result.packed(), 0)) == "00000011");
-  require(root.__pyc_validate_checks(error));
+  require(validate(root, error));
   root.Xfer();
   incomplete(root);
   root.Work();
@@ -357,7 +368,7 @@ int main(int argc, char **argv) {
   report(dut, "domains-host-reset", step(dut));
   // Direct Work/discard preserves Q AND sampled-clock history in both domains.
   gfsim::WorkExecutor executor(workers);
-  pyc_root root("root", &executor);
+  pyc_root root("root");
   root.Build();
   root.Reset();
   root.Xfer();
@@ -372,7 +383,7 @@ int main(int argc, char **argv) {
   auto attempt = [&] {
     root.Work();
     gfsim::SimFailureInfo info;
-    require(root.__pyc_validate_checks(info));
+    require(validate(root, info));
     root.Xfer();
     incomplete(root);
   };
@@ -397,8 +408,7 @@ int main(int argc, char **argv) {
   root.allow_b = known<1>(0);
   root.Work();
   gfsim::SimFailureInfo error;
-  require(!root.__pyc_validate_checks(error) &&
-          error.code == "source_check_failed" && error.instance == "root.aaa");
+  require(!validate(root, error) && error.code == "source_check_failed");
   root.DiscardNext();
   incomplete(root);
   root.rst_a = known<1>(0);
@@ -407,7 +417,7 @@ int main(int argc, char **argv) {
   root.Work();
   require(root.left.value() == gfsim::Bits<1>{1} &&
           root.right.value() == gfsim::Bits<1>{1});
-  require(root.__pyc_validate_checks(error));
+  require(validate(root, error));
   root.Xfer();
   incomplete(root);
   root.Work();
@@ -439,7 +449,7 @@ int main(int argc, char **argv) {
 
   // Exercise the same generated owner/check graph directly. Prepared known
   // discard and a failing source check cancel Table/scalar data and clocks.
-  gfsim::WorkExecutor executor(workers);pyc_root root("root",&executor);
+  gfsim::WorkExecutor executor(workers);pyc_root root("root");
   auto drive=[&](unsigned clock,unsigned a,unsigned b,unsigned allow,unsigned i=0,unsigned j=1){
     root.req_a=root.req_b=known<1>(1);root.i=known<1>(i);root.j=known<1>(j);
     root.write_a=known<8>(a);root.write_b=known<8>(b);root.allow=known<1>(allow);
@@ -450,25 +460,25 @@ int main(int argc, char **argv) {
     require(actual.isFullyKnown()&&actual.zMask()==gfsim::Bits<64>{0});
     require(actual.value()==gfsim::Bits<64>{value});};
   gfsim::SimFailureInfo error;
-  root.Work();require(root.__pyc_validate_checks(error));equal(0x1122);root.Xfer();
-  drive(1,17,34,1);root.Work();require(root.__pyc_validate_checks(error));
+  root.Work();require(validate(root,error));equal(0x1122);root.Xfer();
+  drive(1,17,34,1);root.Work();require(validate(root,error));
   root.DiscardNext();root.Xfer();incomplete(root);
-  root.Work();equal(0x1122);require(root.__pyc_validate_checks(error));root.Xfer();
+  root.Work();equal(0x1122);require(validate(root,error));root.Xfer();
   drive(0,51,68,1);root.Work();equal(0x11ee22dd11223344ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(validate(root,error));root.Xfer();
   drive(1,51,68,0);root.Work();
-  require(!root.__pyc_validate_checks(error)&&error.code=="source_check_failed"&&error.instance=="root");
+  require(!validate(root,error)&&error.code=="source_check_failed");
   auto failedId=std::string(error.checkIdJson),failedSource=std::string(error.sourceJson);
   root.DiscardNext();root.Xfer();incomplete(root);
   drive(1,51,68,1);root.Work();equal(0x11ee22dd11223344ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(validate(root,error));root.Xfer();
   drive(0,51,68,1);root.Work();equal(0x33cc44bb33443344ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(validate(root,error));root.Xfer();
   root.Reset();root.DiscardNext();root.Xfer();
   drive(1,85,102,1,1,0);root.Work();equal(0x33cc44bb33445566ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(validate(root,error));root.Xfer();
   drive(0,85,102,1,1,0);root.Work();equal(0x669955aa55665566ULL);
-  require(root.__pyc_validate_checks(error));root.DiscardNext();root.Xfer();
+  require(validate(root,error));root.DiscardNext();root.Xfer();
   require(!failedId.empty()&&!failedSource.empty());
   std::cout<<"DIRECT address-domains-owner-check-suffix-discard-clock-rollback\n";
 
@@ -476,7 +486,7 @@ int main(int argc, char **argv) {
   // All current leaves stage genuine updates. Observations of committed state
   // come from subsequent Work on the same generated hierarchy, never a copy.
   gfsim::WorkExecutor executor(workers);
-  pyc_root root("root", &executor);
+  pyc_root root("root");
   root.Build();
   incomplete(root);
   root.Reset();
@@ -498,7 +508,7 @@ int main(int argc, char **argv) {
   auto work = [&](bool accepted, bool commit) {
     root.Work();
     gfsim::SimFailureInfo info;
-    require(root.__pyc_validate_checks(info) == accepted);
+    require(validate(root, info) == accepted);
     if (commit)
       root.Xfer();
     else

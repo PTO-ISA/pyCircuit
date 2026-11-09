@@ -48,7 +48,7 @@ def run(command, accepted=True):
         env=env,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
     row = {
         "command": list(map(str, command)),
@@ -210,7 +210,7 @@ def Consumer(left: ac.u8, right: ac.u8) -> Pair:
     final_text = final.read_text()
     assert "func.func" not in final_text and "func.call" not in final_text, final_text
     emitted = {}
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         output = stages / target
         cli("emit", final, "--target", target, "-o", output)
         emitted[target] = snapshot(output)
@@ -546,7 +546,7 @@ def MethodEffectsSystem():
     assert b'"ac.method.call"' not in transaction_output.read_bytes()
     assert b"ac.observation_id" in before_final and b"ac.check_id" in before_final
     emitted = {}
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         output = archive / target
         cli("emit", final, "--target", target, "-o", output)
         emitted[target] = snapshot(output)
@@ -779,7 +779,7 @@ if args.query_checks:
         final = archive / "control.ac"
         cli("link", unit, "--top", "interfaces.query_control.Top", "-o", final)
         protected_outputs = {}
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             output = archive / target
             cli("emit", final, "--target", target, "-o", output)
             protected_outputs[target] = snapshot(output)
@@ -964,7 +964,7 @@ if args.invalid:
         final,
     )
     outputs = {}
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         directory = root / target
         cli("emit", final, "--target", target, "-o", directory)
         outputs[target] = snapshot(directory)

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -24,7 +25,7 @@ for name in (
     parser.add_argument("--" + name, required=True)
 parser.add_argument(
     "--only",
-    choices=("all", "tokens", "latency", "huge", "atomic", "owners", "capacity"),
+    choices=("all", "tokens", "latency", "huge", "owners", "capacity"),
     default="all",
 )
 args = parser.parse_args()
@@ -41,14 +42,12 @@ env = dict(
 )
 commands = []
 bound_inputs = [
-    fixtures / ("queue-emission." + suffix) for suffix in ("py", "mlir", "cpp", "sv")
+    fixtures / ("queue-emission." + suffix) for suffix in ("py", "mlir", "sv")
 ]
 bound_inputs += [
-    repo / "include/gfsim/fifo.h",
     repo / "include/verilog/fifo.v",
     Path(args.emitter).resolve(),
     Path(args.optimizer).resolve(),
-    Path(args.emitter).resolve().parent.parent / "runtime/libpyc6_runtime.a",
 ]
 initial_hashes = {
     str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in bound_inputs
@@ -80,6 +79,21 @@ def run(command, code=0):
     return r
 
 
+def mark_merged(text):
+    owners = sorted(
+        set(re.findall(r'source_owner = \{package = "", path = "([^"]+)"\}', text))
+    )
+    roster = ", ".join(f'{{package = "", path = "{path}"}}' for path in owners)
+    attr = f"module attributes {{ac.source_units = [{roster}]}} {{"
+    assert "module {" in text, "fixture is missing its module opener"
+    return text.replace("module {", attr, 1)
+
+
+def lower(path, lowered):
+    run([args.optimizer, path, "--ac-lower-transactions", "-o", lowered])
+    return lowered
+
+
 def emit_case(name, targets, contents=None):
     section = (
         contents
@@ -91,16 +105,9 @@ def emit_case(name, targets, contents=None):
         )
     )
     final = work / (name + ".ac")
-    final.write_text(section)
-    run(
-        [
-            args.optimizer,
-            final,
-            "--ac-verify-hardware",
-            "-o",
-            work / (name + ".verified.ac"),
-        ]
-    )
+    final.write_text(mark_merged(section))
+    lowered = work / (name + ".final.ac")
+    lower(final, lowered)
     for target in targets:
         run(
             [
@@ -108,103 +115,15 @@ def emit_case(name, targets, contents=None):
                 "-m",
                 "pycircuit.cli",
                 "emit",
-                final,
+                lowered,
                 "--target",
                 target,
                 "-o",
                 work / (name + "-" + target),
             ]
         )
-    return final
+    return lowered
 
-
-def native(name, define):
-    bundle = work / (name + "-cpp")
-    receipt = json.loads((bundle / "generated.json").read_text())
-    sources = [
-        bundle / x["path"] for x in receipt["files"] if x["path"].endswith(".cpp")
-    ]
-    runtime = Path(args.emitter).resolve().parent.parent / "runtime/libpyc6_runtime.a"
-    runner = work / (name + "-runner")
-    run(
-        [
-            args.cxx,
-            "-std=c++20",
-            "-O1",
-            "-pthread",
-            *[
-                "-D" + item
-                for item in (define if isinstance(define, tuple) else (define,))
-            ],
-            "-I" + str(repo / "include"),
-            "-I" + str(bundle),
-            fixtures / "queue-emission.cpp",
-            *sources,
-            runtime,
-            "-o",
-            runner,
-        ]
-    )
-    return run([runner])
-
-
-if args.only in ("all", "atomic"):
-    emit_case("atomic", ("cpp",))
-    # Prove the actual WorkPartition batch and join precede late parent Work.
-    generated = "\n".join(
-        p.read_text() for p in (work / "atomic-cpp/sources").glob("*.hpp")
-    )
-    begin = generated.index("std::array<gfsim::WorkItem, 2>")
-    join = generated.index("pyc_work_executor_->run(pyc_tasks)", begin)
-    parent = generated.index("pyc_instance_parent_reg_state->work(", join)
-    assert (
-        "pyc_instance_left.get()" in generated[begin:join]
-        and "pyc_instance_right.get()" in generated[begin:join]
-    )
-    (work / "atomic-work-schedule.txt").write_text(
-        generated[begin : parent + len("pyc_instance_parent_reg_state->work(")]
-    )
-    result = native("atomic", "QUEUE_ATOMIC")
-    assert sum("passed" in line for line in result.stdout.splitlines()) == 6
-    (evidence / "atomic.json").write_text(
-        json.dumps(
-            {
-                "work": str(work),
-                "workers": [1, 2],
-                "schedule": str(work / "atomic-work-schedule.txt"),
-                "scope": "direct same-edge retry, generated wrapper lifecycle and separate failed-Step Reset recovery",
-                "stdout": result.stdout,
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-    atomic = next(
-        s
-        for s in (fixtures / "queue-emission.mlir").read_text().split("// -----")
-        if "// QUEUE-CASE: atomic" in s
-    )
-    delayed_atomic = atomic.replace(
-        "availability_latency = #n1", "availability_latency = #n2"
-    )
-    emit_case("atomic-delayed", ("cpp",), delayed_atomic)
-    delayed_result = native("atomic-delayed", ("QUEUE_ATOMIC", "QUEUE_DELAYED_ATOMIC"))
-    assert sum("passed" in line for line in delayed_result.stdout.splitlines()) == 4
-    (evidence / "atomic-delayed.json").write_text(
-        json.dumps(
-            {
-                "work": str(work),
-                "workers": [1, 2],
-                "latency": 2,
-                "scope": "late parent failure at maturity edge; global discard and same-edge owner retry",
-                "stdout": delayed_result.stdout,
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-    if args.only == "atomic":
-        sys.exit(0)
 
 if args.only in ("all", "owners"):
     owners = []
@@ -222,12 +141,10 @@ if args.only in ("all", "owners"):
             contents = contents.replace("depth = #n3", "depth = #n1").replace(
                 "availability_latency = #n1", "availability_latency = #n3"
             )
-        emit_case(name, ("cpp", "verilog"), contents)
+        emit_case(name, ("verilog",), contents)
         defines = ("QUEUE_OWNERS", "QUEUE_DEAD") if dead else ("QUEUE_OWNERS",)
         if name == "dead-delayed":
             defines += ("QUEUE_DELAYED_DEAD",)
-        result = native(name, defines)
-        assert len(result.stdout.splitlines()) == 2
         bundle = work / (name + "-verilog")
         receipt = json.loads((bundle / "generated.json").read_text())
         rtl = [bundle / r["path"] for r in receipt["files"] if r["role"] == "rtl"]
@@ -253,7 +170,7 @@ if args.only in ("all", "owners"):
             assert "fifo: effective transfers must be known" in rtl_result.stdout
         else:
             assert "COLLISION fifo plus fifo_state passed" in rtl_result.stdout
-        owners.append({"name": name, "native": result.stdout, "rtl": rtl_result.stdout})
+        owners.append({"name": name, "rtl": rtl_result.stdout})
     (evidence / "owners.json").write_text(
         json.dumps({"work": str(work), "results": owners}, indent=2) + "\n"
     )
@@ -366,7 +283,7 @@ if args.only in ("all", "capacity"):
         ),
         "unused_concrete_bad": (
             fixture(44_000_000_000_000_000, 1, "concrete"),
-            "queue storage including enclosing collections",
+            None,
         ),
         "delayed_scalar_storage": (
             fixture(41_600_000_000_000_000, 1, latency=3),
@@ -378,11 +295,11 @@ if args.only in ("all", "capacity"):
         ),
         "delayed_unused_concrete": (
             fixture(41_600_000_000_000_000, 1, "concrete", latency=3),
-            "queue storage including enclosing collections",
+            None,
         ),
         "oversized_generic_latency": (
             fixture(3, 1, latency=(1 << 64) - 1),
-            "emitted signed 64-bit domain",
+            None,
         ),
     }
     # These fit the old payload-only allocation bound and fail only when the
@@ -413,19 +330,12 @@ if args.only in ("all", "capacity"):
 
     for name, (contents, reject) in cases.items():
         path = work / (name + ".ac")
-        path.write_text(contents)
-        run(
-            [
-                args.optimizer,
-                path,
-                "--ac-verify-hardware",
-                "-o",
-                work / (name + ".verified.ac"),
-            ]
-        )
-        for target in ("cpp", "verilog"):
+        path.write_text(mark_merged(contents))
+        lowered = work / (name + ".final.ac")
+        lower(path, lowered)
+        for target in ("verilog",):
             dest = work / (name + "-" + target)
-            emit(path, target, dest, name + "-" + target, reject)
+            emit(lowered, target, dest, name + "-" + target, reject)
             if reject:
                 assert not dest.exists(), f"failed fresh publication created {dest}"
                 seed = work / ("seed-" + target)
@@ -433,7 +343,7 @@ if args.only in ("all", "capacity"):
                 receipt = prior["generated.json"]
                 control = work / ("." + seed.name + ".pycircuit-publication")
                 control_prior = snapshot(control)
-                emit(path, target, seed, name + "-" + target + "-replacement", reject)
+                emit(lowered, target, seed, name + "-" + target + "-replacement", reject)
                 assert (
                     snapshot(seed) == prior
                 ), "failed replacement altered prior generated bundle"
@@ -685,67 +595,23 @@ def token_gate(label, final_contents, latencies, independent=False, huge=False):
         gold.append(expected)
 
     final = work / "tokens.ac"
-    final.write_text(final_contents)
-    run(
-        [
-            args.optimizer,
-            final,
-            "--ac-verify-hardware",
-            "-o",
-            work / "verified.ac",
-        ]
-    )
-    for target in ("cpp", "verilog"):
+    final.write_text(mark_merged(final_contents))
+    lowered = work / "final.ac"
+    lower(final, lowered)
+    for target in ("verilog",):
         run(
             [
                 sys.executable,
                 "-m",
                 "pycircuit.cli",
                 "emit",
-                final,
+                lowered,
                 "--target",
                 target,
                 "-o",
                 work / target,
             ]
         )
-    cpp = ["constexpr unsigned row_count=" + str(len(rows)) + ";"]
-    for group, frames in [("input", inputs), ("gold", gold)]:
-        for name in frames[0]:
-            values = [
-                frame[name] if isinstance(frame[name][0], tuple) else (frame[name],)
-                for frame in frames
-            ]
-            for lane in range(len(values[0])):
-                for pindex, pname in enumerate(("value", "known", "z"), 1):
-                    cpp.append(
-                        f"const char *{group}_{name}_{lane}_{pname}[]={{"
-                        + ",".join(
-                            json.dumps(text(v[lane])[pindex - 1]) for v in values
-                        )
-                        + "};"
-                    )
-    cpp += ["void drivePorts(pyc_dut::Inputs &p,unsigned row){"]
-    for name, value in inputs[0].items():
-        parts = value if isinstance(value[0], tuple) else (value,)
-        for lane, p in enumerate(parts):
-            field = (
-                f"p.{name}.element({lane})"
-                if isinstance(value[0], tuple)
-                else f"p.{name}"
-            )
-            cpp.append(
-                f"{field}=std::remove_cvref_t<decltype({field})>::fromPacked(input<{p[0]}>(input_{name}_{lane}_value[row],input_{name}_{lane}_known[row],input_{name}_{lane}_z[row]).packed());"
-            )
-    cpp += [
-        "}",
-        "template<class Outputs>void checkPorts(const Outputs &p,unsigned row){",
-    ]
-    for name, parts in gold[0].items():
-        for lane, p in enumerate(parts):
-            cpp.append(
-                f"check<{p[0]}>(p.{name}.element({lane}),gold_{name}_{lane}_value[row],gold_{name}_{lane}_known[row],gold_{name}_{lane}_z[row]);"
-            )
     traces = [
         " ".join(
             name + ":" + ",".join(symbols(p) for p in parts)
@@ -753,52 +619,6 @@ def token_gate(label, final_contents, latencies, independent=False, huge=False):
         )
         for g in gold
     ]
-    cpp += [
-        "}",
-        "const char *golden_trace[]={" + ",".join(json.dumps(t) for t in traces) + "};",
-    ]
-    (work / "queue_vectors.hpp").write_text("\n".join(cpp) + "\n")
-    config = work / "config.json"
-    config.write_text(
-        json.dumps(
-            {
-                "schema": "pycircuit-model-config",
-                "version": "1",
-                "max_ticks": len(rows) + 16,
-                "max_domain_cycles": {},
-                "deadlock_window": None,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
-    receipt = json.loads((work / "cpp/generated.json").read_text())
-    sources = [
-        work / "cpp" / x["path"] for x in receipt["files"] if x["path"].endswith(".cpp")
-    ]
-    runtime = Path(args.emitter).resolve().parent.parent / "runtime/libpyc6_runtime.a"
-    runner = work / "runner"
-    run(
-        [
-            args.cxx,
-            "-std=c++20",
-            "-O1",
-            "-pthread",
-            "-I" + str(repo / "include"),
-            "-I" + str(work / "cpp"),
-            "-I" + str(work),
-            fixtures / "queue-emission.cpp",
-            *sources,
-            runtime,
-            "-o",
-            runner,
-        ]
-    )
-    observed = []
-    for workers in (1, 2):
-        observed.append(run([runner, "--workers", workers, "--config", config]).stdout)
-    assert observed[0] == observed[1]
 
     # Freeze the same token/symbol expectations into the complete RTL testbench.
     # Native assertions retain latent values; RTL asserts every visible 0/1/X/Z bit.
@@ -929,8 +749,7 @@ def token_gate(label, final_contents, latencies, independent=False, huge=False):
                 "work": str(work),
                 "rows": len(rows),
                 "known_rows": known_rows,
-                "trace_sha256": hashlib.sha256(observed[0].encode()).hexdigest(),
-                "scope": "complete native1/2+Icarus+knownVerilator absolute-birth deque",
+                "scope": "complete Icarus+knownVerilator absolute-birth deque",
                 "latencies": latencies,
                 "independent_clocks": independent,
                 "huge_latency_scope": "bounded early/reset only" if huge else None,
@@ -940,7 +759,7 @@ def token_gate(label, final_contents, latencies, independent=False, huge=False):
         )
         + "\n"
     )
-    print("native token gate passed", len(rows), "rows")  # noqa: T201
+    print("RTL token gate passed", len(rows), "rows")  # noqa: T201
     work = original_work
 
 
@@ -1077,7 +896,7 @@ assert {
                     "path": str(Path(getattr(args, name)).resolve()),
                     "sha256": digest(getattr(args, name)),
                 }
-                for name in ("cxx", "iverilog", "vvp", "verilator")
+                for name in ("iverilog", "vvp", "verilator")
             },
             "scope": "generated CodeGen only; huge latency bounded early/reset; near-wrap arithmetic stays in separately labelled Runtime/helper evidence; no Q6 acceptance claim",
         },

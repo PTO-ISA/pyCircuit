@@ -123,7 +123,10 @@ struct HardwareCheckCommitEndpoint {
   mlir::StringAttr primitiveKind;
 };
 struct HardwareSourceCheckLimits {
-  uint64_t maxWorkUnits = 4 * 1024 * 1024;
+  // Large, fully closed systems legitimately reuse compact dependency
+  // summaries across many bound occurrences.  Keep a finite admission limit,
+  // but leave enough headroom for complete project-scale roots.
+  uint64_t maxWorkUnits = 8 * 1024 * 1024;
 };
 struct HardwareSourceCheckPlan {
   llvm::SmallVector<HardwareCheckBinding> bindings;

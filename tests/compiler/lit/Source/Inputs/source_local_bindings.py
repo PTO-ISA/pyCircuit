@@ -79,6 +79,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -180,11 +181,11 @@ def execute(units, top, stem, frames):
     output.mkdir()
     final = output / "locals.ac"
     cli("link", *units, "--top", top, "-o", final)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
-    receipt = json.loads((output / "cpp/generated.json").read_text())
+    receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / row["path"]
+        output / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -197,7 +198,7 @@ def execute(units, top, stem, frames):
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             fixtures / (stem + ".cpp"),
             *cpp,
             runtime,
@@ -371,7 +372,7 @@ if not args.four_state:
     before = snapshot(unit)
     final_before = final.read_bytes()
     emitted_before = {
-        target: snapshot(products / target) for target in ("cpp", "verilog")
+        target: snapshot(products / target) for target in ("structural-cpp", "verilog")
     }
     for name, text in ordered["negative_cases"]().items():
         (source / ("local_binding_bad_ordered_" + name + ".py")).write_text(text)
@@ -533,7 +534,7 @@ if not args.four_state:
             "-o",
             instrument_final,
         )
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             published = root / ("instrument-" + entrance + "-" + target)
             emitted = cli(
                 "emit",
@@ -542,9 +543,9 @@ if not args.four_state:
                 target,
                 "-o",
                 published,
-                accepted=target == "cpp",
+                accepted=True,
             )
-            if target == "cpp":
+            if target == "structural-cpp":
                 receipt = json.loads((published / "generated.json").read_text())
                 assert receipt["entry"] == {
                     "definition": '@"locals.local_binding_instrument_'
@@ -552,15 +553,12 @@ if not args.four_state:
                     + '.Instrument"',
                     "arguments": [],
                 }
-                assert "pycircuit_system.hpp" in {
+                assert "design.hpp" in {
                     row["path"] for row in receipt["files"]
                 }
             else:
-                assert (
-                    "hardware instrumentation emission is not implemented"
-                    in emitted.stderr
-                )
-                assert not published.exists()
+                receipt = json.loads((published / "generated.json").read_text())
+                assert "design_top.sv" in {row["path"] for row in receipt["files"]}
             rejected = cli(
                 "emit",
                 instrument_final,
@@ -571,12 +569,12 @@ if not args.four_state:
                 "--replace",
                 accepted=False,
             )
-            diagnostic = (
-                "generated.json entry does not match its owner"
-                if target == "cpp"
-                else "hardware instrumentation emission is not implemented"
-            )
-            assert diagnostic in rejected.stderr
+            if target == "structural-cpp":
+                assert "generated.json entry does not match its owner" in rejected.stderr
+                assert snapshot(products / target) == emitted_before[target]
+                continue
+            assert "generated.json entry does not match its owner" in rejected.stderr
+            assert snapshot(products / target) == emitted_before[target]
             assert snapshot(products / target) == emitted_before[target]
         instrument_stages.append(
             {
@@ -584,7 +582,7 @@ if not args.four_state:
                 "compile_link": "accepted",
                 "emission": {
                     "cpp": "accepted; cross-owner replacement protected",
-                    "verilog": "ordinary-root observations unsupported; fresh/replacement protected",
+                    "verilog": "accepted; cross-owner replacement protected",
                 },
             }
         )
@@ -608,7 +606,7 @@ if not args.four_state:
     invalid = root / "missing-expect.ac"
     invalid.write_text(text.replace(expects[0], "", 1))
     assert invalid.read_text() != text and "ac.required_checks" in invalid.read_text()
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         existing = root / ("checked-" + target)
         cli("emit", checked_final, "--target", target, "-o", existing)
         receipt = json.loads((existing / "generated.json").read_text())

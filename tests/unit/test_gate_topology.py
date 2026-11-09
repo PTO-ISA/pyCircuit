@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,21 @@ FULL_CLOSURE_SCRIPTS = (
     "run_examples.sh",
     "run_api_tests.sh",
 )
+
+
+def test_python_metadata_matches_the_311_tooling_contract() -> None:
+    project = tomllib.loads(_read("pyproject.toml"))
+    metadata = project["project"]
+    assert metadata["requires-python"] == ">=3.11"
+    assert "Programming Language :: Python :: 3.10" not in metadata["classifiers"]
+    assert any(
+        dependency.lower().startswith("pyyaml")
+        for dependency in metadata["optional-dependencies"]["dev"]
+    )
+
+    assert 'python_requires=">=3.11"' in _read("packaging/wheel/setup.py")
+    assert "Python 3.11 or newer" in _read("CONTRIBUTING.md")
+    assert "Python 3.10" not in _read("CONTRIBUTING.md")
 
 
 def _read(relative: str) -> str:
@@ -158,6 +174,8 @@ def test_api_and_example_entrypoints_are_separate_and_tiered() -> None:
     examples = scripts["run_examples.sh"]
     api = scripts["run_api_tests.sh"]
     assert "examples" in examples and "ctest" in examples
+    assert 'test_python="$(pyc_require_python)"' in examples
+    assert '-DPython3_EXECUTABLE="${test_python}"' in examples
     assert "check-pycircuit" in api and "examples" not in api
     assert "tests/system/test_runtime_install.py" in api
     assert 'if [[ "$tier" == nightly ]]' in api

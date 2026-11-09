@@ -18,6 +18,7 @@ Environment:
   PYC_BUILD_DIR             Build directory (default: .pycircuit_out/toolchain/build)
   PYC_INSTALL_PREFIX        Install prefix (default: .pycircuit_out/toolchain/install)
   PYC_BUILD_TESTING         Native compiler tests, ON by default for this gate
+  PYC_ERROR_DEPRECATED_API  Reject deprecated LLVM/MLIR APIs when ON
   PYC_PYTHON_EXECUTABLE     Python interpreter used by CMake
 EOF
 }
@@ -58,12 +59,31 @@ case "${cmd}" in
       export LLVM_DIR MLIR_DIR
     fi
 
-    python_exec="${PYC_PYTHON_EXECUTABLE:-$(command -v python3)}"
+    if [[ -n "${PYC_PYTHON_EXECUTABLE:-}" ]]; then
+      python_exec="${PYC_PYTHON_EXECUTABLE}"
+    else
+      python_exec=""
+      while IFS= read -r candidate; do
+        if "${candidate}" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' \
+            >/dev/null 2>&1; then
+          python_exec="${candidate}"
+          break
+        fi
+      done < <(command -v -a python3 2>/dev/null | awk '!seen[$0]++')
+      [[ -n "${python_exec}" ]] ||
+        pyc_die "Python 3.11 or later is required; set PYC_PYTHON_EXECUTABLE"
+    fi
+    [[ -x "${python_exec}" ]] ||
+      pyc_die "PYC_PYTHON_EXECUTABLE is not executable: ${python_exec}"
+    "${python_exec}" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' \
+      >/dev/null 2>&1 ||
+      pyc_die "Python 3.11 or later is required: ${python_exec}"
     cmake -S "${ROOT_DIR}" -B "${build_dir}" -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX="${install_prefix}" \
       -DPYC_BUILD_COMPILER_DEV=ON \
       -DPYC_BUILD_TESTING="${PYC_BUILD_TESTING:-ON}" \
+      -DPYC_ERROR_DEPRECATED_API="${PYC_ERROR_DEPRECATED_API:-OFF}" \
       -DPYC_BUILD_RUNTIME_LIB=ON \
       -DPYC_INSTALL_PYTHON=ON \
       -DPython3_EXECUTABLE="${python_exec}" \

@@ -429,7 +429,7 @@ def test_cpp_source_groups_are_compiled_as_independent_translation_units(
         rtl_emitted = _ninja(source_build, "-v", "emit_verilog")
         assert _cli_actions(rtl_emitted)["emit"] == 1
 
-        bundle = source_build / "cpp"
+        bundle = source_build / "structural-cpp"
         manifest = json.loads((bundle / "generated.json").read_text(encoding="utf-8"))
         expected_sources = {row["source"]["path"] for row in manifest["source_groups"]}
         expected_units = _unit_count(axis, size)
@@ -456,10 +456,15 @@ def test_cpp_source_groups_are_compiled_as_independent_translation_units(
             row["source"]["path"] for row in rtl_manifest["source_groups"]
         } == expected_sources
         assert (rtl_bundle / "design_top.sv").is_file()
-        for name in expected_sources:
-            assert (
-                rtl_bundle / "sources/measurement" / f"{Path(name).stem}.v"
-            ).is_file()
+        rtl_files = {row["path"]: row["role"] for row in rtl_manifest["files"]}
+        for group in rtl_manifest["source_groups"]:
+            source_rtl = [
+                path
+                for path in group["files"]
+                if rtl_files[path] == "rtl" and path.endswith(".sv")
+            ]
+            assert len(source_rtl) == 1
+            assert (rtl_bundle / source_rtl[0]).is_file()
 
         files = {row["path"]: row["role"] for row in manifest["files"]}
         generated_cpp = {
@@ -469,7 +474,7 @@ def test_cpp_source_groups_are_compiled_as_independent_translation_units(
             if path.endswith(".cpp") and files[path] == "source"
         }
         assert generated_cpp, "source-owned C++ groups must contain implementation TUs"
-        cpp_source = source_build / "cpp"
+        cpp_source = source_build / "structural-cpp"
         cpp_build = project / "cpp build"
         _configure(cpp_source, cpp_build, prefix)
         planned = _ninja(cpp_build, "-t", "commands", "all")
@@ -492,7 +497,7 @@ def test_cpp_source_groups_are_compiled_as_independent_translation_units(
         owned_outputs = (
             source_build / "units",
             source_build / "design_top.ac",
-            source_build / "cpp",
+            source_build / "structural-cpp",
             source_build / "verilog",
             cpp_build / "CMakeFiles/pycircuit_modules.dir",
             *module_library,

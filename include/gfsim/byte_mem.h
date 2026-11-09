@@ -143,6 +143,7 @@ public:
   wire<Bits<ADDR_WIDTH>> waddr;
   wire<T> wdata;
   wire<Bits<STRB_WIDTH>> wstrb;
+  void RefreshOutputs() noexcept { Kernel::read(current_, raddr, {rdata}); }
   void Work() override { Kernel::work(current_, pins(), pending_, {rdata}); }
   void Xfer() noexcept override { Kernel::xfer(current_, pending_, {rdata}); }
   void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }

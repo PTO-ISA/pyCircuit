@@ -571,9 +571,12 @@ HardwareAnalysis::bindOccurrence(Operation *instance,
 FailureOr<HardwareBindings> HardwareAnalysis::bindCallee(
     Operation *callee, ArrayAttr actualParameters, ArrayAttr actualTypes,
     const HardwareBindings &parent, Operation *site) const {
-  if (!isa_and_nonnull<ModuleOp, ModuleImportOp>(callee))
+  if (!callee ||
+      (!isa<ModuleOp, ModuleImportOp>(callee) &&
+       callee->getName().getStringRef() != "hwir.module"))
     return site->emitOpError() << "callee must resolve to hardware module";
-  if (callee->getAttrOfType<StringAttr>("ac.root_kind"))
+  if (callee->getAttrOfType<StringAttr>("ac.root_kind") &&
+      site->getName().getStringRef() != "hwir.system")
     return site->emitOpError()
            << "source system is root-only and cannot be an instance callee";
   auto parameters = callee->getAttrOfType<ArrayAttr>("parameters");
@@ -711,6 +714,16 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
       return op->emitOpError()
              << "bits constant does not fit bound result width";
   }
+  if (auto constant4 = dyn_cast<BitsConstant4Op>(op)) {
+    if (constant4.getPattern().size() != outputs[0])
+      return op->emitOpError()
+             << "bits constant4 pattern does not match result width";
+  }
+  if (isa<ValueRequireOp>(op) &&
+      (inputs.size() != 3 || inputs[1] != 1 || inputs[2] != 1 ||
+       outputs.size() != 1 || outputs[0] != 1))
+    return op->emitOpError()
+           << "required use needs width-one availability, path, and result";
   if (isa<BitsUnaryOp, BitsBinaryOp, BitsSelectOp>(op)) {
     unsigned first = isa<BitsSelectOp>(op) ? 1 : 0;
     if (first && inputs[0] != 1)

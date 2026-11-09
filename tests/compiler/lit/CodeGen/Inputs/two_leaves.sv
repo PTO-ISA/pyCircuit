@@ -2,7 +2,7 @@ module tb;
   logic clk = 0, rst = 1, en = 1;
   logic [7:0] d = 8'h96, init = 3;
   wire [7:0] qa, qb;
-  ac_top dut(.clk(clk), .rst(rst), .en(en), .d(d), .init(init), .qa(qa), .qb(qb));
+  pyc_root dut(.clk(clk), .rst(rst), .en(en), .d(d), .init(init), .qa(qa), .qb(qb));
   task expect_q(input logic [7:0] a, b);
     if (qa !== a || qb !== b) $fatal(1, "independent leaf oracle failed");
   endtask

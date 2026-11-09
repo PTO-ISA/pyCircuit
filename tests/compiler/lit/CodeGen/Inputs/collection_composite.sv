@@ -4,7 +4,7 @@ module tb;
   logic [0:N-1] en;
   logic [0:N-1][7:0] d, init;
   wire [0:N-1][7:0] first_q, second_q;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     for (integer i=0;i<N;i=i+1) begin en[i]=1; d[i]=17; init[i]=3; end
     #1; clk=1; #1;

@@ -112,7 +112,7 @@ def test_aggregate_retains_authored_module_oracle_and_registers_system_verificat
     assert properties["LABELS"] == ["examples", "nightly"]
 
 
-@pytest.mark.parametrize("target", ["cpp", "verilog"])
+@pytest.mark.parametrize("target", ["structural-cpp", "verilog"])
 def test_public_run_selects_closed_system_sources_and_target(cmake_case, target):
     source, build, configure, _ = cmake_case
     result = configure(run_target=target)
@@ -155,7 +155,9 @@ def test_generated_system_runner_has_no_authored_module_oracle(cmake_case):
     _, build, configure, tools = cmake_case
     result = configure(system_args="", authored_driver=False)
     assert result.returncode == 0, result.stderr
-    assert str(build / "cpp/simulation_main.cpp") in (build / "build.ninja").read_text()
+    assert str(build / "structural-cpp/simulation_main.cpp") in (
+        build / "build.ninja"
+    ).read_text()
     result = subprocess.run(
         [tools["ctest"], "--test-dir", str(build), "--show-only=json-v1"],
         capture_output=True,

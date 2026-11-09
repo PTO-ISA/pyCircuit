@@ -65,6 +65,7 @@ def run(command, code=0):
 
 
 def cli(*arguments, code=0):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], code)
 
 
@@ -589,7 +590,7 @@ def vectors(output, names, rows, expected, state=False):
             "driveFailure", "failure"
         )
         header += [
-            "void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){",
+            "template<class Root> void driveRoot(Root &root,const pyc_dut::Inputs &p){",
             *[f"root.{n}=p.{n};" for n in names],
             "}",
         ]
@@ -683,11 +684,11 @@ for top, names, rows, expected, state in (
     known = vectors(output, names, rows, expected, state)
     final = output / "design.ac"
     cli("link", unit, "--top", "branches.design." + top, "-o", final)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
     cpp = [
-        output / "cpp" / row["path"]
-        for row in json.loads((output / "cpp/generated.json").read_text())["files"]
+        output / "structural-cpp" / row["path"]
+        for row in json.loads((output / "structural-cpp/generated.json").read_text())["files"]
         if row["path"].endswith(".cpp")
     ]
     runner = output / "runner"
@@ -700,7 +701,7 @@ for top, names, rows, expected, state in (
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             "-I" + str(output),
             fixtures / "frontend-branches.cpp",
             *cpp,
@@ -802,7 +803,7 @@ for top, names, rows, expected, state in (
         )
         failed = run([args.vvp, output / "icarus-failure"], code=1)
         assert "enable must be known" in failed.stdout + failed.stderr
-    protected_paths += [final, output / "cpp", output / "verilog"]
+    protected_paths += [final, output / "structural-cpp", output / "verilog"]
     receipts.append(
         {
             "top": top,
@@ -815,7 +816,7 @@ for top, names, rows, expected, state in (
                     name: hashlib.sha256(data).hexdigest()
                     for name, data in snapshot(output / target).items()
                 }
-                for target in ("cpp", "verilog")
+                for target in ("structural-cpp", "verilog")
             },
         }
     )

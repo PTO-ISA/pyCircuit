@@ -219,6 +219,24 @@ TEST(RunnerObservationGroupsTest,
   EXPECT_EQ(fixture.module.committedWrites, 1u);
 }
 
+TEST(RunnerObservationGroupsTest, SerializesFourStatePlanesAndExactWidth) {
+  GroupFixture fixture([](auto &descriptors) {
+    descriptors[0].payloadWidth = 65;
+  });
+  ASSERT_TRUE(fixture.configured);
+  const std::array<std::uint64_t, 2> value{1, 1};
+  const std::array<std::uint64_t, 2> known{~std::uint64_t{0}, 1};
+  const std::array<std::uint64_t, 2> z{0, 0};
+  fixture.plans[0].value = gfsim::SlotValue::Bits4(65, value, known, z);
+  const auto result = run(fixture);
+  ASSERT_EQ(result.status, 0);
+  ASSERT_FALSE(result.lines.empty());
+  EXPECT_EQ(
+      result.lines[0],
+      record("log", scalarSpec,
+             R"({"kind":"bits4","width":65,"value":"10000000000000001","known":"1ffffffffffffffff","z":"00000000000000000"})"));
+}
+
 TEST(RunnerObservationGroupsTest, FullyInactiveGroupsDoNotProduceEmptyEvents) {
   for (unsigned mode = 0; mode < 3; ++mode) {
     SCOPED_TRACE(mode);

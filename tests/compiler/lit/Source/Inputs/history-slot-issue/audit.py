@@ -40,6 +40,14 @@ def pack(value):
     return result
 
 
+def observed(events, key, value):
+    if not isinstance(value, dict):
+        return events[key]
+    if set(value) == {"value"}:
+        return events[key + "_value"]
+    return pack({field: events[key + "_" + field] for field in value})
+
+
 receipt = json.loads((gate / "receipt.json").read_text())
 assert sha(vectors) == receipt["before"][str(vectors)]
 assert receipt["unchanged"] and len(receipt["records"]) == 27
@@ -72,12 +80,12 @@ for name, case in json.loads(vectors.read_text())["executable"].items():
             row = case["rows"][epoch // 2]
             assert events["epoch"] == epoch // 2, (name, backend, epoch)
             for key, value in row["controls"].items():
-                assert events[key] == pack(value), (
+                assert observed(events, key, value) == pack(value), (
                     name,
                     backend,
                     epoch,
                     key,
-                    events[key],
+                    observed(events, key, value),
                     value,
                 )
         records.append(

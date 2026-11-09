@@ -19,7 +19,7 @@
 !as = !ac.table<[#w2, #w2], !b8>
 !af = !ac.table<[#w6], !b8>
 !apair = !ac.table<[#w2], !b8>
-module {
+module attributes {ac.source_units = [{package = "", path = "top.py"}]} {
   "ac.module"() ({
   ^bb0(%a: !a, %threshold: !b8, %row: !b70, %col: !b70, %get_index: !b70, %guard: !b1, %base: !b8, %candidate: !b8):
     %mapped = "ac.table.map"(%a, %threshold) ({

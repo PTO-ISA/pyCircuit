@@ -48,7 +48,7 @@ pycircuit link .pycircuit_out/hello_counter/units/hello_counter \
   --top hello.hello_counter.HelloCounter \
   -o .pycircuit_out/hello_counter/hello_counter.ac
 pycircuit emit .pycircuit_out/hello_counter/hello_counter.ac \
-  --target cpp -o .pycircuit_out/hello_counter/cpp
+  --target structural-cpp -o .pycircuit_out/hello_counter/structural-cpp
 pycircuit emit .pycircuit_out/hello_counter/hello_counter.ac \
   --target verilog -o .pycircuit_out/hello_counter/verilog
 ```

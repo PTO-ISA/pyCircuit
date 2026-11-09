@@ -34,11 +34,12 @@ jobs:
       - name: Install Homebrew packages
         run: |
           brew update
-          brew install ninja cmake "llvm@${LLVM_VERSION}" python@3 googletest verilator
+          brew install ninja cmake "llvm@${LLVM_VERSION}" python@3 googletest verilator icarus-verilog
           echo "$(brew --prefix "llvm@${LLVM_VERSION}")/bin" >> "$GITHUB_PATH"
 
       - name: Build staged toolchain
         run: |
+          PYC_ERROR_DEPRECATED_API=ON \
           LLVM_CONFIG="$(brew --prefix "llvm@${LLVM_VERSION}")/bin/llvm-config" \
           bash tools/pyc build \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
@@ -96,6 +97,12 @@ jobs:
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
           unset PYCC
           bash tools/run_examples.sh --tier gate
+
+      - name: Run compiler end-to-end gate smoke
+        run: |
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+          bash tools/run_api_tests.sh --tier gate
 
       - name: Smoke test installed wheel
         shell: bash

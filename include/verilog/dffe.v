@@ -2,7 +2,9 @@
 // Packed-payload positive-edge register with synchronous active-high reset.
 module dffe #(
     parameter type T = logic [0:0],
-    parameter bit pyc_managed = 0
+    parameter bit pyc_managed = 0,
+    parameter bit pyc_physical = 0,
+    parameter T pyc_initial = 'x
 ) (
     // Interface: direction belongs to the wire port, not the payload.
     input  wire clk,
@@ -19,6 +21,9 @@ module dffe #(
     // Internal declarations: only q_current owns register state.
     localparam int unsigned PAYLOAD_BITS = $bits(T);
     T q_current;
+    generate if (pyc_physical) begin : physical_initialization
+        initial q_current = pyc_initial;
+    end endgenerate
 `ifndef SYNTHESIS
     T payload_x_check;
     logic [PAYLOAD_BITS-1:0] packed_x_check;
@@ -63,7 +68,7 @@ module dffe #(
         if (packed_x_check !== {PAYLOAD_BITS{1'bx}})
             $fatal(1, "dffe: T must be four-state packed bits or a four-state packed struct");
 `endif
-        q_current = 'x;
+        if (!pyc_physical) q_current = 'x;
     end
 `endif
 
@@ -125,6 +130,12 @@ module dffe #(
                 end
                 default: begin end // IDLE has no lifecycle effects.
             endcase
+        end
+    end else if (pyc_physical) begin : checked_physical
+        assign pyc_local_error = |edge_control_error(1'b1, rst, en);
+        always @(posedge clk) begin
+            if ((clk === 1'b1) && (pyc_root_commit_ok === 1'b1))
+                q_current <= next_q(q_current, 1'b1, rst, en, d, init);
         end
     end else begin : autonomous
         bit [1:0] control_error;

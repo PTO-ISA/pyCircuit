@@ -426,8 +426,8 @@ TEST_F(SourceHelperAuthorityTest,
       for (unsigned i = 0; i < edges; ++i) {
         auto helper = levels[i];
         builder.setInsertionPoint(helper.getBody().front().getTerminator());
-        auto call = builder.create<mlir::func::CallOp>(
-            helper.getLoc(), levels[i + 1].getSymName(),
+        auto call = mlir::func::CallOp::create(
+            builder, helper.getLoc(), levels[i + 1].getSymName(),
             helper.getFunctionType().getResults(),
             helper.getBody().front().getArguments());
         helper.getBody().front().getTerminator()->setOperands(
@@ -465,8 +465,8 @@ TEST_F(SourceHelperAuthorityTest, EarlyReturnsAndForeignSSAOperandsFailClosed) {
           0, other.getBody().front().getArgument(0));
     } else {
       builder.setInsertionPointToStart(&helper.getBody().front());
-      builder.create<mlir::func::ReturnOp>(
-          helper.getLoc(), helper.getBody().front().getArgument(0));
+      mlir::func::ReturnOp::create(
+          builder, helper.getLoc(), helper.getBody().front().getArgument(0));
     }
     rejects(*file);
   }

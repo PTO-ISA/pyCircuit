@@ -2,6 +2,7 @@
 #include "Compiler/HardwareEmitCommon.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
+#include "Compiler/VerilogEmissionPlan.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -825,6 +826,50 @@ TEST_F(QueueContractsTest, SharedUnsignedRendererPreservesExactClosedLatency) {
   EXPECT_EQ(*closed, "18446744073709551615ULL");
 }
 
+TEST_F(QueueContractsTest, VerilogQueuePlanFreezesConcreteEmissionInputs) {
+  for (auto [policy, expected] :
+       {std::pair{"local_occupancy", 0u}, std::pair{"downstream_pop", 1u}}) {
+    auto body = provider(13, 3, policy);
+    ASSERT_TRUE(body);
+    auto final = finalForEmission(*body);
+    ASSERT_TRUE(final);
+    ac::HardwareAnalysis analysis(*final);
+    ASSERT_TRUE(succeeded(analysis.verify()));
+    compiler::HardwareEmitContext emitter(*final, analysis);
+    ASSERT_TRUE(succeeded(emitter.prepare()));
+    auto module = cast<ac::ModuleOp>(analysis.lookupDefinition("Provider"));
+    auto queue = onlyQueue(module);
+
+    auto modulePlan = compiler::buildVerilogModuleEmissionPlan(emitter, module);
+    ASSERT_TRUE(succeeded(modulePlan));
+    ASSERT_EQ(modulePlan->queues.size(), 1u);
+    auto found = modulePlan->queues.find(queue);
+    ASSERT_NE(found, modulePlan->queues.end());
+    const compiler::VerilogQueuePlan &plan = found->second;
+    EXPECT_EQ(plan.occurrence, queue.getOperation());
+    EXPECT_EQ(plan.instanceName, "fifo");
+    EXPECT_EQ(plan.payloadType, "logic [(13)-1:0]");
+    EXPECT_EQ(plan.depth, "3");
+    EXPECT_EQ(plan.availabilityLatency, "64'd1");
+    EXPECT_EQ(plan.readyPolicy, expected);
+    EXPECT_FALSE(plan.managedParameter);
+    ASSERT_EQ(plan.dataPorts.size(), 8u);
+    const llvm::StringRef expectedNames[] = {
+        "clk",       "rst",      "in_valid", "in_data",
+        "out_ready", "in_ready", "out_valid", "out_data"};
+    for (auto [ordinal, port] : llvm::enumerate(plan.dataPorts)) {
+      EXPECT_EQ(port.name, expectedNames[ordinal]);
+      EXPECT_EQ(port.source, ordinal < 5
+                                 ? compiler::VerilogValueSource::Operand
+                                 : compiler::VerilogValueSource::Result);
+      EXPECT_EQ(port.ordinal, ordinal < 5 ? ordinal : ordinal - 5);
+      EXPECT_TRUE(port.collectionWidth.empty());
+    }
+    EXPECT_TRUE(plan.managedPorts.empty());
+    EXPECT_TRUE(plan.lifecycleWires.empty());
+  }
+}
+
 TEST_F(QueueContractsTest,
        EmissionChecksCombinedTimingAndFamilyCapacityBeforeAllocation) {
   // These broad capacity witnesses do not freeze padding or an exact emitted
@@ -1523,13 +1568,16 @@ TEST_F(QueueContractsTest,
   // Cloning an operation creates a new source allocation site in this fixture.
   auto clonedSite = outer->getAttrOfType<DictionaryAttr>("occurrence");
   NamedAttrList site(clonedSite.getAs<DictionaryAttr>("site"));
-  site.set("ast_path", b.getArrayAttr({
-      b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("field")),
-                           b.getNamedAttr("name", b.getStringAttr("body"))}),
-      b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("index")),
-                           b.getNamedAttr("value", b.getI64IntegerAttr(
-                               std::distance(root.getBody().front().begin(),
-                                             sibling->getIterator())))})}));
+  site.set("ast_path",
+           b.getArrayAttr(
+               {b.getDictionaryAttr(
+                    {b.getNamedAttr("kind", b.getStringAttr("field")),
+                     b.getNamedAttr("name", b.getStringAttr("body"))}),
+                b.getDictionaryAttr(
+                    {b.getNamedAttr("kind", b.getStringAttr("index")),
+                     b.getNamedAttr("value", b.getI64IntegerAttr(std::distance(
+                                                 root.getBody().front().begin(),
+                                                 sibling->getIterator())))})}));
   NamedAttrList allocation(clonedSite);
   allocation.set("site", site.getDictionary(&context));
   sibling->setAttr("occurrence", allocation.getDictionary(&context));
@@ -1794,30 +1842,21 @@ TEST_F(QueueContractsTest,
             guards[mutation]);
   }
   for (StringRef axis : {"0", "-1", "9223372036854775808"}) {
-    auto body = genericBody();
-    ASSERT_TRUE(body);
-    ac::HardwareAnalysis analysis(*body);
-    auto module = cast<ac::ModuleOp>(analysis.lookupDefinition("Token3"));
-    auto queue = onlyQueue(module);
-    auto original = cast<ac::TableType>(queue.getInData().getType());
-    auto malformed =
-        ac::TableType::get(&context, b.getArrayAttr({exactInteger(axis)}),
-                           original.getElementType());
-    queue.getInData().setType(malformed);
-    queue.getOutData().setType(malformed);
-    SmallVector<Type> inputs;
-    for (Value arg : module.getBody().front().getArguments())
-      inputs.push_back(arg.getType());
-    SmallVector<Type> outputs;
-    for (Value result :
-         cast<ac::YieldOp>(module.getBody().front().back()).getValues())
-      outputs.push_back(result.getType());
-    module->setAttr("function_type", TypeAttr::get(FunctionType::get(
-                                         &context, inputs, outputs)));
-    ac::HardwareBindings bound;
-    bound.owner = module;
-    rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
-            axis == "9223372036854775808" ? "signed 64" : "positive");
+    diagnostics.clear();
+    ScopedDiagnosticHandler handler(&context, [&](Diagnostic &diagnostic) {
+      llvm::raw_string_ostream out(diagnostics);
+      diagnostic.print(out);
+      return success();
+    });
+    auto malformed = ac::TableType::getChecked(
+        [&] { return emitError(UnknownLoc::get(&context)); }, &context,
+        b.getArrayAttr({exactInteger(axis)}),
+        Type(ac::BitsType::get(&context, exactInteger("8"))));
+    EXPECT_FALSE(malformed);
+    EXPECT_NE(diagnostics.find(axis == "9223372036854775808" ? "signed 64"
+                                                              : "positive"),
+              std::string::npos)
+        << diagnostics;
   }
 }
 

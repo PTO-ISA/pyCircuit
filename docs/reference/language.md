@@ -233,6 +233,16 @@ IR graph is O(log² W), with compact scalar literals and no new IR or Runtime
 primitive. Existing backend capacity and observation-emission limits still apply;
 huge-width compile/link support is not a runtime allocation guarantee.
 
+Exact source four-state literals use `ac.four_state("10xz")`. The argument is
+one nonempty source string containing only `0`, `1`, `x`/`X`, or `z`/`Z`; its
+length is the fixed Bits width and the compiler canonicalizes it to lowercase.
+`ac.case_eq(left, right)` compares equal-width fixed Bits by exact 0/1/X/Z
+symbols and returns a known one-bit Boolean. `ac.is_known(value)` returns a
+known one-bit Boolean indicating whether every bit is 0 or 1. These values use
+the same final ACIR → independent HWIR route as ordinary constants. Their
+value, known, and Z planes are retained by Structural C++, managed Verilog, and
+physical Verilog, including static register initializers.
+
 Unsigned fixed bits also support `value << count` and `value >> count` with a
 proven static, nonnegative Integer count. Both results retain the input width.
 Retained value/known/Z bits move unchanged and vacated positions become known
@@ -1012,7 +1022,7 @@ pycircuit compile -c <source.py> --source-root <root>
   -o <unit-directory> [--replace]
 pycircuit link <complete-unit-closure> --top <qualified-module>
   -o <root-source-basename.ac> [--replace]
-pycircuit emit <final.ac> --target cpp|verilog
+pycircuit emit <final.ac> --target structural-cpp|verilog
   -o <generated-directory> [--replace]
 ```
 

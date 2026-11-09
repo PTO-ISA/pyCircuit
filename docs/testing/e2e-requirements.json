@@ -1,0 +1,21 @@
+{
+  "schema": "pycircuit-e2e-requirements-v1",
+  "entrypoints": {
+    "gate": "bash tools/run_api_tests.sh --tier gate",
+    "nightly": "bash tools/run_api_tests.sh --tier nightly",
+    "examples_gate": "bash tools/run_examples.sh --tier gate",
+    "examples_nightly": "bash tools/run_examples.sh --tier nightly"
+  },
+  "requirements": [
+    {"id": "source_compile_link", "test": "tests/system/test_driver_compile_link.py", "tier": "nightly"},
+    {"id": "dual_backend_execution", "test": "tests/system/test_public_emit.py", "tier": "nightly"},
+    {"id": "physical_verilog", "test": "tests/system/test_physical_rtl_export.py", "tier": "nightly"},
+    {"id": "four_state_hwir", "test": "tests/compiler/lit/CodeGen/four-state-constant.test", "tier": "gate"},
+    {"id": "value_require_lowering", "test": "tests/compiler/lit/CodeGen/value-require-invalid.test", "tier": "gate"},
+    {"id": "fifo_runtime", "test": "tests/runtime/FifoRuntimeTest.cpp", "tier": "gate"},
+    {"id": "memory_runtime", "test": "tests/runtime/TypedMemoryTest.cpp", "tier": "gate"},
+    {"id": "observation_runtime", "test": "tests/runtime/ObservationTest.cpp", "tier": "gate"},
+    {"id": "source_diagnostics", "test": "tests/compiler/lit/Source/source-checks.test", "tier": "gate"},
+    {"id": "packaging_relocation", "test": "tests/system/test_relocated_compiler.py", "tier": "nightly"}
+  ]
+}

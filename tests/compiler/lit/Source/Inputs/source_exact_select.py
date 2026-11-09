@@ -63,6 +63,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -113,11 +114,11 @@ def execute(units, top, stem, frames):
     output.mkdir()
     final = output / "select.ac"
     cli("link", *units, "--top", top, "-o", final)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
-    receipt = json.loads((output / "cpp/generated.json").read_text())
+    receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / row["path"]
+        output / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -130,7 +131,7 @@ def execute(units, top, stem, frames):
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             fixtures / (stem + ".cpp"),
             *cpp,
             runtime,
@@ -225,7 +226,7 @@ if not args.four_state:
     before = snapshot(unit)
     final_before = final.read_bytes()
     emitted_before = {
-        target: snapshot(products / target) for target in ("cpp", "verilog")
+        target: snapshot(products / target) for target in ("structural-cpp", "verilog")
     }
     cases = [
         ("condition_import", ("boolean", "kind")),

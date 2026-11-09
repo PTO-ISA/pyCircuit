@@ -878,6 +878,15 @@ mlir::Value extractChain(mlir::OpBuilder &builder, mlir::Value input,
 }
 
 TEST_F(TransactionLoweringTest,
+       RejectsAPreexistingHardwareOnlyCertificateWithoutMutation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  file->getOperation()->setAttr("hwir.hardware_only", builder.getUnitAttr());
+  rejects(*file, "input cannot carry the final-only hwir.hardware_only");
+  EXPECT_TRUE(file->getOperation()->hasAttr("hwir.hardware_only"));
+}
+
+TEST_F(TransactionLoweringTest,
        RepeatedNestedCallsMaterializeCandidateSSAAndImmutableSnapshots) {
   auto file = parse();
   ASSERT_TRUE(file);
@@ -896,6 +905,8 @@ TEST_F(TransactionLoweringTest,
                 ->getAttrOfType<mlir::StringAttr>("ac.stage")
                 .getValue(),
             "final");
+  EXPECT_TRUE(file->getOperation()->hasAttrOfType<mlir::UnitAttr>(
+      "hwir.hardware_only"));
   EXPECT_EQ(owner(*file).getFunctionType(), originalType);
   EXPECT_EQ(leaf(*file, "count").getOccurrence(), occurrenceBefore);
   // Successful atomic replacement invalidates old handles: compare init's
@@ -2197,6 +2208,23 @@ TEST_F(TransactionLoweringTest,
        InternalRootDefaultsRejectAggregateAndZeroWidthInputSuffixes) {
   for (bool aggregate : {false, true}) {
     SCOPED_TRACE(aggregate);
+    if (!aggregate) {
+      auto file = crossFixture();
+      ASSERT_TRUE(file);
+      auto provider = owner(*file);
+      auto constants = provider.getBody().front().getOps<BitsConstantOp>();
+      auto zero = *std::next(constants.begin());
+      auto invalid = capture([&] {
+        return BitsType::getChecked(
+            [&] { return mlir::emitError(provider.getLoc()); }, &context,
+            zero.getValue());
+      });
+      EXPECT_FALSE(invalid);
+      EXPECT_NE(diagnostics.find("bits width must be positive"),
+                std::string::npos)
+          << diagnostics;
+      continue;
+    }
     auto file = crossFixture();
     ASSERT_TRUE(file);
     ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
@@ -2206,14 +2234,10 @@ TEST_F(TransactionLoweringTest,
     auto oldType = provider.getFunctionType();
     llvm::SmallVector<mlir::Type> inputs(oldType.getInputs());
     auto constants = provider.getBody().front().getOps<BitsConstantOp>();
-    auto zero = *std::next(constants.begin());
     auto one = *constants.begin();
-    inputs[layout->sourceInputCount] =
-        aggregate
-            ? mlir::Type(TableType::get(&context,
-                                        builder.getArrayAttr({one.getValue()}),
-                                        inputs[layout->sourceInputCount]))
-            : mlir::Type(BitsType::get(&context, zero.getValue()));
+    inputs[layout->sourceInputCount] = mlir::Type(TableType::get(
+        &context, builder.getArrayAttr({one.getValue()}),
+        inputs[layout->sourceInputCount]));
     provider->setAttr("function_type",
                       mlir::TypeAttr::get(builder.getFunctionType(
                           inputs, oldType.getResults())));
@@ -3185,6 +3209,8 @@ TEST_F(SourceLinkStageTest,
   EXPECT_EQ(sourceTransactions, 0u);
   EXPECT_NE(stages.afterTransactions.find("ac.stage = \"final\""),
             std::string::npos);
+  EXPECT_NE(stages.afterTransactions.find("hwir.hardware_only"),
+            std::string::npos);
   EXPECT_EQ(stages.afterTransactions, print((*linked)->getOperation(), true));
   auto ordinary = link(*body, *interface, nullptr);
   ASSERT_TRUE(mlir::succeeded(ordinary)) << diagnostics;
@@ -3194,6 +3220,7 @@ TEST_F(SourceLinkStageTest,
                 ->getAttrOfType<mlir::StringAttr>("ac.stage")
                 .getValue(),
             "source");
+  EXPECT_FALSE(body->getOperation()->hasAttr("hwir.hardware_only"));
 }
 
 TEST_F(SourceLinkStageTest,

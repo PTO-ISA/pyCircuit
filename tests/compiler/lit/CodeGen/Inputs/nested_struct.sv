@@ -4,7 +4,7 @@ module tb;
   logic [78:0] d = {8'h27, 1'b0, 70'd67};
   wire [78:0] q;
   wire [7:0] tag;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     #1; clk = 1; #1;
     if (q !== init || tag !== 8'hc3) $fatal(1, "nested MSB layout reset failed");

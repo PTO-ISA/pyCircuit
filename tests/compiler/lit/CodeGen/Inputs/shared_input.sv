@@ -2,7 +2,7 @@ module tb;
   logic [7:0] x = 0;
   wire [7:0] q;
   int values [5] = '{1, 11, 128, 201, 255};
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     foreach (values[i]) begin
       x = 8'(values[i]); #1;

@@ -1,6 +1,6 @@
 // Goldens are host Python divmod values supplied independently of compiler IR.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <iterator>

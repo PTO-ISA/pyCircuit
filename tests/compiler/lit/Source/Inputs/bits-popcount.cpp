@@ -1,6 +1,6 @@
 // Independent per-bit oracle; no DUT expression or Runtime popcount helper.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>

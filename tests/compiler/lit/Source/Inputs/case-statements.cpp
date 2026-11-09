@@ -1,7 +1,7 @@
 // Expected vectors come from independent host arithmetic and symbol truth tables.
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <source_location>
@@ -59,7 +59,7 @@ struct Context {
 };
 #ifdef CASE_STATEMENTS_STATE
 void lifecycle(unsigned workers) {
-  gfsim::WorkExecutor pool(workers); pyc_root root("probe", &pool);
+  pyc_dut probe(workers); auto &root = probe.root();
   pyc_dut::Inputs initial; driveProbe(initial, 0); driveRoot(root, initial);
   root.Work();require(!root.result.isFullyKnown());root.DiscardNext();root.Xfer();
   root.Reset();require(!root.result.isFullyKnown());root.Xfer();

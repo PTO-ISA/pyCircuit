@@ -75,7 +75,7 @@ connections and write enables, and generates the simulation harness.
 From a checkout with an installed toolchain:
 
 ```sh
-pycircuit run examples/hello_counter --target cpp --cycles 5
+pycircuit run examples/hello_counter --target structural-cpp --cycles 5
 pycircuit run examples/hello_counter --target verilog --cycles 5
 ```
 
@@ -111,7 +111,7 @@ PYC_BUILD_TESTING=OFF bash tools/pyc build
 
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-pycircuit run examples/hello_counter --target cpp --cycles 5
+pycircuit run examples/hello_counter --target structural-cpp --cycles 5
 ```
 
 These commands use a POSIX shell. The [installation guide](docs/getting-started/installation.md)

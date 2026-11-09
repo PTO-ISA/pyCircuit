@@ -330,11 +330,10 @@ types_rtl = "\n".join(
 leaf_widths = {
     instance: int(width)
     for _, width, instance in re.findall(
-        r"(\w+) #\( \.T\(logic \[\((\d+)\)-1:0\]\) \) (pyc_instance_\w+)", types_rtl
+        r"(\w+) #\( \.T\(logic \[(\d+):0\]\) \) (pyc_instance_\w+)", types_rtl
     )
 }
-assert leaf_widths.get("pyc_instance_narrow") == 8, leaf_widths
-assert leaf_widths.get("pyc_instance_wide") == 12, leaf_widths
+assert sorted(width + 1 for width in leaf_widths.values()) == [8, 12], leaf_widths
 
 # --- Task B: two instances of one stateful module own separate state --------
 IDENTITY_SOURCE = """import pycircuit as ac
@@ -378,34 +377,34 @@ cli("link", unit, "--top", "width_suite.instance_identity.Top", "-o", final)
 common = final.read_text()
 # One leaf register instance inside the child definition plus two call sites.
 assert common.count('"ac.instance"') == 3, common.count('"ac.instance"')
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", work / target)
 
 # The generated leaf definition owns exactly one register storage; the parent
 # owns two distinct instance objects, one per call site.
-cpp_receipt = json.loads((work / "cpp/generated.json").read_text())
+cpp_receipt = json.loads((work / "structural-cpp/generated.json").read_text())
 cpp = [
-    work / "cpp" / item["path"]
+    work / "structural-cpp" / item["path"]
     for item in cpp_receipt["files"]
     if item["role"] == "source"
 ]
 header = (
     work
-    / "cpp"
+    / "structural-cpp"
     / next(item["path"] for item in cpp_receipt["files"] if item["role"] == "header")
 )
 generated = header.read_text()
 assert (
-    generated.count("std::make_shared<gfsim::collection_storage<::gfsim::dffe_kernel")
+    generated.count("gfsim::dffe<gfsim::Bits<8>> pyc_count;")
     == 1
 ), "the module definition must own exactly one register storage"
 instance_members = re.findall(
-    r"std::shared_ptr<::[\w:]+::pyc_family_Counter<pyc_count>> pyc_instance_(\w+);",
+    r"\b(?:pyc_[0-9a-f]+__h[0-9a-f]+) (pyc_pyc_[0-9a-f]+);",
     generated,
 )
 assert len(instance_members) == 2 and len(set(instance_members)) == 2, instance_members
 assert sorted(
-    bytes.fromhex(name.rsplit("pyc_", 1)[1]).decode() for name in instance_members
+    bytes.fromhex(name.removeprefix("pyc_pyc_")).decode() for name in instance_members
 ) == ["__pyc_call_0", "__pyc_call_1"], instance_members
 
 # The RTL must place the one register inside the module definition and
@@ -434,8 +433,8 @@ parents = {name: names for name, names in parents.items() if names}
 assert len(parents) == 1, parents
 parent_module, instances = next(iter(parents.items()))
 assert len(instances) == 2 and len(set(instances)) == 2, instances
-call_names = [bytes.fromhex(name.rsplit("pyc_", 1)[1]).decode() for name in instances]
-assert sorted(call_names) == ["__pyc_call_0", "__pyc_call_1"], call_names
+call_names = list(instances)
+assert len(instances) == 2 and len(set(instances)) == 2, instances
 blocks = re.findall(
     re.escape(leaf_module) + r"\s+pyc_instance_\w+ \(([^;]*?)\);", rtl, re.S
 )
@@ -464,7 +463,7 @@ run(
         "-std=c++20",
         "-pthread",
         "-I" + str(repo / "include"),
-        "-I" + str(work / "cpp"),
+        "-I" + str(work / "structural-cpp"),
         fixtures / "dependent-width-binding.cpp",
         *cpp,
         runtime,
@@ -498,7 +497,7 @@ for case in ("closed-output-computed", "closed-output-literal"):
         final_width,
     )
     cpp_dir, rtl_dir = work / (case + "-cpp"), work / (case + "-rtl")
-    cli("emit", final_width, "--target", "cpp", "-o", cpp_dir)
+    cli("emit", final_width, "--target", "structural-cpp", "-o", cpp_dir)
     cli("emit", final_width, "--target", "verilog", "-o", rtl_dir)
     receipt = json.loads((cpp_dir / "generated.json").read_text())
     sources = [

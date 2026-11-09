@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pycircuit._publication_fs as publication_fs
 import pytest
@@ -88,14 +87,13 @@ def test_open_regular_rejects_path_identity_change(
     metadata = tmp_path / "owner.json"
     metadata.write_text("{}", encoding="utf-8")
     actual = os.stat(metadata, follow_symlinks=False)
+    changed = list(actual)
+    changed[1] = actual.st_ino + 1
+    opened = os.stat_result(changed)
 
     monkeypatch.setattr(
         "pycircuit._publication_fs.os.fstat",
-        lambda _descriptor: SimpleNamespace(
-            st_mode=actual.st_mode,
-            st_dev=actual.st_dev,
-            st_ino=actual.st_ino + 1,
-        ),
+        lambda _descriptor: opened,
     )
 
     with pytest.raises(_PublicationFileSystemError, match="changed while opening"):

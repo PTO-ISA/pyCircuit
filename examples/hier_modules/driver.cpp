@@ -1,6 +1,6 @@
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 
 // Observe the declared packed result without discarding X/Z planes. The
 // historical stimulus, expected values and checks below remain unchanged.

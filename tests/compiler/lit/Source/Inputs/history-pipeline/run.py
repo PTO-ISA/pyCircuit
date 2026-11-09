@@ -55,7 +55,6 @@ def main():
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,
-        MAKEFLAGS="CFG_CXXFLAGS_PCH_I=-include",
     )
     commands = []
 
@@ -78,6 +77,7 @@ def main():
         return result
 
     def cli(label, *arguments):
+        arguments = list(arguments)
         return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments])
 
     provider = fixtures.parent / "queue-source/pyc_credit_pipeline.py"
@@ -187,7 +187,7 @@ def main():
             "--replace",
         )
         traces = []
-        for backend in ("cpp", "verilog"):
+        for backend in ("structural-cpp", "verilog"):
             generated = folder / backend
             cli(
                 symbol + "-emit-" + backend,
@@ -200,7 +200,7 @@ def main():
                 "--replace",
             )
             executable = folder / ("simulation-" + backend)
-            if backend == "cpp":
+            if backend == "structural-cpp":
                 manifest = json.loads((generated / "generated.json").read_text())
                 sources = [
                     generated / item["path"]
@@ -238,12 +238,19 @@ def main():
                         args.verilator,
                     ],
                 )
-            for workers in (1, 2) if backend == "cpp" else (1,):
+            for workers in (1, 2) if backend == "structural-cpp" else (1,):
                 label = f"{symbol}-{backend}-workers{workers}"
                 options = (
-                    ["--cycles", cycles, "--workers", workers]
-                    if backend == "cpp"
-                    else ["+cycles=" + str(cycles)]
+                    [
+                        "--cycles",
+                        cycles,
+                        "--workers",
+                        workers,
+                        "--events",
+                        "-",
+                    ]
+                    if backend == "structural-cpp"
+                    else ["+cycles=" + str(cycles), "--events", "-"]
                 )
                 result = run(label, [executable, *options], failure=fault is not None)
                 records = [
@@ -265,7 +272,7 @@ def main():
                         records[-1]["status"] == "TERMINATED"
                         and int(records[-1]["epoch_time"]) == cycles * 2
                     )
-                elif backend == "cpp":
+                elif backend == "structural-cpp":
                     assert records[-1]["status"] == "FAILED"
                     assert int(records[-1]["epoch_time"]) == fault
                     assert records[-1]["error"]["code"] == "source_check_failed"

@@ -121,6 +121,11 @@ public:
   void Reset() noexcept override { Kernel::reset(current_, pins(), pending_); }
   bool HasWork() const noexcept override { return true; }
 
+  // Structural backends and white-box protocol tests may inspect or seed the
+  // committed state without depending on the legacy collection_storage ABI.
+  typename Kernel::Current &currentState() noexcept { return current_; }
+  const typename Kernel::Current &currentState() const noexcept { return current_; }
+
 private:
   typename Kernel::Inputs pins() const noexcept {
     return {clk, rst, en, d, init};
@@ -140,6 +145,9 @@ public:
   void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }
   void Reset() noexcept override { Kernel::reset(current_, pins(), pending_); }
   bool HasWork() const noexcept override { return true; }
+
+  typename Kernel::Current &currentState() noexcept { return current_; }
+  const typename Kernel::Current &currentState() const noexcept { return current_; }
 
 private:
   typename Kernel::Inputs pins() const noexcept { return {clk, rst, d, init}; }

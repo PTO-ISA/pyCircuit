@@ -726,7 +726,7 @@ def _validate_owner(value: object) -> _Owner:
         result["definition"] = definition
     if kind == "generated":
         target = value["target"]
-        if type(target) is not str or target not in {"cpp", "verilog"}:
+        if type(target) is not str or target not in {"verilog", "structural-cpp"}:
             raise _PublicationError("publication target is invalid")
         result["target"] = target
     return result

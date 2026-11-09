@@ -1,4 +1,4 @@
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include "scheduling_vectors.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -20,17 +20,20 @@ template <class Wire> void save_wire(std::ostream &out, const Wire &wire) {
   out << '|';
 }
 template <class Storage> void save(std::ostream &out, const Storage &storage) {
-  for (std::size_t lane = 0; lane < storage.size(); ++lane) {
-    const auto &state = storage.current(lane);
-    out << state.clock << '|';
-    if constexpr (requires { state.q; }) save_wire(out, state.q);
-    if constexpr (requires { state.storage; }) {
-      out << state.rd << '|' << state.wr << '|' << state.count << '|' << state.initialized << '|';
-      for (const auto &token : state.storage) save_wire(out, token);
-      if constexpr (requires { state.timing.tick; }) {
-        out << state.timing.tick << '|' << state.timing.mature_ptr << '|' << state.timing.eligible_count << '|';
-        for (auto deadline : state.timing.deadline) out << deadline << '|';
-      }
+  const auto &state = [&]() -> const auto & {
+    if constexpr (requires { storage.currentState(); })
+      return storage.currentState();
+    else
+      return storage.current_;
+  }();
+  out << state.clock << '|';
+  if constexpr (requires { state.q; }) save_wire(out, state.q);
+  if constexpr (requires { state.storage; }) {
+    out << state.rd << '|' << state.wr << '|' << state.count << '|' << state.initialized << '|';
+    for (const auto &token : state.storage) save_wire(out, token);
+    if constexpr (requires { state.timing.tick; }) {
+      out << state.timing.tick << '|' << state.timing.mature_ptr << '|' << state.timing.eligible_count << '|';
+      for (auto deadline : state.timing.deadline) out << deadline << '|';
     }
   }
 }

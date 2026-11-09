@@ -1,5 +1,5 @@
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>

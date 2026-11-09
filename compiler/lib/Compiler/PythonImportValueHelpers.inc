@@ -215,8 +215,9 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
     captureTypes.push_back(TypeAttr::get(capture.second.getType()));
   }
   OpBuilder top = OpBuilder::atBlockEnd(body->getBody());
-  auto function = top.create<func::FuncOp>(node.location(b.getContext(), source.path), key,
-                                           FunctionType::get(b.getContext(), inputs, results));
+  auto function = func::FuncOp::create(
+      top, node.location(b.getContext(), source.path), key,
+      FunctionType::get(b.getContext(), inputs, results));
   helper->function = function;
   function->setAttr("ac.helper_kind", b.getStringAttr("value"));
   function->setAttr("ac.source_owner", owner);
@@ -403,7 +404,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     if (failed(exact)) return failure();
     results.push_back(*exact);
   }
-  inside.create<func::ReturnOp>(helper.function.getLoc(), results);
+  func::ReturnOp::create(inside, helper.function.getLoc(), results);
   helper.state = 2;
   return ac::verifySourceValueHelper(helper.function, [&](FlatSymbolRefAttr symbol) {
     return dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, symbol));
@@ -548,8 +549,9 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
     // Loop statement envelopes leave helper expansion to this existing DAG
     // budget, including typed calls retained until the outer helper is inlined.
     if (activeLoop && failed(reserveValueHelper(helper.function, call))) return failure();
-    auto op = at.create<func::CallOp>(call.location(b.getContext(), source.path),
-                                    helper.symbol, helper.function.getResultTypes(), inputs);
+    auto op = func::CallOp::create(
+        at, call.location(b.getContext(), source.path), helper.symbol,
+        helper.function.getResultTypes(), inputs);
     if (activeLoop) activeLoop->helperOwned.insert(op.getOperation());
     op->setAttr("ac.origin", sourceOccurrence(at, symbol, call));
     for (auto [result, port] : llvm::zip(op.getResults(), helper.results)) {

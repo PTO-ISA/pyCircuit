@@ -1,7 +1,7 @@
 // Independent per-bit placement checks; no DUT concatenation helper is an
 // oracle.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <source_location>

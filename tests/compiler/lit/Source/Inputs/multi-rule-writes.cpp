@@ -1,4 +1,4 @@
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -6,6 +6,7 @@
 #include <fstream>
 #include <source_location>
 #include <stdexcept>
+#include <type_traits>
 
 void require(bool ok, std::source_location at = std::source_location::current()) {
   if (!ok) { std::cerr << "multi-rule oracle line " << at.line() << '\n'; std::abort(); }
@@ -52,6 +53,7 @@ struct Harness {
     return dut.sample().result.packed();
   }
 };
+using Root = std::remove_reference_t<decltype(std::declval<pyc_dut &>().root())>;
 #if !defined(TABLE_MODE) && !defined(GRANT_MODE) && !defined(FIELD_MODE)
 void knownHistory(unsigned workers) {
   Harness h(workers);
@@ -123,7 +125,7 @@ void singleRuleUnknownCondition(unsigned workers, bool z) {
   equal(out, 0x005a5cf6, 0x00ffffff); print(out, "MASK");
 }
 #else
-void driveRoot(pyc_root &root, const pyc_dut::Inputs &in) {
+void driveRoot(Root &root, const pyc_dut::Inputs &in) {
   root.en_a = in.en_a; root.en_b = in.en_b;
   root.data = in.data; root.other = in.other;
   root.pyc_7079635f636c6b = in.pyc_7079635f636c6b;
@@ -153,11 +155,11 @@ void rejectedEnable(unsigned workers, bool z, bool knownSibling) {
   // An ordinary public root attached to SimSystem exposes outputs without
   // rewriting generated headers. Observe old Q by evaluating at a held low
   // clock after system failure; never commit this diagnostic evaluation.
-  gfsim::WorkExecutor pool(workers); pyc_root root("atomic", &pool);
-  TestSystem system;
+  pyc_dut diagnostic(workers); auto &root = diagnostic.root();
+  auto &system = diagnostic.system();
   h.in.data = known<8>(0x11); h.in.other = known<8>(0x22);
   h.in.en_a = h.in.en_b = known<1>(1);
-  driveRoot(root, h.in); require(system.AddModule(root)); system.Build(); system.Reset();
+  driveRoot(root, h.in); system.Build(); system.Reset();
   auto step = [&](unsigned clock) {
     h.in.pyc_7079635f636c6b = known<1>(clock); driveRoot(root, h.in);
     require(system.Step() == gfsim::SimStepResult::Running);
@@ -289,16 +291,16 @@ void tableUnknownData(unsigned workers, bool z, bool condition = false) {
   auto out = h.step(0); equal(out, expected.packed(), fullMask ^ mask, zPlane);
   print(out, "MASK");
 }
-void tableDrive(pyc_root &root, const pyc_dut::Inputs &in) {
+void tableDrive(Root &root, const pyc_dut::Inputs &in) {
   root.en_a=in.en_a; root.en_b=in.en_b; root.data=in.data; root.other=in.other;
   root.pyc_7079635f636c6b=in.pyc_7079635f636c6b;
   root.pyc_7079635f727374=in.pyc_7079635f727374;
 }
 struct TableSystem final : gfsim::SimSystem { bool Precheck() noexcept override { return true; } };
 void tableDiscard(unsigned workers, bool z, bool sibling) {
-  Harness h(workers); gfsim::WorkExecutor pool(workers); pyc_root root("table", &pool);
-  TableSystem system; TableModel model;
-  tableDrive(root,h.in); require(system.AddModule(root)); system.Build(); system.Reset();
+  Harness h(workers); pyc_dut diagnostic(workers); auto &root=diagnostic.root();
+  auto &system=diagnostic.system(); TableModel model;
+  tableDrive(root,h.in); system.Build(); system.Reset();
   auto prepare = [&](unsigned clock, unsigned d, unsigned o) {
     h.in.pyc_7079635f636c6b=known<1>(clock);
     h.in.data=known<8>(d); h.in.other=known<8>(o); tableDrive(root,h.in);
@@ -390,16 +392,16 @@ void grantUnknownData(unsigned workers, bool z) {
 #endif
   print(h.dut.sample().result.packed(),"MASK");
 }
-void grantDrive(pyc_root &root,const pyc_dut::Inputs &in) {
+void grantDrive(Root &root,const pyc_dut::Inputs &in) {
   root.en_a=in.en_a; root.en_b=in.en_b; root.data=in.data; root.other=in.other;
   root.pyc_7079635f636c6b=in.pyc_7079635f636c6b;
   root.pyc_7079635f727374=in.pyc_7079635f727374;
 }
 struct GrantSystem final : gfsim::SimSystem { bool Precheck() noexcept override { return true; } };
 void grantDiscard(unsigned workers,bool z) {
-  Harness h(workers); gfsim::WorkExecutor pool(workers); pyc_root root("grant",&pool);
-  GrantSystem system; GrantModel m;
-  grantDrive(root,h.in); require(system.AddModule(root)); system.Build(); system.Reset();
+  Harness h(workers); pyc_dut diagnostic(workers); auto &root=diagnostic.root();
+  auto &system=diagnostic.system(); GrantModel m;
+  grantDrive(root,h.in); system.Build(); system.Reset();
   auto prepare=[&](unsigned clk,unsigned d,unsigned o) {
     h.in.pyc_7079635f636c6b=known<1>(clk);h.in.data=known<8>(d);h.in.other=known<8>(o);grantDrive(root,h.in);
   };
@@ -439,10 +441,10 @@ void grantDiscard(unsigned workers,bool z) {
 #ifdef FIELD_MODE
 void fieldRows(unsigned workers, const char *path) {
   std::ifstream rows(path); require(bool(rows));
-  gfsim::WorkExecutor pool(workers); pyc_root root("field-footprint", &pool);
+  pyc_dut diagnostic(workers); auto &root=diagnostic.root();
   root.en_a=root.en_b=known<1>(0);root.data=root.other=known<8>(0);
   root.pyc_7079635f636c6b=root.pyc_7079635f727374=known<1>(0);
-  root.Build(); root.Reset(); root.Xfer();
+  diagnostic.system().Build(); diagnostic.system().Reset(); root.Xfer();
   auto plane=[](unsigned value,unsigned knownMask,unsigned zMask,unsigned width) {
     require(width==1 || width==8);
     return gfsim::FourState<8>::fromMasks(gfsim::Bits<8>{value},gfsim::Bits<8>{knownMask},gfsim::Bits<8>{zMask});

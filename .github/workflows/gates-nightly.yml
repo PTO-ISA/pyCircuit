@@ -53,6 +53,7 @@ jobs:
 
       - name: Build staged toolchain
         run: |
+          PYC_ERROR_DEPRECATED_API=ON \
           LLVM_CONFIG=/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config \
           bash tools/pyc build \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \

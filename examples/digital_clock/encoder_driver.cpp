@@ -1,6 +1,6 @@
 // Exhaustive six-symbol encoder truth table, with ordinary unsigned divmod goldens.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <source_location>

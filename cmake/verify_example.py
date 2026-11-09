@@ -4,12 +4,339 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+_POLICY_NAME = "verilator_policy.json"
+_POLICY_SCHEMA = "pycircuit-verilator-build-policy-v1"
+_POLICY_FIELDS = {
+    "schema",
+    "output_split_statements",
+    "output_split_cfuncs",
+    "output_groups",
+    "max_generated_cpp_bytes",
+    "max_generated_header_bytes",
+    "max_text_symbol_bytes",
+}
+def _strict_json(path):
+    def reject_duplicate_keys(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key in {path}: {key}")
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-finite JSON number in {path}: {value}")
+            ),
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read strict Verilator policy: {path}") from error
+
+
+def load_verilator_policy(bundle):
+    """Validate the bundle policy against the installed immutable authority."""
+    bundle = Path(bundle).resolve()
+    bundled_path = bundle / _POLICY_NAME
+    installed_path = Path(__file__).resolve().with_name(_POLICY_NAME)
+    if not installed_path.is_file():
+        installed_path = (
+            Path(__file__).resolve().parents[1]
+            / "python"
+            / "pycircuit"
+            / _POLICY_NAME
+        )
+    bundled = _strict_json(bundled_path)
+    installed = _strict_json(installed_path)
+    for name, policy in (("bundle", bundled), ("installed", installed)):
+        if (
+            type(policy) is not dict
+            or set(policy) != _POLICY_FIELDS
+            or policy.get("schema") != _POLICY_SCHEMA
+            or any(
+                type(policy.get(field)) is not int or policy[field] <= 0
+                for field in (
+                    "output_split_statements",
+                    "output_split_cfuncs",
+                    "max_generated_cpp_bytes",
+                    "max_generated_header_bytes",
+                    "max_text_symbol_bytes",
+                )
+            )
+            or type(policy.get("output_groups")) is not int
+            or policy["output_groups"] != 0
+        ):
+            raise ValueError(f"{name} Verilator policy is invalid")
+    if bundled != installed:
+        raise ValueError("generated Verilator policy differs from installed policy")
+    receipt_path = bundle / "generated.json"
+    try:
+        receipt = _strict_json(receipt_path)
+        matches = [
+            item
+            for item in receipt["files"]
+            if item.get("path") == _POLICY_NAME
+            and item.get("role") == "runtime-glue"
+        ]
+    except (KeyError, TypeError) as error:
+        raise ValueError("generated receipt cannot bind Verilator policy") from error
+    if len(matches) != 1:
+        raise ValueError("generated receipt does not bind exactly one Verilator policy")
+    return bundled
+
+
+def verilator_policy_args(policy):
+    return [
+        "--output-split",
+        str(policy["output_split_statements"]),
+        "--output-split-cfuncs",
+        str(policy["output_split_cfuncs"]),
+        "--output-groups",
+        str(policy["output_groups"]),
+    ]
+
+
+def check_verilator_generated(bundle, mdir, *, require_split=False):
+    policy = load_verilator_policy(bundle)
+    root = Path(mdir).resolve()
+    if not root.is_dir():
+        raise ValueError(f"Verilator generated directory is missing: {root}")
+    cpp = sorted(path for path in root.rglob("*.cpp") if path.is_file())
+    headers = sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".h", ".hpp"}
+    )
+    if not cpp:
+        raise ValueError("Verilator emitted no generated C++ files")
+    command_records = sorted(root.glob("*__verFiles.dat"))
+    if not command_records:
+        raise ValueError("Verilator generated directory has no command record")
+    expected_args = verilator_policy_args(policy)
+    for record in command_records:
+        command_lines = [
+            line[2:].strip()
+            for line in record.read_text(encoding="utf-8").splitlines()
+            if line.startswith('C "')
+        ]
+        if len(command_lines) != 1:
+            raise ValueError("Verilator command record is missing or ambiguous")
+        command = command_lines[0]
+        for name, value in zip(expected_args[::2], expected_args[1::2]):
+            token = f"{name} {value}"
+            if command.count(token) != 1:
+                raise ValueError(
+                    f"Verilator command record does not enforce exactly one {token}"
+                )
+    oversized_cpp = [
+        (path, path.stat().st_size)
+        for path in cpp
+        if path.stat().st_size > policy["max_generated_cpp_bytes"]
+    ]
+    oversized_headers = [
+        (path, path.stat().st_size)
+        for path in headers
+        if path.stat().st_size > policy["max_generated_header_bytes"]
+    ]
+    if oversized_cpp:
+        path, size = max(oversized_cpp, key=lambda row: row[1])
+        raise ValueError(
+            f"Verilator C++ file exceeds {policy['max_generated_cpp_bytes']} bytes: "
+            f"{path} ({size} bytes)"
+        )
+    if oversized_headers:
+        path, size = max(oversized_headers, key=lambda row: row[1])
+        raise ValueError(
+            "Verilator header exceeds "
+            f"{policy['max_generated_header_bytes']} bytes: {path} ({size} bytes)"
+        )
+    if require_split and len(cpp) < 2:
+        raise ValueError("large Verilator regression did not emit multiple C++ files")
+    return {
+        "cpp_files": len(cpp),
+        "header_files": len(headers),
+        "max_cpp_bytes": max(path.stat().st_size for path in cpp),
+        "max_header_bytes": max(
+            (path.stat().st_size for path in headers), default=0
+        ),
+        "command_records": len(command_records),
+    }
+
+
+def _text_symbol_spans(binary):
+    objdump = shutil.which("llvm-objdump") or shutil.which("objdump")
+    if not objdump:
+        raise ValueError("cannot inspect ARM64 symbols without llvm-objdump")
+    result = subprocess.run(
+        [objdump, "--section-headers", "--syms", str(binary)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise ValueError(f"cannot inspect linked ARM64 symbols: {result.stderr.strip()}")
+    sections = []
+    current = None
+    for line in result.stdout.splitlines():
+        if ":\tfile format " in line or ":\tfile format " in line.replace(
+            "  ", "\t"
+        ):
+            name = line.partition(":")[0]
+            current = {"name": name, "start": None, "size": None, "symbols": []}
+            sections.append(current)
+            continue
+        fields = line.split()
+        if current is None or not fields:
+            continue
+        try:
+            if (
+                len(fields) >= 5
+                and fields[0].isdigit()
+                and fields[1] in {"__text", ".text"}
+                and "TEXT" in fields[4:]
+            ):
+                current["size"] = int(fields[2], 16)
+                current["start"] = int(fields[3], 16)
+                continue
+            if (
+                len(fields) >= 5
+                and fields[1] in {"l", "g", "w"}
+                and fields[2] == "F"
+                and fields[-2] in {"__TEXT,__text", ".text"}
+            ):
+                current["symbols"].append((int(fields[0], 16), fields[-1]))
+        except ValueError:
+            continue
+    spans = []
+    for section in sections:
+        start, size = section["start"], section["size"]
+        if start is None or size is None:
+            continue
+        by_address = {}
+        for address, name in section["symbols"]:
+            by_address.setdefault(address, name)
+        addresses = sorted(by_address)
+        end = start + size
+        for index, address in enumerate(addresses):
+            following = addresses[index + 1] if index + 1 < len(addresses) else end
+            if start <= address < following <= end:
+                spans.append((following - address, by_address[address], section["name"]))
+    return spans
+
+
+def check_verilator_symbols(bundle, binary):
+    policy = load_verilator_policy(bundle)
+    binary = Path(binary).resolve()
+    if sys.platform != "darwin" or os.uname().machine != "arm64":
+        return {"checked": False, "reason": "not-darwin-arm64"}
+    spans = _text_symbol_spans(binary)
+    if not spans:
+        raise ValueError("linked ARM64 binary has no positive text symbol spans")
+    size, name, member = max(spans)
+    if size >= policy["max_text_symbol_bytes"]:
+        raise ValueError(
+            f"ARM64 text symbol span exceeds policy: {name} ({size} bytes, "
+            f"limit {policy['max_text_symbol_bytes']}, object {member})"
+        )
+    return {
+        "checked": True,
+        "max_text_symbol_bytes": size,
+        "symbol": name,
+        "object": member,
+    }
+
+
+def _run_checked(command, timeout):
+    subprocess.run(command, check=True, timeout=positive_timeout(timeout))
+
+
+def _verilator_generation_command(
+    bundle,
+    verilator,
+    sources,
+    mdir,
+    prefix,
+    top,
+    output,
+    *,
+    jobs,
+    extra_args=(),
+):
+    policy = load_verilator_policy(bundle)
+    return [
+        str(verilator),
+        "--cc",
+        "--main",
+        "--exe",
+        "--timing",
+        "--top-module",
+        top,
+        "--prefix",
+        prefix,
+        "--Mdir",
+        str(Path(mdir).resolve()),
+        "-o",
+        str(Path(output).resolve()),
+        "-j",
+        str(jobs),
+        "-Wno-fatal",
+        *verilator_policy_args(policy),
+        *extra_args,
+        *map(str, sources),
+    ]
+
+
+def build_verilator_binary(
+    bundle,
+    verilator,
+    sources,
+    mdir,
+    prefix,
+    top,
+    output,
+    *,
+    timeout,
+    jobs,
+    extra_args=(),
+    require_split=False,
+):
+    """Generate, inspect, compile and inspect one protected Verilator model."""
+    mdir = Path(mdir).resolve()
+    output = Path(output).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    generation = _verilator_generation_command(
+        bundle,
+        verilator,
+        sources,
+        mdir,
+        prefix,
+        top,
+        output,
+        jobs=jobs,
+        extra_args=extra_args,
+    )
+    _run_checked(generation, timeout)
+    check_verilator_generated(bundle, mdir, require_split=require_split)
+    make = shutil.which("make")
+    if not make:
+        raise ValueError("Verilator protected build requires make")
+    _run_checked(
+        [make, "-C", str(mdir), "-f", f"{prefix}.mk", "-j", str(jobs)], timeout
+    )
+    check_verilator_generated(bundle, mdir, require_split=require_split)
+    check_verilator_symbols(bundle, output)
+    return generation
 
 
 def digest(path):
@@ -27,7 +354,7 @@ def bound_inputs(source, build, runner, include):
             and (path.suffix in suffixes or path.name == "CMakeLists.txt")
         ):
             inputs["source/" + path.relative_to(source).as_posix()] = digest(path)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         receipt_path = build / target / "generated.json"
         receipt = json.loads(receipt_path.read_text())
         inputs[f"build/{target}/generated.json"] = digest(receipt_path)
@@ -143,29 +470,34 @@ def verify(source, build, runner, include, verilator, timeout=180):
     # Verilator's GNU Make runtime rejects spaces in its build directory.
     with tempfile.TemporaryDirectory(prefix="pycircuit-rtl-") as temporary:
         rtl_build = Path(temporary).resolve()
-        run(
+        rtl_executable = rtl_build / "Vpycircuit_example"
+        generation = _verilator_generation_command(
+            build / "verilog",
+            verilator,
             [
-                str(verilator),
-                "--binary",
-                "--timing",
-                "-CFLAGS",
-                "-std=c++20",
-                "--top-module",
-                "tb",
-                "--prefix",
-                "Vpycircuit_example",
-                "--Mdir",
-                str(rtl_build),
-                "-j",
-                "2",
-                "-Wno-fatal",
-                *[str(p) for p in sorted((include / "verilog").glob("*.v"))],
+                *sorted((include / "verilog").glob("*.v")),
                 *rtl,
-                str(source / "rtl_tb.sv"),
+                source / "rtl_tb.sv",
             ],
+            rtl_build,
+            "Vpycircuit_example",
+            "tb",
+            rtl_executable,
+            jobs=2,
+            extra_args=("-CFLAGS", "-std=c++20"),
+        )
+        run(generation, "rtl-generate")
+        check_verilator_generated(build / "verilog", rtl_build)
+        make = shutil.which("make")
+        if not make:
+            raise RuntimeError("rtl-build: Verilator protected build requires make")
+        run(
+            [make, "-C", str(rtl_build), "-f", "Vpycircuit_example.mk", "-j", "2"],
             "rtl-build",
         )
-        rtl_trace = run([str(rtl_build / "Vpycircuit_example")], "rtl-run")
+        check_verilator_generated(build / "verilog", rtl_build)
+        check_verilator_symbols(build / "verilog", rtl_executable)
+        rtl_trace = run([str(rtl_executable)], "rtl-run")
     rtl_trace = [line for line in rtl_trace if line.startswith("WORK ")]
     assert rtl_trace == serial, "C++/RTL Work snapshot mismatch"
     assert (
@@ -196,9 +528,39 @@ def verify(source, build, runner, include, verilator, timeout=180):
     print(f"{len(serial)} samples agree: one worker, two workers, and RTL")
 
 
-def compile_system(source, output, include, verilator, timeout=180):
-    """Build a generated system without interpreting or verifying its hardware."""
+def _copy_if_changed(source, destination):
+    """Copy only when content differs so downstream mtimes stay usable for
+    Verilator/Make incremental rebuilds."""
+    try:
+        existing = destination.read_bytes()
+    except OSError:
+        existing = None
+    data = source.read_bytes()
+    if existing == data:
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(data)
+    shutil.copystat(source, destination)
+
+
+def _default_jobs():
+    workers = os.cpu_count() or 1
+    return max(1, min(workers, 32))
+
+
+def compile_system(
+    source, output, include, verilator, timeout=180, jobs=None, build_dir=None
+):
+    """Build a generated system without interpreting or verifying its hardware.
+
+    ``build_dir``, when supplied, is the persistent Verilator staging/Mdir
+    root. Keeping it stable across invocations lets Verilator's generated Make
+    skip unchanged C++ translation units, so a single-source change becomes an
+    incremental rebuild instead of a from-scratch compile. Without it the call
+    falls back to the prior fresh-temporary-directory behavior.
+    """
     receipt = json.loads((source / "generated.json").read_text())
+    load_verilator_policy(source)
     rtl = []
     for item in receipt["files"]:
         relative = Path(item["path"])
@@ -209,44 +571,78 @@ def compile_system(source, output, include, verilator, timeout=180):
     if not rtl or not (source / "simulation_top.sv").is_file():
         raise ValueError("generated bundle has no source-system simulation top")
     rtl.sort(key=lambda path: (path.name != "design_top.sv", path.as_posix()))
+    parallelism = str(jobs or _default_jobs())
     # Verilator delegates to GNU Make, which cannot use whitespace in paths.
     # Stage compiler-owned sources and standard leaves, never the authored DUT.
-    with tempfile.TemporaryDirectory(prefix="pycircuit-system-rtl-") as temporary:
-        stage = Path(temporary).resolve()
+    persistent = build_dir is not None
+    if persistent:
+        stage = Path(build_dir).resolve()
+    else:
+        stage = Path(tempfile.mkdtemp(prefix="pycircuit-system-rtl-")).resolve()
+    alias_root = None
+    compiler_stage = stage
+    if any(character.isspace() for character in str(stage)):
+        # Verilator writes an unquoted `make -C <Mdir>` command internally.
+        # It also resolves symlinks before GNU Make checks the path, so use a
+        # real whitespace-free compiler staging tree for this invocation.
+        alias_root = Path(tempfile.mkdtemp(prefix="pycircuit-verilator-path-"))
+        compiler_stage = alias_root / "stage"
+    try:
         for item in receipt["files"]:
             relative = Path(item["path"])
             destination = stage / "source" / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source / relative, destination)
-        shutil.copytree(include / "verilog", stage / "include/verilog")
+            if persistent:
+                _copy_if_changed(source / relative, destination)
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / relative, destination)
+        for path in sorted((include / "verilog").glob("*.v")):
+            destination = stage / "include/verilog" / path.name
+            if persistent:
+                _copy_if_changed(path, destination)
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
+        if alias_root is not None:
+            shutil.copytree(stage / "source", compiler_stage / "source")
+            shutil.copytree(stage / "include", compiler_stage / "include")
         executable = (
-            stage
+            compiler_stage
             / "bin"
             / ("pycircuit_sim.exe" if sys.platform == "win32" else "pycircuit_sim")
         )
-        executable.parent.mkdir()
-        command = [
-            str(verilator),
-            "--binary",
-            "--timing",
-            "-CFLAGS",
-            "-std=c++20",
-            "--top-module",
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        build_verilator_binary(
+            source,
+            verilator,
+            [
+                *[
+                    compiler_stage / "include/verilog" / path.name
+                    for path in sorted((stage / "include/verilog").glob("*.v"))
+                ],
+                *[compiler_stage / "source" / path for path in rtl],
+                compiler_stage / "source/simulation_top.sv",
+            ],
+            compiler_stage / "build",
+            "Vpycircuit_sim",
             "pycircuit_sim",
-            "--Mdir",
-            str(stage / "build"),
-            "-o",
-            str(executable),
-            "-j",
-            "2",
-            "-Wno-fatal",
-            *[str(path) for path in sorted((stage / "include/verilog").glob("*.v"))],
-            *[str(stage / "source" / path) for path in rtl],
-            str(stage / "source/simulation_top.sv"),
-        ]
-        subprocess.run(command, check=True, timeout=positive_timeout(timeout))
+            executable,
+            timeout=timeout,
+            jobs=parallelism,
+            extra_args=("-CFLAGS", "-std=c++20"),
+        )
+        if alias_root is not None:
+            persistent_build = stage / "build"
+            if persistent_build.exists():
+                shutil.rmtree(persistent_build)
+            shutil.copytree(compiler_stage / "build", persistent_build)
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(executable, output)
+    finally:
+        if alias_root is not None:
+            shutil.rmtree(alias_root, ignore_errors=True)
+        if not persistent:
+            shutil.rmtree(stage, ignore_errors=True)
 
 
 def verify_system(source, build, driver, include, toolchain, cycles, timeout):
@@ -309,8 +705,8 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
         inputs[key] = actual
 
     for target, workers, label in (
-        ("cpp", 1, "serial"),
-        ("cpp", 2, "parallel"),
+        ("structural-cpp", 1, "serial"),
+        ("structural-cpp", 2, "parallel"),
         ("verilog", 1, "rtl-run"),
     ):
         command = [
@@ -478,11 +874,40 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
 
 
 def main():
+    if "--check-verilator-policy" in sys.argv[1:]:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--check-verilator-policy", required=True)
+        args = parser.parse_args()
+        load_verilator_policy(Path(args.check_verilator_policy))
+        return
+    if "--check-verilator-generated" in sys.argv[1:]:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--check-verilator-generated", required=True)
+        parser.add_argument("--mdir", required=True)
+        parser.add_argument("--require-split", action="store_true")
+        args = parser.parse_args()
+        check_verilator_generated(
+            Path(args.check_verilator_generated),
+            Path(args.mdir),
+            require_split=args.require_split,
+        )
+        return
+    if "--check-verilator-symbols" in sys.argv[1:]:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--check-verilator-symbols", required=True)
+        parser.add_argument("--binary", required=True)
+        args = parser.parse_args()
+        check_verilator_symbols(
+            Path(args.check_verilator_symbols), Path(args.binary)
+        )
+        return
     if "--compile-system" in sys.argv[1:]:
         parser = argparse.ArgumentParser()
         for name in ("compile-system", "output", "include", "verilator"):
             parser.add_argument("--" + name, required=True)
         parser.add_argument("--timeout", type=positive_timeout, default=180)
+        parser.add_argument("--jobs", type=int, default=None)
+        parser.add_argument("--build-dir", default=None)
         args = parser.parse_args()
         compile_system(
             Path(args.compile_system).resolve(),
@@ -490,6 +915,8 @@ def main():
             Path(args.include).resolve(),
             args.verilator,
             args.timeout,
+            args.jobs,
+            args.build_dir,
         )
         return
     if "--system" in sys.argv[1:]:

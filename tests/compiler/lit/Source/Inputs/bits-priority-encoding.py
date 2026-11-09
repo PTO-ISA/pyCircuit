@@ -68,6 +68,7 @@ def run(command, code=0, diagnostic=None):
 
 
 def cli(*arguments, **options):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], **options)
 
 
@@ -596,16 +597,15 @@ for helper in HELPERS:
         )
     controls[helper + "-captured"] = (
         PREFIX
-        + f"""@ac.module
-def Child(value: ac.u3, flag: bool) -> {{"out": ac.u3}}:
-    return {{"out": value}}
+        + f"""@ac.struct
+class ChildResult:
+    out: ac.u3
+@ac.module
+def Child(value: ac.u3, flag: bool) -> ChildResult:
+    return ChildResult(out=value)
 @ac.module
 def Top(value: ac.u5) -> {{"out": ac.u3}}:
-{bind}    child = Child()
-    @ac.rule
-    def bind_child():
-        child(value=index, flag=valid)
-    bind_child()
+{bind}    child = Child(index, valid)
     return {{"out": child.out}}
 """
     )
@@ -1040,12 +1040,12 @@ output.mkdir()
 final = output / "design.ac"
 cli("link", provider, unit, "--top", "priority_probe.design.Top", "-o", final)
 final_hash = digest(final)
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", output / target)
     assert digest(final) == final_hash
-receipt = json.loads((output / "cpp/generated.json").read_text())
+receipt = json.loads((output / "structural-cpp/generated.json").read_text())
 cpp = [
-    output / "cpp" / row["path"]
+    output / "structural-cpp" / row["path"]
     for row in receipt["files"]
     if row["path"].endswith(".cpp")
 ]
@@ -1070,7 +1070,7 @@ run(
         "-std=c++20",
         "-pthread",
         "-I" + str(repo / "include"),
-        "-I" + str(output / "cpp"),
+        "-I" + str(output / "structural-cpp"),
         fixtures / "bits-priority-encoding.cpp",
         *cpp,
         runtime,
@@ -1151,7 +1151,7 @@ protected_paths = [
     provider,
     unit,
     final,
-    output / "cpp",
+    output / "structural-cpp",
     output / "verilog",
     *control_paths,
 ]
@@ -1162,10 +1162,9 @@ def protect():
     assert {str(p): managed(p) for p in protected_paths} == before
 
 
-# Unpacked observations compile/link; cpp now publishes the observation surface
-# while verilog still rejects instrumentation, and neither may displace a
-# successful backend product owned by a different design. A producer itself is
-# never an observation.
+# Unpacked observations compile/link and both hardware backends publish their
+# observation surface. Neither may displace a successful product owned by a
+# different design. A producer itself is never an observation.
 for helper in HELPERS:
     names = "index, valid, conflict" if helper == "onehot_encode" else "index, valid"
     name = "observe_" + helper
@@ -1179,28 +1178,24 @@ for helper in HELPERS:
     cli("link", observed, "--top", "priority_probe." + name + ".Top", "-o", linked)
     protected_paths.extend((observed, linked))
     before.update({str(p): managed(p) for p in (observed, linked)})
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         absent = build / (name + "-" + target)
-        if target == "cpp":
+        cli("emit", linked, "--target", target, "-o", absent)
+        observe_receipt = json.loads((absent / "generated.json").read_text())
+        if target == "structural-cpp":
             # C++ lowers `ac.observe` into a wired descriptor table.
-            cli("emit", linked, "--target", target, "-o", absent)
-            observe_receipt = json.loads((absent / "generated.json").read_text())
             observe_header = next(
                 row["path"]
                 for row in observe_receipt["files"]
-                if row["path"].endswith("pycircuit_system.hpp")
+                if row["path"].endswith("design.hpp")
             )
             observe_system = (absent / observe_header).read_text()
-            assert "pyc_observation_descriptors" in observe_system
-            assert "Configure(pyc_observation_descriptors" in observe_system
-            assert "Configure({}, 0)" not in observe_system
+            assert "ObservationDescriptor" in observe_system
+            assert "Configure(descriptors," in observe_system
         else:
-            rejected = cli("emit", linked, "--target", target, "-o", absent, code=1)
-            assert any(
-                word in rejected.stderr.lower()
-                for word in ("instrument", "observation", "observe")
-            ), rejected.stderr
-            assert_absent(absent)
+            assert "design_top.sv" in {
+                row["path"] for row in observe_receipt["files"]
+            }
         cli(
             "emit",
             linked,
@@ -1210,14 +1205,9 @@ for helper in HELPERS:
             output / target,
             "--replace",
             code=1,
-            # The published cpp product comes from the unobserved `design.py`, so
-            # its owner differs and the publisher refuses the replacement;
-            # verilog still rejects the instrumentation itself.
-            diagnostic=(
-                "generated.json entry does not match its owner"
-                if target == "cpp"
-                else "ac.observe"
-            ),
+            # The published product comes from the unobserved `design.py`, so
+            # its owner differs and the publisher refuses the replacement.
+            diagnostic="generated.json entry does not match its owner",
         )
         protect()
 
@@ -1322,7 +1312,7 @@ for width in (1 << 32, (1 << 32) + 1, 1 << 63, (1 << 64) - 1):
             protected_paths.extend((huge, linked))
             before.update({str(p): managed(p) for p in (huge, linked)})
             failures = {}
-            for target in ("cpp", "verilog"):
+            for target in ("structural-cpp", "verilog"):
                 absent = build / (name + "-" + target)
                 rejected = cli("emit", linked, "--target", target, "-o", absent, code=1)
                 assert (

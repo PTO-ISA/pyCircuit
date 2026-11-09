@@ -120,6 +120,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/struct_transform --target cpp --cycles 72
+pycircuit run examples/struct_transform --target structural-cpp --cycles 72
 pycircuit run examples/struct_transform --target verilog --cycles 72
 ```

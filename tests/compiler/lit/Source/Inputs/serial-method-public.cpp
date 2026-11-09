@@ -1,5 +1,5 @@
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -38,20 +38,18 @@ template <class Wire> void print(const Wire &v) {
 }
 template <class Storage, class Wire, class Enable>
 void probe(const Storage &storage, const Wire &data, const Enable &enable) {
-  require(storage.size() == 1);
-  std::cout << ' '; print(storage.current(0).q);
-  std::cout << ' '; print(data.element(0));
-  std::cout << ' '; print(enable.element(0));
-  std::cout << ' ' << storage.current(0).clock;
+  std::cout << ' '; print(storage.q);
+  std::cout << ' '; print(data);
+  std::cout << ' '; print(enable);
+  std::cout << ' ' << storage.currentState().clock;
 }
 template <class Storage, class Pin>
 void inject(Storage &storage, Pin &pin, const std::string &bits) {
   // Test stimulus changes the real committed payload, never a calculated DUT
   // result. The object is mutable; current() is its existing read-only view.
-  using Current = std::remove_cvref_t<decltype(storage.current(0))>;
-  auto &current = const_cast<Current &>(storage.current(0));
-  current.q = wire<width>(bits);
-  pin.element(0) = current.q;
+  storage.currentState().q = wire<width>(bits);
+  storage.q = storage.currentState().q;
+  pin = storage.currentState().q;
 }
 template <class Wire> void require_zero(const Wire &value) {
   const auto packed = value.packed();
@@ -67,8 +65,8 @@ public:
   explicit DirectSystem(Root &root) : root_(root) {}
 private:
   bool Precheck() noexcept override {
-    if constexpr (requires { root_.__pyc_validate_checks(failure_); })
-      return root_.__pyc_validate_checks(failure_);
+    if constexpr (requires { root_.ValidateChecks(); })
+      return root_.ValidateChecks();
     return true;
   }
   Root &root_;
@@ -79,30 +77,32 @@ int main(int argc, char **argv) {
   require(argc == 3 || (argc == 4 && std::string_view(argv[3]) == "direct"));
   const bool direct = argc == 4;
   const unsigned workers = std::strtoul(argv[1], nullptr, 10);
-  gfsim::WorkExecutor direct_executor(workers);
   std::unique_ptr<pyc_dut> dut;
-  std::shared_ptr<pyc_root> root;
-  std::unique_ptr<DirectSystem<pyc_root>> direct_system;
+  using Root = std::remove_reference_t<decltype(std::declval<pyc_dut &>().root())>;
+  std::unique_ptr<Root> direct_root;
+  Root *root = nullptr;
+  std::unique_ptr<DirectSystem<Root>> direct_system;
   std::unique_ptr<gfsim::SimExecutor> executor;
   constexpr std::string_view config =
       "{\"deadlock_window\":null,\"max_domain_cycles\":{},\"max_ticks\":64,"
       "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}";
   if (direct) {
-    root = std::make_shared<pyc_root>("direct-root", &direct_executor);
+    direct_root = std::make_unique<Root>("direct-root");
+    root = direct_root.get();
     check_defaults(*root); // Constructor must bind before any facade/Work.
     root->pyc_7079635f636c6b = wire<1>("0");
     root->pyc_7079635f727374 = wire<1>("1");
     root->Reset();
     check_defaults(*root);
     root->DiscardNext();
-    direct_system = std::make_unique<DirectSystem<pyc_root>>(*root);
+    direct_system = std::make_unique<DirectSystem<Root>>(*root);
     require(direct_system->AddModule(*root));
     direct_system->Build();
     direct_system->Reset();
     require(direct_system->state() == gfsim::SimSystemState::Ready);
   } else {
     dut = std::make_unique<pyc_dut>(workers);
-    root = dut->root_;
+    root = &dut->root();
     check_defaults(*root);
     executor = std::make_unique<gfsim::SimExecutor>(dut->system(), dut->observations(),
         std::span<const gfsim::ReportGaugeDescriptor>{});
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
     require(executor->Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
   }
   check_defaults(*root);
-  const auto family = root->pyc_implementation;
+  auto *family = root;
   std::ifstream stimuli(argv[2]);
   require(stimuli.good());
   unsigned clock, reset, discard, row = 0;

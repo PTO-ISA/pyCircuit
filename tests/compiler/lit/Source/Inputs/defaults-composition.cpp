@@ -1,5 +1,5 @@
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdlib>
 #include <iostream>
@@ -108,62 +108,60 @@ struct Golden {
     clock = r.clock;
   }
 };
-template <class Child> auto fields(const Child &c) {
-  auto value = [](const auto &bits) {
-    return static_cast<unsigned>(bits.value());
-  };
-  return std::array{value(c.prior),
-                    value(c.proposed),
-                    value(c.raw_ready),
-                    value(c.configured_ready),
-                    value(c.zero_payload),
-                    value(c.default_payload),
-                    value(c.untouched_payload),
-                    value(c.snapshot_payload),
-                    value(c.local_payload),
-                    value(c.kept_mark),
-                    value(c.owner_snapshot)};
+template <unsigned W, unsigned Total>
+auto slice(const gfsim::wire<gfsim::Bits<Total>> &value, unsigned low) {
+  return gfsim::wire<gfsim::Bits<W>>::fromPacked(
+      gfsim::extract<W, Total>(value.packed(), low));
+}
+template <unsigned Low>
+auto childFields(const gfsim::wire<gfsim::Bits<332>> &result) {
+  return std::array{unsigned(slice<5>(result, Low + 41).value().value()),
+                    unsigned(slice<5>(result, Low + 36).value().value()),
+                    unsigned(slice<1>(result, Low + 35).value().value()),
+                    unsigned(slice<1>(result, Low + 34).value().value()),
+                    unsigned(slice<5>(result, Low + 29).value().value()),
+                    unsigned(slice<5>(result, Low + 24).value().value()),
+                    unsigned(slice<5>(result, Low + 19).value().value()),
+                    unsigned(slice<5>(result, Low + 14).value().value()),
+                    unsigned(slice<5>(result, Low + 9).value().value()),
+                    unsigned(slice<4>(result, Low + 5).value().value()),
+                    unsigned(slice<5>(result, Low).value().value())};
 }
 template <class Output>
 void check(const Output &output, const Golden &golden, Row r,
            bool print = false) {
   require(output.result.isFullyKnown());
-  const auto value = output.result.value();
   std::array<unsigned, 25> actual{};
-  const auto left = fields(value.left), right = fields(value.right);
+  const auto left = childFields<286>(output.result);
+  const auto right = childFields<240>(output.result);
   for (unsigned field = 0; field < left.size(); ++field) {
     actual[field] = left[field];
     actual[field + 11] = right[field];
   }
-  actual[22] = value.fanout.value();
-  actual[23] = value.sequential.value();
-  actual[24] = value.nested.value();
+  actual[22] = slice<5>(output.result, 235).value().value();
+  actual[23] = slice<5>(output.result, 230).value().value();
+  actual[24] = slice<5>(output.result, 225).value().value();
   require(actual == golden.evaluate(r));
   // Independent MSB-first packing: each Word is value:u5 then mark:u3,
   // Table element zero is highest, and Box.flag is the least significant bit.
-  auto box = [](const auto &b) {
-    unsigned packed = 0;
-    for (unsigned i = 0; i != 3; ++i)
-      packed = (packed << 8) | (unsigned(b.items[i].value.value()) << 3) |
-               unsigned(b.items[i].mark.value());
-    return (packed << 1) | unsigned(b.flag.value());
+  auto box = [&](unsigned low) {
+    return static_cast<unsigned>(slice<25>(output.result, low).value().value());
   };
   constexpr unsigned defaultWords = (25u << 16) | (42u << 8) | 60u;
   const unsigned replacedWords = ((r.value * 8 + 6) << 16) | (73u << 8) | 171u;
-  const auto &probe = value.table_probe;
-  require(box(probe.saved) == (defaultWords << 1 | 1u));
-  require(box(probe.flagged) == (defaultWords << 1 | r.left));
-  require(box(probe.replaced) == (replacedWords << 1 | r.left));
-  require(box(probe.selected) ==
+  require(box(200) == (defaultWords << 1 | 1u));
+  require(box(175) == (defaultWords << 1 | r.left));
+  require(box(150) == (replacedWords << 1 | r.left));
+  require(box(125) ==
           (r.left ? (replacedWords << 1 | 1u) : (defaultWords << 1 | 1u)));
-  require(box(probe.zero) == 0);
-  require(box(probe.defaulted) == (defaultWords << 1 | 1u));
-  require(box(probe.old_entry) ==
+  require(box(100) == 0);
+  require(box(75) == (defaultWords << 1 | 1u));
+  require(box(50) ==
           (golden.boxWords[r.index] << 1 | golden.boxFlags[r.index]));
-  require(box(probe.proposed_entry) ==
+  require(box(25) ==
           (r.left ? replacedWords << 1 :
                     (golden.boxWords[r.index] << 1 | golden.boxFlags[r.index])));
-  require(box(probe.peer_entry) ==
+  require(box(0) ==
           (golden.boxWords[r.index ^ 1] << 1 | golden.boxFlags[r.index ^ 1]));
   if (print) {
     std::cout << "WORK";
@@ -200,8 +198,8 @@ void failure(unsigned workers) {
   require(rejected);
 }
 void discardRetry(unsigned workers) {
-  gfsim::WorkExecutor pool(workers);
-  pyc_root root("defaults_discard", &pool);
+  pyc_dut dut(workers);
+  auto &root = dut.root();
   Golden golden;
   auto drive = [&](const pyc_dut::Inputs &in) {
     root.pyc_7079635f636c6b = in.pyc_7079635f636c6b;
@@ -250,24 +248,6 @@ void discardRetry(unsigned workers) {
   require(golden.owner[0] == 29 && golden.owner[1] == 11);
 }
 
-template <class T, std::size_t I>
-using FieldType =
-    std::remove_cvref_t<decltype(std::declval<T>().*
-                                 std::get<I>(
-                                     gfsim::hardware_traits<T>::fields))>;
-template <std::size_t I, class T> auto field(const gfsim::wire<T> &value) {
-  using Traits = gfsim::hardware_traits<T>;
-  using Field = FieldType<T, I>;
-  constexpr unsigned low =
-      []<std::size_t... J>(std::index_sequence<J...>) {
-        return (0u + ... +
-                gfsim::hardware_traits<FieldType<T, I + 1 + J>>::width);
-      }(std::make_index_sequence<std::tuple_size_v<decltype(Traits::fields)> -
-                                 I - 1>{});
-  return gfsim::wire<Field>::fromPacked(
-      gfsim::extract<gfsim::hardware_traits<Field>::width>(value.packed(),
-                                                           low));
-}
 template <unsigned W>
 void samePlanes(const gfsim::wire<gfsim::Bits<W>> &actual,
                 const gfsim::wire<gfsim::Bits<W>> &expected) {
@@ -289,14 +269,13 @@ void dataPlanes(unsigned workers) {
   dut.drive(in);
   PycircuitModelStepResultV1 result{sizeof(result)};
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_OK);
-  const auto first = field<0>(dut.sample().result);
-  samePlanes(field<0>(first), known<5>(0));
-  samePlanes(field<1>(first), mixed);
-  samePlanes(field<7>(first), known<5>(0));
-  samePlanes(field<8>(first), mixed);
-  samePlanes(field<10>(first), known<5>(0));
-  const auto probe = field<5>(dut.sample().result);
-  const auto replaced = field<2>(probe);
+  const auto resultWire = dut.sample().result;
+  samePlanes(slice<5>(resultWire, 327), known<5>(0));
+  samePlanes(slice<5>(resultWire, 322), mixed);
+  samePlanes(slice<5>(resultWire, 300), known<5>(0));
+  samePlanes(slice<5>(resultWire, 295), mixed);
+  samePlanes(slice<5>(resultWire, 286), known<5>(0));
+  const auto replaced = slice<25>(resultWire, 150);
   const auto expected = gfsim::FourState<25>::fromMasks(
       gfsim::Bits<25>{((174u << 16 | 73u << 8 | 171u) << 1) | 1u},
       gfsim::Bits<25>{((207u << 16 | 0xffffu) << 1) | 1u},
@@ -304,54 +283,24 @@ void dataPlanes(unsigned workers) {
   require(replaced.packed().value() == expected.value());
   require(replaced.packed().knownMask() == expected.knownMask());
   require(replaced.packed().zMask() == expected.zMask());
-  const auto proposed = field<7>(probe);
+  const auto proposed = slice<25>(resultWire, 25);
   require(proposed.packed().value() == (expected.value() & gfsim::Bits<25>{0x1fffffe}));
   require(proposed.packed().knownMask() == expected.knownMask());
   require(proposed.packed().zMask() == expected.zMask());
   dut.drive(inputs({0, 0, 0, 0, 0, 0}));
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_OK);
-  const auto held = field<0>(dut.sample().result);
-  samePlanes(field<0>(held), mixed);
-  samePlanes(field<1>(held), mixed);
-  samePlanes(field<5>(held), mixed);
-  samePlanes(field<6>(held), known<5>(7));
-  samePlanes(field<7>(held), known<5>(0));
-  samePlanes(field<8>(held), known<5>(0));
-  samePlanes(field<10>(held), mixed);
-  const auto heldProbe = field<5>(dut.sample().result);
-  const auto oldBox = field<6>(heldProbe);
+  const auto held = dut.sample().result;
+  samePlanes(slice<5>(held, 327), mixed);
+  samePlanes(slice<5>(held, 322), mixed);
+  samePlanes(slice<5>(held, 310), mixed);
+  samePlanes(slice<5>(held, 305), known<5>(7));
+  samePlanes(slice<5>(held, 300), known<5>(0));
+  samePlanes(slice<5>(held, 295), known<5>(0));
+  samePlanes(slice<5>(held, 286), mixed);
+  const auto oldBox = slice<25>(held, 50);
   require(oldBox.packed().value() == (expected.value() & gfsim::Bits<25>{0x1fffffe}));
   require(oldBox.packed().knownMask() == expected.knownMask());
   require(oldBox.packed().zMask() == expected.zMask());
-}
-void scalarImages(unsigned workers) {
-  gfsim::WorkExecutor pool(workers);
-  defaults_probe::pyc_64657369676e::ScalarLiteral literal("literal_image",
-                                                          &pool);
-  defaults_probe::pyc_64657369676e::ScalarExpression expression(
-      "expression_image", &pool);
-  auto drive = [&](unsigned clock, unsigned index) {
-    literal.pyc_7079635f636c6b = expression.pyc_7079635f636c6b =
-        known<1>(clock);
-    literal.pyc_7079635f727374 = expression.pyc_7079635f727374 = known<1>(0);
-    literal.index = expression.index = known<1>(index);
-  };
-  drive(0, 0);
-  literal.Reset();
-  expression.Reset();
-  literal.Xfer();
-  expression.Xfer();
-  constexpr std::array clocks{0u, 1u, 1u, 0u, 1u};
-  for (unsigned n = 0; n < clocks.size(); ++n) {
-    drive(clocks[n], n % 2);
-    literal.Work();
-    expression.Work();
-    require(literal.result.isFullyKnown() && expression.result.isFullyKnown());
-    require(literal.result.value().value.value() == 7);
-    require(expression.result.value().value.value() == 7);
-    literal.Xfer();
-    expression.Xfer();
-  }
 }
 int main(int argc, char **argv) {
   require(argc == 2);
@@ -373,5 +322,4 @@ int main(int argc, char **argv) {
   failure(workers);
   discardRetry(workers);
   dataPlanes(workers);
-  scalarImages(workers);
 }

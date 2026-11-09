@@ -153,45 +153,56 @@ def write_vectors(folder, rows, histories, persistent):
 
 
 def snapshots(cpp, rtl):
-    headers = "\n".join(path.read_text() for path in (cpp / "sources").rglob("*.hpp"))
-    storage = sorted(
-        set(
-            re.findall(
-                r"std::shared_ptr<gfsim::collection_storage<[^\n]+>> (\w+);", headers
-            )
+    header = (cpp / "design.hpp").read_text()
+    classes = dict(
+        re.findall(
+            r"class (pyc_\w+) final : public gfsim::SimModule \{(.*?)\n\};",
+            header,
+            re.S,
         )
     )
-    assert len(storage) >= 4
-    native = "\n  ".join(
-        f"save(out, *dut.root_->pyc_implementation->{name});" for name in storage
-    )
-    text = "\n".join(path.read_text() for path in (rtl / "sources").rglob("*.v"))
-    state = []
-    for match in re.finditer(r"  dffe #[^\n]+ (\w+) \(", text):
-        prior = text[: match.start()].splitlines()[-1]
-        group = re.search(r"begin : (\w+)", prior)
-        if group:
-            count = int(re.search(r"\* \((\d+)\)", prior)[1])
-            paths = [f"dut.dut.{group[1]}[{i}].{match[1]}" for i in range(count)]
-        else:
-            paths = ["dut.dut." + match[1]]
-        for path in paths:
-            state += [path + ".q_current", path + ".managed.clock_current"]
-    for match in re.finditer(r"  fifo #[^\n]+ (\w+) \(", text):
-        path = "dut.dut." + match[1]
-        depth = int(re.search(r"DEPTH\((\d+)\)", match[0])[1])
-        assert "AVAILABILITY_LATENCY(64'd1)" in match[0]
-        state += [
-            path + "." + field
-            for field in (
-                "rd",
-                "wr",
-                "count",
-                "initialized",
-                "latency_one.managed.clock_current",
-            )
+    root_type = re.search(r"\b(pyc_\w+)\s+root_;", header)[1]
+    owners = []
+
+    def children(type_name):
+        return [
+            match.groups()
+            for match in re.finditer(r"^\s*(pyc_\w+)\s+(pyc_\w+);$", classes[type_name], re.M)
+            if match.group(1) in classes
         ]
+
+    def visit(type_name, path=(), rtl_path=()):
+        body = classes[type_name]
+        child_rows = children(type_name)
+        for index, (child_type, member) in enumerate(child_rows):
+            visit(child_type, path + (member,), rtl_path + (f"pyc_instance_{index}",))
+        base = len(child_rows)
+        for index, match in enumerate(
+            re.finditer(r"^\s*gfsim::(fifo|dffe)<(.*?)>\s+(pyc_\w+);$", body, re.M)
+        ):
+            owners.append((path, rtl_path, match[3], match[1], match[2], base + index))
+
+    visit(root_type)
+    assert len(owners) >= 7, owners
+    native = "\n  ".join(
+        "save(out, dut.root()." + ".".join((*path, member)) + ");"
+        for path, _, member, _, _, _ in owners
+    )
+    state = []
+    for _, rtl_parents, _, kind, kernel, child_index in owners:
+        path = "dut.dut." + ".".join((*rtl_parents, f"pyc_instance_{child_index}"))
+        if kind == "dffe":
+            state += [path + ".q_current", path + ".managed.clock_current"]
+            continue
+        params = re.search(
+            r", (\d+), gfsim::QueueReadyPolicy::\w+, (\d+)(?:ULL)?$", kernel
+        )
+        assert params, kernel
+        depth, latency = map(int, params.groups())
+        assert latency == 1
+        state += [path + "." + field for field in ("rd", "wr", "count", "initialized")]
         state += [path + f".storage[{i}]" for i in range(depth)]
+        state += [path + ".latency_one.managed.clock_current"]
     assert len(state) >= 28
     return native, ",\n      ".join(state)
 
@@ -262,7 +273,6 @@ def main():
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,
-        MAKEFLAGS="CFG_CXXFLAGS_PCH_I=-include",
     )
     oracle_path = fixtures.parent / "history-scheduling-oracles.py"
     oracle = load(oracle_path)
@@ -320,6 +330,7 @@ def main():
         return result
 
     def cli(label, *arguments):
+        arguments = list(arguments)
         return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments])
 
     # Lit supplies build-tree tools. Build and install the existing public Runtime
@@ -390,7 +401,7 @@ def main():
             folder / "final.ac",
             "--replace",
         )
-        for backend in ("cpp", "verilog"):
+        for backend in ("structural-cpp", "verilog"):
             cli(
                 label + "-emit-" + backend,
                 "emit",
@@ -403,7 +414,7 @@ def main():
             )
         rows, histories = module_vectors(records, persistent)
         write_vectors(folder, rows, histories, persistent)
-        native, rtl = snapshots(folder / "cpp", folder / "verilog")
+        native, rtl = snapshots(folder / "structural-cpp", folder / "verilog")
         (folder / "host.cpp").write_text(
             (fixtures / "host.cpp").read_text().replace("@STATE_SNAPSHOTS@", native)
         )
@@ -414,7 +425,7 @@ def main():
         cmake.mkdir(exist_ok=True)
         (cmake / "CMakeLists.txt").write_text(
             'cmake_minimum_required(VERSION 3.25)\nproject(SchedulingHistory LANGUAGES C CXX)\nadd_subdirectory("'
-            + str(folder / "cpp")
+            + str(folder / "structural-cpp")
             + '" modules)\nadd_executable(history_host "'
             + str(folder / "host.cpp")
             + '")\ntarget_compile_options(history_host PRIVATE -fno-access-control)\ntarget_include_directories(history_host PRIVATE "'
@@ -445,7 +456,7 @@ def main():
                 )
         verilog_sources = [
             folder / "verilog/design_top.sv",
-            *sorted((folder / "verilog/sources").rglob("*.v")),
+            *sorted((folder / "verilog/sources").rglob("*.sv")),
         ]
         leaves = [
             repo / "include/verilog" / name
@@ -532,7 +543,7 @@ def main():
             )
         cycles = len(records[case]["frames"])
         traces = []
-        for backend in ("cpp", "verilog"):
+        for backend in ("structural-cpp", "verilog"):
             generated, build = folder / backend, folder / (backend + "-build")
             cli(
                 symbol + "-emit-" + backend,
@@ -562,11 +573,11 @@ def main():
                 symbol + "-build-" + backend,
                 ["cmake", "--build", build, "--target", "pycircuit_sim", "-j", "2"],
             )
-            for workers in (1, 2) if backend == "cpp" else (1,):
+            for workers in (1, 2) if backend == "structural-cpp" else (1,):
                 options = (
-                    ["--cycles", cycles, "--workers", workers]
-                    if backend == "cpp"
-                    else ["+cycles=" + str(cycles)]
+                    ["--cycles", cycles, "--workers", workers, "--events", "-"]
+                    if backend == "structural-cpp"
+                    else ["+cycles=" + str(cycles), "--events", "-"]
                 )
                 result = run(
                     f"{symbol}-{backend}-{workers}",

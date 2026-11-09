@@ -1,4 +1,4 @@
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdlib>
 #include <iostream>

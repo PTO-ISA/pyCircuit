@@ -184,34 +184,35 @@ def _cmake_source(stems: list[str], parents: dict[str, list[str]]) -> str:
         )
     )
     for target in ("cpp", "verilog"):
+        public_target = "structural-cpp" if target == "cpp" else target
+        bundle_directory = public_target
         # `generated.json` is the declared OUTPUT of the bundle command below and
         # must not also appear as one of its byproducts.
         lines.extend((f"set(_{target}_files CMakeLists.txt",))
         if target == "cpp":
-            lines.extend(("  pycircuit_support.hpp pycircuit_system.hpp",))
+            lines.extend(("  design.hpp manifest.json",))
+            for index, _stem in enumerate(stems):
+                lines.append(f"  source_unit_{index}.cpp")
         else:
             lines.extend(("  design_top.sv",))
+            for index, _stem in enumerate(stems):
+                lines.append(f"  sources/source_unit_{index}.sv")
         for stem in stems:
-            if target == "cpp":
-                lines.append(f"  sources/{PACKAGE}/{stem}.hpp")
-                lines.append(f"  sources/{PACKAGE}/{stem}.cpp")
-            else:
-                lines.append(f"  sources/{PACKAGE}/{stem}.v")
             lines.append(f"  sources/{PACKAGE}/{stem}.source-map.json")
         lines.extend(
             (
                 ")",
                 "set(_bundle_byproducts)",
                 f"foreach(_file IN LISTS _{target}_files)",
-                f'  list(APPEND _bundle_byproducts "${{CMAKE_CURRENT_BINARY_DIR}}/{target}/${{_file}}")',
+                f'  list(APPEND _bundle_byproducts "${{CMAKE_CURRENT_BINARY_DIR}}/{bundle_directory}/${{_file}}")',
                 "endforeach()",
-                f'add_custom_command(OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/{target}/generated.json"',
+                f'add_custom_command(OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/{bundle_directory}/generated.json"',
                 "  BYPRODUCTS ${_bundle_byproducts}",
-                f'  COMMAND "${{Python3_EXECUTABLE}}" "${{_prepared}}" "${{CMAKE_CURRENT_BINARY_DIR}}/{target}"',
-                f'  COMMAND "${{_driver}}" emit "${{_program}}" --target {target} -o "${{CMAKE_CURRENT_BINARY_DIR}}/{target}" --replace',
+                f'  COMMAND "${{Python3_EXECUTABLE}}" "${{_prepared}}" "${{CMAKE_CURRENT_BINARY_DIR}}/{bundle_directory}"',
+                f'  COMMAND "${{_driver}}" emit "${{_program}}" --target {public_target} -o "${{CMAKE_CURRENT_BINARY_DIR}}/{bundle_directory}" --replace',
                 '  DEPENDS "${_program}" ${_compiler_dependencies} "${_toolchain_config}"',
                 "  VERBATIM)",
-                f'add_custom_target(emit_{target} DEPENDS "${{CMAKE_CURRENT_BINARY_DIR}}/{target}/generated.json")',
+                f'add_custom_target(emit_{target} DEPENDS "${{CMAKE_CURRENT_BINARY_DIR}}/{bundle_directory}/generated.json")',
             )
         )
     return "\n".join(lines) + "\n"

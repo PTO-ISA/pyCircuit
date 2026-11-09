@@ -424,12 +424,23 @@ TEST_F(TableDependencySummaryTest,
   Builder b(&context);
   auto byte = ac::BitsType::get(&context, integer("8"));
   auto huge = ac::BitsType::get(&context, integer("18446744073709551615"));
+  for (auto shape : {b.getArrayAttr({integer("0")}),
+                     b.getArrayAttr({integer("-1")}),
+                     b.getArrayAttr({integer("9223372036854775807"),
+                                     integer("3")})}) {
+    diagnostics.clear();
+    ScopedDiagnosticHandler handler(&context, [&](Diagnostic &diagnostic) {
+      llvm::raw_string_ostream out(diagnostics);
+      diagnostic.print(out);
+      return success();
+    });
+    auto invalid = ac::TableType::getChecked(
+        [&] { return emitError(UnknownLoc::get(&context)); }, &context, shape,
+        Type(byte));
+    EXPECT_FALSE(invalid);
+    EXPECT_FALSE(diagnostics.empty());
+  }
   const std::vector<std::vector<Type>> cases{
-      {ac::TableType::get(&context, b.getArrayAttr({integer("0")}), byte)},
-      {ac::TableType::get(&context, b.getArrayAttr({integer("-1")}), byte)},
-      {ac::TableType::get(&context,
-                         b.getArrayAttr({integer("9223372036854775807"),
-                                         integer("3")}), byte)},
       {ac::TableType::get(&context, b.getArrayAttr({integer("3")}), huge)},
       {huge, byte}};
   for (auto [i, types] : llvm::enumerate(cases)) {

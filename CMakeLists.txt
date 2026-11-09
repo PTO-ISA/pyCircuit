@@ -1,4 +1,18 @@
 cmake_minimum_required(VERSION 3.25)
+
+# Modern Apple/Windows linkers and LLD rescan archives automatically.  Let
+# CMake remove repeated transitive static libraries when it knows the linker
+# supports that behavior; retain the conservative ordering on older CMake and
+# traditional Unix linkers.
+if(POLICY CMP0156)
+  cmake_policy(SET CMP0156 NEW)
+endif()
+if(POLICY CMP0179)
+  cmake_policy(SET CMP0179 NEW)
+endif()
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.31)
+  set(CMAKE_LINK_LIBRARIES_STRATEGY REORDER_FREELY)
+endif()
 project(pycircuit VERSION 6.1.0 LANGUAGES C CXX)
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -6,6 +20,8 @@ include(GNUInstallDirs)
 option(PYC_BUILD_COMPILER_DEV "Build the native source compiler" ON)
 option(PYC_BUILD_RUNTIME_LIB "Build the pyc6 simulation runtime" ON)
 option(PYC_BUILD_TESTING "Build native compiler tests" OFF)
+option(PYC_ERROR_DEPRECATED_API
+  "Reject deprecated LLVM/MLIR API use in pyCircuit C++ targets" OFF)
 option(PYC_INSTALL_PYTHON "Install the Python capture and driver" "${PYC_BUILD_COMPILER_DEV}")
 option(PYC_INSTALL_CMAKE_PACKAGE "Install pycircuit CMake package metadata" ON)
 option(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS "Bundle native compiler runtime dependencies" ON)
@@ -25,12 +41,12 @@ if(PYC_BUILD_RUNTIME_LIB)
   add_subdirectory(runtime)
 endif()
 if(PYC_BUILD_COMPILER_DEV)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
   find_package(LLVM 22.1.8 EXACT CONFIG REQUIRED)
   find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
   set(PYCIRCUIT_BUILD_TESTING "${PYC_BUILD_TESTING}" CACHE BOOL "Build native tests" FORCE)
   add_subdirectory(compiler)
-  install(TARGETS ACIRDialect ACIRSourceCompiler ACIRCodegen ACIRTransforms pycircuit_project_options
+  install(TARGETS ACIRDialect HWIRDialect ACIRSourceCompiler ACIRCodegen ACIRTransforms pycircuit_project_options
     EXPORT pycircuitCompilerTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
@@ -46,13 +62,13 @@ if(PYC_BUILD_COMPILER_DEV)
   # Install the active Compiler interface closure, not every historical header
   # kept for future semantic migration. An unbuilt header is not an SDK API.
   set(_pyc_compiler_headers
-    FinalCppNames.h
-    FinalCppSourceParts.h
-    FinalEmitCpp.h
-    FinalEmitVerilog.h
+    ConcreteDesignPlan.h
+    FinalEmissionNames.h
     FinalSourceMap.h
-    FinalVerilogSourceParts.h
     HardwareEmitCommon.h
+    StructuralCppBackend.h
+    VerilogBackend.h
+    VerilogSourceParts.h
     PythonImportAST.h
     PythonImportContext.h
     PythonImportEnumSyntax.h
@@ -121,6 +137,7 @@ if(PYC_INSTALL_CMAKE_PACKAGE)
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfigVersion.cmake"
     cmake/PycircuitExamples.cmake cmake/prepare_output.py cmake/verify_example.py
+    python/pycircuit/verilator_policy.json
     DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}")
 endif()
 if(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS AND PYC_BUILD_COMPILER_DEV)

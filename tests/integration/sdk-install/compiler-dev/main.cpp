@@ -1,9 +1,9 @@
-#include "pycircuit/Dialect/ACIR/ACIRDialect.h"
-#include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/SourceUnit.h"
+#include "Compiler/StructuralCppBackend.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
+#include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 
 int main() {
   mlir::DialectRegistry registry;
@@ -21,9 +21,11 @@ int main() {
       &context, headers, diagnostic);
 
   acir::compiler::SourceUnitArtifacts unitArtifacts;
-  acir::compiler::FinalCppSourceParts cppParts;
+  using StructuralEmitter = mlir::LogicalResult (*)(
+      mlir::ModuleOp, llvm::raw_ostream &);
+  StructuralEmitter structuralEmitter = &acir::compiler::emitStructuralCpp;
   return dialect == nullptr || mlir::failed(sourceHeaders) ||
-                 !cppParts.sourceGroups.empty() || unitArtifacts.body
+                 structuralEmitter == nullptr || unitArtifacts.body
              ? 1
              : 0;
 }

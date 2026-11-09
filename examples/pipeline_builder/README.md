@@ -104,6 +104,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/pipeline_builder --target cpp --cycles 72
+pycircuit run examples/pipeline_builder --target structural-cpp --cycles 72
 pycircuit run examples/pipeline_builder --target verilog --cycles 72
 ```

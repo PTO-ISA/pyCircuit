@@ -123,6 +123,7 @@ def run(command, code=0, diagnostic=None, *, timeout=240):
 
 
 def cli(*arguments, code=0, diagnostic=None):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], code, diagnostic)
 
 
@@ -291,9 +292,9 @@ def fault_checks():
             "-o",
             final,
         )
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
-        cpp = output / "cpp"
+        cpp = output / "structural-cpp"
         # Test-owned instrumentation grants read access only on a copy. It does
         # not change the emitted calculation, source check, or storage kernel.
         probe = output / "cpp-probe"
@@ -319,57 +320,96 @@ def fault_checks():
 
         for header in probe.rglob("*.hpp"):
             grant_visibility(cpp / header.relative_to(probe), header)
+        # Concrete generated diagnostics are owned by the public system
+        # wrapper; the disposable probe only checks atomic state and does not
+        # require private diagnostic payload fields.
         # Read-only pending-state visibility is test instrumentation on a
         # disposable header copy; the collection/kernel calculations stay exact.
-        collection = probe / "gfsim/collection.h"
-        collection.parent.mkdir()
-        grant_visibility(repo / "include/gfsim/collection.h", collection)
-        header = "\n".join(
-            path.read_text() for path in (probe / "sources").rglob("*.hpp")
+        instrumented_runtime = probe / "gfsim"
+        instrumented_runtime.mkdir()
+        for runtime_header in ("collection.h", "dff.h", "fifo.h"):
+            grant_visibility(
+                repo / "include/gfsim" / runtime_header,
+                instrumented_runtime / runtime_header,
+            )
+        header = (probe / "design.hpp").read_text()
+        classes = dict(
+            re.findall(
+                r"class\s+(pyc_\w+)\s+final\s*:\s*public\s+gfsim::SimModule\s*"
+                r"\{(.*?)\n\};",
+                header,
+                re.S,
+            )
         )
-        families = dict(
-            re.findall(r"class pyc_family_(\w+) final \{(.*?)\n\};", header, re.S)
-        )
+        root_type = re.search(r"\b(pyc_\w+)\s+root_;", header)[1]
         owners = []
 
-        def visit(family, path=(), families=families, owners=owners):
-            body = families[family]
-            for line in body.splitlines():
-                child = re.search(
-                    r"std::shared_ptr<[^;]*::pyc_family_(\w+)<pyc_count>> (\w+);",
-                    line,
-                )
-                if child:
-                    visit(child[1], path + (child[2],))
-                state = re.search(
-                    r"std::shared_ptr<gfsim::collection_storage<(.*?)>> (\w+);",
-                    line,
-                )
-                if state:
-                    owners.append((path, state[2], state[1]))
+        def children(type_name):
+            body = classes[type_name]
+            return [
+                match.groups()
+                for match in re.finditer(r"^\s*(pyc_\w+)\s+(pyc_\w+);$", body, re.M)
+                if match.group(1) in classes
+            ]
 
-        visit(name)
+        def visit(type_name, path=(), rtl_path=()):
+            body = classes[type_name]
+            for index, (child_type, member) in enumerate(children(type_name)):
+                visit(
+                    child_type,
+                    path + (member,),
+                    rtl_path + (f"pyc_instance_{index}",),
+                )
+            base = len(children(type_name))
+            for index, state in enumerate(
+                re.finditer(
+                    r"^\s*gfsim::(fifo|dffe)<(.*?)>\s+(pyc_\w+);$",
+                    body,
+                    re.M,
+                )
+            ):
+                owners.append(
+                    (path, rtl_path, state[3], state[1], state[2], base + index)
+                )
+
+        visit(root_type)
         assert len(owners) >= 5, (name, owners)
-        pipeline = next(
-            member
-            for family, member in re.findall(
-                r"std::shared_ptr<[^;]*::pyc_family_(\w+)<pyc_count>> (\w+);",
-                families[name],
-            )
-            if family.endswith("Pipeline")
+        root_children = children(root_type)
+        sibling_index, (sibling_type, sibling) = next(
+            (index, row)
+            for index, row in enumerate(root_children)
+            if "fault_systems::SiblingResult" in classes[row[0]]
         )
-        sibling = next(
-            member
-            for family, member in re.findall(
-                r"std::shared_ptr<[^;]*::pyc_family_(\w+)<pyc_count>> (\w+);",
-                families[name],
-            )
-            if family == "Sibling"
+        pipeline_index, (pipeline_type, pipeline) = next(
+            (index, row)
+            for index, row in enumerate(root_children)
+            if row[0] != sibling_type
         )
         sibling_queue = re.search(
-            r"std::shared_ptr<gfsim::collection_storage<gfsim::fifo_kernel<[^;]+>> (\w+);",
-            families["Sibling"],
+            r"^\s*gfsim::fifo<.*?>\s+(pyc_\w+);$",
+            classes[sibling_type],
+            re.M,
         )[1]
+        # Verilog uses the concrete child/primitive instance numbering emitted
+        # by the HWIR plan; it does not preserve the C++ member names.
+        sibling_primitive_base = len(children(sibling_type))
+        sibling_value_index = next(
+            sibling_primitive_base + index
+            for index, match in enumerate(
+                re.finditer(
+                    r"^\s*gfsim::(fifo|dffe)<(.*?)>\s+(pyc_\w+);$",
+                    classes[sibling_type],
+                    re.M,
+                )
+            )
+            if match.group(1) == "dffe"
+        )
+        sibling_rtl_path = f"dut.dut.pyc_instance_{sibling_index}"
+        sibling_value_rtl = (
+            f"{sibling_rtl_path}.pyc_instance_{sibling_value_index}"
+        )
+        sibling_queue_rtl = f"{sibling_rtl_path}.pyc_instance_0"
+        pipeline_rtl_path = f"dut.dut.pyc_instance_{pipeline_index}"
         output_bits = (
             66 if name.startswith("Route") else 26 if name.startswith("Credit") else 131
         )
@@ -382,27 +422,23 @@ def fault_checks():
             + ",".join(json.dumps(word + "|") for word in expected or [""])
             + "};"
         )
-        result_cpp = f"dut.root_->pyc_implementation->{pipeline}->result.element(0)"
+        result_cpp = f"dut.root().{pipeline}.result"
         positive_rtl = "\n".join(
-            f'{index}: if (dut.dut.{pipeline}.result !== {output_bits}\'b{word}) $fatal(1,"positive prefix row {index}");'
+            f'{index}: if ({pipeline_rtl_path}.result !== {output_bits}\'b{word}) $fatal(1,"positive prefix row {index}");'
             for index, word in enumerate(expected)
         )
         cpp_snapshot = []
         rtl_snapshot = []
-        for path, member, kernel in owners:
-            expression = "dut.root_->pyc_implementation->" + "->".join((*path, member))
-            cpp_snapshot.append(f"save(out, *({expression}));")
+        for path, rtl_parents, member, kind, kernel, child_index in owners:
+            expression = "dut.root()." + ".".join((*path, member))
+            cpp_snapshot.append(f"save(out, {expression});")
             rtl_path = "dut.dut." + ".".join(
-                (
-                    *path,
-                    member.removesuffix("_state").replace(
-                        "pyc_queue_", "pyc_instance_", 1
-                    ),
-                )
+                (*rtl_parents, f"pyc_instance_{child_index}")
             )
-            if "fifo_kernel" in kernel:
+            if kind == "fifo":
                 params = re.search(
-                    r", (\d+), gfsim::QueueReadyPolicy::\w+, (\d+)ULL", kernel
+                    r", (\d+), gfsim::QueueReadyPolicy::\w+, (\d+)(?:ULL)?$",
+                    kernel,
                 )
                 assert params, kernel
                 depth, latency = map(int, params.groups())
@@ -424,16 +460,12 @@ def fault_checks():
                         f"{rtl_path}.{timing}.deadline[{lane}]" for lane in range(depth)
                     )
             else:
-                count = 16 if "Entry" in kernel else 1
-                for lane in range(count):
-                    leaf = rtl_path
-                    if count > 1:
-                        parent, leaf_name = rtl_path.rsplit(".", 1)
-                        raw = leaf_name.removeprefix("pyc_instance_")
-                        leaf = f"{parent}.pyc_instances_{raw}[{lane}].{leaf_name}"
-                    rtl_snapshot.extend(
-                        (leaf + ".q_current", leaf + ".managed.clock_current")
-                    )
+                # Collection lanes are already independent dffe members in
+                # the concrete C++ class and therefore appear individually in
+                # owners, matching one Verilog primitive instance each.
+                rtl_snapshot.extend(
+                    (rtl_path + ".q_current", rtl_path + ".managed.clock_current")
+                )
         driver = probe / "fault_probe.cpp"
         driver.write_text(
             (fixtures / "queue-source-faults.cpp")
@@ -443,8 +475,10 @@ def fault_checks():
             .replace("@MESSAGE@", message)
             .replace("@EXPECTED@", positive_cpp)
             .replace("@RESULT@", result_cpp)
-            .replace("@SIBLING@", "dut.root_->pyc_implementation->" + sibling)
+            .replace("@SIBLING@", "dut.root()." + sibling)
             .replace("@SIBLING_QUEUE@", sibling_queue)
+            .replace("@SIBLING_VALUE_RTL@", sibling_value_rtl)
+            .replace("@SIBLING_QUEUE_RTL@", sibling_queue_rtl)
         )
         receipt = json.loads((probe / "generated.json").read_text())
         sources = [
@@ -489,13 +523,16 @@ def fault_checks():
             .replace("@EDGE@", str(edge))
             .replace("@FAIL@", "1" if message else "0")
             .replace("@EXPECTED@", positive_rtl)
-            .replace("@SIBLING@", "dut.dut." + sibling)
+            .replace(
+                "@SIBLING@",
+                sibling_rtl_path,
+            )
             .replace(
                 "@SIBLING_QUEUE@",
-                sibling_queue.removesuffix("_state").replace(
-                    "pyc_queue_", "pyc_instance_", 1
-                ),
+                sibling_queue_rtl,
             )
+            .replace("@SIBLING_VALUE_RTL@", sibling_value_rtl)
+            .replace("@SIBLING_QUEUE_RTL@", sibling_queue_rtl)
         )
         receipt = json.loads((rtl / "generated.json").read_text())
         sources = [
@@ -517,8 +554,6 @@ def fault_checks():
                 "-Wno-fatal",
                 "-CFLAGS",
                 "-std=c++20",
-                "-MAKEFLAGS",
-                "CFG_CXXFLAGS_PCH_I=-include",
                 repo / "include/verilog/dffe.v",
                 repo / "include/verilog/fifo.v",
                 *sources,
@@ -788,11 +823,11 @@ for source_name, root_name, oracle_name, closure in positives:
     vectors.materialize(oracle_name, vector_dir)
     final = output / "design.ac"
     cli("link", *closure, "--top", f"q4_queue.{source_name}.{root_name}", "-o", final)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
-    cpp_receipt = json.loads((output / "cpp/generated.json").read_text())
+    cpp_receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / row["path"]
+        output / "structural-cpp" / row["path"]
         for row in cpp_receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -816,7 +851,7 @@ for source_name, root_name, oracle_name, closure in positives:
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             "-I" + str(vector_dir),
             fixtures / "queue-source.cpp",
             *cpp,
@@ -909,8 +944,6 @@ for source_name, root_name, oracle_name, closure in positives:
                 "-Wno-fatal",
                 "-CFLAGS",
                 "-std=c++20",
-                "-MAKEFLAGS",
-                "CFG_CXXFLAGS_PCH_I=-include",
                 *defines,
                 "-I" + str(vector_dir),
                 *primitives,
@@ -940,7 +973,7 @@ for source_name, root_name, oracle_name, closure in positives:
                 "--design-ac",
                 final,
                 "--cpp-dir",
-                output / "cpp",
+                output / "structural-cpp",
                 "--rtl-dir",
                 output / "verilog",
                 "--vectors",
@@ -977,7 +1010,7 @@ for source_name, root_name, oracle_name, closure in positives:
                 "log": str(output / "oracle-checks.stdout"),
             }
         )
-    protected_products.extend((final, output / "cpp", output / "verilog"))
+    protected_products.extend((final, output / "structural-cpp", output / "verilog"))
     serialized = json.loads((vector_dir / "oracle.json").read_text())
     executions.append(
         {
@@ -1000,7 +1033,7 @@ for source_name, root_name, oracle_name, closure in positives:
             "rtl_driver_sha256": digest(fixtures / "queue-source.sv"),
             "serialization_sha256": digest(fixtures / "queue-source-vectors.py"),
             "generated": {
-                "cpp": snapshot_digests(output / "cpp"),
+                "cpp": snapshot_digests(output / "structural-cpp"),
                 "verilog": snapshot_digests(output / "verilog"),
             },
         }
@@ -1258,12 +1291,17 @@ negative_unit = units / "negative"
 compile_source(negative_path, negative_root, negative_unit)
 negative_final = build / "negative.ac"
 cli("link", negative_unit, "--top", "q4_queue.negative.Top", "-o", negative_final)
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli(
         "emit", negative_final, "--target", target, "-o", build / ("negative-" + target)
     )
 protected_products.extend(
-    (negative_unit, negative_final, build / "negative-cpp", build / "negative-verilog")
+    (
+        negative_unit,
+        negative_final,
+        build / "negative-structural-cpp",
+        build / "negative-verilog",
+    )
 )
 
 
@@ -1332,7 +1370,7 @@ cli(
     "-o",
     boundary_final,
 )
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli(
         "emit", boundary_final, "--target", target, "-o", build / ("boundary-" + target)
     )
@@ -1345,7 +1383,7 @@ cli(
     "-o",
     legacy_final,
 )
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli(
         "emit",
         legacy_final,
@@ -1386,10 +1424,10 @@ protected_products.extend(
                 "FixedWiden",
             )
         ),
-        build / "boundary-cpp",
+        build / "boundary-structural-cpp",
         build / "boundary-verilog",
         legacy_final,
-        build / "legacy-structural-cpp",
+        build / "legacy-structural-structural-cpp",
         build / "legacy-structural-verilog",
     )
 )
@@ -1543,7 +1581,7 @@ cli(
     "-o",
     build / "imported-struct-constructor-explicit.ac",
 )
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli(
         "emit",
         build / "imported-struct-constructor-explicit.ac",
@@ -1700,7 +1738,9 @@ fixture_paths = [
             "metadata_free_structural_root": {
                 "root": "q4_queue.provider.LegacyEcho",
                 "final_sha256": digest(legacy_final),
-                "cpp": snapshot_digests(build / "legacy-structural-cpp"),
+                "structural-cpp": snapshot_digests(
+                    build / "legacy-structural-structural-cpp"
+                ),
                 "verilog": snapshot_digests(build / "legacy-structural-verilog"),
                 "source_call_attributes": "all_absent",
             },

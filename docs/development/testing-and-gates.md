@@ -34,6 +34,18 @@ and `PYC_TOOLCHAIN_ROOT` to its installation. Reinstall after changing compiler,
 Runtime or shared example helpers. `PYC_PYTHON_EXECUTABLE` selects Python for
 package tests and receipts. No new native executable is needed for this split.
 
+The API gate also runs two public-flow smokes from
+`tests/system/test_physical_rtl_export.py`: physical RTL reset/commit behavior
+through Icarus and Python four-state values through a built Structural C++
+bundle. The API nightly runs that complete file, including physical FIFO,
+memory and observation matrices. `docs/testing/e2e-requirements.json` is the
+machine-checked requirement-to-test registry; stale paths or missing critical
+runner registrations fail the Python checks.
+
+`LLVM_EXTERNAL_LIT` must identify a real lit executable. Configuration probes
+`--version` and rejects successful no-op commands such as `/usr/bin/true`, so a
+CTest pass cannot silently stand in for the compiler lit inventory.
+
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
@@ -106,7 +118,7 @@ fallback dispatch. The language reference records the current source surface.
 | --- | --- |
 | Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, explicit registration, current/next and child-state identity |
 | Unit compile and link | One producer per source, published interface use, complete closure, duplicate/missing/mismatched unit rejection, verified final artifact |
-| C++ emit | Source-owned module groups and `pycircuit_modules` CMake target, bound root arguments, Runtime-only consumer build and explicit test drivers |
+| Structural C++ emit | Source-owned module groups and `pycircuit_modules` CMake target, bound root arguments, Runtime-only consumer build and explicit test drivers |
 | Verilog emit | Same final artifact, source-owned RTL/map inventory, unsupported configuration rejection, target output preservation |
 | Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |
 | Hard break | Source, CLI, CMake, package and installed-payload scans show no active retired frontend/compiler/fallback |

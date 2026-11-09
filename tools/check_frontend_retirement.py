@@ -217,6 +217,7 @@ def scan_public_surface() -> list[str]:
                     exported = set()
         expected = {
             "module",
+            "method",
             "rule",
             "struct",
             "bits",
@@ -239,6 +240,9 @@ def scan_public_surface() -> list[str]:
             "byte_mem",
             "log",
             "report",
+            "four_state",
+            "case_eq",
+            "is_known",
         }
         if exported != expected:
             failures.append(

@@ -552,16 +552,15 @@ class Result:
     first_read: ac.u4
     minimum_read: ac.u4
     outside: ac.u1
+@ac.struct
+class ChildResult:
+    valid: ac.u1
 @ac.module
-def Child(flag: bool) -> {"valid": bool}:
-    return {"valid": flag}
+def Child(flag: bool) -> ChildResult:
+    return ChildResult(valid=flag)
 @ac.module
 def Top(entries: ac.table[3, Entry], fake: bool) -> {"result": Result}:
-    child = Child()
-    @ac.rule
-    def bind_child():
-        child(flag=fake)
-    bind_child()
+    child = Child(flag=fake)
     a, av = entries.first(where=lambda child: child.valid)
     b, bv = entries.argmin(where=lambda child: child.valid, key=lambda child: child.key)
     return {"result": Result(first_index=a, first_valid=av, minimum_index=b, minimum_valid=bv, first_read=entries[a].key, minimum_read=entries[b].key, outside=child.valid)}

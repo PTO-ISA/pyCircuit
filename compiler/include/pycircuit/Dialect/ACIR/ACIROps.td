@@ -46,6 +46,20 @@ def ACIR_ValueUseOp : ACIR_Op<"value.use"> {
   let hasVerifier = 1;
 }
 
+def ACIR_ValueRequireOp : ACIR_Op<"value.require", [Pure]> {
+  let summary = "Retain one required payload use and its reached availability";
+  let description = [{
+    The result is the four-state select(path, availability, one). Payload is
+    authenticated proof input and is deliberately not a runtime dependency.
+    This final-ACIR marker is consumed at the HWIR seam.
+  }];
+  let arguments = (ins ACIR_HardwareType:$payload,
+      ACIR_BitsType:$availability, ACIR_BitsType:$path,
+      DictionaryAttr:$occurrence, DictionaryAttr:$source_location);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_SystemOp : ACIR_Op<"system"> {
   let summary = "Select one verified final hardware instance tree";
   let arguments = (ins DictionaryAttr:$entry, StrAttr:$domain);
@@ -96,6 +110,13 @@ def ACIR_MathToBitsOp : ACIR_Op<"math.to_bits"> {
 def ACIR_BitsConstantOp : ACIR_Op<"bits.constant", [Pure]> {
   let summary = "Create one known fixed-width hardware bit vector";
   let arguments = (ins ACIR_StaticExprAttr:$value);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_BitsConstant4Op : ACIR_Op<"bits.constant4", [Pure]> {
+  let summary = "Create an exact fixed-width four-state hardware bit vector";
+  let arguments = (ins StrAttr:$pattern);
   let results = (outs ACIR_BitsType:$result);
   let hasVerifier = 1;
 }

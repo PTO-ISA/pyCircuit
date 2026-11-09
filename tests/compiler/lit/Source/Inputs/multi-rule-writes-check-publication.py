@@ -40,7 +40,7 @@ def snapshot(directory):
     }
 
 
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     existing = gate / ("checked-fresh-" + target)
     before = snapshot(existing)
     assert before

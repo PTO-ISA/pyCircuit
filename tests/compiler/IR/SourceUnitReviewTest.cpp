@@ -381,8 +381,8 @@ TEST_F(SourceUnitReviewTest,
   snapshot = reviewHelper(*changedBody, ".Pair.__init__");
   mlir::Block &entry = snapshot.getBody().front();
   mlir::OpBuilder at(entry.getTerminator());
-  at.create<mlir::arith::ConstantOp>(snapshot.getLoc(), builder.getI1Type(),
-                                     builder.getBoolAttr(false));
+  mlir::arith::ConstantOp::create(at, snapshot.getLoc(), builder.getI1Type(),
+                                  builder.getBoolAttr(false));
   expectRejects(*packetHeader, *changedBody);
 }
 

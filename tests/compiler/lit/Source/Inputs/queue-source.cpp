@@ -1,6 +1,6 @@
 #include "gfsim/SystemRunner.h"
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include "queue_source_vectors.hpp"
 
 #include <cstdlib>

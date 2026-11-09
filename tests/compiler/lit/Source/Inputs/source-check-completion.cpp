@@ -1,6 +1,6 @@
 // Access-only generated-header variant. Existing capture methods set bounded
 // partial completion; source checks, reset logic, validator and IR stay intact.
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <gfsim/WorkExecutor.h>
 #include <iostream>

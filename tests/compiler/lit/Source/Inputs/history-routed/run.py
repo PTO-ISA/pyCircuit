@@ -136,7 +136,6 @@ def main():
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,
-        MAKEFLAGS="CFG_CXXFLAGS_PCH_I=-include",
     )
     commands, receipts, visibility, stages = [], [], [], []
 
@@ -181,6 +180,7 @@ def main():
         return result.stdout
 
     def cli(label, *arguments):
+        arguments = list(arguments)
         return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments])
 
     units = []
@@ -224,7 +224,7 @@ def main():
         stages.append(
             {"path": str(final), "sha256": digest(final), "stage": "verified-final"}
         )
-        for backend in ("cpp", "verilog"):
+        for backend in ("structural-cpp", "verilog"):
             label = root + "-" + backend
             generated = scratch / label
             cli(
@@ -245,7 +245,7 @@ def main():
                 if path.is_file()
             )
             executable = scratch / (label + "-driver")
-            if backend == "cpp":
+            if backend == "structural-cpp":
                 native_sources = [
                     generated / entry["path"]
                     for entry in generated_manifest["files"]
@@ -271,10 +271,7 @@ def main():
                             }
                         )
                     graph_layout = drivers.layout(
-                        (
-                            probe
-                            / "sources/history_routed/routed_dependency_pipeline.hpp"
-                        ).read_text()
+                        (probe / "design.hpp").read_text()
                     )
                     driver = scratch / (label + "-driver.cpp")
                     driver.write_text(drivers.cpp(graph_layout))
@@ -324,7 +321,7 @@ def main():
                         "-o",
                         executable,
                         generated / "design_top.sv",
-                        *generated.rglob("*.v"),
+                        *(generated / "sources").rglob("*.sv"),
                         repo / "include/verilog/fifo.v",
                         repo / "include/verilog/dffe.v",
                         driver,
@@ -352,7 +349,7 @@ def main():
                 else {selected_case: vectors["executable"][selected_case]}
             )
             for name, case in cases.items():
-                for workers in (1, 2) if backend == "cpp" else (1,):
+                for workers in (1, 2) if backend == "structural-cpp" else (1,):
                     case_label = label + "-" + name + f"-workers{workers}"
                     if profile == "module":
                         text = observations.stimulus(case["rows"])
@@ -362,17 +359,17 @@ def main():
                             case_label,
                             (
                                 [executable, workers]
-                                if backend == "cpp"
+                                if backend == "structural-cpp"
                                 else [executable, "+stimulus=" + str(input_file)]
                             ),
-                            text if backend == "cpp" else None,
+                            text if backend == "structural-cpp" else None,
                         )
                         actual = observations.decode(
                             output, [row["frame"] for row in case["rows"]]
                         )
                         check_case(case, actual)
                         if (
-                            backend == "cpp"
+                            backend == "structural-cpp"
                             and case["first_failure_attempt"] is not None
                         ):
                             fault = case["first_failure_attempt"]
@@ -391,9 +388,20 @@ def main():
                         )
                     else:
                         options = (
-                            ["--cycles", case["executed_epochs"], "--workers", workers]
-                            if backend == "cpp"
-                            else ["+cycles=" + str(case["executed_epochs"])]
+                            [
+                                "--cycles",
+                                case["executed_epochs"],
+                                "--workers",
+                                workers,
+                                "--events",
+                                "-",
+                            ]
+                            if backend == "structural-cpp"
+                            else [
+                                "+cycles=" + str(case["executed_epochs"]),
+                                "--events",
+                                "-",
+                            ]
                         )
                         output = run(case_label, [executable, *options])
                         actual = system_trace(output, case)

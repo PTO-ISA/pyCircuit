@@ -34,7 +34,7 @@ The finite runner configuration stops after the testbench finishes its trace.
 `bench.py` exports `example_wire_ops.bench.ExerciseWireOps`. The explicit source
 closure is `wire_ops.py`, then `bench.py`; link the system root and emit either
 backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/wire_ops --target cpp --cycles 7` or select
+`pycircuit run examples/wire_ops --target structural-cpp --cycles 7` or select
 `--target verilog`. Each managed cycle uses the same stimulus in its low/high
 sampling pair and advances fixture state on the generated edge.
 

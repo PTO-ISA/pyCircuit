@@ -120,6 +120,10 @@ def _runtime_prefix(tmp_path: Path) -> Path:
         "pycircuitRuntimeTargets-release.cmake",
     ):
         (cmake / name).write_text("# package fixture\n", encoding="utf-8")
+    shutil.copyfile(
+        ROOT / "python/pycircuit/verilator_policy.json",
+        cmake / "verilator_policy.json",
+    )
     return prefix
 
 

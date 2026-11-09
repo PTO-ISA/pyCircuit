@@ -149,7 +149,7 @@ reference and candidate-bound implementation progress.
 
 ## Typed DUT and parallel runner
 
-Generated `pycircuit_system.hpp` supplies `pyc_dut::Inputs`, `Outputs`, `drive`,
+Generated `design.hpp` supplies `pyc_dut::Inputs`, `Outputs`, `drive`,
 `sample`, `system` and `observations`. The DUT owns a root and a `WorkExecutor`;
 module instances borrow that executor. Control-thread drive/sample calls occur
 between epochs and must not race Work. No shared-library port C ABI is added.

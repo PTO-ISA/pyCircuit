@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 
 from setuptools import Distribution, find_namespace_packages, setup
-from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+from wheel.bdist_wheel import (  # type: ignore[import-untyped]
+    bdist_wheel as _bdist_wheel,
+)
 
 
 def package_files(root: Path, package_root: Path) -> list[str]:
@@ -49,7 +51,7 @@ setup(
         "Issues": "https://github.com/PTO-ISA/pyCircuit/issues",
         "Releases": "https://github.com/PTO-ISA/pyCircuit/releases",
     },
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     install_requires=[],
     packages=find_namespace_packages(
         include=[

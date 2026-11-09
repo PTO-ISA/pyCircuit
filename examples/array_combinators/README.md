@@ -46,7 +46,7 @@ cmake -S examples/array_combinators -B .pycircuit_out/array-combinators -G Ninja
   -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build .pycircuit_out/array-combinators --parallel 4
 ctest --test-dir .pycircuit_out/array-combinators --output-on-failure --no-tests=error
-pycircuit run examples/array_combinators --target cpp --cycles 12
+pycircuit run examples/array_combinators --target structural-cpp --cycles 12
 pycircuit run examples/array_combinators --target verilog --cycles 12
 ```
 

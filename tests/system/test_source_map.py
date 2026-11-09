@@ -6,6 +6,7 @@ import ast
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -137,22 +138,40 @@ def _compile_current_closure(tmp_path, extended=False):
 
 
 def _collect(final: Path, target: str) -> dict[str, Any]:
-    command = [
-        str(public._native() / "bin/pycircuit-emit"),
-        str(final),
-        "--target",
-        target,
-    ]
-    result = subprocess.run(
-        command,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=180,
-        env=public._environment(),
-    )
-    assert result.returncode == 0, f"{command!r}\n{result.stderr}"
-    return json.loads(result.stdout)
+    with tempfile.TemporaryDirectory(prefix="pycircuit-source-map-") as temporary:
+        hwir = Path(temporary) / "design.hwir.mlir"
+        lower = [
+            str(public._native() / "bin/pycircuit-opt"),
+            str(final),
+            "--ac-final-to-hwir",
+            "-o",
+            str(hwir),
+        ]
+        lowered = subprocess.run(
+            lower,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=180,
+            env=public._environment(),
+        )
+        assert lowered.returncode == 0, f"{lower!r}\n{lowered.stderr}"
+        command = [
+            str(public._native() / "bin/pycircuit-emit"),
+            str(hwir),
+            "--target",
+            target,
+        ]
+        result = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=180,
+            env=public._environment(),
+        )
+        assert result.returncode == 0, f"{command!r}\n{result.stderr}"
+        return json.loads(result.stdout)
 
 
 def _map_rows(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -181,7 +200,7 @@ def test_native_maps_inventory_exact_final_origins_for_both_targets(
 ) -> None:
     final = _compile_current_closure(tmp_path)
     cpp_maps, rtl_maps = (
-        _map_rows(_collect(final, "cpp")),
+        _map_rows(_collect(final, "structural-cpp")),
         _map_rows(_collect(final, "verilog")),
     )
     expected_sources = {"types.py", "child.py", "design_top.py"}
@@ -211,9 +230,7 @@ def test_native_maps_inventory_exact_final_origins_for_both_targets(
         == 1
     )
     assert rtl_maps["types.py"]["generated_files"] == []
-    assert cpp_maps["types.py"]["generated_files"] == [
-        "sources/source_public/types.hpp"
-    ]
+    assert cpp_maps["types.py"]["generated_files"] == ["source_unit_2.cpp"]
 
 
 def test_final_maps_cover_empty_facade_unicode_and_private_unused_units(
@@ -221,7 +238,7 @@ def test_final_maps_cover_empty_facade_unicode_and_private_unused_units(
 ) -> None:
     final = _compile_current_closure(tmp_path, extended=True)
     cpp_maps, rtl_maps = (
-        _map_rows(_collect(final, "cpp")),
+        _map_rows(_collect(final, "structural-cpp")),
         _map_rows(_collect(final, "verilog")),
     )
     expected = {
@@ -237,12 +254,15 @@ def test_final_maps_cover_empty_facade_unicode_and_private_unused_units(
         assert cpp_maps[filename]["origins"] == rtl_maps[filename]["origins"] == []
         assert rtl_maps[filename]["generated_files"] == []
     for filename in ("types.py", "empty.py", "子.py", "facade/__init__.py"):
-        stem = (
-            "facade/__init__" if filename.startswith("facade/") else Path(filename).stem
-        )
-        assert cpp_maps[filename]["generated_files"] == [
-            f"sources/source_public/{stem}.hpp"
-        ]
+        # Structural C++ emits one shared design header and one source-owned
+        # implementation unit per published source; the map owns the latter.
+        expected_unit = {
+            "types.py": "source_unit_4.cpp",
+            "empty.py": "source_unit_2.cpp",
+            "子.py": "source_unit_5.cpp",
+            "facade/__init__.py": "source_unit_3.cpp",
+        }[filename]
+        assert cpp_maps[filename]["generated_files"] == [expected_unit]
         assert rtl_maps[filename]["generated_files"] == []
     expected_types = _expected_origins("types.py")
     assert [
@@ -282,7 +302,7 @@ def test_removed_unreferenced_facade_inventory_is_not_historical_authentication(
     changed.write_text(
         _replace_attribute(text, "ac.source_units", inventory), encoding="utf-8"
     )
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         payload = _collect(changed, target)
         observed = {item["source"]["path"] for item in payload["source_maps"]}
         assert observed == OWNERS - {"facade.py"}

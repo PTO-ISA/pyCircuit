@@ -922,6 +922,7 @@ private:
   LogicalResult scanModules();
   LogicalResult scanSourceCallables();
   bool intrinsic(const AstNode &node, StringRef name) const;
+  FailureOr<StringRef> fourStatePattern(const AstNode &node);
   bool fixedAnnotation(const AstNode &node) const;
   bool hasDecorator(const AstNode &node, StringRef name) const;
   LogicalResult scanStructs();
@@ -2630,7 +2631,12 @@ FailureOr<Type> Importer::portType(const AstNode &node,
     auto width = staticExpr(node.child("slice"), ownerSymbol);
     if (failed(width))
       return failure();
-    return Type(ac::BitsType::get(b.getContext(), *width));
+    auto type = ac::BitsType::getChecked(
+        [&] { return mlir::emitError(node.location(b.getContext(), source.path)); },
+        b.getContext(), *width);
+    if (!type)
+      return failure();
+    return Type(type);
   }
   if (node.kind() == "Subscript" && intrinsic(node.child("value"), "table")) {
     auto tuple = node.child("slice");
@@ -2646,8 +2652,12 @@ FailureOr<Type> Importer::portType(const AstNode &node,
       return failure();
     if (!isa<ac::BitsType, ac::StructType, ac::EnumType>(*element))
       return error() << "table element must be finite bits, struct or enum";
-    return Type(ac::TableType::get(b.getContext(), b.getArrayAttr({*extent}),
-                                   *element));
+    auto type = ac::TableType::getChecked(
+        [&] { return mlir::emitError(node.location(b.getContext(), source.path)); },
+        b.getContext(), b.getArrayAttr({*extent}), *element);
+    if (!type)
+      return failure();
+    return Type(type);
   }
   if (node.kind() == "Name" && node.string("id") == "bool") {
     auto one = parseStaticInteger(b, "1", error);
@@ -2688,7 +2698,12 @@ FailureOr<Type> Importer::portType(const AstNode &node,
   auto width = staticExpr(bound.child("right"), ownerSymbol);
   if (failed(width))
     return failure();
-  return Type(ac::BitsType::get(b.getContext(), *width));
+  auto type = ac::BitsType::getChecked(
+      [&] { return mlir::emitError(node.location(b.getContext(), source.path)); },
+      b.getContext(), *width);
+  if (!type)
+    return failure();
+  return Type(type);
 }
 
 FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
@@ -3841,6 +3856,15 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
       return failure();
     return shape->resultType;
   }
+  if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state")) {
+    auto pattern = fourStatePattern(node);
+    if (failed(pattern))
+      return failure();
+    return Type(bits(pattern->size(), node, ownerSymbol));
+  }
+  if (node.kind() == "Call" && (intrinsic(node.child("func"), "case_eq") ||
+                                intrinsic(node.child("func"), "is_known")))
+    return Type(bits(1, node, ownerSymbol));
   if (concatCall(node)) {
     if (failed(validateConcatCall(node)))
       return failure();
@@ -5439,7 +5463,8 @@ LogicalResult Importer::preflightQueryCallback(
     if (node.kind() == "Call") {
       auto function = node.child("func");
       bool pure = false;
-      for (StringRef name : {"concat", "popcount", "count_leading_zeros",
+      for (StringRef name : {"concat", "four_state", "case_eq", "is_known",
+                             "popcount", "count_leading_zeros",
                              "count_trailing_zeros", "enum_to_bits"})
         pure |= intrinsic(function, name);
       auto binding = lookupBinding(function);
@@ -5938,6 +5963,32 @@ LogicalResult Importer::prepare() {
     return failure();
   return success(!diagnosticFailed);
 }
+FailureOr<StringRef> Importer::fourStatePattern(const AstNode &node) {
+  if (node.array("args").size() != 1 || !node.array("keywords").empty())
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << "four_state requires one nonempty source string literal "
+              "containing only 0/1/x/X/z/Z";
+  auto argument = node.item("args", 0);
+  auto pattern = dyn_cast_or_null<StringAttr>(argument.get("value"));
+  if (argument.kind() != "Constant" || !pattern || pattern.getValue().empty() ||
+      !llvm::all_of(pattern.getValue(), [](char bit) {
+        return bit == '0' || bit == '1' || bit == 'x' || bit == 'X' ||
+               bit == 'z' || bit == 'Z';
+      }))
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << "four_state requires one nonempty source string literal "
+              "containing only 0/1/x/X/z/Z";
+  TableQueryCharge charge;
+  std::string reason;
+  if (!TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
+                             pattern.getValue().size()) ||
+      !TableQueryBudget::add(charge, TableQueryResource::Work,
+                             pattern.getValue().size()) ||
+      !queryBudget.reserve(charge, reason))
+    return error() << "four_state pattern budget exceeded: " << reason;
+  return pattern.getValue();
+}
+
 FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
   grantProof =
       std::make_unique<OwnerEnableProof>(*body, ruleWrites.spentWork());

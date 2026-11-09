@@ -74,7 +74,7 @@ def test_quickstart_commands_compile_link_and_emit_the_same_final() -> None:
     final = link_commands[0][link_commands[0].index("-o") + 1]
     assert all(command[2] == final for command in emit_commands)
     assert {command[command.index("--target") + 1] for command in emit_commands} == {
-        "cpp",
+        "structural-cpp",
         "verilog",
     }
 
@@ -132,7 +132,7 @@ def test_quickstart_python_source_compiles_links_and_emits_both_targets(
     )
     run("link", str(unit), "--top", "demo.hello_counter.HelloCounter", "-o", str(final))
     before = final.read_bytes()
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         output = tmp_path / target
         run("emit", str(final), "--target", target, "-o", str(output))
         assert (output / "generated.json").is_file()

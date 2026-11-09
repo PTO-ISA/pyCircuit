@@ -59,7 +59,7 @@ an isolated RTL process checks the effective-unknown-transfer diagnostic.
 `bench.py` exports `example_barrier_pipeline.bench.ExerciseBarrierPipeline`. Compile
 `barrier_pipeline.py`, then `bench.py`, import the published DUT interface, and link
 that explicit system root through the public compile/link/emit flow. Run
-`pycircuit run examples/barrier_pipeline --target cpp --cycles 347` or select
+`pycircuit run examples/barrier_pipeline --target structural-cpp --cycles 347` or select
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 

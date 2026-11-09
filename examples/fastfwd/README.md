@@ -30,6 +30,6 @@ above; typed inputs/results group them for Python authoring.
 The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
 ```bash
-pycircuit run examples/fastfwd --target cpp --cycles 24 --build-dir .pycircuit_out/fastfwd/system-cpp
+pycircuit run examples/fastfwd --target structural-cpp --cycles 24 --build-dir .pycircuit_out/fastfwd/system-structural-cpp
 pycircuit run examples/fastfwd --target verilog --cycles 24 --build-dir .pycircuit_out/fastfwd/system-verilog
 ```

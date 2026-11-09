@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "ACIRSourceContracts.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -77,6 +78,21 @@ LogicalResult BitsConstantOp::verify() {
   return success();
 }
 
+LogicalResult BitsConstant4Op::verify() {
+  StringRef pattern = getPattern();
+  if (pattern.empty() || !llvm::all_of(pattern, [](char bit) {
+        return bit == '0' || bit == '1' || bit == 'x' || bit == 'z';
+      }))
+    return emitOpError()
+           << "pattern requires nonempty canonical lowercase 0/1/x/z";
+  auto width = literalInteger(getResult().getType().getWidth());
+  if (!width || width->isNegative() || width->getActiveBits() > 64 ||
+      width->getZExtValue() != pattern.size())
+    return emitOpError()
+           << "pattern length must equal the positive literal result width";
+  return success();
+}
+
 LogicalResult BitsUnaryOp::verify() {
   if (getOpcode() != "not")
     return emitOpError() << "opcode must be 'not'";
@@ -109,6 +125,29 @@ LogicalResult BitsSelectOp::verify() {
     return failure();
   return requireSameWidth(*this, getTrueValue().getType(),
                           getFalseValue().getType(), getResult().getType());
+}
+
+LogicalResult ValueRequireOp::verify() {
+  auto package = (*this)->getParentOfType<mlir::ModuleOp>();
+  if (auto stage = package
+                       ? package->getAttrOfType<StringAttr>("ac.stage")
+                       : StringAttr();
+      stage && stage.getValue() == "source")
+    return emitOpError() << "is compiler-owned final availability evidence";
+  if (!isa<RuleOp, ModuleOp>((*this)->getParentOp()))
+    return emitOpError() << "requires an immediate hardware Module or Rule";
+  if (failed(requireOneBit(getAvailability().getType(), *this,
+                           "required availability")) ||
+      failed(requireOneBit(getPath().getType(), *this,
+                           "required use path")) ||
+      failed(requireOneBit(getResult().getType(), *this,
+                           "required use result")) ||
+      failed(detail::verifyOccurrence(getOccurrence(),
+                                      [&] { return emitOpError(); })) ||
+      failed(detail::verifySourceSpan(getSourceLocation(),
+                                      [&] { return emitOpError(); })))
+    return failure();
+  return success();
 }
 
 LogicalResult BitsConcatOp::verify() {

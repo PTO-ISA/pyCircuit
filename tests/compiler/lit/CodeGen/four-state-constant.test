@@ -1,0 +1,30 @@
+# REQUIRES: iverilog, vvp
+# RUN: %pycircuit_opt %inputs/four-state-constant.mlir --ac-lower-transactions --ac-final-to-hwir -o %t.hwir.mlir
+# RUN: %FileCheck %s --check-prefix=HWIR < %t.hwir.mlir
+# RUN: %pycircuit_emit %t.hwir.mlir --target structural-cpp --format source > %t.cpp
+# RUN: %FileCheck %s --check-prefix=CPP < %t.cpp
+# RUN: %cxx -std=c++20 -fsyntax-only -I %include %t.cpp
+# RUN: cp %t.cpp %t.run.cpp
+# RUN: %python -c 'import re,sys; p=sys.argv[1]; s=open(p).read(); c=re.search(r"class (top__h[0-9a-f]+)",s).group(1); open(p,"a").write(f"int main(){{ {c} d(\"dut\"); auto k=[](unsigned v){{return gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{{v}});}}; d.payload=gfsim::wire<gfsim::Bits<65>>::known(gfsim::Bits<65>{{0}}); for(unsigned path=0;path<2;++path) for(unsigned available=0;available<2;++available){{d.path=k(path);d.available=k(available);d.Work();unsigned expected=path?available:1;if(d.required.packed().value().value()!=expected||!d.required.packed().isFullyKnown())return 1;}} return 0;}}\n")' %t.run.cpp
+# RUN: %cxx -std=c++20 -I %include %t.run.cpp -o %t.run
+# RUN: %t.run
+# RUN: %pycircuit_emit %t.hwir.mlir --target verilog --format source > %t.sv
+# RUN: %FileCheck %s --check-prefix=RTL < %t.sv
+# RUN: %python -c 'p=open("%t.sv").read();open("%t.tb.sv","w").write(p+"\nmodule tb; logic [64:0] payload; logic available,path; wire c1; wire [64:0] c65; wire [129:0] c130; wire required; pyc_root dut(payload,available,path,c1,c65,c130,required); initial begin payload=0; path=0; available=0; #1; if(required!==1) $fatal(1); path=1; available=0; #1; if(required!==0) $fatal(1); available=1; #1; if(required!==1) $fatal(1); $finish; end endmodule\n")'
+# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.tb.sv
+# RUN: %vvp %t.vvp
+
+# HWIR-NOT: ac.value.require
+# HWIR-DAG: "ac.bits.constant4"() <{pattern = "z"}>
+# HWIR-DAG: "ac.bits.constant4"() <{pattern = "1"}>
+# HWIR: "ac.bits.select"
+
+# CPP: gfsim::FourState<1>::fromMasks(gfsim::Bits<1>{0ULL}, gfsim::Bits<1>{0ULL}, gfsim::Bits<1>{1ULL})
+# CPP: gfsim::FourState<65>::fromMasks
+# CPP: gfsim::FourState<130>::fromMasks
+# CPP: gfsim::select(
+
+# RTL: assign {{.*}} = 1'bz;
+# RTL: assign {{.*}} = 65'b1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxz;
+# RTL: assign {{.*}} = 130'b10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xz10xzxz;
+# RTL: assign {{.*}} = ({{.*}}) ? ({{.*}}) : ({{.*}});

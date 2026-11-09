@@ -1,7 +1,7 @@
 // Full-port oracle for the historical stateless Fastfwd stub.
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>

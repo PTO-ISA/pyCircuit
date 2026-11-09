@@ -1,1 +1,1 @@
-# RUN: %python %inputs/collection_structure.py %pycircuit_emit %inputs %t.dir
+# RUN: %python %inputs/collection_structure.py %pycircuit_opt %pycircuit_emit %inputs %t.dir

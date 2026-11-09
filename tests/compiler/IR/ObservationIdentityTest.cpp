@@ -611,9 +611,6 @@ TEST_F(ObservationIdentityTest,
   ASSERT_TRUE(succeeded(metadata));
   EXPECT_NE(metadata->find("\"ordinal\":7"), std::string::npos);
   EXPECT_NE(metadata->find("\"invocation\":[{"), std::string::npos);
-  auto native = acir::compiler::cppObservationRunnerMetadata(emitter);
-  ASSERT_TRUE(succeeded(native));
-  EXPECT_NE(native->find("root/child"), std::string::npos);
 }
 
 TEST_F(ObservationIdentityTest, MultilevelRelocationCollisionRejects) {

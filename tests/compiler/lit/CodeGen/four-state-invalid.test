@@ -1,0 +1,2 @@
+# RUN: not %pycircuit_opt %inputs/four-state-invalid.mlir --hwir-verify 2>&1 | %FileCheck %s
+# CHECK: 'ac.bits.constant4' op pattern requires nonempty canonical lowercase 0/1/x/z

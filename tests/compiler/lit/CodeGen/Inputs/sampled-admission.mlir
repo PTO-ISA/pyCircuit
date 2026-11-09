@@ -36,7 +36,7 @@
 #conditional_site5 = {site = {definition = @Conditional, ast_path = [{kind = "index", value = 15 : i64}]}, expansion = []}
 #conditional_check5 = {registration = #conditional_registration, check = #conditional_site5, obligation = 5 : i64}
 
-module attributes {ac.stage = "final", ac.source_units = [{package = "", path = "sampled_admission.py"}]} {
+module attributes {ac.stage = "final", ac.source_units = [{package = "", path = "sampled_admission.py"}], hwir.hardware_only} {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
 
   "ac.module"() ({

@@ -1,6 +1,6 @@
 // Physical IR pyc_clk/pyc_rst use the existing injective generated identifier
 // spelling: pyc_7079635f636c6b / pyc_7079635f727374.
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include "gfsim/SimExecutor.h"
 #include <array>
 #include <cstdlib>

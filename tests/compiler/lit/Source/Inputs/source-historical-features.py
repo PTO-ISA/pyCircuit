@@ -196,9 +196,9 @@ def main():
         final = output / "design.ac"
         entry = f"history_features.{name}.{symbol}"
         cli("link", *providers, unit, "--top", entry, "-o", final)
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
-        cpp = output / "cpp"
+        cpp = output / "structural-cpp"
         receipt = json.loads((cpp / "generated.json").read_text())
         sources = [
             cpp / row["path"]
@@ -306,7 +306,7 @@ def main():
         entry = f"history_features.bench.{symbol}"
         cli("link", *providers, bench, "--top", entry, "-o", final)
         transcripts = []
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             generated = output / target
             cli("emit", final, "--target", target, "-o", generated)
             metadata = json.loads(
@@ -318,7 +318,7 @@ def main():
                 "source_checks": check_count,
             }
             executable = output / ("simulation-" + target)
-            if target == "cpp":
+            if target == "structural-cpp":
                 manifest = json.loads((generated / "generated.json").read_text())
                 sources = [
                     generated / item["path"]
@@ -353,10 +353,17 @@ def main():
                         args.verilator,
                     ]
                 )
-            for workers in (1, 2) if target == "cpp" else (1,):
+            for workers in (1, 2) if target == "structural-cpp" else (1,):
                 arguments = (
-                    ["--cycles", str(cycles), "--workers", str(workers)]
-                    if target == "cpp"
+                    [
+                        "--cycles",
+                        str(cycles),
+                        "--workers",
+                        str(workers),
+                        "--events",
+                        "-",
+                    ]
+                    if target == "structural-cpp"
                     else [f"+cycles={cycles}"]
                 )
                 stdout = run([executable, *arguments])

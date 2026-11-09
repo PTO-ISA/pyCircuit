@@ -114,6 +114,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/popcount_pipeline --target cpp --cycles 184
+pycircuit run examples/popcount_pipeline --target structural-cpp --cycles 184
 pycircuit run examples/popcount_pipeline --target verilog --cycles 184
 ```

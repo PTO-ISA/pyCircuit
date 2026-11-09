@@ -3,7 +3,7 @@ module tb;
   logic [0:2] en_left, en_right;
   logic [0:2][7:0] init_left, init_right, data;
   wire [0:2][7:0] qa, qb;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     for (integer i=0;i<3;i=i+1) begin
       en_left[i]=1; en_right[i]=1; init_left[i]=i+1; init_right[i]=10+i; data[i]=20+i;

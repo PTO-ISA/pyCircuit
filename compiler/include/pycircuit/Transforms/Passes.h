@@ -11,6 +11,7 @@ std::unique_ptr<mlir::Pass> createSimplifyRecordWiresPass();
 std::unique_ptr<mlir::Pass> createAnalyzeSourceMethodSummariesPass();
 std::unique_ptr<mlir::Pass> createAnalyzeTransactionStateSSAPass();
 std::unique_ptr<mlir::Pass> createLowerTransactionsPass();
+std::unique_ptr<mlir::Pass> createFinalACIRToHWIRPass();
 void registerACIRPasses();
 } // namespace acir
 #endif

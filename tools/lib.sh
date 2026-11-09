@@ -7,6 +7,29 @@ pyc_log() { echo "[pyc] $*"; }
 pyc_warn() { echo "[pyc][warn] $*" >&2; }
 pyc_die() { echo "[pyc][error] $*" >&2; exit 1; }
 
+pyc_require_python() {
+  local requested="${PYC_PYTHON_EXECUTABLE:-python3}"
+  local python
+  if [[ "${requested}" == */* ]]; then
+    python="${requested}"
+  else
+    python="$(command -v -- "${requested}")" ||
+      pyc_die "Python interpreter was not found: ${requested}"
+  fi
+  [[ -x "${python}" ]] || pyc_die "Python interpreter is not executable: ${python}"
+  "${python}" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' \
+    >/dev/null 2>&1 || pyc_die "Python 3.11 or later is required: ${python}"
+  echo "${python}"
+}
+
+pyc_require_pytest() {
+  local python
+  python="$(pyc_require_python)"
+  "${python}" -c 'import pytest' >/dev/null 2>&1 ||
+    pyc_die "${python} cannot import pytest; set PYC_PYTHON_EXECUTABLE to the project test interpreter"
+  echo "${python}"
+}
+
 pyc_toolchain_root() {
   if [[ -n "${PYC_TOOLCHAIN_ROOT:-}" && -d "${PYC_TOOLCHAIN_ROOT}" ]]; then
     echo "${PYC_TOOLCHAIN_ROOT}"
@@ -77,10 +100,24 @@ if not names:
 (folder / f"{suite}-{tier}-summary.json").write_text(json.dumps({
     "run_id": folder.name, "suite": suite, "tier": tier, "status": "pass",
     "scope": scope, "ctest_count": len(names), "tests": names,
-    "package_tests": suite == "api" and tier == "nightly",
+    "package_tests": suite == "api",
 }, indent=2) + "\n")
 PYTHON
   pyc_log "${suite} ${tier} passed; selection and results: ${docs_gate_dir}"
+}
+
+pyc_require_real_lit() {
+  local runner
+  runner="$(sed -n 's/^LLVM_EXTERNAL_LIT:FILEPATH=//p' "$1/CMakeCache.txt")"
+  [[ -n "${runner}" && -x "${runner}" ]] ||
+    pyc_die "configured LLVM_EXTERNAL_LIT is missing or not executable: ${runner:-<empty>}"
+  local version
+  version="$(${runner} --version 2>&1)" ||
+    pyc_die "configured LLVM_EXTERNAL_LIT failed --version: ${runner}"
+  local name
+  name="$(basename "${runner}")"
+  [[ "${name}" =~ ^(llvm-)?lit(\.py)?$ && "${version}" == *lit* ]] ||
+    pyc_die "configured LLVM_EXTERNAL_LIT is not a real lit runner: ${runner} reported '${version}'"
 }
 
 pyc_list_tests() {

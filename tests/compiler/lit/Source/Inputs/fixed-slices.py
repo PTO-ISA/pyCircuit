@@ -62,6 +62,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -497,10 +498,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         sys.stdout.write("fixed slices pre-fix baseline rejects unsigned slicing\n")
         sys.exit(0)
     compile_source(unit)
-    retained = scratch / "retained"
-    retained.mkdir()
+    retained = Path(tempfile.mkdtemp(prefix="retained-", dir=scratch))
     shutil.copyfile(design, retained / "design.py")
-    shutil.copytree(unit, retained / "unit")
+    shutil.copytree(unit, retained / "unit", dirs_exist_ok=True)
     sys.path.insert(0, str(repo / "python"))
     from pycircuit._source_capture import _capture_source_file
     from pycircuit._source_transport import _emit_source_transport
@@ -508,8 +508,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     captured = _capture_source_file(design, source_root=source)
     transport = retained / "design.transport.mlir"
     transport.write_text(_emit_source_transport(captured), encoding="utf-8")
-    reproduced = retained / "native-reproduction"
-    reproduced.mkdir()
+    reproduced = Path(
+        tempfile.mkdtemp(prefix="native-reproduction-", dir=retained)
+    )
     run(
         [
             args.source_compiler,
@@ -557,11 +558,11 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         output.mkdir()
         final = output / "design_top.ac"
         cli("link", unit, "--top", "slices.design." + top, "-o", final)
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
-        receipt = json.loads((output / "cpp/generated.json").read_text())
+        receipt = json.loads((output / "structural-cpp/generated.json").read_text())
         cpp = [
-            output / "cpp" / row["path"]
+            output / "structural-cpp" / row["path"]
             for row in receipt["files"]
             if row["path"].endswith(".cpp")
         ]
@@ -574,7 +575,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
                 "-pthread",
                 *defines,
                 "-I" + str(repo / "include"),
-                "-I" + str(output / "cpp"),
+                "-I" + str(output / "structural-cpp"),
                 fixtures / "fixed-slices.cpp",
                 *cpp,
                 runtime,
@@ -655,9 +656,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         root_stages = retained / top
         root_stages.mkdir()
         shutil.copyfile(final, root_stages / "design_top.ac")
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             shutil.copytree(output / target, root_stages / target)
-        products.extend([final, output / "cpp", output / "verilog"])
+        products.extend([final, output / "structural-cpp", output / "verilog"])
 
     for name, content in fact_controls.items():
         design.write_text(content)

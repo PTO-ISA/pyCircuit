@@ -283,7 +283,10 @@ def test_replace_rejects_a_different_publication_owner(tmp_path: Path) -> None:
     destination = tmp_path / "unit"
     _publish(destination, "first")
     other = _publication_owner_generated(
-        package="demo", path="leaf.py", definition='@"demo.leaf.Leaf"', target="cpp"
+        package="demo",
+        path="leaf.py",
+        definition='@"demo.leaf.Leaf"',
+        target="structural-cpp",
     )
 
     with pytest.raises(_PublicationError, match="validation failed"):

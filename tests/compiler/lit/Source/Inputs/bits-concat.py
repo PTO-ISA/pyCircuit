@@ -64,6 +64,7 @@ def run(command, code=0, diagnostic=None):
 
 
 def cli(*arguments, **options):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], **options)
 
 
@@ -215,8 +216,14 @@ cases = {
         scalar("ac.concat(value)", "Record", prelude=struct_decl),
         "concat operand 1 " + fixed,
     ),
-    "tuple": (scalar("ac.concat((value, value))"), "unsupported"),
-    "list": (scalar("ac.concat([value])"), "unsupported"),
+    "tuple": (
+        scalar("ac.concat((value, value))"),
+        "tuple/list literal requires an expected Table type",
+    ),
+    "list": (
+        scalar("ac.concat([value])"),
+        "tuple/list literal requires an expected Table type",
+    ),
     "string": (scalar('ac.concat("bits")'), "literal"),
     "table": (
         scalar(
@@ -252,7 +259,7 @@ cases = {
     "unresolved-marker": (scalar("concat(value)"), "unsupported"),
     "zero-width": (
         scalar("ac.concat(value)", base="ac.bits[0]"),
-        "hardware static value must be positive and fit u64",
+        "bits width must be positive",
     ),
     "negative-width": (
         scalar("ac.concat(value)", base="ac.bits[0 - 1]"),
@@ -400,12 +407,12 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
     )
     final_hash = digest(final)
     (scratch / "final.ac").write_bytes(final.read_bytes())
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
         assert digest(final) == final_hash
-    receipt = json.loads((output / "cpp/generated.json").read_text())
+    receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / row["path"]
+        output / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -430,7 +437,7 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
             "-std=c++20",
             "-pthread",
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             fixtures / "bits-concat.cpp",
             *cpp,
             runtime,
@@ -503,7 +510,7 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
         provider,
         unit,
         final,
-        output / "cpp",
+        output / "structural-cpp",
         output / "verilog",
         *control_paths,
     ]
@@ -512,9 +519,9 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
     def assert_protected():
         assert {str(path): managed(path) for path in protected_paths} == before
 
-    # Compile-only observation preflight plus actual capture lowering; cpp now
-    # publishes the observation surface while verilog still rejects
-    # instrumentation. Neither may displace a product owned by another design.
+    # Compile-only observation preflight plus actual capture lowering. Both
+    # hardware backends publish the observation surface, and neither may
+    # displace a product owned by another design.
     (source / "observe.py").write_text(observation("ac.concat(alias[:3], value)"))
     observe_unit = build / "observe-unit"
     compile_source("observe.py", observe_unit)
@@ -524,30 +531,24 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
     cli("link", observe_unit, "--top", "concat_probe.observe.Top", "-o", observe_final)
     protected_paths.extend((observe_unit, observe_final))
     before.update({str(path): managed(path) for path in (observe_unit, observe_final)})
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         absent = build / ("observe-" + target)
-        if target == "cpp":
+        cli("emit", observe_final, "--target", target, "-o", absent)
+        observe_receipt = json.loads((absent / "generated.json").read_text())
+        if target == "structural-cpp":
             # C++ lowers `ac.observe` into a wired descriptor table.
-            cli("emit", observe_final, "--target", target, "-o", absent)
-            observe_receipt = json.loads((absent / "generated.json").read_text())
             observe_header = next(
                 row["path"]
                 for row in observe_receipt["files"]
-                if row["path"].endswith("pycircuit_system.hpp")
+                if row["path"].endswith("design.hpp")
             )
             observe_system = (absent / observe_header).read_text()
-            assert "pyc_observation_descriptors" in observe_system
-            assert "Configure(pyc_observation_descriptors" in observe_system
-            assert "Configure({}, 0)" not in observe_system
+            assert "ObservationDescriptor" in observe_system
+            assert "Configure(descriptors," in observe_system
         else:
-            rejected = cli(
-                "emit", observe_final, "--target", target, "-o", absent, code=1
-            )
-            assert any(
-                word in rejected.stderr.lower()
-                for word in ("instrument", "observation", "observe")
-            ), rejected.stderr
-            assert not absent.exists()
+            assert "design_top.sv" in {
+                row["path"] for row in observe_receipt["files"]
+            }
         cli(
             "emit",
             observe_final,
@@ -557,14 +558,9 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
             output / target,
             "--replace",
             code=1,
-            # The published cpp product comes from the unobserved `design.py`,
-            # so its owner differs and the publisher refuses the replacement;
-            # verilog still rejects the instrumentation itself.
-            diagnostic=(
-                "generated.json entry does not match its owner"
-                if target == "cpp"
-                else "ac.observe"
-            ),
+            # The published product comes from the unobserved `design.py`, so
+            # its owner differs and the publisher refuses the replacement.
+            diagnostic="generated.json entry does not match its owner",
         )
         assert_protected()
 

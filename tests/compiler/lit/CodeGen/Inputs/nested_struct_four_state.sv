@@ -6,7 +6,7 @@ module tb;
   logic [78:0] saved;
   wire [78:0] q;
   wire [7:0] tag;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   task check(input logic [78:0] expected);
     if(q !== expected || tag !== expected[78:71])
       $fatal(1,"nested struct exact layout/projection/value/X/Z mismatch");

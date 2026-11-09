@@ -109,6 +109,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/onehot_encode --target cpp --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-cpp
+pycircuit run examples/onehot_encode --target structural-cpp --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-structural-cpp
 pycircuit run examples/onehot_encode --target verilog --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-verilog
 ```

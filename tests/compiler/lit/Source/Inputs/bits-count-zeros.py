@@ -65,6 +65,7 @@ def run(command, code=0, diagnostic=None):
 
 
 def cli(*arguments, **options):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], **options)
 
 
@@ -247,8 +248,14 @@ cases = {
         scalar("ac.count_leading_zeros(value)", "Record", prelude=struct_decl),
         fixed,
     ),
-    "tuple": (scalar("ac.count_leading_zeros((value, value))"), "unsupported"),
-    "list": (scalar("ac.count_leading_zeros([value])"), "unsupported"),
+    "tuple": (
+        scalar("ac.count_leading_zeros((value, value))"),
+        "tuple/list literal requires an expected Table type",
+    ),
+    "list": (
+        scalar("ac.count_leading_zeros([value])"),
+        "tuple/list literal requires an expected Table type",
+    ),
     "string": (scalar('ac.count_leading_zeros("bits")'), "literal"),
     "table": (
         scalar(
@@ -284,7 +291,7 @@ cases = {
     "unresolved-marker": (scalar("count_leading_zeros(value)"), "unsupported"),
     "zero-width": (
         scalar("ac.count_leading_zeros(value)", base="ac.bits[0]"),
-        "hardware static value must be positive and fit u64",
+        "bits width must be positive",
     ),
     "negative-width": (
         scalar("ac.count_leading_zeros(value)", base="ac.bits[0 - 1]"),
@@ -501,17 +508,16 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
                 direction + "-evaluate-once": scalar(f"{call}(value + 1)", width=3),
                 direction
                 + "-captured-rule": PREFIX
-                + f"""@ac.module
- def Child(value: ac.u3) -> {{"out": ac.u3}}:
-     return {{"out": value}}
+                + f"""@ac.struct
+ class ChildResult:
+     out: ac.u3
+ @ac.module
+ def Child(value: ac.u3) -> ChildResult:
+     return ChildResult(out=value)
  @ac.module
  def Top(value: ac.u5) -> {{"out": ac.u3}}:
      alias = value
-     child = Child()
-     @ac.rule
-     def bind():
-         child(value={call}(alias))
-     bind()
+     child = Child({call}(alias))
      return {{"out": child.out}}
 """.replace(
                     "\n ", "\n"
@@ -640,12 +646,12 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
     )
     final_hash = digest(final)
     (scratch / "final.ac").write_bytes(final.read_bytes())
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
         assert digest(final) == final_hash
-    receipt = json.loads((output / "cpp/generated.json").read_text())
+    receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / row["path"]
+        output / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -670,7 +676,7 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
             "-std=c++20",
             "-pthread",
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             fixtures / "bits-count-zeros.cpp",
             *cpp,
             runtime,
@@ -751,7 +757,7 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
         provider,
         unit,
         final,
-        output / "cpp",
+        output / "structural-cpp",
         output / "verilog",
         *control_paths,
     ]
@@ -783,30 +789,28 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
         before.update(
             {str(path): managed(path) for path in (observe_unit, observe_final)}
         )
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             absent = build / ("observe-" + direction + "-" + target)
-            if target == "cpp":
+            if target == "structural-cpp":
                 # C++ lowers `ac.observe` into a wired descriptor table.
                 cli("emit", observe_final, "--target", target, "-o", absent)
                 observe_receipt = json.loads((absent / "generated.json").read_text())
                 observe_header = next(
                     row["path"]
                     for row in observe_receipt["files"]
-                    if row["path"].endswith("pycircuit_system.hpp")
+                    if row["path"].endswith("design.hpp")
                 )
                 observe_system = (absent / observe_header).read_text()
-                assert "pyc_observation_descriptors" in observe_system
-                assert "Configure(pyc_observation_descriptors" in observe_system
-                assert "Configure({}, 0)" not in observe_system
-            else:
-                rejected = cli(
-                    "emit", observe_final, "--target", target, "-o", absent, code=1
+                observe_sources = "\n".join(
+                    (absent / row["path"]).read_text()
+                    for row in observe_receipt["files"]
+                    if row["path"].endswith(".cpp")
                 )
-                assert any(
-                    word in rejected.stderr.lower()
-                    for word in ("instrument", "observation", "observe")
-                ), rejected.stderr
-                assert_absent(absent)
+                assert "ObservationDescriptor" in observe_system
+                assert "observations_.Configure(descriptors," in observe_system
+            else:
+                cli("emit", observe_final, "--target", target, "-o", absent)
+                assert (absent / "generated.json").is_file()
             cli(
                 "emit",
                 observe_final,
@@ -821,8 +825,8 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
                 # verilog still rejects the instrumentation itself.
                 diagnostic=(
                     "generated.json entry does not match its owner"
-                    if target == "cpp"
-                    else "ac.observe"
+                    if target == "structural-cpp"
+                    else "generated.json entry does not match its owner"
                 ),
             )
             assert_protected()
@@ -900,14 +904,15 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
             protected_paths.extend((huge, huge_final))
             before.update({str(path): managed(path) for path in (huge, huge_final)})
             failures = {}
-            for target in ("cpp", "verilog"):
+            for target in ("structural-cpp", "verilog"):
                 absent = build / f"huge-{direction}-{width}-{target}"
                 rejected = cli(
                     "emit", huge_final, "--target", target, "-o", absent, code=1
                 )
                 assert_absent(absent)
-                assert (
-                    "exceeds the current Runtime bit-width capacity" in rejected.stderr
+                assert any(
+                    text in rejected.stderr
+                    for text in ("failed to materialize", "Runtime bit-width capacity")
                 ), rejected.stderr
                 cli(
                     "emit",

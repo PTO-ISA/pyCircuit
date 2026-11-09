@@ -108,19 +108,30 @@ def _generated_receipt(
     ) as error:
         raise _PublicationError("generated.json is not strict UTF-8 JSON") from error
 
-    if type(value) is not dict or set(value) != {
+    base_fields = {
         "kind",
         "target",
         "entry",
         "entry_source",
         "files",
         "source_groups",
+    }
+    extended_fields = set(base_fields) | {"ir_contract"}
+    if expected_owner["target"] == "verilog":
+        extended_fields.add("rtl_mode")
+    if type(value) is not dict or frozenset(value) not in {
+        frozenset(base_fields),
+        frozenset(extended_fields),
     }:
         raise _PublicationError("generated.json fields are not closed")
     if value["kind"] != "pycircuit-generated":
         raise _PublicationError("generated.json kind is invalid")
     if type(value["target"]) is not str or value["target"] != expected_owner["target"]:
         raise _PublicationError("generated.json target does not match its owner")
+    if "ir_contract" in value and value["ir_contract"] != "hwir-v2":
+        raise _PublicationError("generated.json IR contract is invalid")
+    if "rtl_mode" in value and value["rtl_mode"] not in {"managed", "physical"}:
+        raise _PublicationError("generated.json RTL mode is invalid")
 
     entry = value["entry"]
     if type(entry) is not dict or set(entry) != {"definition", "arguments"}:

@@ -37,6 +37,7 @@ commands = []
 
 
 def run(arguments, accepted=True):
+    arguments = list(arguments)
     command = [sys.executable, "-m", "pycircuit.cli", *map(str, arguments)]
     result = subprocess.run(
         command, env=env, cwd=repo, capture_output=True, text=True, timeout=20
@@ -146,7 +147,7 @@ for name in ("child.ac", "child.d"):
 final = root / "program.ac"
 run(["link", child, parent, "--top", "bindings.parent.Top", "-o", final])
 final_hash = hashlib.sha256(final.read_bytes()).hexdigest()
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     output = root / target
     run(["emit", final, "--target", target, "-o", output])
     assert (output / "generated.json").is_file()

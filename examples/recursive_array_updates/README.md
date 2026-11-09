@@ -98,7 +98,7 @@ The closed system also passes both backends for 16 cycles (32 sampling epochs,
 bind the module's execution and source/artifact fingerprints.
 
 ```sh
-pycircuit run examples/recursive_array_updates --target cpp --cycles 16
+pycircuit run examples/recursive_array_updates --target structural-cpp --cycles 16
 pycircuit run examples/recursive_array_updates --target verilog --cycles 16
 ```
 

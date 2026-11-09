@@ -7,22 +7,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 from platform_tags import wheel_plat_name
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ in CI; 3.10 needs tomli.
-    try:
-        import tomli as tomllib  # type: ignore[no-redef]
-    except (
-        ModuleNotFoundError
-    ) as exc:  # pragma: no cover - depends on local Python version.
-        raise SystemExit(
-            "wheel packaging requires Python 3.11+ or `tomli` on Python 3.10"
-        ) from exc
-
 
 PRIVATE_HELPERS = (
     "pycircuit-source-unit",
@@ -45,6 +33,7 @@ RUNTIME_CMAKE_FILES = (
     "pycircuitConfig.cmake",
     "pycircuitConfigVersion.cmake",
     "pycircuitRuntimeTargets.cmake",
+    "verilator_policy.json",
 )
 RETIRED_PYTHON_TREES = ("_pycircuit_semantics", "agentic_circuit")
 BUILD_HELPER_SCRIPTS = frozenset(
@@ -185,7 +174,7 @@ def _relocate(stage: Path, platform: str) -> None:
     """
     sdk_tools = Path(__file__).resolve().parents[1] / "sdk"
     sys.path.insert(0, str(sdk_tools))
-    import create_platform_manifest  # noqa: PLC0415 - single shared implementation
+    import create_platform_manifest  # type: ignore[import-not-found] # noqa: PLC0415
 
     create_platform_manifest.relocate_native_dependencies(
         stage, platform, stage / "pycircuit" / "_toolchain" / "lib"

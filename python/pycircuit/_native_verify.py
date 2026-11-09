@@ -22,6 +22,7 @@ _HELPERS: dict[str, tuple[str, str]] = {
     "source-unit": ("pycircuit-source-unit", "PYCIRCUIT_SOURCE_COMPILER"),
     "design": ("pycircuit-link", "PYCIRCUIT_LINKER"),
     "emit": ("pycircuit-emit", "PYCIRCUIT_EMITTER"),
+    "opt": ("pycircuit-opt", "PYCIRCUIT_OPTIMIZER"),
 }
 # Private pycircuit-link status; not exposed as a pycircuit CLI exit code.
 _SOURCE_UNIT_OWNER_MISMATCH_EXIT = 3
@@ -37,6 +38,10 @@ def native_helper(kind: str) -> Path:
         if not path.is_file():
             raise _PublicationError(f"{variable} does not name a file: {path}")
         return path
+    if kind == "opt" and os.environ.get("PYCIRCUIT_EMITTER"):
+        sibling = Path(os.environ["PYCIRCUIT_EMITTER"]).with_name("pycircuit-opt")
+        if sibling.is_file():
+            return sibling
     bundled = packaged_toolchain.tool_executable(name)
     if bundled is not None:
         return bundled

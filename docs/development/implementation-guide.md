@@ -30,7 +30,8 @@ pycircuit compile -c src/top.py --source-root src \
   -o /absolute/build/units/top
 pycircuit link /absolute/build/units/child /absolute/build/units/top \
   --top demo.top.Top -o /absolute/build/top.ac
-pycircuit emit /absolute/build/top.ac --target cpp -o /absolute/build/cpp
+pycircuit emit /absolute/build/top.ac --target structural-cpp \
+  -o /absolute/build/structural-cpp
 pycircuit emit /absolute/build/top.ac --target verilog -o /absolute/build/verilog
 ```
 

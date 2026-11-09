@@ -64,7 +64,7 @@ IR and generated outputs are byte-identical.
 
 ```sh
 export CMAKE_BUILD_TYPE=Release
-pycircuit run examples/boundary_value_ports --target cpp --cycles 16
+pycircuit run examples/boundary_value_ports --target structural-cpp --cycles 16
 pycircuit run examples/boundary_value_ports --target verilog --cycles 16
 ```
 

@@ -13,6 +13,7 @@
       "binaryDir": "${sourceDir}/.pycircuit_out/toolchain/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/.pycircuit_out/toolchain/install",
         "PYC_BUILD_COMPILER_DEV": "ON",
         "PYC_BUILD_TESTING": "ON",

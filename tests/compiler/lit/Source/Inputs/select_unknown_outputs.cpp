@@ -1,5 +1,5 @@
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include "select_unknown_vectors.h"
 #include <array>
 #include <cstdlib>

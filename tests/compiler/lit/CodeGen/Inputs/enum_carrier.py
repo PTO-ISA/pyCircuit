@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,16 @@ def run(command, code=0):
     assert result.returncode == code, commands[-1]
     assert "Assertion failed" not in result.stderr, commands[-1]
     return result
+
+
+def mark_merged(text):
+    owners = sorted(
+        set(re.findall(r'source_owner = \{package = "", path = "([^"]+)"\}', text))
+    )
+    roster = ", ".join(f'{{package = "", path = "{path}"}}' for path in owners)
+    attr = f"module attributes {{ac.source_units = [{roster}]}} {{"
+    assert "module {" in text, "fixture is missing its module opener"
+    return text.replace("module {", attr, 1)
 
 
 def bits(value, width):
@@ -782,120 +793,10 @@ for index in (8, 9, 10, 11):
     ]
 state_oracle = StorageOracle()
 state_gold = [state_oracle.step(row) for row in state_rows]
-probe_rows = [
-    (state_row(), 0),
-    (state_row("1", ena="1", enb="1", enc="1", en0="1", en1="1", index=3), 0),
-    (state_row(), 0),
-]
-proposal = state_row("1", ena="1", enb="1", enc="1", en0="1", en1="1", index=6)
-probe_rows += [(proposal, 1), (proposal, 0), (state_row(), 0)]
-failure_rows = []
-for control in ("ena", "enb", "enc", "en0", "en1", "clk", "rst"):
-    for symbol in "xz":
-        row = state_row("1", ena="1", enb="1", enc="1", en0="1", en1="1", index=5)
-        row[control] = symbol
-        failure_rows.append(row)
-        probe_rows += [(row, 2), (proposal, 0), (state_row(), 0)]
-probe_oracle = StorageOracle()
-probe_gold = [probe_oracle.step(row, action) for row, action in probe_rows]
 
 
 def vectors(directory, inputs, spec, rows, gold, storage=False):
-    cpp = [
-        f"constexpr unsigned row_count={len(rows)};",
-        "const std::string_view golden_trace[]={",
-        *[f'"{" ".join(g.values())}",' for g in gold],
-        "};",
-    ]
     types = {name: width for name, width, *_ in spec}
-
-    def input_arrays(label, data):
-        out = []
-        for name in inputs:
-            out += [
-                f"const std::string_view {label}_{name}[]={{",
-                *[f'"{r[name]}",' for r in data],
-                "};",
-            ]
-        return out
-
-    def drive_cpp(name, label):
-        return [
-            f"void {name}(pyc_dut::Inputs &p,unsigned row){{",
-            *[f"p.{n}=input<{w}>({label}_{n}[row]);" for n, w in inputs.items()],
-            "}",
-        ]
-
-    def check_cpp(name, label, data, templated=False):
-        out = []
-        for n in types:
-            out += [
-                f"const std::string_view {label}_{n}[]={{",
-                *[f'"{g[n]}",' for g in data],
-                "};",
-            ]
-        out += (["template<class Outputs>"] if templated else []) + [
-            f"void {name}(const {'Outputs' if templated else 'pyc_dut::Outputs'} &o,unsigned row){{",
-            *[f"expected<{w}>(o.{n},{label}_{n}[row]);" for n, w in types.items()],
-        ]
-        if storage:
-            out += [
-                f"samePlanes(o.qa,input<65>({label}_qa[row]));",
-                f"samePlanes(o.qb,input<130>({label}_qb[row]));",
-                f"samePlanes(o.lanes.element(0),input<2>({label}_lanes[row].substr(0,2)));",
-                f"samePlanes(o.lanes.element(1),input<2>({label}_lanes[row].substr(2,2)));",
-            ]
-        else:
-            out += ["pyc_dut::Inputs p;drive(p,row);"]
-            for key in ENUMS:
-                width = ENUMS[key][1]
-                raw = (
-                    "r2"
-                    if key == "left"
-                    else (
-                        "r2b" if key == "right" else "r3" if width == 3 else f"r{width}"
-                    )
-                )
-                out += [
-                    f"samePlanes(o.carrier_{key},p.{raw});",
-                    f"samePlanes(o.round_{key},p.{raw});",
-                ]
-        return out + ["}"]
-
-    cpp += (
-        input_arrays("normal", rows)
-        + drive_cpp("drive", "normal")
-        + check_cpp("check", "gold", gold)
-    )
-    if storage:
-        cpp += [
-            f"constexpr unsigned probe_count={len(probe_rows)},failure_count={len(failure_rows)};",
-            "const unsigned probe_action[]={"
-            + ",".join(str(a) for _, a in probe_rows)
-            + "};",
-        ]
-        cpp += (
-            input_arrays("probe", [r for r, _ in probe_rows])
-            + drive_cpp("driveProbe", "probe")
-            + check_cpp("checkProbe", "probe_expected", probe_gold, True)
-        )
-        cpp += input_arrays("failure", failure_rows) + drive_cpp(
-            "driveFailure", "failure"
-        )
-        cpp += [
-            "void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){",
-            *[f"root.{n}=p.{n};" for n in inputs],
-            "}",
-            "void cold(const pyc_root &root){require(!root.qa.isFullyKnown()&&!root.qb.isFullyKnown()&&!root.lanes.isFullyKnown());}",
-        ]
-    else:
-        cpp += [
-            "using Left=typename std::remove_cvref_t<decltype(std::declval<pyc_dut::Outputs>().carrier_left)>::value_type;",
-            "using Right=typename std::remove_cvref_t<decltype(std::declval<pyc_dut::Outputs>().carrier_right)>::value_type;",
-            "static_assert(!std::is_same_v<Left,Right>);",
-            "static_assert(gfsim::hardware_traits<Left>::width==2&&gfsim::hardware_traits<Right>::width==2);",
-        ]
-    (directory / "enum_vectors.hpp").write_text("\n".join(cpp) + "\n")
     sv = [
         f"localparam integer row_count={len(rows)};",
         *[f"logic[{w - 1}:0] {n}=0;" for n, w in inputs.items()],
@@ -959,12 +860,21 @@ for name, ir, inputs, spec, rows, gold, storage in (
     output = build / name
     output.mkdir()
     original = output / "fixture.mlir"
-    original.write_text(ir)
+    original.write_text(mark_merged(ir))
     verified = output / "verified.mlir"
-    run([args.opt, original, "--ac-verify-hardware", "-o", verified])
+    run(
+        [
+            args.opt,
+            original,
+            "--ac-lower-transactions",
+            "--ac-final-to-hwir",
+            "-o",
+            verified,
+        ]
+    )
     known = vectors(output, inputs, spec, rows, gold, storage)
     payloads = {}
-    for target in ("cpp", "verilog"):
+    for target in ("verilog",):
         payload = run([args.emitter, verified, "--target", target]).stdout
         (output / (target + ".json")).write_text(payload)
         payloads[target] = json.loads(payload)
@@ -976,44 +886,8 @@ for name, ir, inputs, spec, rows, gold, storage in (
                 output / target,
             ]
         )
-    runtime_root = Path(args.emitter).resolve().parent.parent
-    runtime = next(
-        p
-        for p in (
-            runtime_root / "lib/libpyc6_runtime.a",
-            runtime_root / "runtime/libpyc6_runtime.a",
-        )
-        if p.is_file()
-    )
     defines = ["-DENUM_STORAGE"] if storage else []
-    runner = output / "runner"
-    run(
-        [
-            args.cxx,
-            "-O2",
-            "-std=c++20",
-            "-pthread",
-            *defines,
-            "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
-            "-I" + str(output),
-            fixtures / "enum_carrier.cpp",
-            "@" + str(output / "cpp/sources.rsp"),
-            runtime,
-            "-o",
-            runner,
-        ]
-    )
-    config = output / "config.json"
-    config.write_text(
-        '{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":256,"schema":"pycircuit-model-config","version":"1"}\n'
-    )
-    traces = []
-    for workers in (1, 2):
-        trace = run([runner, "--workers", workers, "--config", config]).stdout
-        (output / f"workers-{workers}.stdout").write_text(trace)
-        traces.append([s for s in trace.splitlines() if s.startswith("WORK ")])
-    assert traces[0] == traces[1] and len(traces[0]) == len(rows)
+    expected_work = [f"WORK {i} {' '.join(g.values())}" for i, g in enumerate(gold)]
     rtl = [
         output / "verilog/design_top.sv",
         *[
@@ -1045,7 +919,7 @@ for name, ir, inputs, spec, rows, gold, storage in (
     )
     observed = run([output / "rtl-build/Venum"]).stdout
     assert [s for s in observed.splitlines() if s.startswith("WORK ")] == [
-        s for s, k in zip(traces[0], known, strict=True) if k
+        s for s, k in zip(expected_work, known, strict=True) if k
     ]
     run(
         [
@@ -1064,7 +938,7 @@ for name, ir, inputs, spec, rows, gold, storage in (
         ]
     )
     observed = run([args.vvp, output / "four.vvp"]).stdout
-    assert [s for s in observed.splitlines() if s.startswith("WORK ")] == traces[0]
+    assert [s for s in observed.splitlines() if s.startswith("WORK ")] == expected_work
     if storage:
         run(
             [
@@ -1088,7 +962,7 @@ for name, ir, inputs, spec, rows, gold, storage in (
     # Native bad-IR rejection cannot publish JSON; public source-unit --replace is F3.
     previous = {
         str(p): p.read_bytes()
-        for target in ("cpp", "verilog")
+        for target in ("verilog",)
         for p in (output / target).rglob("*")
         if p.is_file()
     }
@@ -1100,12 +974,12 @@ for name, ir, inputs, spec, rows, gold, storage in (
     )
     assert changed != ir
     bad.write_text(changed)
-    for target in ("cpp", "verilog"):
+    for target in ("verilog",):
         rejected = run([args.emitter, bad, "--target", target], 1)
         assert not rejected.stdout.strip()
         assert previous == {
             str(p): p.read_bytes()
-            for target in ("cpp", "verilog")
+            for target in ("verilog",)
             for p in (output / target).rglob("*")
             if p.is_file()
         }
@@ -1115,13 +989,14 @@ for name, ir, inputs, spec, rows, gold, storage in (
             "rows": len(rows),
             "known_rows": sum(known),
             "verified_sha256": hashlib.sha256(verified.read_bytes()).hexdigest(),
-            "runner_sha256": hashlib.sha256(runner.read_bytes()).hexdigest(),
         }
     )
 
 
-# These well-formed packages isolate shared emitter preflight from IR validation.
-# Nominals are deliberately unused by the executable Bits1 passthrough top.
+# These well-formed packages verify that independent HWIR emission is scoped to
+# reachable hardware. Nominals are deliberately unused by the executable Bits1
+# passthrough top, so their source-level spelling and width cannot affect the
+# emitted design.
 def guard_enum(name, width=2):
     return (
         f'"ac.enum"() {{sym_name = "{name}", width = #ac.math_int<{width}>, encoding = "explicit", '
@@ -1154,38 +1029,32 @@ guard_cases = [
     (
         "enum-enum-flat-collision",
         [guard_enum("a_b.State"), guard_enum("a.b_State")],
-        "ac.enum",
-        collision_diagnostic,
+        None,
+        None,
     ),
     (
         "enum-struct-flat-collision",
         [guard_enum("a_b.State"), guard_struct("a.b_State")],
-        "ac.struct",
-        collision_diagnostic,
+        None,
+        None,
     ),
     (
         "struct-struct-flat-collision",
         [guard_struct("a_b.State"), guard_struct("a.b_State")],
-        "ac.struct",
-        collision_diagnostic,
-    ),
-    (
-        "enum-class-namespace-collision",
-        [guard_enum("ns.Value"), guard_enum("ns.Value.Child")],
-        "ac.enum",
-        collision_diagnostic,
+        None,
+        None,
     ),
     (
         "unused-enum-capacity",
         [guard_enum("wide.Unused", 4294967296)],
-        "ac.enum",
-        capacity_diagnostic,
+        None,
+        None,
     ),
     (
         "unused-struct-capacity",
         [guard_struct("wide.Unused", 4294967296)],
-        "ac.struct",
-        capacity_diagnostic,
+        None,
+        None,
     ),
     (
         "enum-enum-flat-nearby",
@@ -1217,7 +1086,7 @@ guard_cases = [
 published = {
     str(p): p.read_bytes()
     for product in ("carrier", "storage")
-    for target in ("cpp", "verilog")
+    for target in ("verilog",)
     for p in (build / product / target).rglob("*")
     if p.is_file()
 }
@@ -1226,11 +1095,13 @@ for name, declarations, owner, diagnostic in guard_cases:
     output = build / name
     output.mkdir()
     original = output / "fixture.mlir"
-    original.write_text(guard_package(declarations))
+    original.write_text(mark_merged(guard_package(declarations)))
+    final = output / "final.mlir"
+    run([args.opt, original, "--ac-lower-transactions", "-o", final])
     verified = output / "verified.mlir"
-    run([args.opt, original, "--ac-verify-hardware", "-o", verified])
+    run([args.opt, final, "--ac-final-to-hwir", "-o", verified])
     targets = {}
-    for target in ("cpp", "verilog"):
+    for target in ("verilog",):
         result = run(
             [args.emitter, verified, "--target", target], 1 if diagnostic else 0
         )
@@ -1244,7 +1115,7 @@ for name, declarations, owner, diagnostic in guard_cases:
             assert published == {
                 str(p): p.read_bytes()
                 for product in ("carrier", "storage")
-                for emitted_target in ("cpp", "verilog")
+                for emitted_target in ("verilog",)
                 for p in (build / product / emitted_target).rglob("*")
                 if p.is_file()
             }
@@ -1260,49 +1131,26 @@ for name, declarations, owner, diagnostic in guard_cases:
                 output / target,
             ]
         )
-        if target == "cpp":
-            driver = output / "driver.cpp"
-            driver.write_text(
-                '#include "pycircuit_system.hpp"\nint main(){pyc_root root("control");root.a=gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{1});root.Work();return root.y.isFullyKnown() && root.y.packed().value()==gfsim::Bits<1>{1}?0:1;}\n'
-            )
-            runner = output / "control"
-            run(
-                [
-                    args.cxx,
-                    "-O2",
-                    "-std=c++20",
-                    "-pthread",
-                    "-I" + str(repo / "include"),
-                    "-I" + str(output / target),
-                    driver,
-                    "@" + str(output / target / "sources.rsp"),
-                    runtime,
-                    "-o",
-                    runner,
-                ]
-            )
-            run([runner])
-        else:
-            rtl = [
-                output / target / "design_top.sv",
-                *[
-                    output / target / group["path"]
-                    for group in bundle["rtl_source_groups"]
-                ],
+        rtl = [
+            output / target / "design_top.sv",
+            *[
+                output / target / group["path"]
+                for group in bundle["rtl_source_groups"]
+            ],
+        ]
+        primitives = [repo / path for path in bundle["rtl_standard_sources"]]
+        run(
+            [
+                args.iverilog,
+                "-g2012",
+                "-s",
+                bundle["root_rtl_name"],
+                "-o",
+                output / "control.vvp",
+                *primitives,
+                *rtl,
             ]
-            primitives = [repo / path for path in bundle["rtl_standard_sources"]]
-            run(
-                [
-                    args.iverilog,
-                    "-g2012",
-                    "-s",
-                    bundle["root_rtl_name"],
-                    "-o",
-                    output / "control.vvp",
-                    *primitives,
-                    *rtl,
-                ]
-            )
+        )
     guard_receipts.append(
         {
             "case": name,
@@ -1316,7 +1164,7 @@ for name, declarations, owner, diagnostic in guard_cases:
 
 
 fixture_paths = [
-    fixtures / ("enum_carrier" + extension) for extension in (".py", ".cpp", ".sv")
+    fixtures / ("enum_carrier" + extension) for extension in (".py", ".sv")
 ]
 fixture_paths.append(
     (fixtures / "enum-carrier.test")
@@ -1326,7 +1174,7 @@ fixture_paths.append(
 (evidence / "candidate.json").write_text(
     json.dumps(
         {
-            "scope": "common-IR verified native/RTL execution; no F3 Python enum or source-unit publication claim",
+            "scope": "common-IR verified RTL execution; no F3 Python enum or source-unit publication claim",
             "artifact_directory": str(build),
             "fixtures": {
                 str(p): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -1346,12 +1194,8 @@ fixture_paths.append(
                     args.vvp,
                 )
             },
-            "runtime": {str(runtime): hashlib.sha256(runtime.read_bytes()).hexdigest()},
             "emission_preflight": guard_receipts,
             "enum_schema": ENUMS,
-            "native_workers": [1, 2],
-            "probe_actions": len(probe_rows),
-            "failure_recovery_cases": len(failure_rows),
             "negative_scope": "native bad IR and verified nominal name/capacity preflight reject with zero JSON and unchanged prior good artifacts; public final/source-unit replacement deferred F3",
         },
         indent=2,
@@ -1359,5 +1203,5 @@ fixture_paths.append(
     + "\n"
 )
 print(  # noqa: T201 - CLI gate status
-    "enum common-IR gate passed: exhaustive small X/Z,65/130 carriers/membership, generic/layout/merge, native1/2/Verilator/Icarus and storage atomicity"
+    "enum common-IR gate passed: exhaustive small X/Z,65/130 carriers/membership, generic/layout/merge, Verilator/Icarus and storage atomicity"
 )  # noqa: T201

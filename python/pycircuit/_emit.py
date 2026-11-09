@@ -28,6 +28,47 @@ from ._source_capture import _read_stable_file_bytes
 from ._source_map import _validate_emitted_bundle
 
 
+_VERILATOR_POLICY_PATH = Path(__file__).with_name("verilator_policy.json")
+_STRUCTURAL_CPP_MAX_TU_BYTES = 1024 * 1024
+
+
+def _verilator_policy() -> tuple[dict[str, object], str]:
+    """Load the one versioned policy copied into every Verilog bundle."""
+    try:
+        text = _VERILATOR_POLICY_PATH.read_text(encoding="utf-8")
+        policy = json.loads(text)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise _DriverError("installed Verilator build policy is unavailable") from error
+    expected = {
+        "schema",
+        "output_split_statements",
+        "output_split_cfuncs",
+        "output_groups",
+        "max_generated_cpp_bytes",
+        "max_generated_header_bytes",
+        "max_text_symbol_bytes",
+    }
+    if (
+        type(policy) is not dict
+        or set(policy) != expected
+        or policy.get("schema") != "pycircuit-verilator-build-policy-v1"
+        or any(
+            type(policy.get(name)) is not int or policy[name] <= 0
+            for name in (
+                "output_split_statements",
+                "output_split_cfuncs",
+                "max_generated_cpp_bytes",
+                "max_generated_header_bytes",
+                "max_text_symbol_bytes",
+            )
+        )
+        or type(policy.get("output_groups")) is not int
+        or policy["output_groups"] != 0
+    ):
+        raise _DriverError("installed Verilator build policy is invalid")
+    return policy, json.dumps(policy, indent=2) + "\n"
+
+
 def _managed_owner(path: Path, fs: _PublicationFileSystem) -> Mapping[str, object]:
     paths = _paths_for(path, fs)
     _require_initialized_control(paths, fs)
@@ -59,6 +100,7 @@ def _cmake(
     standard_sources: list[str],
     root_rtl_name: str = "",
     simulation: bool = False,
+    verilator_policy: Mapping[str, object] | None = None,
 ) -> str:
     if simulation and target == "verilog":
         return """cmake_minimum_required(VERSION 3.25)
@@ -67,6 +109,7 @@ find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_program(PYCIRCUIT_VERILATOR verilator REQUIRED)
 set(PYCIRCUIT_SIM "${CMAKE_CURRENT_BINARY_DIR}/bin/pycircuit_sim${CMAKE_EXECUTABLE_SUFFIX}")
+set(PYCIRCUIT_RTL_STAGE "${CMAKE_CURRENT_BINARY_DIR}/verilator")
 file(GLOB_RECURSE PYCIRCUIT_RTL CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.v" "${CMAKE_CURRENT_SOURCE_DIR}/*.sv")
 file(GLOB PYCIRCUIT_PRIMITIVES CONFIGURE_DEPENDS "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}/verilog/*.v")
@@ -74,8 +117,12 @@ add_custom_command(OUTPUT "${PYCIRCUIT_SIM}"
   COMMAND "${Python3_EXECUTABLE}" "${PYCIRCUIT_CMAKE_DIR}/verify_example.py"
     --compile-system "${CMAKE_CURRENT_SOURCE_DIR}" --output "${PYCIRCUIT_SIM}"
     --include "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}" --verilator "${PYCIRCUIT_VERILATOR}"
+    --build-dir "${PYCIRCUIT_RTL_STAGE}"
   DEPENDS ${PYCIRCUIT_RTL} ${PYCIRCUIT_PRIMITIVES}
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated.json" "${PYCIRCUIT_CMAKE_DIR}/verify_example.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/generated.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/verilator_policy.json"
+    "${PYCIRCUIT_CMAKE_DIR}/verify_example.py"
+    "${PYCIRCUIT_CMAKE_DIR}/verilator_policy.json"
   VERBATIM)
 add_custom_target(pycircuit_sim DEPENDS "${PYCIRCUIT_SIM}")
 """
@@ -84,14 +131,40 @@ project(PycircuitModules LANGUAGES C CXX)
 find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
 add_library(pycircuit_modules STATIC
 """
-    if target == "cpp":
+    if target == "structural-cpp":
         text += "".join("  " + _cmake_quote(path) + "\n" for path in sources)
     text += """ )
 target_include_directories(pycircuit_modules PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
 """
+    if target == "structural-cpp":
+        # Every generated shard includes the same (potentially large) concrete
+        # module declaration. Build it once per compiler configuration instead
+        # of reparsing it independently in every parallel translation unit.
+        text += 'target_precompile_headers(pycircuit_modules PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/design.hpp")\n'
     if target == "verilog":
+        if verilator_policy is None:
+            raise _DriverError("Verilog bundle has no Verilator build policy")
+        split = int(verilator_policy["output_split_statements"])
+        cfuncs = int(verilator_policy["output_split_cfuncs"])
+        groups = int(verilator_policy["output_groups"])
+        text += "find_package(Python3 REQUIRED COMPONENTS Interpreter)\n"
         text += "find_package(verilator REQUIRED)\n"
+        text += 'set(PYCIRCUIT_VERILATOR_DIR "${CMAKE_CURRENT_BINARY_DIR}/verilator")\n'
+        text += (
+            'set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS\n'
+            '  "${CMAKE_CURRENT_SOURCE_DIR}/generated.json"\n'
+            '  "${CMAKE_CURRENT_SOURCE_DIR}/verilator_policy.json")\n'
+        )
+        text += (
+            'execute_process(COMMAND "${Python3_EXECUTABLE}" '
+            '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py" '
+            '--check-verilator-policy "${CMAKE_CURRENT_SOURCE_DIR}" '
+            'RESULT_VARIABLE PYCIRCUIT_POLICY_STATUS)\n'
+            'if(NOT PYCIRCUIT_POLICY_STATUS EQUAL 0)\n'
+            '  message(FATAL_ERROR "generated Verilator policy validation failed")\n'
+            'endif()\n'
+        )
         text += "verilate(pycircuit_modules SOURCES\n"
         for path in standard_sources:
             relative = _relative_file_path(path)[0]
@@ -103,8 +176,34 @@ target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
             text += '  "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}/' + quoted + '"\n'
         text += "".join("  " + _cmake_quote(path) + "\n" for path in rtl_sources)
         text += "  TOP_MODULE " + _cmake_quote(root_rtl_name) + "\n"
-        text += "  PREFIX Vpycircuit_modules\n  VERILATOR_ARGS --Wno-fatal)\n"
-    if simulation and target == "cpp":
+        text += '  PREFIX Vpycircuit_modules\n  DIRECTORY "${PYCIRCUIT_VERILATOR_DIR}"\n'
+        text += (
+            "  VERILATOR_ARGS --Wno-fatal"
+            f" --output-split {split}"
+            f" --output-split-cfuncs {cfuncs}"
+            f" --output-groups {groups})\n"
+        )
+        text += (
+            'execute_process(COMMAND "${Python3_EXECUTABLE}" '
+            '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py" '
+            '--check-verilator-generated "${CMAKE_CURRENT_SOURCE_DIR}" '
+            '--mdir "${PYCIRCUIT_VERILATOR_DIR}" '
+            'RESULT_VARIABLE PYCIRCUIT_GENERATED_STATUS)\n'
+            'if(NOT PYCIRCUIT_GENERATED_STATUS EQUAL 0)\n'
+            '  message(FATAL_ERROR "generated Verilator C++ validation failed")\n'
+            'endif()\n'
+            'add_custom_command(TARGET pycircuit_modules PRE_LINK\n'
+            '  COMMAND "${Python3_EXECUTABLE}" '
+            '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py"\n'
+            '    --check-verilator-generated "${CMAKE_CURRENT_SOURCE_DIR}"\n'
+            '    --mdir "${PYCIRCUIT_VERILATOR_DIR}" VERBATIM)\n'
+            'add_custom_command(TARGET pycircuit_modules POST_BUILD\n'
+            '  COMMAND "${Python3_EXECUTABLE}" '
+            '"${PYCIRCUIT_CMAKE_DIR}/verify_example.py"\n'
+            '    --check-verilator-symbols "${CMAKE_CURRENT_SOURCE_DIR}"\n'
+            '    --binary "$<TARGET_FILE:pycircuit_modules>" VERBATIM)\n'
+        )
+    if simulation and target == "structural-cpp":
         text += (
             "add_executable(pycircuit_sim simulation_main.cpp)\n"
             "target_compile_features(pycircuit_sim PRIVATE cxx_std_20)\n"
@@ -133,30 +232,38 @@ def _target_files(payload: dict, target: str):
             groups[key] = {"source": owner, "files": []}
         return groups[key]["files"]
 
-    if target == "cpp":
-        add("pycircuit_support.hpp", payload["support_header"], "runtime-glue")
-        add("pycircuit_system.hpp", payload["system_header"], "runtime-glue")
-        for row in payload["source_groups"]:
-            members = group(row["source"])
-            add(row["header_path"], row["header"], "header")
-            members.append(row["header_path"])
-            if row["source_path"] is not None:
-                add(row["source_path"], row["implementation"], "source")
-                members.append(row["source_path"])
-                sources.append(row["source_path"])
-            elif row["implementation"] is not None:
-                raise _DriverError("header-only source contains implementation text")
+    if target == "structural-cpp":
+        add("design.hpp", payload["structural_cpp_header"], "header")
+        for row in payload["structural_cpp_groups"]:
+            add(row["path"], row["text"], "source")
+            group(row["source"]).append(row["path"])
+            sources.append(row["path"])
+        add(
+            "manifest.json",
+            json.dumps(payload["manifest"], ensure_ascii=False, separators=(",", ":"))
+            + "\n",
+            "runtime-glue",
+        )
     else:
+        policy, policy_text = _verilator_policy()
         add("design_top.sv", payload["rtl_core"], "rtl")
+        add("verilator_policy.json", policy_text, "runtime-glue")
         # The package with shared packed types must precede source groups.
         rtl_sources.append("design_top.sv")
         for row in payload["rtl_source_groups"]:
             add(row["path"], row["text"], "rtl")
             group(row["source"]).append(row["path"])
             rtl_sources.append(row["path"])
+        if "port_availability" in payload:
+            add(
+                "ports.json",
+                json.dumps(payload["port_availability"], separators=(",", ":"))
+                + "\n",
+                "runtime-glue",
+            )
     simulation = bool(
         payload.get("simulation_main")
-        if target == "cpp"
+        if target == "structural-cpp"
         else payload.get("simulation_top")
     )
     if simulation:
@@ -176,12 +283,20 @@ def _target_files(payload: dict, target: str):
             + "\n",
             "runtime-glue",
         )
-        if target == "cpp":
+        if target == "structural-cpp":
             add("simulation_main.cpp", payload["simulation_main"], "runtime-glue")
             add("simulation_config.json", payload["simulation_config"], "runtime-glue")
         else:
             add("simulation_top.sv", payload["simulation_top"], "runtime-glue")
-    for row in payload["source_maps"]:
+    if target == "structural-cpp" and any(
+        path.endswith(".cpp")
+        and len(text.encode("utf-8")) > _STRUCTURAL_CPP_MAX_TU_BYTES
+        for path, (text, _role) in files.items()
+    ):
+        raise _DriverError(
+            "native structural C++ translation unit exceeds the 1 MiB limit"
+        )
+    for row in payload.get("source_maps", []):
         add(row["path"], row["text"], "source-map")
         group(row["source"]).append(row["path"])
     add(
@@ -193,6 +308,7 @@ def _target_files(payload: dict, target: str):
             standard_sources=payload.get("rtl_standard_sources", []),
             root_rtl_name=payload.get("root_rtl_name", ""),
             simulation=simulation,
+            verilator_policy=policy if target == "verilog" else None,
         ),
         "cmake",
     )
@@ -210,10 +326,19 @@ def _target_files(payload: dict, target: str):
 
 
 def emit_command(
-    *, final: str | Path, target: str, output: str | Path, replace: bool = False
+    *,
+    final: str | Path,
+    target: str,
+    output: str | Path,
+    replace: bool = False,
+    rtl_mode: str = "managed",
 ):
-    if target not in {"cpp", "verilog"}:
-        raise _DriverError("emit target must be cpp or verilog")
+    if target not in {"verilog", "structural-cpp"}:
+        raise _DriverError("unsupported publication target")
+    if rtl_mode not in {"managed", "physical"}:
+        raise _DriverError("RTL mode must be managed or physical")
+    if target != "verilog" and rtl_mode != "managed":
+        raise _DriverError("physical RTL mode requires the verilog target")
     fs = _PublicationFileSystem()
     source, destination = fs.absolute(final), fs.absolute(output)
     fs.assert_no_symlink_chain(source)
@@ -223,6 +348,7 @@ def emit_command(
     if destination.exists() or destination.is_symlink():
         _require_initialized_control(_paths_for(destination, fs), fs)
     helper = native_helper("emit")
+    optimizer = native_helper("opt")
     control = _paths_for(source, fs).control
     with tempfile.TemporaryDirectory(prefix="pycircuit-emit-") as temporary:
         saved = Path(temporary) / "design_top.ac"
@@ -259,8 +385,39 @@ def emit_command(
                 elif fs.kind(control) is not None:
                     continue
                 saved.write_bytes(snapshot)
+                hwir = Path(temporary) / "design_top.hwir.mlir"
+                if b"hwir.contract" in snapshot:
+                    hwir.write_bytes(snapshot)
+                else:
+                    lowered = subprocess.run(
+                        [
+                            str(optimizer),
+                            str(saved),
+                            "--ac-final-to-hwir",
+                            "-o",
+                            str(hwir),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if lowered.returncode:
+                        detail = " ".join((lowered.stderr or lowered.stdout).split())
+                        raise _DriverError(
+                            f"native HWIR conversion rejected final design: {detail}"
+                        )
                 emitted = subprocess.run(
-                    [str(helper), str(saved), "--target", target],
+                    [
+                        str(helper),
+                        str(hwir),
+                        "--target",
+                        target,
+                        *(
+                            ["--rtl-mode", rtl_mode]
+                            if target == "verilog"
+                            else []
+                        ),
+                    ],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -270,6 +427,9 @@ def emit_command(
                     raise _DriverError(f"native emit rejected final design: {detail}")
                 payload = json.loads(emitted.stdout)
                 files, receipt = _target_files(payload, target)
+                receipt["ir_contract"] = payload.get("ir_contract", "hwir-v2")
+                if target == "verilog":
+                    receipt["rtl_mode"] = payload.get("rtl_mode", rtl_mode)
                 owner = _publication_owner_generated(
                     **payload["entry_source"],
                     definition=payload["entry"]["definition"],

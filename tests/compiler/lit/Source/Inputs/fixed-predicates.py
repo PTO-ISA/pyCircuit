@@ -59,6 +59,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -122,7 +123,7 @@ def Top(x: ac.u2, y: ac.u2, condition: ac.u1) -> ProbeResult:
 """
 
 CPP = r"""#include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -327,11 +328,11 @@ with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as tem
     compile_source(unit)
     final = build / "design_top.ac"
     cli("link", unit, "--top", "fixed_predicates.design.Top", "-o", final)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", build / target)
-    receipt = json.loads((build / "cpp/generated.json").read_text())
+    receipt = json.loads((build / "structural-cpp/generated.json").read_text())
     cpp = [
-        build / "cpp" / row["path"]
+        build / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -345,7 +346,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as tem
             "-std=c++20",
             "-pthread",
             "-I" + str(repo / "include"),
-            "-I" + str(build / "cpp"),
+            "-I" + str(build / "structural-cpp"),
             runner_source,
             *cpp,
             runtime,
@@ -424,7 +425,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as tem
 
     before = snapshot(unit)
     final_before = final.read_bytes()
-    emitted_before = {target: snapshot(build / target) for target in ("cpp", "verilog")}
+    emitted_before = {target: snapshot(build / target) for target in ("structural-cpp", "verilog")}
     cases = {
         "boolean-arithmetic": (
             DESIGN.replace("selected: ac.u2", "selected: ac.u1").replace(

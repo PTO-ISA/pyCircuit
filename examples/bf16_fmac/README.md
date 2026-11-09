@@ -168,6 +168,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/bf16_fmac --target cpp --cycles 86
+pycircuit run examples/bf16_fmac --target structural-cpp --cycles 86
 pycircuit run examples/bf16_fmac --target verilog --cycles 86
 ```

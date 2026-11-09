@@ -408,7 +408,7 @@ cli(
     "-o",
     mapping_final,
 )
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     checked_output = scratch / ("checked-fresh-" + target)
     cli("emit", address_checked_final, "--target", target, "-o", checked_output)
     checked_receipt = json.loads((checked_output / "generated.json").read_text())
@@ -417,12 +417,13 @@ for target in ("cpp", "verilog"):
         "arguments": [],
     }
     boundary = checked_output / (
-        "pycircuit_system.hpp" if target == "cpp" else "design_top.sv"
+        "design.hpp" if target == "structural-cpp" else "design_top.sv"
     )
     boundary_text = boundary.read_text()
-    if target == "cpp":
+    if target == "structural-cpp":
         assert "bool Precheck() noexcept override" in boundary_text
-        assert "root_.__pyc_validate_checks(source_failure_)" in boundary_text
+        assert "return root_.ValidateChecks();" in boundary_text
+        assert "return root_.CheckFailure();" in boundary_text
     else:
         assert "module pyc_root" in boundary_text
         assert "pyc_phase" in boundary_text and "pyc_root_commit_ok" in boundary_text
@@ -1469,11 +1470,11 @@ for top, defines, masks in cases:
     assert re.search(
         r'"ac.bits.binary"\((%[^, )]+),\s*\1\).*opcode = "xor"', common
     ), "missing common-IR four-state enable poison"
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
-    receipt = json.loads((output / "cpp/generated.json").read_text())
+    receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / item["path"]
+        output / "structural-cpp" / item["path"]
         for item in receipt["files"]
         if item["path"].endswith(".cpp")
     ]
@@ -1486,7 +1487,7 @@ for top, defines, masks in cases:
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             fixtures / "multi-rule-writes.cpp",
             *cpp,
             runtime,

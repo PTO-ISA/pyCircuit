@@ -3,7 +3,7 @@
 // two domain records d_a/d_b carry exactly two control pins per lane.
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>

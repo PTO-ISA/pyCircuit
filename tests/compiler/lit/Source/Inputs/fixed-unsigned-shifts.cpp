@@ -1,6 +1,6 @@
 // Independent source-bit positions and three-plane transport, not host shifts.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <source_location>

@@ -3,7 +3,7 @@ module tb;
   logic [74:0] p = {5'd3, 70'h080000000000000000};
   wire [7:0] b;
   wire [74:0] q;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     #1;
     if (b !== 17 || q !== p) $fatal(1, "generic payload binding failed");

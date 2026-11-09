@@ -4,6 +4,7 @@
 // REJECT: error:
 // Native schema-valid lowering; canonical public authority belongs to SourceLink.
 // CHECK: ac.stage = "final"
+// CHECK: hwir.hardware_only
 // CHECK-NOT: "ac.state"
 // CHECK-NOT: "ac.method"
 // CHECK-NOT: "ac.transaction"

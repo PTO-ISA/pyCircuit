@@ -41,7 +41,7 @@ use ordinary queue result wires through the same common IR as the accepted
 
 Compile `bounded_full_u64.py` independently with `pycircuit compile`, link its
 complete unit closure selecting `BoundedFullU64`, and emit C++ or Verilog from
-the same verified final artifact with `pycircuit emit --target cpp|verilog`.
+the same verified final artifact with `pycircuit emit --target structural-cpp|verilog`.
 The shared example helper builds the actual generated models, with separate
 host testbenches and finite runner limits. Keep generated artifacts outside
 the source tree.
@@ -118,6 +118,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/bounded_full_u64 --target cpp --cycles 158
+pycircuit run examples/bounded_full_u64 --target structural-cpp --cycles 158
 pycircuit run examples/bounded_full_u64 --target verilog --cycles 158
 ```

@@ -25,8 +25,7 @@ class Deadline:
     value: u64
 
 
-@rule
-def execution_deadline(epoch: u64, cost) -> Deadline:
+def execution_deadline(epoch: u64, cost: u64) -> Deadline:
     extended: u64 = cost
     return Deadline(value=epoch + extended)
 

@@ -1,6 +1,6 @@
 // Independent scalar conditional-fold oracle; no DUT scan/mask algorithm.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>

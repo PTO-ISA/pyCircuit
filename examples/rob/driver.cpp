@@ -2,7 +2,7 @@
 // spelling: pyc_7079635f636c6b / pyc_7079635f727374.
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 
 #include <array>
 #include <cstdlib>
@@ -94,11 +94,19 @@ std::vector<Event> events() {
 template <class Outputs>
 void check(const Outputs &output, const Result &expected, bool print) {
   require(output.result.isFullyKnown());
-  const auto result = output.result.value();
-  auto value = [](const auto &bits) { return static_cast<unsigned>(bits.value()); };
-  const std::array actual{value(result.allocate_accepted), value(result.complete_accepted),
-                          value(result.retire_accepted), value(result.allocated_index),
-                          value(result.retired_tag), value(result.retired_value), value(result.count)};
+  const auto &result = output.result.packed();
+  auto value = [](const auto &bits) {
+    return static_cast<unsigned>(bits.value().value());
+  };
+  // Structural named aggregates retain their declared packed field order.
+  const std::array actual{
+      value(gfsim::extract<1>(result, 31)),
+      value(gfsim::extract<1>(result, 28)),
+      value(gfsim::extract<1>(result, 27)),
+      value(gfsim::extract<2>(result, 29)),
+      value(gfsim::extract<8>(result, 19)),
+      value(gfsim::extract<16>(result, 3)),
+      value(gfsim::extract<3>(result, 0))};
   require(actual == (std::array{expected.allocated, expected.completed, expected.retired,
                                 expected.index, expected.tag, expected.value, expected.count}));
   if (print) {
@@ -171,8 +179,8 @@ void nativeFailure(unsigned workers) {
   check(dut.sample(), {0,0,0,0,0,0,1}, false);
 }
 void directDiscard(unsigned workers) {
-  gfsim::WorkExecutor pool(workers);
-  pyc_root root("discard_probe", &pool);
+  pyc_dut dut(workers);
+  auto &root = dut.root();
   Golden golden;
   auto drive = [&](const pyc_dut::Inputs &in) {
     root.pyc_7079635f636c6b=in.pyc_7079635f636c6b; root.pyc_7079635f727374=in.pyc_7079635f727374;

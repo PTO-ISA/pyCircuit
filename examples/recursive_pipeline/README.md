@@ -35,7 +35,7 @@ and does not suppress its valid signal.
 
 Compile `recursive_pipeline.py` as one source unit through `pycircuit compile`,
 link that complete unit closure with `RecursivePipeline` selected as the root,
-and use `pycircuit emit --target cpp` or `--target verilog` on the same verified
+and use `pycircuit emit --target structural-cpp` or `--target verilog` on the same verified
 final artifact. The shared example CMake helper owns this flow and the generated
 model build; host testbenches remain separate from this hardware source. Keep
 generated outputs and build directories outside the source tree.
@@ -115,6 +115,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/recursive_pipeline --target cpp --cycles 158
+pycircuit run examples/recursive_pipeline --target structural-cpp --cycles 158
 pycircuit run examples/recursive_pipeline --target verilog --cycles 158
 ```

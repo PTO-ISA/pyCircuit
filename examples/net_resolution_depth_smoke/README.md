@@ -114,6 +114,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/net_resolution_depth_smoke --target cpp --cycles 264
+pycircuit run examples/net_resolution_depth_smoke --target structural-cpp --cycles 264
 pycircuit run examples/net_resolution_depth_smoke --target verilog --cycles 264
 ```

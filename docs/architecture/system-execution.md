@@ -30,13 +30,13 @@ this authority; they do not recognize clock names or counter recipes.
 | Artifact | Owner and purpose |
 | --- | --- |
 | Source units and published interfaces | Each Python source owns one reusable compilation unit. |
-| Verified final IR | Link checks the explicit complete unit closure, types, effects and identities. |
-| C++ modules and typed DUT | Existing source-owned code generation and shared GFSIM Runtime. |
+| Verified final ACIR and HWIR v2 | Link checks the explicit closure; emit lowers it once to the common backend contract. |
+| C++ modules and typed DUT | Source-owned Structural C++ code generation and shared GFSIM Runtime. |
 | Generated native main | Shared SystemRunner, inferred control driving, finite runtime limits and source events. |
 | Verilog modules and simulation top | Same final IR, standard hardware leaves and managed simulation lifecycle. |
 | Generated CMake and manifest | Build a native executable or a Verilator executable without author scaffolding. |
 
-`pycircuit run <example-directory> --target cpp|verilog --cycles N` composes the
+`pycircuit run <example-directory> --target structural-cpp|verilog --cycles N` composes the
 existing build and public compile/link/emit commands. The example's small CMake
 source list fixes the dependency order and root. The selected backend requires
 only its own simulator; independent oracle tools are validation dependencies.
@@ -73,6 +73,24 @@ Reset context comes from verified physical domain ordinals. Modules without
 reachable assertions retain their physical clock interface. An ordinary module
 does not gain a generated simulation main or the closed `@system` signature.
 Ordinary-module RTL observations remain unsupported and diagnose explicitly.
+
+Physical export is an explicit ordinary-module policy:
+`pycircuit emit <final.ac> --target verilog --rtl-mode physical`. It exposes
+the verified data and clock/reset ports in `ports.json`, emits no managed
+lifecycle controls, and admits one shared clock/reset domain with DFF/DFFE,
+FIFO and standard memory storage. DFF/DFFE require closed static initializers;
+FIFO starts empty after reset; memory reset affects response state and retains
+array contents, while target startup contents follow the primitive/toolchain
+policy. Residual checks beyond `guard_known` remain unsupported.
+
+Physical observations use dedicated root sideband outputs rather than managed
+lifecycle controls or ordinary data outputs. `ports.json` records stable
+ordinal/group metadata and the fixed slot width. A committed rising edge
+registers path, valid and four-state value/known/Z planes atomically; an edge
+with any storage/check/observation error publishes no observation and performs
+no state update. The simulation fault then remains sticky. Under `SYNTHESIS`,
+sticky history and four-state diagnostics are removed while state updates still
+share the root commit permission.
 
 Runtime failure is sticky until host `Reset()`. A physical reset input cannot
 recover a failed execution. Host Reset clears state before the next sample;

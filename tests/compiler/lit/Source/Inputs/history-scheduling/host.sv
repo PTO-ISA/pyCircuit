@@ -6,7 +6,7 @@ module scheduling_host;
   wire [`OUTPUT_BITS-1:0] result;
   logic [2:0] pyc_phase=0;
   logic pyc_root_commit_ok=0;
-  wire pyc_local_error;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
   logic failed=0;
   string before_state;
   `include "scheduling_rows.svh"

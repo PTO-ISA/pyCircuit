@@ -168,6 +168,7 @@ def main():
         return result.stdout, result.stderr
 
     def cli(label, *arguments, failure=False):
+        arguments = list(arguments)
         return run(
             label,
             [sys.executable, "-m", "pycircuit.cli", *arguments],
@@ -223,7 +224,7 @@ def main():
         cli(name + "-link", "link", *units, "--top", entry, "-o", final)
         observations = []
         root_entries = []
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             generated = output / target
             cli(
                 name + "-emit-" + target,
@@ -252,7 +253,7 @@ def main():
                 assert 'input_names = ["value"]' in final.read_text()
                 assert 'output_names = ["result"]' in final.read_text()
             binary = output / ("simulation-" + target)
-            if target == "cpp":
+            if target == "structural-cpp":
                 sources = [
                     generated / item["path"]
                     for item in manifest["files"]
@@ -316,15 +317,23 @@ def main():
                         fixtures / "source-historical-scalar-parameterized.sv",
                     ],
                 )
-            for workers in (1, 2) if target == "cpp" else (1,):
+            for workers in (1, 2) if target == "structural-cpp" else (1,):
                 command = (
-                    [binary, "--cycles", "8", "--workers", str(workers)]
-                    if is_system and target == "cpp"
+                    [
+                        binary,
+                        "--cycles",
+                        "8",
+                        "--workers",
+                        str(workers),
+                        "--events",
+                        "-",
+                    ]
+                    if is_system and target == "structural-cpp"
                     else (
                         [binary, "+cycles=8"]
                         if is_system
                         else [binary, str(workers)]
-                        if target == "cpp"
+                        if target == "structural-cpp"
                         else [binary]
                     )
                 )
@@ -348,7 +357,7 @@ def main():
                             "PLANES 0 0 131071",
                             "PLANES 65536 65537 43690",
                         ]
-                        if target == "cpp"
+                        if target == "structural-cpp"
                         else []
                     )
         assert root_entries[0] == root_entries[1]

@@ -135,7 +135,7 @@ def documented_build(tmp_path: Path):
     runner.write_text("synthetic runner identity, never executed\n")
     payloads = {
         "fixture.ac": ('"ac.module"', "mlir"),
-        "cpp/fixture.hpp": ("void Work()", "cpp"),
+        "structural-cpp/fixture.hpp": ("void Work()", "cpp"),
         "verilog/fixture.v": ("module fixture", "rtl"),
     }
     for relative, (marker, label) in payloads.items():
@@ -149,7 +149,7 @@ def documented_build(tmp_path: Path):
             + "\n"
         )
     _write_json(
-        build / "cpp/generated.json",
+        build / "structural-cpp/generated.json",
         {
             "entry": "fixture.Root",
             "entry_source": {"path": "fixture.py"},
@@ -177,7 +177,11 @@ def documented_build(tmp_path: Path):
     inputs = {"runner": _hash(runner)}
     for filename in ("fixture.py", "config.json"):
         inputs[f"source/{filename}"] = _hash(source / filename)
-    for relative in (*payloads, "cpp/generated.json", "verilog/generated.json"):
+    for relative in (
+        *payloads,
+        "structural-cpp/generated.json",
+        "verilog/generated.json",
+    ):
         inputs[f"build/{relative}"] = _hash(build / relative)
     inputs["runtime-rtl/primitive.v"] = _hash(include / "verilog/primitive.v")
     proof = {
@@ -206,7 +210,7 @@ def test_generated_guide_copies_literal_artifact_excerpts(tool, documented_build
     assert "runtime_include" not in metadata["verification"]
     assert {row["path"] for row in metadata["excerpts"]} == {
         "fixture.ac",
-        "cpp/fixture.hpp",
+        "structural-cpp/fixture.hpp",
         "verilog/fixture.v",
     }
     for row in metadata["excerpts"]:
@@ -225,7 +229,10 @@ def test_generated_guide_refuses_stale_verified_inputs(tool, documented_build, c
     repo, build, source, runner = documented_build
     path, identity = {
         "source": (source / "fixture.py", "source/fixture.py"),
-        "artifact": (build / "cpp/fixture.hpp", "build/cpp/fixture.hpp"),
+        "artifact": (
+            build / "structural-cpp/fixture.hpp",
+            "build/structural-cpp/fixture.hpp",
+        ),
         "runner": (runner, "runner"),
     }[changed]
     path.write_text(path.read_text() + "changed after verification\n")

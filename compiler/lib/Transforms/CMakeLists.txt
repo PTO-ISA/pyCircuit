@@ -5,8 +5,9 @@ add_acir_library(ACIRTransforms SOURCES
   AnalyzeSourceMethods.cpp
   AnalyzeTransactionStateSSA.cpp
   LowerTransactions.cpp
+  FinalACIRToHWIR.cpp
   LINK_LIBRARIES
-    ACIRDialect
+    HWIRDialect
     MLIRPass
     MLIRTransformUtils
 )

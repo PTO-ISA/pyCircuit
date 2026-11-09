@@ -29,7 +29,7 @@ recomputed after commit.
 
 The public source flow is `pycircuit compile` for this source unit,
 `pycircuit link` with `IssueQueue2Picker` as the selected root, then
-`pycircuit emit --target cpp|verilog` from the same verified final artifact.
+`pycircuit emit --target structural-cpp|verilog` from the same verified final artifact.
 Generated models use the typed DUT and shared SystemRunner; the host supplies
 explicit physical clock/reset levels and a finite runner limit.
 
@@ -118,6 +118,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/issue_queue_2picker --target cpp --cycles 344
+pycircuit run examples/issue_queue_2picker --target structural-cpp --cycles 344
 pycircuit run examples/issue_queue_2picker --target verilog --cycles 344
 ```

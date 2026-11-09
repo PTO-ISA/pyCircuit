@@ -248,7 +248,7 @@ private:
             return false;
           attr.walkImmediateSubElements(attribute, type);
         } else {
-          auto ty = frame.node.get<Type>();
+          auto ty = llvm::cast<Type>(frame.node);
           if (auto opaque = dyn_cast<OpaqueType>(ty))
             storage = opaque.getTypeData().size();
           if (!budget.charge(site, storage) ||

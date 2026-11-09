@@ -1,0 +1,14 @@
+# RUN: %pycircuit_opt %inputs/structural-cpp-combinational.mlir --ac-lower-transactions --ac-final-to-hwir -o %t.hwir.mlir
+# RUN: %pycircuit_emit %t.hwir.mlir --target verilog | %FileCheck %s --check-prefix=BUNDLE
+# RUN: not %pycircuit_emit %inputs/structural-cpp-combinational.mlir --target verilog 2>&1 | %FileCheck %s --check-prefix=NOT-FINAL
+# RUN: cp %t.hwir.mlir %t.missing-dependencies.mlir
+# RUN: %python -c 'import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); s=p.read_text(); s,n=re.subn(r", hwir\.output_dependencies = \[.*?\], input_names", ", input_names", s, count=1); assert n == 1; p.write_text(s)' %t.missing-dependencies.mlir
+# RUN: not %pycircuit_opt %t.missing-dependencies.mlir --hwir-verify 2>&1 | %FileCheck %s --check-prefix=MISSING-DEPENDENCIES
+# RUN: %python -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text(p.read_text().replace(", hwir.contract = 2 : i64", ""))' %t.hwir.mlir
+# RUN: not %pycircuit_emit %t.hwir.mlir --target verilog 2>&1 | %FileCheck %s --check-prefix=NOT-HWIR
+
+# BUNDLE: "rtl_core"
+# BUNDLE: module pyc_root
+# NOT-FINAL: Verilog requires independent HWIR; run ac-final-to-hwir first
+# MISSING-DEPENDENCIES: 'hwir.module' op HWIR v2 requires output dependency facts
+# NOT-HWIR: Verilog requires independent HWIR; run ac-final-to-hwir first

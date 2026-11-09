@@ -32,6 +32,15 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_library(pycircuit_project_options INTERFACE)
 target_compile_features(pycircuit_project_options INTERFACE cxx_std_20)
+if(PYC_ERROR_DEPRECATED_API)
+  if(MSVC)
+    target_compile_options(pycircuit_project_options INTERFACE
+      "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CXX>:/we4996>>")
+  else()
+    target_compile_options(pycircuit_project_options INTERFACE
+      "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CXX>:-Werror=deprecated-declarations>>")
+  endif()
+endif()
 # Compiler consumers must match LLVM's RTTI configuration. Keep this on the
 # compiler interface so standalone Runtime targets retain their own policy.
 if(NOT LLVM_ENABLE_RTTI)

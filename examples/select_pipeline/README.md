@@ -97,7 +97,7 @@ per successful history.
 `bench.py` exports `example_select_pipeline.bench.ExerciseSelectPipeline`. Compile
 `select_pipeline.py`, then `bench.py`, import the published DUT interface, and link
 that explicit system root through the public compile/link/emit flow. Run
-`pycircuit run examples/select_pipeline --target cpp --cycles 1829` or select
+`pycircuit run examples/select_pipeline --target structural-cpp --cycles 1829` or select
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 

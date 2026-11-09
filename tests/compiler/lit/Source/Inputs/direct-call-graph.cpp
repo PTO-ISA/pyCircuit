@@ -1,6 +1,6 @@
 // Generated-DUT oracle independent of source graph binding and field scheduling.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <source_location>
@@ -55,7 +55,7 @@ template<class Root>void driveRoot(Root &root,const pyc_dut::Inputs &input){
   root.pyc_7079635f636c6b=input.pyc_7079635f636c6b;root.pyc_7079635f727374=input.pyc_7079635f727374;
 }
 void discard(unsigned workers){
-  gfsim::WorkExecutor pool(workers);pyc_root root("discard",&pool);
+  pyc_dut probe(workers);auto &root=probe.root();
   pyc_dut::Inputs input;input.delta=wide(1);input.enable=known<1>(1);
   input.pyc_7079635f636c6b=known<1>(0);input.pyc_7079635f727374=known<1>(0);
   driveRoot(root,input);root.Reset();root.Xfer();auto state=known<73>(0);bool last=false;
@@ -109,13 +109,13 @@ void bytePair(const auto &output,const auto &left,const auto &right){
 }
 #endif
 #ifdef DIRECT_BYTE_STATE
-void byteDriveRoot(pyc_root &root,const pyc_dut::Inputs &input){
+template<class Root> void byteDriveRoot(Root &root,const pyc_dut::Inputs &input){
   root.left=input.left;root.right=input.right;
   root.pyc_7079635f636c6b=input.pyc_7079635f636c6b;
   root.pyc_7079635f727374=input.pyc_7079635f727374;
 }
 void byteDiscard(unsigned workers){
-  gfsim::WorkExecutor pool(workers);pyc_root root("byte-discard",&pool);
+  pyc_dut probe(workers);auto &root=probe.root();
   pyc_dut::Inputs input;input.left=input.right=known<8>(0);
   input.pyc_7079635f636c6b=input.pyc_7079635f727374=known<1>(0);
   byteDriveRoot(root,input);root.Reset();root.Xfer();

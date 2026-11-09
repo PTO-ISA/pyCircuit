@@ -553,8 +553,8 @@ TEST_F(ConstantExactProofContractsTest,
        }});
   mutations.push_back({"nonconstant-result-ssa", [&](ProofFixture &fixture) {
                          mlir::OpBuilder builder(fixture.binding);
-                         auto sum = builder.create<mlir::arith::AddIOp>(
-                             fixture.actualValue.getLoc(),
+                         auto sum = mlir::arith::AddIOp::create(
+                             builder, fixture.actualValue.getLoc(),
                              fixture.actualValue.getResult(),
                              fixture.actualValue.getResult());
                          fixture.binding->setOperand(0, sum.getResult());

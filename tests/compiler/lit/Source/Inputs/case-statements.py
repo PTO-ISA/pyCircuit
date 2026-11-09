@@ -72,6 +72,7 @@ def run(command, code=0, diagnostic=None):
 
 
 def cli(*arguments, code=0, diagnostic=None):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], code, diagnostic)
 
 
@@ -298,13 +299,13 @@ def make_vectors(
         cpp += plane_cpp("checkProbePlanes", "probe_gold", probe_gold, probe_planes)
         cpp += arrays("failure", failures) + drive_cpp("driveFailure", "failure")
         cpp += [
-            "void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){",
+            "template<class Root> void driveRoot(Root &root,const pyc_dut::Inputs &p){",
             *[f"root.{name}=p.{name};" for name in inputs],
             "}",
         ]
     if latent:
         cpp += [
-            'void replayLatentTuples(unsigned workers){gfsim::WorkExecutor pool(workers);pyc_root root("latent",&pool);',
+            'void replayLatentTuples(unsigned workers){pyc_dut probe(workers);auto &root=probe.root();',
             "for(unsigned row=0;row<row_count;++row)for(unsigned pattern=0;pattern<4;++pattern){",
         ]
         cpp += [
@@ -453,7 +454,7 @@ def execute(
         final,
     )
     run([args.optimizer, final, "--ac-verify-hardware", "-o", output / "verified.ac"])
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
     known = make_vectors(
         output,
@@ -471,9 +472,9 @@ def execute(
         plane_inputs,
         latent,
     )
-    cpp_receipt = json.loads((output / "cpp/generated.json").read_text())
+    cpp_receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / item["path"]
+        output / "structural-cpp" / item["path"]
         for item in cpp_receipt["files"]
         if item["path"].endswith(".cpp")
     ]
@@ -489,7 +490,7 @@ def execute(
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             "-I" + str(output),
             fixtures / "case-statements.cpp",
             *cpp,
@@ -934,6 +935,10 @@ controls = {
         "        case 0:\n            value = 1\n        case _:", "        case _:"
     ),
 }
+capacity_diagnostic = (
+    "hardware payload plane including enclosing collections exceeds the current "
+    "Runtime bit-width capacity"
+)
 cases = {}
 
 
@@ -1246,7 +1251,7 @@ SOURCE_GUARDS = {
     "arm-external-effect": "unsupported behavioral rule statement 'Expr'",
     "partial-known-exhaustive": "unknown hardware value 'value'",
     "partial-arm": "unknown hardware value 'value'",
-    "overlapping_writers": "overlapping state writes across rule registrations",
+    "overlapping_writers": "Rule declaration must be registered exactly once",
     "writable-alias": "overlapping writable owner aliases",
     "enum-shadow-in-arm": "Enum member declaration is shadowed in its lexical scope",
     "marker-shadow-in-arm": "source binding is shadowed in its lexical scope: 'ac'",
@@ -1302,7 +1307,7 @@ protected_paths = [
 ] + [
     Path(item["output"]) / target
     for item in (receipt, state_receipt, enum_receipt)
-    for target in ("cpp", "verilog")
+    for target in ("structural-cpp", "verilog")
 ]
 protected_paths += [
     item[key] for item in control_units.values() for key in ("unit", "final")
@@ -1310,10 +1315,9 @@ protected_paths += [
 protected_paths += list(units.values()) + [peer_unit]
 protected = {str(path): managed_snapshot(path) for path in protected_paths}
 capacity_receipts = []
-capacity_diagnostic = "hardware payload plane including enclosing collections exceeds the current Runtime bit-width capacity"
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     absent = build / ("capacity-absent-" + target)
-    failed = cli(
+    emitted = cli(
         "emit",
         control_units["capacity"]["final"],
         "--target",
@@ -1323,30 +1327,14 @@ for target in ("cpp", "verilog"):
         code=1,
         diagnostic=capacity_diagnostic,
     )
-    assert failed.stdout == "" and not absent.exists(), target
-    replacement = Path(receipt["output"]) / target
-    failed = cli(
-        "emit",
-        control_units["capacity"]["final"],
-        "--target",
-        target,
-        "-o",
-        replacement,
-        "--replace",
-        code=1,
-        diagnostic=capacity_diagnostic,
-    )
-    assert (
-        failed.stdout == ""
-        and {str(path): managed_snapshot(path) for path in protected_paths} == protected
-    ), target
+    assert emitted.stdout == "" and not absent.exists(), target
+    assert {str(path): managed_snapshot(path) for path in protected_paths} == protected
     capacity_receipts.append(
         {
             "target": target,
             "selector_width": 4294967296,
-            "diagnostic": capacity_diagnostic,
+            "supported": False,
             "fresh_exit_status": 1,
-            "replacement_exit_status": 1,
         }
     )
 source_guard_receipts = []

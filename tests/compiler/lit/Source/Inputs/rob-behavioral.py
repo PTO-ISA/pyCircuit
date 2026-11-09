@@ -59,6 +59,7 @@ def run(command, accepted=True, cwd=repo):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -110,11 +111,11 @@ with tempfile.TemporaryDirectory(prefix="rob-behavioral-", dir=scratch) as tempo
     compile_source(generic, unit)
     final = build / "scatter.ac"
     cli("link", unit, "--top", "table_probe.scatter.Scatter", "-o", final)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", build / target)
-    receipt = json.loads((build / "cpp/generated.json").read_text())
+    receipt = json.loads((build / "structural-cpp/generated.json").read_text())
     cpp = [
-        build / "cpp" / row["path"]
+        build / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -126,7 +127,7 @@ with tempfile.TemporaryDirectory(prefix="rob-behavioral-", dir=scratch) as tempo
             "-std=c++20",
             "-pthread",
             "-I" + str(repo / "include"),
-            "-I" + str(build / "cpp"),
+            "-I" + str(build / "structural-cpp"),
             fixtures / "rob-behavioral-generic.cpp",
             *cpp,
             runtime,
@@ -324,7 +325,7 @@ def NegativeIndex() -> {"out": ac.u1}:
                 "shadow, enable, index, value):",
                 "shadow, enable, index, value) -> ac.u7:",
             ),
-            ("annotation", "return", "mapping"),
+            ("annotation", "return", "mapping", "unsupported hardware expression"),
         ),
         "negative-struct-field": (
             text.replace(

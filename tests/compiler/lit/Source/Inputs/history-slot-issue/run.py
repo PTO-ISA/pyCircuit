@@ -112,7 +112,6 @@ def main():
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,
-        MAKEFLAGS="CFG_CXXFLAGS_PCH_I=-include",
     )
     oracle = repo / "tests/compiler/oracles/history_slot_issue"
     inputs = [*fixtures.rglob("*"), *oracle.glob("*")]
@@ -224,7 +223,7 @@ def main():
             final,
             "--replace",
         )
-        for backend in ("cpp", "verilog"):
+        for backend in ("structural-cpp", "verilog"):
             cli(
                 name + "-" + backend + "-emit",
                 "emit",
@@ -235,7 +234,7 @@ def main():
                 directory / backend,
                 "--replace",
             )
-        cpp = directory / "cpp"
+        cpp = directory / "structural-cpp"
         rtl = directory / "verilog"
         provider_header = (cpp / "sources/history_slot_issue/providers.hpp").read_text()
         system_header = (cpp / "sources/history_slot_issue/systems.hpp").read_text()

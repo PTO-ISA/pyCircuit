@@ -60,6 +60,7 @@ def run(command, accepted=True):
 
 
 def cli(*arguments, accepted=True):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], accepted)
 
 
@@ -161,11 +162,11 @@ with tempfile.TemporaryDirectory(
     cli("link", unit, "--top", "defaults_probe.design.SameInputs", "-o", twins)
     twin_calls = source_calls(twins.read_text(), "SameInputs")
     assert twin_calls == ["Cell", "Cell"], twin_calls
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", build / target)
-    receipt = json.loads((build / "cpp/generated.json").read_text())
+    receipt = json.loads((build / "structural-cpp/generated.json").read_text())
     cpp = [
-        build / "cpp" / row["path"]
+        build / "structural-cpp" / row["path"]
         for row in receipt["files"]
         if row["path"].endswith(".cpp")
     ]
@@ -177,7 +178,7 @@ with tempfile.TemporaryDirectory(
             "-std=c++20",
             "-pthread",
             "-I" + str(repo / "include"),
-            "-I" + str(build / "cpp"),
+            "-I" + str(build / "structural-cpp"),
             fixtures / "defaults-composition.cpp",
             *cpp,
             runtime,
@@ -557,11 +558,11 @@ def Caller(value: ac.u5) -> {"out": ac.u5}:
         "-o",
         table_final,
     )
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", table_final, "--target", target, "-o", build / ("table-" + target))
     protected_final = table_final.read_bytes()
     protected_targets = {
-        target: snapshot(build / ("table-" + target)) for target in ("cpp", "verilog")
+        target: snapshot(build / ("table-" + target)) for target in ("structural-cpp", "verilog")
     }
     protected_caller = snapshot(table_caller)
 
@@ -665,7 +666,7 @@ def Caller(value: ac.u5) -> {"out": ac.u5}:
     )
     assert invalid_text != table_final_text
     invalid_table_final.write_text(invalid_text)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli(
             "emit",
             invalid_table_final,

@@ -10,7 +10,7 @@ module tb;
 `ifdef Q4_CHECKS
   logic [2:0] pyc_phase = 0;
   logic pyc_root_commit_ok = 0;
-  wire pyc_local_error;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
   logic failed = 0;
 
   task automatic host_reset;

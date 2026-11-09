@@ -2,7 +2,7 @@
 #w65 = #ac.static_expr<{kind = "literal", location = {path = "case_eq.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<65>}}>
 !b1 = !ac.bits<#w1>
 !b65 = !ac.bits<#w65>
-module {
+module attributes {ac.source_units = [{package = "", path = "case_eq.py"}]} {
   "ac.module"() ({
   ^bb0(%lhs1: !b1, %rhs1: !b1, %lhs65: !b65, %rhs65: !b65):
     %case1 = "ac.bits.compare"(%lhs1, %rhs1) {predicate = "case_eq"} : (!b1, !b1) -> !b1

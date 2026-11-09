@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-source_root, emitter, mode, scratch = sys.argv[1:]
+source_root, opt, emitter, mode, scratch = sys.argv[1:]
 source_root = Path(source_root)
 scratch = Path(scratch).resolve()
 scratch.mkdir(parents=True, exist_ok=True)
@@ -37,6 +37,28 @@ def run(command, *, accepted=True, timeout=90, **kwargs):
 
 def expr(name, value):
     return f'#{name} = #ac.static_expr<{{kind = "literal", location = {{path = "root.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}, origin = {{site = {{definition = @Root, ast_path = []}}, expansion = []}}, value = {{kind = "integer", value = #ac.math_int<{value}>}}}}>\n'
+
+
+def mark_merged(text, owners):
+    """Clothe a raw hand-written package with a merged ac.source_units envelope."""
+    roster = ", ".join(owners)
+    attr = f"module attributes {{ac.source_units = [{roster}]}} {{"
+    opener = "module {" if "module {" in text else "module attributes {"
+    assert opener in text, "fixture is missing its module opener"
+    if opener == "module {":
+        return text.replace(opener, attr, 1)
+    # Existing package attributes are already authoritative; only hand-written
+    # raw fixtures need the source-unit envelope added here.
+    return text
+
+
+def lower(path, final_path, *, hwir=False):
+    command = [opt, str(path)]
+    if hwir:
+        command.append("--ac-final-to-hwir")
+    else:
+        command.append("--ac-lower-transactions")
+    run([*command, "-o", str(final_path)])
 
 
 literal = "".join(
@@ -74,7 +96,17 @@ module {
 """
     )
     invalid = root / "resource.ac"
-    invalid.write_text(source)
+    invalid.write_text(
+        mark_merged(
+            source,
+            [
+                '{package = "", path = "inner.py"}',
+                '{package = "", path = "root.py"}',
+            ],
+        )
+    )
+    invalid_final = root / "resource.final.ac"
+    lower(invalid, invalid_final)
     memory_reference = '#aw = #ac.static_expr<{kind = "reference", location = {path = "memory.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @memory, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @memory, name = "ADDR_WIDTH"}}>\n'
     memory_source = (
         literal
@@ -95,17 +127,31 @@ module {
 """
     )
     huge_memory = root / "memory-resource.ac"
-    huge_memory.write_text(memory_source)
-    valid = source_root / "tests/compiler/lit/CodeGen/Inputs/two-leaves.mlir"
+    huge_memory.write_text(mark_merged(memory_source, ['{package = "", path = "root.py"}']))
+    huge_final = root / "memory-resource.final.ac"
+    lower(huge_memory, huge_final)
+    valid = root / "valid.ac"
+    valid.write_text(
+        mark_merged(
+            (
+                source_root / "tests/compiler/lit/CodeGen/Inputs/two-leaves.mlir"
+            ).read_text(),
+            ['{package = "", path = "top.py"}'],
+        )
+    )
+    valid_final = root / "valid.final.ac"
+    lower(valid, valid_final)
     # The width is 65536*65536*8 = 2^35, derived from nested state planes.
     # Each local module table is legal and only the enclosing multiplier
     # exceeds the emitted Runtime representation; the root has no ports.
-    for target in ["cpp", "verilog"]:
+    for target in ["verilog"]:
         for source, diagnostic in [
-            (invalid, "including enclosing collections"),
-            (huge_memory, "memory"),
+            (invalid_final, "including enclosing collections"),
+            (huge_final, "memory"),
         ]:
-            rejected = run([emitter, str(source), "--target", target], accepted=False)
+            hwir = source.with_suffix(".hwir.mlir")
+            lower(source, hwir, hwir=True)
+            rejected = run([emitter, str(hwir), "--target", target], accepted=False)
             assert rejected.stdout == "", "native reject published partial JSON"
             assert diagnostic in rejected.stderr.lower()
         published = root / target
@@ -114,7 +160,7 @@ module {
             "-m",
             "pycircuit.cli",
             "emit",
-            str(valid),
+            str(valid_final),
             "--target",
             target,
             "-o",
@@ -127,7 +173,7 @@ module {
             if p.is_file()
         }
         assert before
-        for source in [invalid, huge_memory]:
+        for source in [invalid_final, huge_final]:
             command[4] = str(source)
             run(command + ["--replace"], accepted=False, env=env)
             after = {
@@ -138,7 +184,7 @@ module {
             assert after == before, "resource rejection modified prior output"
             assert not list(published.rglob("*.tmp"))
     print(
-        "portless nested family 2^35-bit plane and scalar memory DEPTH=INT64_MAX rejected by both targets; prior outputs preserved"
+        "portless nested family 2^35-bit plane and scalar memory DEPTH=INT64_MAX rejected; prior outputs preserved"
     )
 elif mode == "binding":
     parameter = """#n = #ac.static_expr<{kind = "reference", location = {path = "root.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @Root, name = "N"}}>
@@ -167,7 +213,11 @@ elif mode == "binding":
 """
     )
     final = root / "binding.ac"
-    final.write_text(source)
+    final.write_text(mark_merged(source, ['{package = "", path = "root.py"}']))
+    certified = root / "binding.certified.ac"
+    lower(final, certified)
+    final_lowered = root / "binding.final.ac"
+    lower(certified, final_lowered, hwir=True)
     override = os.environ.get("PYCIRCUIT_COLLECTION_RUNTIME_PREFIX")
     if override:
         prefix = Path(override).resolve()
@@ -198,18 +248,17 @@ elif mode == "binding":
         assert (
             prefix / "include/gfsim" / header
         ).is_file(), f"Runtime install omitted {header}"
-    for target in ["cpp", "verilog"]:
-        native = run([emitter, str(final), "--target", target])
+    for target in ["verilog"]:
+        native = run([emitter, str(final_lowered), "--target", target])
         payload = json.loads(native.stdout)
         assert payload["entry"]["definition"] == '@"Root"'
         assert (
             len(payload["entry"]["arguments"]) == 2
         ), "root actuals omitted from native JSON"
-        if target == "verilog":
-            assert (
-                payload["root_rtl_name"] == "pyc_root"
-            ), "CMake selected the unbound generic module"
-            assert "module pyc_root" in payload["rtl_core"]
+        assert (
+            payload["root_rtl_name"] == "pyc_root"
+        ), "CMake selected the unbound generic module"
+        assert "module pyc_root" in payload["rtl_core"]
         published = root / target
         run(
             [
@@ -217,7 +266,7 @@ elif mode == "binding":
                 "-m",
                 "pycircuit.cli",
                 "emit",
-                str(final),
+                str(final_lowered),
                 "--target",
                 target,
                 "-o",
@@ -248,33 +297,17 @@ elif mode == "binding":
         consumer = root / f"{target}-consumer"
         consumer.mkdir()
         driver = consumer / "proof.cpp"
-        if target == "cpp":
-            driver.write_text(
-                "\n".join(
-                    [
-                        '#include "pycircuit_system.hpp"',
-                        "#include <type_traits>",
-                        "#include <cstdlib>",
-                        "static_assert(std::is_same_v<pyc_root, Root<3, Entry>>);",
-                        'int main() { pyc_root dut("bound"); dut.Build(); dut.Reset(); dut.Xfer(); dut.Work();',
-                        "if (!dut.proof.isFullyKnown() || dut.proof.value() != gfsim::Bits<32>{17}) std::abort();",
-                        "dut.DiscardNext(); }",
-                        "",
-                    ]
-                )
-            )
-        else:
-            headers = [p for p in build.rglob("V*.h") if "__" not in p.name]
-            assert (
-                len(headers) == 1
-            ), "public CMake did not expose exactly one top model header"
-            # Verilator CMake's model PREFIX may follow its first source file;
-            # TOP_MODULE still comes from root_rtl_name. Observe the root wire
-            # rather than imposing a generated C++ model-prefix recipe.
-            model = headers[0].stem
-            driver.write_text(
-                f'#include "{headers[0].name}"\n#include <cstdlib>\ndouble sc_time_stamp() {{ return 0.0; }}\nint main() {{ {model} dut; dut.eval(); if (dut.proof != 17) std::abort(); }}\n'
-            )
+        headers = [p for p in build.rglob("V*.h") if "__" not in p.name]
+        assert (
+            len(headers) == 1
+        ), "public CMake did not expose exactly one top model header"
+        # Verilator CMake's model PREFIX may follow its first source file;
+        # TOP_MODULE still comes from root_rtl_name. Observe the root wire
+        # rather than imposing a generated C++ model-prefix recipe.
+        model = headers[0].stem
+        driver.write_text(
+            f'#include "{headers[0].name}"\n#include <cstdlib>\ndouble sc_time_stamp() {{ return 0.0; }}\nint main() {{ {model} dut; dut.eval(); if (dut.proof != 17) std::abort(); }}\n'
+        )
         # The value 17 is independently 3 + (Entry.tag:5 + Entry.data:9).
         # Default N=2 or an unbound T cannot satisfy this observable oracle.
         (consumer / "CMakeLists.txt").write_text(
@@ -307,7 +340,7 @@ elif mode == "binding":
         run(["cmake", "--build", str(consumer_build), "-j", "2"], timeout=180)
         run([str(consumer_build / "bound_root_proof")])
     print(
-        "explicit Root<N=3,T=Entry> actuals retained; bound cpp/RTL roots and both public CMake artifacts built"
+        "explicit Root<N=3,T=Entry> actuals retained; bound RTL root and public CMake artifacts built"
     )
 else:
     raise AssertionError(f"unknown test mode {mode}")

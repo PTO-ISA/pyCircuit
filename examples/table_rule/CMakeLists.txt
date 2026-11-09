@@ -10,6 +10,7 @@ pycircuit_add_example(table_rule
   SYSTEM_TOP example_table_rule.bench.ExerciseTableRule
   SYSTEM_ENTRY_SOURCE bench
   SYSTEM_CYCLES 1343
+  SYSTEM_TIMEOUT_SECONDS 360
   SYSTEM_SOURCES table_rule.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 

@@ -273,7 +273,10 @@ def test_saved_final_groups_and_actual_origins_agree_across_targets(tmp_path):
         assert left[name]["generated_files"] == [group["header_path"]]
         assert right[name]["generated_files"] == []
     assert {g["source"]["path"] for g in rtl["rtl_source_groups"]} == {"main.py"}
-    assert all(g["path"] and g["path"].endswith(".v") for g in rtl["rtl_source_groups"])
+    assert all(
+        g["path"] and g["path"].endswith((".v", ".sv"))
+        for g in rtl["rtl_source_groups"]
+    )
     for target in ("cpp", "verilog"):
         output = tmp_path / target
         public._emit(final, target, output)

@@ -319,7 +319,7 @@ protected:
     auto *block = new mlir::Block;
     plain.getBody().push_back(block);
     builder.setInsertionPointToEnd(block);
-    builder.create<YieldOp>(plain.getLoc(), mlir::ValueRange{});
+    YieldOp::create(builder, plain.getLoc(), mlir::ValueRange{});
     return plain;
   }
 
@@ -383,8 +383,8 @@ protected:
     auto argument =
         ruleBody->addArgument(condition.getType(), definition.getLoc());
     builder.setInsertionPointToEnd(ruleBody);
-    builder.create<YieldOp>(definition.getLoc(),
-                            mlir::ValueRange{argument, argument});
+    YieldOp::create(builder, definition.getLoc(),
+                    mlir::ValueRange{argument, argument});
     builder.setInsertionPoint(body.getTerminator());
     mlir::OperationState expect(definition.getLoc(),
                                 SourceExpectOp::getOperationName());

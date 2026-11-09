@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ import pytest
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "cmake/verify_example.py"
+POLICY = ROOT / "python/pycircuit/verilator_policy.json"
 
 
 def executable(path: Path, body: str) -> Path:
@@ -48,16 +50,22 @@ def case(tmp_path: Path) -> dict[str, Path]:
     (include / "verilog" / "primitive.v").write_text("module primitive; endmodule\n")
     (build / "model.ac").write_text("candidate hardware artifact\n")
     for target, name, role in (
-        ("cpp", "model.cpp", "implementation"),
+        ("structural-cpp", "model.cpp", "implementation"),
         ("verilog", "design_top.sv", "rtl"),
     ):
         directory = build / target
         directory.mkdir()
         (directory / name).write_text("generated candidate payload\n")
+        files = [{"path": name, "role": role}]
+        if target == "verilog":
+            (directory / "verilator_policy.json").write_bytes(POLICY.read_bytes())
+            files.append(
+                {"path": "verilator_policy.json", "role": "runtime-glue"}
+            )
         (directory / "generated.json").write_text(
             json.dumps(
                 {
-                    "files": [{"path": name, "role": role}],
+                    "files": files,
                 }
             )
             + "\n"
@@ -65,14 +73,23 @@ def case(tmp_path: Path) -> dict[str, Path]:
     runner = executable(tmp_path / "runner", "print('WORK one')\nprint('WORK two')\n")
     # The controlled external builder still launches a real second executable,
     # keeping process timeout/log/trace coordination under test, not HDL lowering.
-    rtl_program = f"#!{sys.executable}\nprint('WORK one')\nprint('WORK two')\n"
     verilator = executable(
         tmp_path / "rtl-builder",
-        f"""import sys
+        """import subprocess, sys
 from pathlib import Path
-output = Path(sys.argv[sys.argv.index('--Mdir') + 1]) / 'Vpycircuit_example'
-output.write_text({rtl_program!r})
-output.chmod(0o755)
+mdir = Path(sys.argv[sys.argv.index('--Mdir') + 1])
+prefix = sys.argv[sys.argv.index('--prefix') + 1]
+output = Path(sys.argv[sys.argv.index('-o') + 1])
+mdir.mkdir(parents=True, exist_ok=True)
+(mdir / 'generated.cpp').write_text('int generated;\\n')
+(mdir / (prefix + '.mk')).write_text('all:\\n\\t@true\\n')
+(mdir / (prefix + '__verFiles.dat')).write_text(
+    'C "' + ' '.join(sys.argv[1:]) + '"\\n'
+)
+(mdir / 'program.cpp').write_text(
+    '#include <iostream>\\nint main(){std::cout << "WORK one\\\\nWORK two\\\\n";}\\n'
+)
+subprocess.run(['c++', str(mdir / 'program.cpp'), '-o', str(output)], check=True)
 """,
     )
     return {
@@ -105,6 +122,273 @@ def records(case: dict[str, Path]) -> list[dict]:
     return json.loads((case["build"] / "execution.json").read_text())
 
 
+def test_compile_system_uses_whitespace_free_verilator_stage(
+    helper: ModuleType, tmp_path: Path
+) -> None:
+    source = tmp_path / "generated source"
+    include = tmp_path / "runtime include"
+    requested_stage = tmp_path / "requested build with spaces" / "verilator"
+    output = tmp_path / "published output" / "pycircuit_sim"
+    invocation = tmp_path / "verilator-invocation.json"
+    source.mkdir()
+    (include / "verilog").mkdir(parents=True)
+    (source / "design_top.sv").write_text("module design_top; endmodule\n")
+    (source / "simulation_top.sv").write_text(
+        "module pycircuit_sim; endmodule\n"
+    )
+    (source / "verilator_policy.json").write_bytes(POLICY.read_bytes())
+    (source / "generated.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"path": "design_top.sv", "role": "rtl"},
+                    {"path": "simulation_top.sv", "role": "runtime-glue"},
+                    {
+                        "path": "verilator_policy.json",
+                        "role": "runtime-glue",
+                    },
+                ]
+            }
+        )
+        + "\n"
+    )
+    (include / "verilog" / "dff.v").write_text("module dff; endmodule\n")
+    verilator = executable(
+        tmp_path / "fake-verilator",
+        "import json, sys\n"
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        f"Path({str(invocation)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+        "mdir = Path(sys.argv[sys.argv.index('--Mdir') + 1])\n"
+        "prefix = sys.argv[sys.argv.index('--prefix') + 1]\n"
+        "output = Path(sys.argv[sys.argv.index('-o') + 1])\n"
+        "mdir.mkdir(parents=True)\n"
+        "(mdir / 'compiled.stamp').write_text('ok\\n')\n"
+        "(mdir / 'generated.cpp').write_text('int generated;\\n')\n"
+        "(mdir / (prefix + '.mk')).write_text('all:\\n\\t@true\\n')\n"
+        "(mdir / (prefix + '__verFiles.dat')).write_text("
+        "'C \\\"' + ' '.join(sys.argv[1:]) + '\\\"\\n')\n"
+        "output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "source = mdir / 'program.cpp'\n"
+        "source.write_text('int main(){return 0;}\\n')\n"
+        "subprocess.run(['c++', str(source), '-o', str(output)], check=True)\n",
+    )
+
+    helper.compile_system(
+        source,
+        output,
+        include,
+        verilator,
+        jobs=3,
+        build_dir=requested_stage,
+    )
+
+    arguments = json.loads(invocation.read_text())
+    mdir = Path(arguments[arguments.index("--Mdir") + 1])
+    emitted = Path(arguments[arguments.index("-o") + 1])
+    compiler_paths = [mdir, emitted, *map(Path, arguments[arguments.index("-Wno-fatal") + 1 :])]
+    assert all(not any(character.isspace() for character in str(path)) for path in compiler_paths)
+    assert arguments[arguments.index("-j") + 1] == "3"
+    for name, value in (
+        ("--output-split", "10000"),
+        ("--output-split-cfuncs", "10000"),
+        ("--output-groups", "0"),
+    ):
+        assert arguments.count(name) == 1
+        assert arguments[arguments.index(name) + 1] == value
+    assert arguments.count("-Wno-fatal") == 1
+    assert output.is_file() and output.stat().st_size > 0
+    assert (requested_stage / "source/design_top.sv").is_file()
+    assert (requested_stage / "include/verilog/dff.v").is_file()
+    assert (requested_stage / "build/compiled.stamp").read_text() == "ok\n"
+
+
+def policy_bundle(tmp_path: Path) -> Path:
+    bundle = tmp_path / "policy-bundle"
+    bundle.mkdir()
+    (bundle / "verilator_policy.json").write_bytes(POLICY.read_bytes())
+    (bundle / "generated.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {
+                        "path": "verilator_policy.json",
+                        "role": "runtime-glue",
+                    }
+                ]
+            }
+        )
+        + "\n"
+    )
+    return bundle
+
+
+def test_policy_arguments_are_unique_and_jobs_cannot_reenable_output_groups(
+    helper: ModuleType, tmp_path: Path
+) -> None:
+    bundle = policy_bundle(tmp_path)
+    command = helper._verilator_generation_command(
+        bundle,
+        "verilator",
+        [tmp_path / "design.sv"],
+        tmp_path / "obj",
+        "Vpolicy",
+        "top",
+        tmp_path / "obj/Vpolicy",
+        jobs=31,
+    )
+    for name, expected in (
+        ("--output-split", "10000"),
+        ("--output-split-cfuncs", "10000"),
+        ("--output-groups", "0"),
+    ):
+        assert command.count(name) == 1
+        assert command[command.index(name) + 1] == expected
+    assert command[command.index("-j") + 1] == "31"
+    assert command.count("-Wno-fatal") == 1
+
+
+@pytest.mark.parametrize("mutation", ["missing", "tampered", "unbound"])
+def test_policy_missing_tampered_or_unbound_fails_closed(
+    helper: ModuleType, tmp_path: Path, mutation: str
+) -> None:
+    bundle = policy_bundle(tmp_path)
+    if mutation == "missing":
+        (bundle / "verilator_policy.json").unlink()
+    elif mutation == "tampered":
+        value = json.loads((bundle / "verilator_policy.json").read_text())
+        value["output_groups"] = 2
+        (bundle / "verilator_policy.json").write_text(json.dumps(value))
+    else:
+        (bundle / "generated.json").write_text('{"files": []}\n')
+    with pytest.raises(ValueError, match="policy|Policy"):
+        helper.load_verilator_policy(bundle)
+
+
+@pytest.mark.parametrize(
+    ("suffix", "limit", "diagnostic"),
+    [
+        (".cpp", 16 * 1024 * 1024, "C\\+\\+ file exceeds"),
+        (".h", 32 * 1024 * 1024, "header exceeds"),
+    ],
+)
+def test_generated_cpp_and_header_size_limits_fail_before_compilation(
+    helper: ModuleType,
+    tmp_path: Path,
+    suffix: str,
+    limit: int,
+    diagnostic: str,
+) -> None:
+    bundle = policy_bundle(tmp_path)
+    mdir = tmp_path / "obj"
+    mdir.mkdir()
+    (mdir / "small.cpp").write_text("int generated;\n")
+    (mdir / "Vprobe__verFiles.dat").write_text(
+        'C "--output-split 10000 --output-split-cfuncs 10000 '
+        '--output-groups 0"\n'
+    )
+    oversized = mdir / ("oversized" + suffix)
+    with oversized.open("wb") as stream:
+        stream.seek(limit)
+        stream.write(b"x")
+    with pytest.raises(ValueError, match=diagnostic):
+        helper.check_verilator_generated(bundle, mdir)
+
+
+def test_bounded_large_verilator_model_splits_builds_links_and_runs(
+    helper: ModuleType, tmp_path: Path
+) -> None:
+    verilator = shutil.which("verilator")
+    if not verilator:
+        pytest.skip("large split regression requires Verilator")
+    bundle = policy_bundle(tmp_path)
+    source = tmp_path / "large.sv"
+    body = [
+        "module large_model;",
+        "  logic [12:0] selector;",
+        "  logic [31:0] value;",
+        "  initial begin",
+        "    selector = 13'd4095;",
+        "    #1;",
+        "    if (value != 32'd4095) $fatal(1);",
+        "    $finish;",
+        "  end",
+        "  always_comb begin",
+        "    value = 32'd0;",
+    ]
+    body.extend(
+        f"    if (selector == 13'd{index}) value = 32'd{index};"
+        for index in range(6000)
+    )
+    body.extend(("  end", "endmodule"))
+    source.write_text("\n".join(body) + "\n")
+    mdir = tmp_path / "obj"
+    output = mdir / "Vlarge"
+    helper.build_verilator_binary(
+        bundle,
+        verilator,
+        [source],
+        mdir,
+        "Vlarge",
+        "large_model",
+        output,
+        timeout=180,
+        jobs=4,
+        require_split=True,
+    )
+    generated = helper.check_verilator_generated(bundle, mdir, require_split=True)
+    assert generated["cpp_files"] > 2
+    assert len(list(mdir.glob("Vlarge___024root__*.cpp"))) > 1
+    result = subprocess.run(
+        [str(output)], capture_output=True, text=True, check=False, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    assert "$finish" in result.stdout
+
+
+def test_module_and_system_bundle_cmake_share_versioned_policy(tmp_path: Path) -> None:
+    from pycircuit import _emit
+
+    base = {
+        "entry": {"definition": '@"demo.Top"', "arguments": []},
+        "entry_source": {"package": "demo", "path": "top.py"},
+        "rtl_core": "package pycircuit_types; endpackage\n",
+        "rtl_source_groups": [
+            {
+                "source": {"package": "demo", "path": "top.py"},
+                "path": "sources/source_unit_0_0.sv",
+                "text": "module top; endmodule\n",
+            }
+        ],
+        "rtl_standard_sources": [],
+        "root_rtl_name": "pyc_root",
+        "source_maps": [],
+    }
+    for simulation_top in ("", "module pycircuit_sim; endmodule\n"):
+        files, receipt = _emit._target_files(
+            {**base, "simulation_top": simulation_top, "source_check_count": 0},
+            "verilog",
+        )
+        assert files["verilator_policy.json"][1] == "runtime-glue"
+        assert {
+            "path": "verilator_policy.json",
+            "role": "runtime-glue",
+        } in receipt["files"]
+        cmake = files["CMakeLists.txt"][0]
+        if simulation_top:
+            assert "--compile-system" in cmake
+            assert "verilator_policy.json" in cmake
+        else:
+            for token in (
+                "--output-split 10000",
+                "--output-split-cfuncs 10000",
+                "--output-groups 0",
+                "--check-verilator-generated",
+                "--check-verilator-symbols",
+            ):
+                assert token in cmake
+
+
 @pytest.mark.parametrize("timeout", [None, 0.75])
 def test_success_preserves_trace_contract_and_uses_configured_timeout(
     helper: ModuleType,
@@ -117,20 +401,21 @@ def test_success_preserves_trace_contract_and_uses_configured_timeout(
     observed = []
 
     def recording_run(*args, **kwargs):
-        observed.append(kwargs["timeout"])
+        if "timeout" in kwargs:
+            observed.append(kwargs["timeout"])
         return real_run(*args, **kwargs)
 
     monkeypatch.setattr(helper.subprocess, "run", recording_run)
     verify(helper, case, **({} if timeout is None else {"timeout": timeout}))
 
     expected_timeout = 180 if timeout is None else timeout
-    assert observed == [expected_timeout] * 4
+    assert observed == [expected_timeout] * 5
     result = json.loads(receipt.read_text())
     assert result["schema"] == "pycircuit-example-verification-v1"
     assert result["workers"] == [1, 2] and result["rtl"] == "verilator"
     assert result["work_samples"] == 2 and "stale_success" not in result
     assert "source/model.py" in result["inputs"]
-    assert "build/cpp/model.cpp" in result["inputs"]
+    assert "build/structural-cpp/model.cpp" in result["inputs"]
     assert "build/verilog/design_top.sv" in result["inputs"]
     assert result["execution_sha256"] == helper.digest(case["build"] / "execution.json")
     for record in records(case):
@@ -254,7 +539,7 @@ def test_changed_candidate_cannot_publish_success(
     with pytest.raises(AssertionError, match="inputs changed"):
         verify(helper, case)
     assert not receipt.exists()
-    assert len(records(case)) == 4 and all(
+    assert len(records(case)) == 5 and all(
         row["exit_status"] == 0 for row in records(case)
     )
 
@@ -264,7 +549,7 @@ def test_missing_generated_payload_removes_stale_success_before_any_run(
     case: dict[str, Path],
 ) -> None:
     receipt = stale_receipt(case)
-    (case["build"] / "cpp" / "model.cpp").unlink()
+    (case["build"] / "structural-cpp" / "model.cpp").unlink()
     with pytest.raises(FileNotFoundError):
         verify(helper, case)
     assert not receipt.exists()
@@ -304,7 +589,7 @@ def system_case(case: dict[str, Path], tmp_path: Path) -> dict[str, Path]:
     (toolchain / "lib").mkdir()
     runtime = toolchain / "lib/libpyc6_runtime.so"
     runtime.write_text("candidate native runtime\n")
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         directory = case["build"] / target
         (directory / "system.ac").write_text("identical final common hardware IR\n")
         units = directory / "units" / "model"
@@ -421,7 +706,7 @@ def test_system_full_duration_trace_and_input_receipt(helper, system_case, monke
     assert receipt["observations"] == 2 and receipt["source_checks"] == 1
     assert receipt["workers"] == [1, 2] and receipt["rtl"] == "verilator"
     executed_inputs = {}
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         executed_inputs.update(
             json.loads(
                 (system_case["build"] / target / "run-execution.json").read_text()
@@ -438,7 +723,9 @@ def test_system_full_duration_trace_and_input_receipt(helper, system_case, monke
         ).hexdigest()
     )
     for (command, kwargs), (target, workers) in zip(
-        calls, (("cpp", "1"), ("cpp", "2"), ("verilog", "1")), strict=True
+        calls,
+        (("structural-cpp", "1"), ("structural-cpp", "2"), ("verilog", "1")),
+        strict=True,
     ):
         assert command == [
             str(system_case["driver"]),
@@ -460,9 +747,11 @@ def test_system_full_duration_trace_and_input_receipt(helper, system_case, monke
         assert kwargs["timeout"] == 1.25
     for label, path in {
         "source/model.py": system_case["source"] / "model.py",
-        "cpp/system.ac": system_case["build"] / "cpp/system.ac",
-        "cpp/units/model/model.ac": system_case["build"] / "cpp/units/model/model.ac",
-        "cpp/cpp/model.payload": system_case["build"] / "cpp/cpp/model.payload",
+        "structural-cpp/system.ac": system_case["build"] / "structural-cpp/system.ac",
+        "structural-cpp/units/model/model.ac": system_case["build"]
+        / "structural-cpp/units/model/model.ac",
+        "structural-cpp/structural-cpp/model.payload": system_case["build"]
+        / "structural-cpp/structural-cpp/model.payload",
         "verilog/verilog/generated.json": system_case["build"]
         / "verilog/verilog/generated.json",
         "runtime-rtl/primitive.v": system_case["include"] / "verilog/primitive.v",
@@ -492,7 +781,7 @@ def test_unchecked_root_refuses_empty_or_unreachable_expect_closure(
 ):
     proof = stale_receipt(system_case)
     # An unrelated retained assertion is not an obligation of the selected root.
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         (system_case["build"] / target / "system.ac").write_text(final_ir)
         metadata = (
             system_case["build"] / target / target / "simulation_verification.json"
@@ -567,8 +856,10 @@ def test_system_changed_candidate_cannot_publish_success(
         "source": system_case["source"] / "model.py",
         "runtime": system_case["include"] / "verilog/primitive.v",
         "toolchain": system_case["toolchain"] / "bin/pycircuit-emit",
-        "cpp_payload": system_case["build"] / "cpp/cpp/model.payload",
-        "cpp_unit": system_case["build"] / "cpp/units/model/model.ac",
+        "cpp_payload": system_case["build"]
+        / "structural-cpp/structural-cpp/model.payload",
+        "cpp_unit": system_case["build"]
+        / "structural-cpp/units/model/model.ac",
     }[component]
 
     def mutate(index):
@@ -637,11 +928,14 @@ def test_system_metadata_must_identify_selected_root_with_exact_nonnegative_coun
     helper, system_case, monkeypatch, field, value
 ):
     proof = stale_receipt(system_case)
-    metadata = system_case["build"] / "cpp/cpp/simulation_verification.json"
+    metadata = (
+        system_case["build"]
+        / "structural-cpp/structural-cpp/simulation_verification.json"
+    )
     row = json.loads(metadata.read_text())
     row[field] = value
     metadata.write_text(json.dumps(row) + "\n")
-    refresh_execution_inputs(system_case, "cpp")
+    refresh_execution_inputs(system_case, "structural-cpp")
     system_runs(helper, monkeypatch, [system_records()] * 3)
     with pytest.raises(ValueError, match="selected root"):
         verify_system(helper, system_case)
@@ -682,7 +976,7 @@ def test_system_requires_successful_receipt_bound_to_actual_simulation_binary(
     helper, system_case, monkeypatch, defect
 ):
     proof = stale_receipt(system_case)
-    path = system_case["build"] / "cpp/run-execution.json"
+    path = system_case["build"] / "structural-cpp/run-execution.json"
     row = json.loads(path.read_text())
     binary = row["command"][0]
     if defect == "failed":
@@ -711,7 +1005,9 @@ def test_system_binary_and_native_runtime_mutation_cannot_publish_success(
     helper, system_case, monkeypatch, component, mutation_run
 ):
     proof = stale_receipt(system_case)
-    row = json.loads((system_case["build"] / "cpp/run-execution.json").read_text())
+    row = json.loads(
+        (system_case["build"] / "structural-cpp/run-execution.json").read_text()
+    )
     path = (
         Path(row["command"][0])
         if component == "binary"
@@ -733,11 +1029,14 @@ def test_system_metadata_requires_all_selected_root_identity_fields(
     helper, system_case, monkeypatch, field
 ):
     proof = stale_receipt(system_case)
-    metadata = system_case["build"] / "cpp/cpp/simulation_verification.json"
+    metadata = (
+        system_case["build"]
+        / "structural-cpp/structural-cpp/simulation_verification.json"
+    )
     row = json.loads(metadata.read_text())
     del row[field]
     metadata.write_text(json.dumps(row) + "\n")
-    refresh_execution_inputs(system_case, "cpp")
+    refresh_execution_inputs(system_case, "structural-cpp")
     system_runs(helper, monkeypatch, [system_records()] * 3)
     with pytest.raises(ValueError, match="selected root"):
         verify_system(helper, system_case)

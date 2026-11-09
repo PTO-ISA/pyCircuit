@@ -5,7 +5,8 @@ module fifo #(
     parameter longint signed DEPTH = 0,
     parameter int READY_POLICY = -1,
     parameter [63:0] AVAILABILITY_LATENCY = 64'd0,
-    parameter bit pyc_managed = 0
+    parameter bit pyc_managed = 0,
+    parameter bit pyc_physical = 0
 ) (
     input wire clk,
     input wire rst,
@@ -179,7 +180,8 @@ module fifo #(
                             end else begin
                                 rising_sample = !clock_current && clock_sample;
                                 preparation_error = |edge_control_error(
-                                    rising_sample, reset_sample, push_sample, pop_sample);
+                                    rising_sample, reset_sample, push_sample,
+                                    pop_sample);
                                 if (!preparation_error) begin
                                     prepare_transition(rising_sample, reset_sample,
                                         push_sample, pop_sample, token_sample);
@@ -208,11 +210,23 @@ module fifo #(
                         default: begin end
                     endcase
                 end
+            end else if (pyc_physical) begin : checked_physical
+                wire [1:0] control_error = edge_control_error(
+                    1'b1, rst, do_push, do_pop);
+                assign pyc_local_error = |control_error;
+                always @(posedge clk) begin
+                    if (!(|control_error)) begin
+                        prepare_transition(1'b1, rst, do_push, do_pop, in_data);
+                        if (pyc_root_commit_ok === 1'b1)
+                            commit_transition();
+                    end
+                end
             end else begin : autonomous
                 bit [1:0] control_error;
                 assign pyc_local_error = 1'b0;
                 always @(posedge clk) begin
-                    control_error = edge_control_error(1'b1, rst, do_push, do_pop);
+                    control_error = edge_control_error(
+                        1'b1, rst, do_push, do_pop);
                     if (control_error[0])
                         $fatal(1, "fifo: reset must be known at the rising edge");
                     if (control_error[1])
@@ -346,7 +360,8 @@ module fifo #(
                             end else begin
                                 rising_sample = !clock_current && clock_sample;
                                 preparation_error = |edge_control_error(
-                                    rising_sample, reset_sample, push_sample, pop_sample);
+                                    rising_sample, reset_sample, push_sample,
+                                    pop_sample);
                                 if (!preparation_error) begin
                                     prepare_transition(rising_sample, reset_sample,
                                         push_sample, pop_sample, token_sample);
@@ -375,11 +390,23 @@ module fifo #(
                         default: begin end
                     endcase
                 end
+            end else if (pyc_physical) begin : checked_physical
+                wire [1:0] control_error = edge_control_error(
+                    1'b1, rst, do_push, do_pop);
+                assign pyc_local_error = |control_error;
+                always @(posedge clk) begin
+                    if (!(|control_error)) begin
+                        prepare_transition(1'b1, rst, do_push, do_pop, in_data);
+                        if (pyc_root_commit_ok === 1'b1)
+                            commit_transition();
+                    end
+                end
             end else begin : autonomous
                 bit [1:0] control_error;
                 assign pyc_local_error = 1'b0;
                 always @(posedge clk) begin
-                    control_error = edge_control_error(1'b1, rst, do_push, do_pop);
+                    control_error = edge_control_error(
+                        1'b1, rst, do_push, do_pop);
                     if (control_error[0])
                         $fatal(1, "fifo: reset must be known at the rising edge");
                     if (control_error[1])

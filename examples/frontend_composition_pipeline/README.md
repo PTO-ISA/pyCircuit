@@ -125,6 +125,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/frontend_composition_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-cpp
+pycircuit run examples/frontend_composition_pipeline --target structural-cpp --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-structural-cpp
 pycircuit run examples/frontend_composition_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-verilog
 ```

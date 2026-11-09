@@ -1,2 +1,2 @@
-# RUN: %python %inputs/publication_protection.py %src %pycircuit_emit %inputs/two-leaves.mlir %S/../IR/combinational-cycle.mlir cpp %t.cpp
-# RUN: %python %inputs/publication_protection.py %src %pycircuit_emit %inputs/two-leaves.mlir %S/../IR/combinational-cycle.mlir verilog %t.rtl
+# RUN: %pycircuit_opt %inputs/structural-cpp-combinational.mlir --ac-lower-transactions -o %t.valid.mlir
+# RUN: %python %inputs/publication_protection.py %src %pycircuit_emit %t.valid.mlir %S/../IR/combinational-cycle.mlir verilog %t.rtl

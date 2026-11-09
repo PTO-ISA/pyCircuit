@@ -9,20 +9,26 @@ closure, verifies a common final design, then selects a backend:
    unit directories. The compiler does not fall back to child Python bodies.
 3. `pycircuit link <units...> --top ...` validates the complete unit closure,
    resolves instances, and publishes one verified final design.
-4. `pycircuit emit <design_top.ac> --target cpp|verilog` verifies the final
-   input and emits the chosen target.
+4. `pycircuit emit <design_top.ac> --target structural-cpp|verilog` verifies
+   the saved final ACIR, lowers it once through `ac-final-to-hwir`, verifies
+   independent HWIR v2, and emits the chosen target from a concrete design
+   plan. Native `pycircuit-emit` accepts HWIR rather than final ACIR.
 
-The same saved final design is input to both backends. No whole-system capture
-followed by source splitting is allowed. C++ output keeps one implementation
-source group per source unit, plus generated core/runtime glue. Generated CMake
-compiles those units separately as `pycircuit_modules`; the host driver links
-them with the shared Runtime.
+The same saved final design and the same verified HWIR lowering are input to
+both backends. No whole-system capture followed by source splitting is allowed.
+C++ output keeps one implementation source group per source unit, plus generated
+core/runtime glue. A source group may additionally own bounded
+`work_unit_<N>_<M>.cpp` files when a module schedule is too large for header-only
+Work helpers. Generated CMake compiles every source-unit implementation and Work
+shard separately as `pycircuit_modules`; the host driver links them with the
+shared Runtime.
 
 Runtime-only CMake exports `pycircuit::pyc6_runtime` without LLVM discovery.
 CompilerDev includes native compiler development targets and requires exact
 LLVM/MLIR 22.1.8.
 
-The common source and final hardware representation is ACIR. Its `ac` dialect
-name is an IR identifier, not another Python frontend. Unsupported source or
-backend capabilities fail before output publication; see
+ACIR remains the linked public artifact; independent HWIR v2 is the closed
+backend contract. Its dialect names are IR identifiers, not another Python
+frontend. Unsupported source or backend capabilities fail before output
+publication; see
 [known limitations](../development/known-limitations.md).

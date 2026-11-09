@@ -7,4 +7,5 @@ target_compile_features(compiler_dev_consumer PRIVATE cxx_std_20)
 target_link_libraries(compiler_dev_consumer PRIVATE
   pycircuit::ACIRDialect
   pycircuit::ACIRSourceCompiler
+  pycircuit::ACIRCodegen
 )

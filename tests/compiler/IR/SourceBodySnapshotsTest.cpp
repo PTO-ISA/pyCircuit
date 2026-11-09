@@ -484,8 +484,9 @@ TEST_F(SourceBodySnapshotsTest, ConstructorBodyTamperingIsRejected) {
   ASSERT_TRUE(constructor);
   mlir::OpBuilder builder(&context);
   builder.setInsertionPoint(&constructor.getBody().front().back());
-  builder.create<mlir::arith::ConstantOp>(
-      constructor.getLoc(), builder.getI1Type(), builder.getBoolAttr(false));
+  mlir::arith::ConstantOp::create(builder, constructor.getLoc(),
+                                  builder.getI1Type(),
+                                  builder.getBoolAttr(false));
   expectRejects(std::move(candidate));
 }
 

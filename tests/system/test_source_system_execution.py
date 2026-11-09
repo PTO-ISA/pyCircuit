@@ -157,7 +157,11 @@ def _bundle(final: Path, tmp_path: Path, target: str) -> Path:
     _ok(_cli("emit", str(final), "--target", target, "-o", str(generated)))
     receipt = json.loads((generated / "generated.json").read_text())
     names = {item["path"] for item in receipt["files"]}
-    harness = "simulation_main.cpp" if target == "cpp" else "simulation_top.sv"
+    harness = (
+        "simulation_main.cpp"
+        if target == "structural-cpp"
+        else "simulation_top.sv"
+    )
     assert harness in names
     build = tmp_path / f"build-{target}"
     package = _install() / "share/pycircuit/cmake"
@@ -462,7 +466,9 @@ def _conditional_probe_rtl_observation_oracle(generated):
     ]
     publish = support[support.index("  task automatic pyc_publish_observations;") :]
     groups = re.findall(
-        r"if \(pyc_observation_active_(\d+)\) begin\n(.*?)      end", publish, re.S
+        r"^    if \(pyc_observation_active_(\d+)\) begin\n(.*?)^    end$",
+        publish,
+        re.S | re.M,
     )
     # Match semantic groups before borrowing their emitted slot locations. The
     # expected source values below never come from generated payload contents.
@@ -489,14 +495,21 @@ def _conditional_probe_rtl_observation_oracle(generated):
     for (first, body), (instance, kind, name, values, path) in zip(
         groups, expected, strict=True
     ):
-        display = re.search(r'\$display\(("(?:\\.|[^"\\])*")', body)
-        assert display is not None
-        descriptor = json.loads(json.loads(display[1]))
-        assert descriptor["instance"] == instance and descriptor["kind"] == kind
-        assert descriptor["spec"].get("event", descriptor["spec"].get("name")) == name
+        descriptor = re.search(
+            r'\$write\("\{\\"kind\\":\\"([^"]+)\\",'
+            r'\\"instance\\":\\"([^"]+)\\",',
+            body,
+        )
+        assert descriptor is not None
+        assert descriptor[1] == kind and descriptor[2] == instance
+        spec = re.search(
+            r'\$write\("\{\\"(?:event|name)\\":\\"([^"]+)\\"',
+            body,
+        )
+        assert spec is not None and spec[1] == name
         slots = re.findall(
-            r"\$unsigned\(dut\.dut\.pyc_observation_value_(\d+)\)",
-            body[display.end() :],
+            r"pyc_observation_json_\d+\(dut\.dut\.pyc_observation_value_(\d+),",
+            body,
         )
         assert len(slots) == len(values) and slots[0] == first
         if kind == "report":
@@ -515,15 +528,9 @@ def _conditional_probe_rtl_observation_oracle(generated):
             f'      $fatal(1,"conditional observation group activation {first}");',
         ]
     assert report_slot is not None
-    declarations = "\n".join(
-        re.findall(
-            r"^  longint unsigned pyc_report_(?:value|update)_\d+ = 0;$", harness, re.M
-        )
-    )
     oracle = "\n".join(checks)
     return (
-        declarations
-        + "\n  longint unsigned pyc_epoch=0, expected_report_value=0, expected_report_update=0;\n"
+        "  longint unsigned pyc_epoch=0, expected_report_value=0, expected_report_update=0;\n"
         + "  logic expected_fire=0, expected_chosen=0;\n"
         + support
         + """
@@ -560,14 +567,17 @@ module conditional_four_state;
     .pyc_check_complete(complete), .pyc_sampling_error(sampling_error),
     .pyc_local_error(error));
   `define R dut.dut
-  `define OWNER `R.pyc_instance_owner.pyc_instance_count
-  `define SIBLING `R.pyc_instance_sibling.pyc_instance_count
-  `define SELECTOR `R.pyc_instance_selector.q_current
-  `define ALLOW `R.pyc_instance_allow.q_current
-  `define PRIOR `R.pyc_instance_prior.q_current
-  `define LATER `R.pyc_instance_later.q_current
-  `define EARLY `R.pyc_instance_early_check.q_current
-  `define ASSERTION `R.pyc_instance_branch_check.q_current
+  // HWIR source-unit RTL names physical occurrences by verified plan ordinal.
+  // The six root registers precede the two ConditionalCounter children; each
+  // counter owns its count register as its first occurrence.
+  `define OWNER `R.pyc_instance_6.pyc_instance_0
+  `define SIBLING `R.pyc_instance_7.pyc_instance_0
+  `define SELECTOR `R.pyc_instance_0.q_current
+  `define ALLOW `R.pyc_instance_1.q_current
+  `define PRIOR `R.pyc_instance_2.q_current
+  `define LATER `R.pyc_instance_3.q_current
+  `define EARLY `R.pyc_instance_4.q_current
+  `define ASSERTION `R.pyc_instance_5.q_current
 
 __OBSERVATION_SUPPORT__
 
@@ -598,12 +608,12 @@ __OBSERVATION_SUPPORT__
     if (`OWNER.q_current !== owner || `SIBLING.q_current !== sibling ||
         `OWNER.managed.clock_current !== history ||
         `SIBLING.managed.clock_current !== history ||
-        `R.pyc_instance_selector.managed.clock_current !== history ||
-        `R.pyc_instance_allow.managed.clock_current !== history ||
-        `R.pyc_instance_prior.managed.clock_current !== history ||
-        `R.pyc_instance_later.managed.clock_current !== history ||
-        `R.pyc_instance_early_check.managed.clock_current !== history ||
-        `R.pyc_instance_branch_check.managed.clock_current !== history)
+        `R.pyc_instance_0.managed.clock_current !== history ||
+        `R.pyc_instance_1.managed.clock_current !== history ||
+        `R.pyc_instance_2.managed.clock_current !== history ||
+        `R.pyc_instance_3.managed.clock_current !== history ||
+        `R.pyc_instance_4.managed.clock_current !== history ||
+        `R.pyc_instance_5.managed.clock_current !== history)
       $fatal(1,"conditional state/history changed unexpectedly");
   endtask
   task automatic start(input integer timing);
@@ -745,16 +755,31 @@ endmodule
 
 
 def _conditional_probe_cpp(final, tmp_path):
-    generated = tmp_path / "cpp"
-    _ok(_cli("emit", str(final), "--target", "cpp", "-o", str(generated)))
+    generated = tmp_path / "structural-cpp"
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "structural-cpp",
+            "-o",
+            str(generated),
+        )
+    )
     # Expose emitted members only, as in _atomic_cpp. The probe supplies fault
     # stimuli to real storage and observes the ordinary SimSystem coordinator.
     for header in generated.rglob("*.hpp"):
         header.write_text(header.read_text().replace("private:", "public:"))
+    runtime_dff = _install() / "include/gfsim/dff.h"
+    local_gfsim = generated / "gfsim"
+    local_gfsim.mkdir(exist_ok=True)
+    (local_gfsim / "dff.h").write_text(
+        runtime_dff.read_text().replace("private:", "public:")
+    )
     driver = generated / "conditional_probe.cpp"
     driver.write_text(
         r"""
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <type_traits>
@@ -770,35 +795,34 @@ static void require(bool value, const char *message) {
 }
 template<class Storage, class Output>
 void inject(Storage &storage, Output &output, unsigned s) {
-  using Current = std::remove_cvref_t<decltype(storage->current(0))>;
-  auto &state = const_cast<Current &>(storage->current(0));
+  auto &state = storage.current_;
   state.q = four(s);
-  output.element(0) = state.q;
+  output = state.q;
 }
 int main() {
   for (unsigned workers : {1u, 2u}) {
     pyc_dut dut(workers);
     auto drive = [&](bool clock, bool reset) { dut.drive({four(clock), four(reset)}); };
     drive(false,false); dut.system().Build();
-    auto root = dut.root_->pyc_implementation;
-    auto owner = root->pyc_instance_owner;
-    auto sibling = root->pyc_instance_sibling;
+    auto *root = &dut.root();
+    auto *owner = &root->pyc_owner;
+    auto *sibling = &root->pyc_sibling;
     auto snapshot = [&]() {
       std::vector<std::uint64_t> result;
       auto add = [&](const auto &storage) {
-        const auto &q = storage->current(0);
+        const auto &q = storage.current_;
         result.insert(result.end(), {q.q.packed().value().value(),
           q.q.packed().knownMask().value(), q.q.packed().zMask().value(), q.clock});
       };
-      add(owner->pyc_instance_count_state); add(sibling->pyc_instance_count_state);
-      add(root->pyc_instance_selector_state); add(root->pyc_instance_allow_state);
-      add(root->pyc_instance_prior_state); add(root->pyc_instance_later_state);
-      add(root->pyc_instance_early_check_state); add(root->pyc_instance_branch_check_state);
+      add(owner->pyc_count); add(sibling->pyc_count);
+      add(root->pyc_selector); add(root->pyc_allow);
+      add(root->pyc_prior); add(root->pyc_later);
+      add(root->pyc_early_check); add(root->pyc_branch_check);
       return result;
     };
     auto current = [&](unsigned q, unsigned other, bool history) {
-      require(owner->pyc_instance_count_state->current(0).q.value().value() == q, "owner Q");
-      require(sibling->pyc_instance_count_state->current(0).q.value().value() == other, "sibling Q");
+      require(owner->pyc_count.current_.q.value().value() == q, "owner Q");
+      require(sibling->pyc_count.current_.q.value().value() == other, "sibling Q");
       const auto state = snapshot();
       for (unsigned i=3; i<state.size(); i+=4) require(state[i] == history, "clock history");
     };
@@ -814,12 +838,12 @@ int main() {
       }
       drive(timing==1 || timing==2 || timing==4, timing==4);
     };
-    auto selector = [&](unsigned s) { inject(root->pyc_instance_selector_state,root->pyc_instance_selector_q,s); };
-    auto allow = [&](unsigned s) { inject(root->pyc_instance_allow_state,root->pyc_instance_allow_q,s); };
-    auto prior = [&](unsigned s) { inject(root->pyc_instance_prior_state,root->pyc_instance_prior_q,s); };
-    auto later = [&](unsigned s) { inject(root->pyc_instance_later_state,root->pyc_instance_later_q,s); };
-    auto early = [&](unsigned s) { inject(root->pyc_instance_early_check_state,root->pyc_instance_early_check_q,s); };
-    auto assertion = [&](unsigned s) { inject(root->pyc_instance_branch_check_state,root->pyc_instance_branch_check_q,s); };
+    auto selector = [&](unsigned s) { inject(root->pyc_selector,root->pyc_selector.q,s); };
+    auto allow = [&](unsigned s) { inject(root->pyc_allow,root->pyc_allow.q,s); };
+    auto prior = [&](unsigned s) { inject(root->pyc_prior,root->pyc_prior.q,s); };
+    auto later = [&](unsigned s) { inject(root->pyc_later,root->pyc_later.q,s); };
+    auto early = [&](unsigned s) { inject(root->pyc_early_check,root->pyc_early_check.q,s); };
+    auto assertion = [&](unsigned s) { inject(root->pyc_branch_check,root->pyc_branch_check.q,s); };
     auto step = [&](bool fails, bool inactive) {
       const auto state = snapshot();
       const auto epoch = dut.system().cycle();
@@ -876,7 +900,7 @@ int main() {
     start(1); step(false,false); current(13,6,true);
     start(1); selector(1);
     const auto state = snapshot();
-    dut.root_->Work(); dut.root_->DiscardNext(); dut.observations().DiscardNext();
+    dut.root().Work(); dut.root().DiscardNext(); dut.observations().DiscardNext();
     require(snapshot()==state && dut.system().cycle()==0 && dut.observations().Events().empty(),"Discard committed work");
     step(false,false); current(11,6,true);
   }
@@ -939,21 +963,21 @@ module conditional_system_precommit;
   longint unsigned report_value, report_update;
   `define R pycircuit_sim.dut.dut
   function automatic logic [7:0] history;
-    history={{`R.pyc_instance_owner.pyc_instance_count.managed.clock_current,
-      `R.pyc_instance_sibling.pyc_instance_count.managed.clock_current,
-      `R.pyc_instance_selector.managed.clock_current,
-      `R.pyc_instance_allow.managed.clock_current,
-      `R.pyc_instance_prior.managed.clock_current,
-      `R.pyc_instance_later.managed.clock_current,
-      `R.pyc_instance_early_check.managed.clock_current,
-      `R.pyc_instance_branch_check.managed.clock_current}};
+    history={{`R.pyc_instance_6.pyc_instance_0.managed.clock_current,
+      `R.pyc_instance_7.pyc_instance_0.managed.clock_current,
+      `R.pyc_instance_0.managed.clock_current,
+      `R.pyc_instance_1.managed.clock_current,
+      `R.pyc_instance_2.managed.clock_current,
+      `R.pyc_instance_3.managed.clock_current,
+      `R.pyc_instance_4.managed.clock_current,
+      `R.pyc_instance_5.managed.clock_current}};
   endfunction
   initial begin
     wait(pycircuit_sim.pyc_epoch==1 && pycircuit_sim.pyc_phase==0);
-    `R.pyc_instance_selector.q_current=1'bx;
+    `R.pyc_instance_0.q_current=1'bx;
     #0;
-    owner_q=`R.pyc_instance_owner.pyc_instance_count.q_current;
-    sibling_q=`R.pyc_instance_sibling.pyc_instance_count.q_current;
+    owner_q=`R.pyc_instance_6.pyc_instance_0.q_current;
+    sibling_q=`R.pyc_instance_7.pyc_instance_0.q_current;
     histories=history();
     report_value=pycircuit_sim.pyc_report_value_{report};
     report_update=pycircuit_sim.pyc_report_update_{report};
@@ -961,9 +985,9 @@ module conditional_system_precommit;
   end
   final begin
     if (captured!==1 || pycircuit_sim.pyc_epoch!==1 ||
-        `R.pyc_instance_owner.pyc_instance_count.q_current!==owner_q ||
-        `R.pyc_instance_sibling.pyc_instance_count.q_current!==sibling_q ||
-        history()!==histories || `R.pyc_instance_selector.q_current!==1'bx ||
+        `R.pyc_instance_6.pyc_instance_0.q_current!==owner_q ||
+        `R.pyc_instance_7.pyc_instance_0.q_current!==sibling_q ||
+        history()!==histories || `R.pyc_instance_0.q_current!==1'bx ||
         pycircuit_sim.pyc_report_value_{report}!==report_value ||
         pycircuit_sim.pyc_report_update_{report}!==report_update)
       $display("CONDITIONAL-SYSTEM-PRECOMMIT-FAIL");
@@ -1183,9 +1207,9 @@ module branch_{mode}_four_state;
     .pyc_local_error(error));
 
   `define ROOT dut.dut
-  `define OWNER `ROOT.pyc_instance_owner.pyc_instance_value
-  `define SELECTOR `ROOT.pyc_instance_selector
-  `define DATA `ROOT.pyc_instance_data
+  `define OWNER `ROOT.pyc_instance_2.pyc_instance_0
+  `define SELECTOR `ROOT.pyc_instance_0
+  `define DATA `ROOT.pyc_instance_1
   `define owner_q `OWNER.q_current
   `define owner_history `OWNER.managed.clock_current
   `define selector_q `SELECTOR.q_current
@@ -1256,25 +1280,25 @@ module branch_system_precommit;
   longint unsigned report_value, report_update;
   initial begin
     wait (pycircuit_sim.pyc_epoch == 1 && pycircuit_sim.pyc_phase == 0);
-    pycircuit_sim.dut.dut.pyc_instance_selector.q_current = 1'bx;
+    pycircuit_sim.dut.dut.pyc_instance_0.q_current = 1'bx;
     #0;
-    owner_q = pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.q_current;
-    owner_history = pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.managed.clock_current;
-    selector_history = pycircuit_sim.dut.dut.pyc_instance_selector.managed.clock_current;
-    data_q = pycircuit_sim.dut.dut.pyc_instance_data.q_current;
-    data_history = pycircuit_sim.dut.dut.pyc_instance_data.managed.clock_current;
+    owner_q = pycircuit_sim.dut.dut.pyc_instance_2.pyc_instance_0.q_current;
+    owner_history = pycircuit_sim.dut.dut.pyc_instance_2.pyc_instance_0.managed.clock_current;
+    selector_history = pycircuit_sim.dut.dut.pyc_instance_0.managed.clock_current;
+    data_q = pycircuit_sim.dut.dut.pyc_instance_1.q_current;
+    data_history = pycircuit_sim.dut.dut.pyc_instance_1.managed.clock_current;
     report_value = pycircuit_sim.pyc_report_value_{report};
     report_update = pycircuit_sim.pyc_report_update_{report};
     captured = 1'b1;
   end
   final begin
     if (captured !== 1'b1 || pycircuit_sim.pyc_epoch !== 1 ||
-        pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.q_current !== owner_q ||
-        pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.managed.clock_current !== owner_history ||
-        pycircuit_sim.dut.dut.pyc_instance_selector.q_current !== 1'bx ||
-        pycircuit_sim.dut.dut.pyc_instance_selector.managed.clock_current !== selector_history ||
-        pycircuit_sim.dut.dut.pyc_instance_data.q_current !== data_q ||
-        pycircuit_sim.dut.dut.pyc_instance_data.managed.clock_current !== data_history ||
+        pycircuit_sim.dut.dut.pyc_instance_2.pyc_instance_0.q_current !== owner_q ||
+        pycircuit_sim.dut.dut.pyc_instance_2.pyc_instance_0.managed.clock_current !== owner_history ||
+        pycircuit_sim.dut.dut.pyc_instance_0.q_current !== 1'bx ||
+        pycircuit_sim.dut.dut.pyc_instance_0.managed.clock_current !== selector_history ||
+        pycircuit_sim.dut.dut.pyc_instance_1.q_current !== data_q ||
+        pycircuit_sim.dut.dut.pyc_instance_1.managed.clock_current !== data_history ||
         pycircuit_sim.pyc_report_value_{report} !== report_value ||
         pycircuit_sim.pyc_report_update_{report} !== report_update)
       $display("BRANCH-SYSTEM-PRECOMMIT-FAIL");
@@ -1582,8 +1606,8 @@ module method_effects_four_state;
     .pyc_local_error(error));
 
   task automatic check_owner(input logic [7:0] q, input logic history);
-    if (dut.dut.pyc_instance_owner.pyc_instance_count.q_current !== q ||
-        dut.dut.pyc_instance_owner.pyc_instance_count.managed.clock_current !== history)
+    if (dut.dut.pyc_instance_0.pyc_instance_0.q_current !== q ||
+        dut.dut.pyc_instance_0.pyc_instance_0.managed.clock_current !== history)
       $fatal(1, "committed Method owner state/history changed");
   endtask
 
@@ -1606,7 +1630,7 @@ module method_effects_four_state;
     // A false body assertion is checked on low, held and falling epochs. A
     // denied commit preserves both Q and the prior sampled-clock history.
     reset_model();
-    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'd9;
+    dut.dut.pyc_instance_0.pyc_instance_0.q_current = 8'd9;
     clk=0; rst=0; phase=1; #1;
     if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "low body assertion did not fail");
     deny(8'd9, 1'b0);
@@ -1616,7 +1640,7 @@ module method_effects_four_state;
     if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "reset did not mask body assertion");
     permit=1; phase=2; #1; phase=0; permit=0; rst=0; #1;
     check_owner(8'd0, 1'b1);
-    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'd9;
+    dut.dut.pyc_instance_0.pyc_instance_0.q_current = 8'd9;
     clk=1; phase=1; #1;
     if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "held body assertion did not fail");
     deny(8'd9, 1'b1);
@@ -1624,7 +1648,7 @@ module method_effects_four_state;
     reset_model();
     clk=1; rst=1; phase=1; #1; permit=1; phase=2; #1;
     phase=0; permit=0; rst=0; #1; check_owner(8'd0, 1'b1);
-    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'd9;
+    dut.dut.pyc_instance_0.pyc_instance_0.q_current = 8'd9;
     clk=0; phase=1; #1;
     if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "falling body assertion did not fail");
     deny(8'd9, 1'b1);
@@ -1632,20 +1656,20 @@ module method_effects_four_state;
     // X and Z in the statement-time assertion condition both fail closed at
     // an active edge, while denial retains the exact four-state Q and history.
     reset_model();
-    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'hxx;
+    dut.dut.pyc_instance_0.pyc_instance_0.q_current = 8'hxx;
     clk=1; rst=0; phase=1; #1;
     if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "X body assertion did not fail");
     deny(8'hxx, 1'b0);
 
     reset_model();
-    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'hzz;
+    dut.dut.pyc_instance_0.pyc_instance_0.q_current = 8'hzz;
     clk=1; rst=0; phase=1; #1;
     if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "Z body assertion did not fail");
     deny(8'hzz, 1'b0);
 
     // Reset masks even an unknown body condition and commits the initializer.
     reset_model();
-    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'hxx;
+    dut.dut.pyc_instance_0.pyc_instance_0.q_current = 8'hxx;
     clk=1; rst=1; phase=1; #1;
     if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "reset did not mask unknown assertion");
     permit=1; phase=2; #1; check_owner(8'd0, 1'b1);
@@ -1656,6 +1680,13 @@ endmodule
 """
     )
     binary = tmp_path / "method_effects_four_state"
+    manifest = json.loads((generated / "generated.json").read_text())
+    rtl = [
+        generated / row["path"]
+        for row in manifest["files"]
+        if row["role"] == "rtl"
+    ]
+    assert generated / "design_top.sv" in rtl
     _ok(
         _run(
             [
@@ -1666,9 +1697,7 @@ endmodule
                 "-o",
                 str(binary),
                 str(_install() / "include/verilog/dffe.v"),
-                str(generated / "design_top.sv"),
-                str(generated / "sources/checks/method_effects_provider.v"),
-                str(generated / "sources/checks/method_effects_bench.v"),
+                *map(str, rtl),
                 str(testbench),
             ]
         )
@@ -1735,12 +1764,21 @@ def test_hello_counter_preserves_original_five_cycle_logs(tmp_path):
         )
     )
     expected = [(epoch, epoch + 1, epoch // 2) for epoch in range(10)]
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         binary = _bundle(final, tmp_path, target)
-        for workers in (1, 2) if target == "cpp" else (1,):
+        zero = _run(
+            [
+                str(binary),
+                *(["--cycles", "0"] if target == "structural-cpp" else ["+cycles=0"]),
+            ],
+            timeout=20,
+        )
+        assert zero.returncode != 0, zero.stdout + zero.stderr
+        assert "positive" in zero.stdout + zero.stderr
+        for workers in (1, 2) if target == "structural-cpp" else (1,):
             arguments = (
-                ["--cycles", "5", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "5", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=5"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
@@ -1788,9 +1826,13 @@ def test_observation_marker_text_is_literal_in_cpp_and_verilator(tmp_path):
 
     transcripts = []
     report_statistics = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         binary = _bundle(final, tmp_path, target)
-        arguments = ["--cycles", "2"] if target == "cpp" else ["+cycles=2"]
+        arguments = (
+            ["--cycles", "2", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=2"]
+        )
         rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
         observations = [row for row in rows if row["kind"] != "result"]
         logs = [row for row in observations if row["kind"] == "log"]
@@ -1823,7 +1865,9 @@ def test_observation_marker_text_is_literal_in_cpp_and_verilator(tmp_path):
     assert report_statistics[0] == report_statistics[1]
 
 
-def test_duplicate_report_names_in_one_module_reject_and_preserve_unit(tmp_path):
+def test_duplicate_report_names_in_one_logical_owner_reject_and_preserve_unit(
+    tmp_path,
+):
     source = tmp_path / "duplicate report source"
     source.mkdir()
     design = source / "duplicate_reports.py"
@@ -1864,7 +1908,7 @@ def test_duplicate_report_names_in_one_module_reject_and_preserve_unit(tmp_path)
         "--replace",
     )
     assert rejected.returncode != 0
-    assert "report name must be unique within module: left" in rejected.stderr
+    assert "report name must be unique within logical owner: left" in rejected.stderr
     assert {
         path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
     } == before
@@ -1926,9 +1970,13 @@ def test_duplicate_report_names_across_instances_execute_in_both_backends(tmp_pa
 
     transcripts = []
     statistics = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         binary = _bundle(final, tmp_path, target)
-        arguments = ["--cycles", "1"] if target == "cpp" else ["+cycles=1"]
+        arguments = (
+            ["--cycles", "1", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=1"]
+        )
         rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
         reports = [row for row in rows if row["kind"] == "report"]
         assert len(reports) == 4
@@ -1949,12 +1997,12 @@ def test_duplicate_report_names_across_instances_execute_in_both_backends(tmp_pa
 
 def test_system_without_assertions_still_commits_child_storage(tmp_path):
     _source_root, _dut, _bench, final = _program(tmp_path, assertions=False)
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         binary = _bundle(final, tmp_path, target)
-        for workers in (1, 2) if target == "cpp" else (1,):
+        for workers in (1, 2) if target == "structural-cpp" else (1,):
             arguments = (
-                ["--cycles", "4", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "4", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=4"]
             )
             _assert_success(_records(_ok(_run([str(binary), *arguments], timeout=20))))
@@ -2080,15 +2128,15 @@ def FailingOwner():
 
     passing_transcripts = []
     failing_transcripts = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         passing_build = tmp_path / ("passing-" + target)
         passing_build.mkdir()
         passing_binary = _bundle(passing, passing_build, target)
-        workers = (1, 2) if target == "cpp" else (1,)
+        workers = (1, 2) if target == "structural-cpp" else (1,)
         for count in workers:
             arguments = (
-                ["--cycles", "4", "--workers", str(count)]
-                if target == "cpp"
+                ["--cycles", "4", "--workers", str(count), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=4"]
             )
             rows = _records(_ok(_run([str(passing_binary), *arguments], timeout=20)))
@@ -2108,7 +2156,11 @@ def FailingOwner():
         failing_build = tmp_path / ("failing-" + target)
         failing_build.mkdir()
         failing_binary = _bundle(failing, failing_build, target)
-        arguments = ["--cycles", "4"] if target == "cpp" else ["+cycles=4"]
+        arguments = (
+            ["--cycles", "4", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=4"]
+        )
         result = _run([str(failing_binary), *arguments], timeout=20)
         assert result.returncode != 0, result.stdout + result.stderr
         rows = _records(result.stdout)
@@ -2154,7 +2206,7 @@ def test_emitted_verification_metadata_counts_selected_reachable_instances(
     final = tmp_path / "verification.ac"
     _ok(_cli("link", str(provider), str(unit), "--top", entry, "-o", str(final)))
     assert final.read_text().count('"ac.expect"(') == 3
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         generated = tmp_path / target
         _ok(_cli("emit", str(final), "--target", target, "-o", str(generated)))
         receipt = json.loads((generated / "generated.json").read_text())
@@ -2303,12 +2355,12 @@ def test_imported_nested_struct_full_constructors_execute_with_nominal_rule_resu
         )
     )
     transcripts = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         binary = _bundle(final, tmp_path, target)
-        for workers in (1, 2) if target == "cpp" else (1,):
+        for workers in (1, 2) if target == "structural-cpp" else (1,):
             arguments = (
-                ["--cycles", "3", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "3", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=3"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
@@ -2418,26 +2470,30 @@ def test_closed_system_generated_cpp_and_verilator_observations(
 ):
     _source_root, _dut, _bench, final = _program(tmp_path, variant, spelling)
     transcripts = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         binary = _bundle(final, tmp_path, target)
-        workers = (1, 2) if target == "cpp" else (1,)
+        workers = (1, 2) if target == "structural-cpp" else (1,)
         for count in workers:
             arguments = (
-                ["--cycles", "4", "--workers", str(count)]
-                if target == "cpp"
+                ["--cycles", "4", "--workers", str(count), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=4"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
             _assert_success(rows)
             transcripts.append([row for row in rows if row["kind"] != "result"])
-        failed_arguments = ["--cycles", "5"] if target == "cpp" else ["+cycles=5"]
+        failed_arguments = (
+            ["--cycles", "5", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=5"]
+        )
         failure = _run([str(binary), *failed_arguments], timeout=20)
         assert failure.returncode != 0, failure.stdout + failure.stderr
         rows = _records(failure.stdout)
         for kind, name in (("log", "left"), ("log", "right"), ("report", "progress")):
             assert len(_observations(rows, kind, name)) == 8
             assert all(row[0] < 8 for row in _observations(rows, kind, name))
-        if target == "cpp":
+        if target == "structural-cpp":
             results = [row for row in rows if row["kind"] == "result"]
             assert len(results) == 1 and results[0]["status"] == "FAILED"
             assert int(results[0]["epoch_time"]) == 8
@@ -2448,7 +2504,9 @@ def test_closed_system_generated_cpp_and_verilator_observations(
             # shares the already generated binary and exercises no long run.
             for token in ("0", "-1", "", "1x", str(MAX_CYCLES + 1), str(2**64)):
                 arguments = (
-                    ["--cycles", token] if target == "cpp" else [f"+cycles={token}"]
+                    ["--cycles", token, "--events", "-"]
+                    if target == "structural-cpp"
+                    else [f"+cycles={token}"]
                 )
                 rejected = _run([str(binary), *arguments], timeout=20)
                 assert rejected.returncode != 0, (target, token, rejected.stdout)
@@ -2459,7 +2517,9 @@ def test_closed_system_generated_cpp_and_verilator_observations(
             # assertion keeps both executions bounded at eight epochs.
             for token in (str(2**32 + 1), str(MAX_CYCLES)):
                 arguments = (
-                    ["--cycles", token] if target == "cpp" else [f"+cycles={token}"]
+                    ["--cycles", token, "--events", "-"]
+                    if target == "structural-cpp"
+                    else [f"+cycles={token}"]
                 )
                 wide = _run([str(binary), *arguments], timeout=20)
                 assert wide.returncode != 0, (target, token, wide.stdout)
@@ -2472,7 +2532,7 @@ def test_closed_system_generated_cpp_and_verilator_observations(
                     assert _observations(wide_rows, kind, name) == _observations(
                         rows, kind, name
                     )
-                if target == "cpp":
+                if target == "structural-cpp":
                     assert wide.returncode == 1
                     result = [row for row in wide_rows if row["kind"] == "result"]
                     assert len(result) == 1 and result[0]["status"] == "FAILED"
@@ -2492,17 +2552,17 @@ def test_method_system_effects_execute_atomically_from_one_final_artifact(tmp_pa
     transcripts = []
     failures = []
     manifests = {}
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         target_root = tmp_path / ("method-" + target)
         target_root.mkdir()
         binary = _bundle(final, target_root, target)
         manifest = json.loads((target_root / target / "generated.json").read_text())
         manifests[target] = manifest
-        workers = (1, 2) if target == "cpp" else (1,)
+        workers = (1, 2) if target == "structural-cpp" else (1,)
         for count in workers:
             arguments = (
-                ["--cycles", "3", "--workers", str(count)]
-                if target == "cpp"
+                ["--cycles", "3", "--workers", str(count), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=3"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
@@ -2510,7 +2570,9 @@ def test_method_system_effects_execute_atomically_from_one_final_artifact(tmp_pa
             transcripts.append([row for row in rows if row["kind"] != "result"])
 
         failure_arguments = (
-            ["--cycles", "4", "--workers", "2"] if target == "cpp" else ["+cycles=4"]
+            ["--cycles", "4", "--workers", "2", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=4"]
         )
         failed = _run([str(binary), *failure_arguments], timeout=20)
         assert failed.returncode != 0, failed.stdout + failed.stderr
@@ -2544,7 +2606,7 @@ def test_method_system_effects_execute_atomically_from_one_final_artifact(tmp_pa
         "input": hashlib.sha256(transaction_input.read_bytes()).hexdigest(),
         "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
     } == stage_digests
-    assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
+    assert manifests["structural-cpp"]["entry"] == manifests["verilog"]["entry"]
 
 
 def test_method_branch_system_executes_shared_candidates_from_one_final_artifact(
@@ -2566,18 +2628,18 @@ def test_method_branch_system_executes_shared_candidates_from_one_final_artifact
     transcripts = []
     failures = []
     manifests = {}
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         target_root = tmp_path / ("branch-method-" + target)
         target_root.mkdir()
         binary = _bundle(final, target_root, target)
         manifests[target] = json.loads(
             (target_root / target / "generated.json").read_text()
         )
-        workers = (1, 2) if target == "cpp" else (1,)
+        workers = (1, 2) if target == "structural-cpp" else (1,)
         for count in workers:
             arguments = (
-                ["--cycles", "2", "--workers", str(count)]
-                if target == "cpp"
+                ["--cycles", "2", "--workers", str(count), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=2"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
@@ -2585,7 +2647,9 @@ def test_method_branch_system_executes_shared_candidates_from_one_final_artifact
             transcripts.append([row for row in rows if row["kind"] != "result"])
 
         failure_arguments = (
-            ["--cycles", "3", "--workers", "2"] if target == "cpp" else ["+cycles=3"]
+            ["--cycles", "3", "--workers", "2", "--events", "-"]
+            if target == "structural-cpp"
+            else ["+cycles=3"]
         )
         failed = _run([str(binary), *failure_arguments], timeout=20)
         assert failed.returncode != 0, failed.stdout + failed.stderr
@@ -2614,7 +2678,7 @@ def test_method_branch_system_executes_shared_candidates_from_one_final_artifact
         "input": hashlib.sha256(transaction_input.read_bytes()).hexdigest(),
         "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
     } == stage_digests
-    assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
+    assert manifests["structural-cpp"]["entry"] == manifests["verilog"]["entry"]
 
 
 def test_nominal_method_system_snapshots_hold_and_rollback_from_one_final_artifact(
@@ -2670,14 +2734,14 @@ def test_nominal_method_system_snapshots_hold_and_rollback_from_one_final_artifa
     artifacts = (final, before, after)
     digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
     transcripts = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         root = tmp_path / ("nominal-" + target)
         root.mkdir()
         binary = _bundle(final, root, target)
-        for workers in (1, 2) if target == "cpp" else (1,):
+        for workers in (1, 2) if target == "structural-cpp" else (1,):
             arguments = (
-                ["--cycles", "3", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "3", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=3"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
@@ -2705,8 +2769,8 @@ def test_nominal_method_system_snapshots_hold_and_rollback_from_one_final_artifa
             )
             transcripts.append([row for row in rows if row["kind"] != "result"])
             failure_arguments = (
-                ["--cycles", "4", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "4", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=4"]
             )
             failed = _run([str(binary), *failure_arguments], timeout=30)
@@ -2742,17 +2806,17 @@ def test_conditional_method_system_candidates_and_effects_from_one_final_artifac
     digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
     transcripts = []
     entries = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         target_root = tmp_path / ("conditional-" + target)
         target_root.mkdir()
         binary = _bundle(final, target_root, target)
         entries.append(
             json.loads((target_root / target / "generated.json").read_text())["entry"]
         )
-        for workers in (1, 2) if target == "cpp" else (1,):
+        for workers in (1, 2) if target == "structural-cpp" else (1,):
             arguments = (
-                ["--cycles", "2", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "2", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=2"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
@@ -2762,8 +2826,8 @@ def test_conditional_method_system_candidates_and_effects_from_one_final_artifac
             [
                 str(binary),
                 *(
-                    ["--cycles", "3", "--workers", "2"]
-                    if target == "cpp"
+                    ["--cycles", "3", "--workers", "2", "--events", "-"]
+                    if target == "structural-cpp"
                     else ["+cycles=3"]
                 ),
             ],
@@ -2984,14 +3048,14 @@ def OrderedBindings():
     artifacts = (capture, imported, stages / "body.ac", stages / "interface.ac", final)
     digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
     transcripts = []
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         target_root = tmp_path / ("ordered-" + target)
         target_root.mkdir()
         binary = _bundle(final, target_root, target)
-        for workers in (1, 2) if target == "cpp" else (1,):
+        for workers in (1, 2) if target == "structural-cpp" else (1,):
             arguments = (
-                ["--cycles", "3", "--workers", str(workers)]
-                if target == "cpp"
+                ["--cycles", "3", "--workers", str(workers), "--events", "-"]
+                if target == "structural-cpp"
                 else ["+cycles=3"]
             )
             rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
@@ -3162,7 +3226,7 @@ def test_matching_invalid_root_kind_rejects_and_preserves_published_output(
     assert final.read_bytes() == before
 
 
-@pytest.mark.parametrize("target", ["cpp", "verilog"])
+@pytest.mark.parametrize("target", ["structural-cpp", "verilog"])
 def test_public_run_builds_and_executes_closed_system(tmp_path, target):
     source = _source(tmp_path)
     result = _cli(
@@ -3226,7 +3290,7 @@ def test_parallel_public_run_backends_keep_independent_default_builds(tmp_path):
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        cpp, rtl = list(pool.map(execute, ("cpp", "verilog")))
+        cpp, rtl = list(pool.map(execute, ("structural-cpp", "verilog")))
     cpp_rows, rtl_rows = _records(_ok(cpp)), _records(_ok(rtl))
     _assert_success(cpp_rows)
     _assert_success(rtl_rows)
@@ -3239,8 +3303,8 @@ def test_parallel_public_run_backends_keep_independent_default_builds(tmp_path):
         for line in cache.read_text().splitlines():
             if line.startswith("PYC_EXAMPLE_RUN_TARGET:"):
                 configured[line.partition("=")[2]] = cache.parent
-    assert set(configured) == {"cpp", "verilog"}
-    assert configured["cpp"] != configured["verilog"]
+    assert set(configured) == {"structural-cpp", "verilog"}
+    assert configured["structural-cpp"] != configured["verilog"]
     for target, build in configured.items():
         _assert_run_receipt(build, target)
 
@@ -3269,7 +3333,7 @@ def test_public_run_rejects_a_reusable_module_bundle(tmp_path):
     )
     assert result.returncode != 0
     assert "run requires a source @system root" in result.stderr
-    receipt = json.loads((build / "cpp/generated.json").read_text())
+    receipt = json.loads((build / "structural-cpp/generated.json").read_text())
     assert "simulation_main.cpp" not in {item["path"] for item in receipt["files"]}
     assert not (build / "simulation").exists()
 
@@ -3303,18 +3367,23 @@ def _atomic_cpp(generated, tmp_path):
     generated = probe
     for header in generated.rglob("*.hpp"):
         header.write_text(header.read_text().replace("private:", "public:"))
-    dut_header = (generated / "sources/checks/dut.hpp").read_text()
-    registers = re.findall(r"\b(pyc_instance_\w+_state);", dut_header)
-    assert len(registers) == 1
-    storage = registers[0]
-    system_header = (generated / "pycircuit_system.hpp").read_text()
+    # The structural bundle uses the installed scalar DFFE directly. Shadow
+    # only that header in this probe so committed and discarded state remain
+    # observable without adding a production debug API.
+    runtime_header = generated / "gfsim/dff.h"
+    runtime_header.parent.mkdir()
+    shutil.copy2(_install() / "include/gfsim/dff.h", runtime_header)
+    runtime_header.write_text(runtime_header.read_text().replace("private:", "public:"))
+    system_header = (generated / "design.hpp").read_text()
     inputs = re.search(r"struct Inputs \{(.*?)\};", system_header, re.S)
     assert inputs is not None
-    assert len(re.findall(r"decltype\(", inputs[1])) == 2
+    assert len(re.findall(r"gfsim::wire<", inputs[1])) == 2
+    assert "pyc_left" in system_header and "pyc_right" in system_header
+    assert "pyc_value" in system_header
     driver = generated / "atomic_probe.cpp"
     driver.write_text(
         """
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <iostream>
 int main() {
   const auto bit = [](bool v) { return gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{v ? 1u : 0u}); };
@@ -3322,12 +3391,12 @@ int main() {
     pyc_dut dut(workers);
     dut.drive({bit(false), bit(false)});
     dut.system().Build();
-    auto root = dut.root_->pyc_implementation;
-    auto left = root->pyc_instance_left;
-    auto right = root->pyc_instance_right;
+    auto &root = dut.root();
+    auto *left = &root.pyc_left;
+    auto *right = &root.pyc_right;
     auto check = [&](unsigned q, bool clock) {
       for (const auto &leaf : {left, right}) {
-        const auto &current = leaf->STORAGE->current(0);
+        const auto &current = leaf->pyc_value.current_;
         if (current.q.value().value() != q || current.clock != clock) return false;
       }
       return true;
@@ -3341,9 +3410,10 @@ int main() {
       if (dut.system().failureInfo().phase != gfsim::SimFailurePhase::Check) return 3;
       if (!check(0, false) || dut.system().cycle() != 0) return 4;
       for (const auto &leaf : {left, right}) {
-        if (leaf->pyc_instance_value_d.element(0).value().value() != 1) return 5;
-        if (!leaf->pyc_instance_value_en.element(0).value().toBool()) return 6;
-        if (!leaf->pyc_instance_value_clk.element(0).value().toBool()) return 7;
+        if (leaf->pyc_value.d.value().value() != 1) return 5;
+        if (!leaf->pyc_value.en.value().toBool()) return 6;
+        if (!leaf->pyc_value.clk.value().toBool()) return 7;
+        if (leaf->pyc_value.pending_.valid) return 13;
       }
       if (!dut.observations().Events().empty()) return 8;
       if (dut.system().Step() != gfsim::SimStepResult::Failed || !check(0, false)) return 9;
@@ -3351,7 +3421,8 @@ int main() {
     // Reset assertion suppresses ordinary source checks at a successful edge.
     dut.drive({bit(false), bit(false)}); dut.system().Reset();
     dut.drive({bit(true), bit(true)});
-    if (dut.system().Step() != gfsim::SimStepResult::Running || !check(0, true)) return 10;
+    const auto reset_step = dut.system().Step();
+    if (reset_step != gfsim::SimStepResult::Running || !check(0, true)) return 10;
     const auto count = dut.observations().Events().size();
     if (count != 1) return 12;
     const auto epoch = dut.observations().Events().front().epoch;
@@ -3362,9 +3433,7 @@ int main() {
   }
   std::cout << "ATOMIC_ZERO_COMMIT_OK\\n";
 }
-""".replace(
-            "STORAGE", storage
-        )
+"""
     )
     with (generated / "CMakeLists.txt").open("a") as cmake:
         cmake.write(
@@ -3420,10 +3489,10 @@ module atomic_probe;
   pyc_root dut(.pyc_7079635f636c6b(clk), .pyc_7079635f727374(rst),
     .pyc_phase(phase), .pyc_root_commit_ok(permit), .pyc_local_error(error));
   task automatic check_current(input integer q, input logic clock);
-    if (dut.dut.pyc_instance_left.pyc_instance_value.q_current !== q ||
-        dut.dut.pyc_instance_right.pyc_instance_value.q_current !== q ||
-        dut.dut.pyc_instance_left.pyc_instance_value.managed.clock_current !== clock ||
-        dut.dut.pyc_instance_right.pyc_instance_value.managed.clock_current !== clock)
+    if (dut.dut.pyc_instance_0.pyc_instance_0.q_current !== q ||
+        dut.dut.pyc_instance_1.pyc_instance_0.q_current !== q ||
+        dut.dut.pyc_instance_0.pyc_instance_0.managed.clock_current !== clock ||
+        dut.dut.pyc_instance_1.pyc_instance_0.managed.clock_current !== clock)
       $fatal(1, "committed state or clock changed");
   endtask
   task automatic reset_model;
@@ -3437,10 +3506,10 @@ module atomic_probe;
       reset_model();
       clk=1; phase=1; #1;
       if (!error) $fatal(1,"source assertion was not checked");
-      if (dut.dut.pyc_instance_left.pyc_instance_value.managed.q_pending !== 1 ||
-          dut.dut.pyc_instance_right.pyc_instance_value.managed.q_pending !== 1 ||
-          dut.dut.pyc_instance_left.pyc_instance_value.managed.clock_pending !== 1 ||
-          dut.dut.pyc_instance_right.pyc_instance_value.managed.clock_pending !== 1)
+      if (dut.dut.pyc_instance_0.pyc_instance_0.managed.q_pending !== 1 ||
+          dut.dut.pyc_instance_1.pyc_instance_0.managed.q_pending !== 1 ||
+          dut.dut.pyc_instance_0.pyc_instance_0.managed.clock_pending !== 1 ||
+          dut.dut.pyc_instance_1.pyc_instance_0.managed.clock_pending !== 1)
         $fatal(1,"both DUTs must propose a state and clock update");
       phase=2; #1; check_current(0,0);
       phase=3; #1; phase=0; #1;
@@ -3460,6 +3529,13 @@ endmodule
     )
     binary = tmp_path / "atomic_rtl"
     runtime = _install() / "include/verilog/dffe.v"
+    manifest = json.loads((generated / "generated.json").read_text())
+    rtl = [
+        generated / row["path"]
+        for row in manifest["files"]
+        if row["role"] == "rtl"
+    ]
+    assert generated / "design_top.sv" in rtl
     _ok(
         _run(
             [
@@ -3476,9 +3552,7 @@ endmodule
                 "-o",
                 str(binary),
                 str(runtime),
-                str(generated / "design_top.sv"),
-                str(generated / "sources/checks/dut.v"),
-                str(generated / "sources/checks/bench.v"),
+                *map(str, rtl),
                 str(testbench),
             ]
         )
@@ -3488,14 +3562,14 @@ endmodule
     assert _records(stdout) == []
 
 
-@pytest.mark.parametrize("target", ["cpp", "verilog"])
+@pytest.mark.parametrize("target", ["structural-cpp", "verilog"])
 def test_failed_assertion_discards_two_dut_registers_and_clock_history(
     tmp_path, target
 ):
     final = _atomic_program(tmp_path)
     generated = tmp_path / target
     _ok(_cli("emit", str(final), "--target", target, "-o", str(generated)))
-    if target == "cpp":
+    if target == "structural-cpp":
         _atomic_cpp(generated, tmp_path)
     else:
         _atomic_rtl(generated, tmp_path)

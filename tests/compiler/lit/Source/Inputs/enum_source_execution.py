@@ -1,7 +1,9 @@
 """Existing Enum vector/execution functions, shared by selected case families."""
 
 import json
+import os
 import re
+from pathlib import Path
 
 
 def execution_tools(
@@ -163,13 +165,13 @@ def execution_tools(
             cpp += plane_cpp("checkProbePlanes", "probe_gold", probe_gold, probe_planes)
             cpp += arrays("failure", failures) + drive_cpp("driveFailure", "failure")
             cpp += [
-                "void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){",
+                "template<class Root> void driveRoot(Root &root,const pyc_dut::Inputs &p){",
                 *[f"root.{name}=p.{name};" for name in inputs],
                 "}",
             ]
         if latent:
             cpp += [
-                'void replayLatentTuples(unsigned workers){gfsim::WorkExecutor pool(workers);pyc_root root("latent",&pool);',
+                'void replayLatentTuples(unsigned workers){pyc_dut probe(workers);auto &root=probe.root();',
                 "for(unsigned row=0;row<row_count;++row)for(unsigned pattern=0;pattern<4;++pattern){",
             ]
             cpp += [
@@ -279,7 +281,7 @@ def execution_tools(
                 output / "verified.ac",
             ]
         )
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
         known = make_vectors(
             output,
@@ -297,33 +299,112 @@ def execution_tools(
             plane_inputs,
             latent,
         )
-        cpp_receipt = json.loads((output / "cpp/generated.json").read_text())
+        cpp_receipt = json.loads((output / "structural-cpp/generated.json").read_text())
         cpp = [
-            output / "cpp" / item["path"]
+            output / "structural-cpp" / item["path"]
             for item in cpp_receipt["files"]
             if item["path"].endswith(".cpp")
         ]
+        # Generated execution translation units are deliberately bounded. The
+        # CMake build below compiles them independently; a regression that
+        # recreates one monolithic source must fail before invoking the host
+        # optimizer.
+        max_generated_tu_bytes = 1024 * 1024
+        assert cpp and all(path.stat().st_size <= max_generated_tu_bytes for path in cpp), {
+            str(path): path.stat().st_size for path in cpp
+        }
         defines = ["-DENUM_SOURCE_STATE"] if state else []
         if latent:
             defines.append("-DENUM_SOURCE_LATENT")
-        runner = output / "runner"
+        native_build = output / "native-build"
+        native_project = output / "native-project"
+        native_project.mkdir()
+
+        def cmake_quote(path):
+            return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+        definitions = " ".join(defines)
+        (native_project / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.25)\n"
+            + "project(EnumSourceRunner LANGUAGES C CXX)\n"
+            + "add_subdirectory("
+            + cmake_quote(output / "structural-cpp")
+            + " model-build)\n"
+            + "add_executable(enum_source_runner "
+            + cmake_quote(fixtures / "enum-source.cpp")
+            + ")\n"
+            + "target_compile_features(enum_source_runner PRIVATE cxx_std_20)\n"
+            + "target_include_directories(enum_source_runner PRIVATE "
+            + cmake_quote(output)
+            + ")\n"
+            + "target_compile_options(pycircuit_modules PRIVATE -O2)\n"
+            + "target_compile_options(enum_source_runner PRIVATE -O2)\n"
+            + (
+                "target_compile_definitions(pycircuit_modules PRIVATE "
+                + definitions
+                + ")\n"
+                + "target_compile_definitions(enum_source_runner PRIVATE "
+                + definitions
+                + ")\n"
+                if definitions
+                else ""
+            )
+            + "target_link_libraries(enum_source_runner PRIVATE pycircuit_modules)\n"
+        )
+        configured_toolchain = os.environ.get("PYC_TOOLCHAIN_ROOT")
+        if configured_toolchain:
+            runtime_package = (
+                Path(configured_toolchain).resolve() / "share/pycircuit/cmake"
+            )
+        else:
+            compiler_build = Path(args.source_compiler).resolve().parent.parent
+            runtime_package = (
+                compiler_build.parent / "install/share/pycircuit/cmake"
+            )
+        assert (
+            runtime_package / "pycircuitRuntimeTargets.cmake"
+        ).is_file(), f"installed Runtime CMake package missing: {runtime_package}"
         run(
             [
-                args.cxx,
-                "-O2",
-                "-std=c++20",
-                "-pthread",
-                *defines,
-                "-I" + str(repo / "include"),
-                "-I" + str(output / "cpp"),
-                "-I" + str(output),
-                fixtures / "enum-source.cpp",
-                *cpp,
-                runtime,
-                "-o",
-                runner,
+                "cmake",
+                "-S",
+                native_project,
+                "-B",
+                native_build,
+                "-G",
+                "Ninja",
+                "-DCMAKE_CXX_COMPILER=" + args.cxx,
+                "-Dpycircuit_DIR=" + str(runtime_package),
             ]
         )
+        build_result = run(
+            [
+                "cmake",
+                "--build",
+                native_build,
+                "--target",
+                "enum_source_runner",
+                "--parallel",
+                "4",
+            ]
+        )
+        runner = native_build / ("enum_source_runner.exe" if os.name == "nt" else "enum_source_runner")
+        assert runner.is_file(), build_result
+
+        # Ninja records start/end milliseconds for every independent command.
+        # Keep a per-TU optimizer budget in addition to the build's wall
+        # timeout, so a newly monolithic lifecycle method cannot hide behind
+        # parallel work or a larger aggregate timeout.
+        compile_durations = {}
+        for line in (native_build / ".ninja_log").read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            start, end, _restat, artifact, _hash = line.split("\t")
+            if artifact.endswith((".o", ".obj")):
+                compile_durations[artifact] = (int(end) - int(start)) / 1000
+        assert compile_durations, "native CMake build recorded no translation units"
+        max_tu_compile_seconds = 90
+        assert max(compile_durations.values()) <= max_tu_compile_seconds, compile_durations
         config = output / "config.json"
         config.write_text(
             json.dumps(

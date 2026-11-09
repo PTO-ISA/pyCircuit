@@ -40,7 +40,7 @@
 !o5 = !ac.table<[#w5, #w5], !record>
 !bits_input = !ac.table<[#w3], !b8>
 !bits_output = !ac.table<[#w3, #w3], !b8>
-module {
+module attributes {ac.source_units = [{package = "", path = "child.py"}, {package = "", path = "family.py"}, {package = "", path = "top.py"}]} {
   ac.struct "Record" fields [{name = "tag", type = !b4}, {name = "data", type = !b8}]
   "ac.module"() ({
   ^bb0(%base: !child_type, %guard: !b1, %candidate: !child_type):

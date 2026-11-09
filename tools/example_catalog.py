@@ -229,14 +229,14 @@ def generated(repo: Path, name: str, build: Path) -> tuple[str, dict]:
         != proof["trace_sha256"]
     ):
         raise ValueError("Work trace changed after verification")
-    cpp = json.loads((build / "cpp/generated.json").read_text())
+    cpp = json.loads((build / "structural-cpp/generated.json").read_text())
     rtl = json.loads((build / "verilog/generated.json").read_text())
     owner = Path(cpp["entry_source"]["path"])
     if owner.is_absolute() or ".." in owner.parts:
         raise ValueError("unsafe entry source path")
     final = build / owner.with_suffix(".ac")
     header = next(
-        build / "cpp" / row["path"]
+        build / "structural-cpp" / row["path"]
         for row in cpp["files"]
         if row["role"] == "header" and Path(row["path"]).stem == owner.stem
     )

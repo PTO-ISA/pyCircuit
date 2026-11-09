@@ -25,7 +25,7 @@
 !addresses = !ac.table<[#two], !b4>
 !data = !ac.table<[#two], !b13>
 !strobes = !ac.table<[#two], !b2>
-module {
+module attributes {ac.source_units = [{package = "", path = "top.py"}]} {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "sync_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "sync_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %ren: !controls, %raddr: !addresses, %wvalid: !controls, %waddr: !addresses, %wdata: !data, %wstrb: !strobes):

@@ -427,7 +427,7 @@ TEST_F(SourceUnitHeaderTest, TypeDefaultNominalReturnAndImpureTamperingFail) {
   mlir::Block &entry = pureHelper.getBody().front();
   mlir::OpBuilder at(entry.getTerminator());
   mlir::Value path = entry.getArguments().back();
-  at.create<mlir::arith::AndIOp>(pureHelper.getLoc(), path, path);
+  mlir::arith::AndIOp::create(at, pureHelper.getLoc(), path, path);
   RegistryResult pure = checkRegistry(*pureArithmetic);
   EXPECT_TRUE(pure.passed) << pure.diagnostic;
 
@@ -435,8 +435,8 @@ TEST_F(SourceUnitHeaderTest, TypeDefaultNominalReturnAndImpureTamperingFail) {
   auto recursiveHelper = findHelper(*recursive, ".Request.__init__");
   mlir::Block &recursiveEntry = recursiveHelper.getBody().front();
   mlir::OpBuilder recursiveBuilder(recursiveEntry.getTerminator());
-  recursiveBuilder.create<mlir::func::CallOp>(
-      recursiveHelper.getLoc(), recursiveHelper, recursiveEntry.getArguments());
+  mlir::func::CallOp::create(recursiveBuilder, recursiveHelper.getLoc(),
+                             recursiveHelper, recursiveEntry.getArguments());
   expectRegistryRejects(*recursive);
 }
 

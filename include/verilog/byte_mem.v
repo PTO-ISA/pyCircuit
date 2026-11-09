@@ -4,7 +4,8 @@ module byte_mem #(
     parameter type T = logic [63:0],
     parameter int unsigned ADDR_WIDTH = 64,
     parameter int unsigned DEPTH = 1024,
-    parameter bit pyc_managed = 0
+    parameter bit pyc_managed = 0,
+    parameter bit pyc_physical = 0
 ) (
     // Interface. DEPTH counts bytes; the packed payload must contain whole bytes.
     input  wire clk,
@@ -98,7 +99,7 @@ module byte_mem #(
 `ifndef SYNTHESIS
         if (read_address_error(raddr)) begin
             read_candidate_bits = 'x;
-            if (!pyc_managed)
+            if (!pyc_managed && !pyc_physical)
                 $fatal(1, "byte_mem: read address must be known");
         end else begin
 `endif
@@ -214,6 +215,17 @@ module byte_mem #(
                 end
                 default: begin end
             endcase
+        end
+    end else if (pyc_physical) begin : checked_physical
+        wire [2:0] control_error = edge_control_error(
+            1'b1, rst, wvalid, waddr, wdata, wstrb);
+        assign pyc_local_error = read_address_error(raddr) | |control_error;
+        always @(posedge clk) begin
+            if (!read_address_error(raddr) && !(|control_error)) begin
+                prepare_writes(1'b1, rst, wvalid, waddr, wdata, wstrb);
+                if (pyc_root_commit_ok === 1'b1)
+                    commit_writes();
+            end
         end
     end else begin : autonomous
         bit [2:0] control_error;

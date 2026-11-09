@@ -1,0 +1,9 @@
+{
+  "schema": "pycircuit-verilator-build-policy-v1",
+  "output_split_statements": 10000,
+  "output_split_cfuncs": 10000,
+  "output_groups": 0,
+  "max_generated_cpp_bytes": 16777216,
+  "max_generated_header_bytes": 33554432,
+  "max_text_symbol_bytes": 67108864
+}

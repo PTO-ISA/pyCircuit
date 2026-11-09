@@ -5,7 +5,8 @@ module sync_mem #(
     parameter type T = logic [63:0],
     parameter int unsigned ADDR_WIDTH = 64,
     parameter int unsigned DEPTH = 1024,
-    parameter bit pyc_managed = 0
+    parameter bit pyc_managed = 0,
+    parameter bit pyc_physical = 0
 ) (
     // DEPTH counts T entries; strobes select low packed-byte lanes first.
     input wire clk,
@@ -266,6 +267,18 @@ module sync_mem #(
                 end
                 default: begin end
             endcase
+        end
+    end else if (pyc_physical) begin : checked_physical
+        wire [3:0] control_error = edge_control_error(
+            1'b1, rst, ren, raddr, wvalid, waddr, wdata, wstrb);
+        assign pyc_local_error = |control_error;
+        always @(posedge clk) begin
+            if (!(|control_error)) begin
+                prepare_transition(1'b1, rst, ren, raddr,
+                                   wvalid, waddr, wdata, wstrb);
+                if (pyc_root_commit_ok === 1'b1)
+                    commit_transition();
+            end
         end
     end else begin : autonomous
         bit [3:0] control_error;

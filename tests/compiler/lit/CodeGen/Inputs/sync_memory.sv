@@ -4,7 +4,7 @@ module tb;
   logic [12:0] wdata = 13'h1abc;
   logic [1:0] wstrb = 1;
   wire [12:0] rdata;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   task edge_clock; #1; clk = 1; #1; clk = 0; endtask
   task expect_data(input logic [12:0] value);
     if (rdata !== value) $fatal(1, "memory old-data/strobe oracle failed");

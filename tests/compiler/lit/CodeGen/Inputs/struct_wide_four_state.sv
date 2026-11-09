@@ -4,7 +4,7 @@ module tb;
   logic [74:0] init = {5'd18, 70'd7};
   wire [74:0] q;
   wire [4:0] tag;
-  ac_top dut(.*);
+  pyc_root dut(.*);
   initial begin
     #1; clk = 1; #1;
     if (q !== init || tag !== 18) $fatal(1, "typed reset/layout failed");

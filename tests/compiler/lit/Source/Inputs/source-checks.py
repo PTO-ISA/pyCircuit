@@ -589,7 +589,7 @@ def main():
     checked_products = []
     # Checked ordinary roots now publish through the verified reachable plan.
     # Preserve cross-owner output protection independently of check admission.
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         checked = root / ("checked-parent-" + target)
         cli("emit", final, "--target", target, "-o", checked)
         checked_receipt = json.loads((checked / "generated.json").read_text())
@@ -598,7 +598,7 @@ def main():
             "arguments": [],
         }
         names = {row["path"] for row in checked_receipt["files"]}
-        assert ("pycircuit_system.hpp" if target == "cpp" else "design_top.sv") in names
+        assert ("design.hpp" if target == "structural-cpp" else "design_top.sv") in names
         checked_products.append(checked)
         published = root / ("published-" + target)
         cli("emit", root / "unchecked.ac", "--target", target, "-o", published)
@@ -626,27 +626,23 @@ def main():
     # surface. Verilog still rejects instrumentation by name. Neither backend
     # may displace a published product that belongs to a different owner.
     observe_cpp = root / "observe-cpp"
-    cli("emit", observe_final, "--target", "cpp", "-o", observe_cpp)
+    cli("emit", observe_final, "--target", "structural-cpp", "-o", observe_cpp)
     observe_receipt = json.loads((observe_cpp / "generated.json").read_text())
     observe_header = next(
         row["path"]
         for row in observe_receipt["files"]
-        if row["path"].endswith("pycircuit_system.hpp")
+        if row["path"].endswith("design.hpp")
     )
     observe_system = (observe_cpp / observe_header).read_text()
-    assert "pyc_observation_descriptors" in observe_system
-    assert "Configure(pyc_observation_descriptors" in observe_system
+    assert "ObservationDescriptor" in observe_system
+    assert "Configure(descriptors," in observe_system
     assert "Configure({}, 0)" not in observe_system
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         published = root / ("published-" + target)
         before = protected(published)
         # The cpp case now reaches the publisher, which refuses to replace the
         # `checks.unchecked.Top` product with this `checks.observe.Top` design.
-        diagnostic = (
-            "generated.json entry does not match its owner"
-            if target == "cpp"
-            else "ac.observe"
-        )
+        diagnostic = "generated.json entry does not match its owner"
         cli(
             "emit",
             observe_final,
@@ -708,7 +704,7 @@ def main():
     cli("link", checked_divisor, "--top", "checks.matrix.Top", "-o", checked_final)
     assert '"ac.expect"' in checked_final.read_text()
     assert 'opcode = "udiv"' in checked_final.read_text()
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         admitted = root / ("checked-divisor-" + target)
         cli("emit", checked_final, "--target", target, "-o", admitted)
         admitted_receipt = json.loads((admitted / "generated.json").read_text())
@@ -866,9 +862,9 @@ def main():
     # emitter, rather than the test-only prepared backend entrance.
     lifecycle = root / "public-managed-lifecycle"
     lifecycle.mkdir()
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", root / "matrix.ac", "--target", target, "-o", lifecycle / target)
-    cpp = lifecycle / "cpp"
+    cpp = lifecycle / "structural-cpp"
     emitted = json.loads((cpp / "generated.json").read_text())
     sources = [
         cpp / row["path"] for row in emitted["files"] if row["path"].endswith(".cpp")

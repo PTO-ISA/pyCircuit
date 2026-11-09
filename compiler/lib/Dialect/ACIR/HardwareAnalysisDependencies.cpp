@@ -308,8 +308,16 @@ struct Engine {
         out.push_back({input, path});
       return success();
     };
-    if (isa<BitsConstantOp, EnumCreateOp>(op))
+    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp>(op))
       return out;
+    if (auto require = dyn_cast<ValueRequireOp>(op)) {
+      // Payload authenticates the source use but is intentionally not a
+      // runtime wire dependency. Only the explicit condition contributes to
+      // the executable HWIR graph.
+      out.push_back({require.getAvailability(), {}});
+      out.push_back({require.getPath(), {}});
+      return out;
+    }
     if (isa<EnumToBitsOp, EnumFromBitsOp>(op)) {
       out.push_back({op->getOperand(0), {}});
       return out;

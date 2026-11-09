@@ -153,6 +153,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/dodgeball_game --target cpp --cycles 4001
+pycircuit run examples/dodgeball_game --target structural-cpp --cycles 4001
 pycircuit run examples/dodgeball_game --target verilog --cycles 4001
 ```

@@ -21,33 +21,50 @@ QUEUE_NAMES = (
 DEPTHS = (16, 4, 16, 8, 8, 8, 8, 1, 1, 1, 1, 8, 8, 1)
 
 
-def family(header, name):
-    section = header.split("class pyc_family_" + name, 1)[1]
-    return section.split("template <std::size_t pyc_count>", 1)[0].split(
-        "class " + name + " final", 1
-    )[0]
-
-
-def members(section):
-    return re.findall(
-        r"std::shared_ptr<[^;\n]*::pyc_family_(\w+)<pyc_count>> (pyc_instance_\w+);",
-        section,
+def families(header):
+    classes = dict(
+        re.findall(
+            r"class (pyc_\w+) final : public gfsim::SimModule \{(.*?)\n\};",
+            header,
+            re.S,
+        )
     )
+    decoded = {}
+    for typ, body in classes.items():
+        try:
+            path = bytes.fromhex(typ[4:].split("__h", 1)[0]).decode()
+        except ValueError:
+            continue
+        decoded[path.rsplit(".", 1)[-1]] = body
+    return classes, decoded
+
+
+def members(section, classes):
+    decoded_types = {
+        typ: bytes.fromhex(typ[4:].split("__h", 1)[0]).decode().rsplit(".", 1)[-1]
+        for typ in classes
+    }
+    return [
+        (decoded_types[typ], name)
+        for typ, name in re.findall(r"^\s*(pyc_\w+)\s+(pyc_\w+);$", section, re.M)
+        if typ in decoded_types
+    ]
 
 
 def fifo_members(section):
     return [
         (name, int(depth))
         for depth, name in re.findall(
-            r"fifo_kernel<[^;\n]*WorkItem, (\d+),[^;\n]*> (pyc_queue_\w+)_state;",
+            r"gfsim::fifo<[^;\n]*WorkItem, (\d+),[^;\n]*> (pyc_\w+);",
             section,
         )
     ]
 
 
 def layout(header):
-    section = family(header, "pipeline")
-    children = members(section)
+    classes, decoded = families(header)
+    section = decoded["pipeline"]
+    children = members(section, classes)
     direct = fifo_members(section)
     assert len(direct) == 8, direct
     assert [depth for _, depth in direct] == [16, 16, 8, 8, 8, 8, 8, 8]
@@ -64,12 +81,12 @@ def layout(header):
     }, by_type
     queues = [
         ("", direct[0][0]),
-        (by_type["frontend"][0], fifo_members(family(header, "frontend"))[0][0]),
+        (by_type["frontend"][0], fifo_members(decoded["frontend"])[0][0]),
         ("", direct[1][0]),
     ]
     queues += [("", name) for name, _ in direct[2:6]]
     queues += [
-        (name, fifo_members(family(header, "branch"))[0][0])
+        (name, fifo_members(decoded["branch"])[0][0])
         for name in by_type["branch"]
     ]
     queues += [
@@ -77,52 +94,107 @@ def layout(header):
         ("", direct[7][0]),
         (
             by_type["output_stage"][0],
-            fifo_members(family(header, "output_stage"))[0][0],
+            fifo_members(decoded["output_stage"])[0][0],
         ),
     ]
     assert len(queues) == 14
+    def instances(body):
+        rows = []
+        pattern = re.compile(
+            r"^\s*(?:(pyc_\w+)\s+(pyc_\w+)|gfsim::(fifo|dffe)<.*?>\s+(pyc_\w+));$",
+            re.M,
+        )
+        for match in pattern.finditer(body):
+            if match[1] in classes:
+                rows.append(("child", match[2]))
+            elif match[3]:
+                rows.append((match[3], match[4]))
+        return rows
+
+    root_instances = instances(section)
+    rtl_children = {
+        member: f"pyc_instance_{index}"
+        for index, (kind, member) in enumerate(root_instances)
+        if kind == "child"
+    }
+    rtl_primitives = {
+        member: f"pyc_instance_{index}"
+        for index, (kind, member) in enumerate(root_instances)
+        if kind != "child"
+    }
+    def child_primitives(kind):
+        return {
+            member: f"pyc_instance_{index}"
+            for index, (row_kind, member) in enumerate(instances(decoded[kind]))
+            if row_kind != "child"
+        }
+
+    scheduler_primitives = child_primitives("dependency")
+    merge_primitives = child_primitives("merge")
+    reorder_primitives = child_primitives("reorder")
+    rtl_queues = []
+    for child, member in queues:
+        if not child:
+            rtl_queues.append(rtl_primitives[member])
+            continue
+        child_kind = next(kind for kind, name in children if name == child)
+        child_instances = instances(decoded[child_kind])
+        primitive_index = next(
+            index
+            for index, (kind, name) in enumerate(child_instances)
+            if kind == "fifo" and name == member
+        )
+        rtl_queues.append(rtl_children[child] + f".pyc_instance_{primitive_index}")
     return {
         "queues": queues,
+        "rtl_queues": rtl_queues,
         "scheduler": by_type["dependency"][0],
+        "rtl_scheduler": rtl_children[by_type["dependency"][0]],
+        "rtl_scheduler_epoch": scheduler_primitives["pyc_epoch"],
+        "rtl_scheduler_entries": [scheduler_primitives[f"pyc_entries_{i}"] for i in range(8)],
         "merge": by_type["merge"][0],
+        "rtl_merge": rtl_children[by_type["merge"][0]],
+        "rtl_merge_cursor": merge_primitives["pyc_cursor"],
         "reorder": by_type["reorder"][0],
+        "rtl_reorder": rtl_children[by_type["reorder"][0]],
+        "rtl_reorder_next_key": reorder_primitives["pyc_next_key"],
+        "rtl_reorder_entries": [reorder_primitives[f"pyc_entries_{i}"] for i in range(64)],
     }
 
 
-def cpp(layout, graph="dut.root_->pyc_implementation", system=False):
+def cpp(layout, graph="dut.root()", system=False):
     accesses = []
     for child, name in layout["queues"]:
-        accesses.append((graph + ("->" + child if child else ""), name))
-    sched = graph + "->" + layout["scheduler"]
-    merge = graph + "->" + layout["merge"]
-    reorder = graph + "->" + layout["reorder"]
+        accesses.append((graph + ("." + child if child else ""), name))
+    sched = graph + "." + layout["scheduler"]
+    merge = graph + "." + layout["merge"]
+    reorder = graph + "." + layout["reorder"]
     snap = [
-        f"out += bits({sched}->pyc_instance_epoch_state->current(0).q.packed());",
-        f"out += bits({merge}->pyc_instance_cursor_state->current(0).q.packed());",
-        f"out += bits({reorder}->pyc_instance_next_key_state->current(0).q.packed());",
+        f"out += bits({sched}.pyc_epoch.currentState().q.packed());",
+        f"out += bits({merge}.pyc_cursor.currentState().q.packed());",
+        f"out += bits({reorder}.pyc_next_key.currentState().q.packed());",
     ]
     raw = []
     flags = []
     for i, ((owner, name), depth) in enumerate(zip(accesses, DEPTHS, strict=True)):
-        snap += [f"append_fifo<{depth}>(out, {owner}->{name}_state->current(0));"]
-        raw += [f"raw_fifo(out, {owner}->{name}_state->current(0));"]
+        snap += [f"append_fifo<{depth}>(out, {owner}.{name}.currentState());"]
+        raw += [f"raw_fifo(out, {owner}.{name}.currentState());"]
         flags += [
-            f"if ({owner}->{name}_out_valid.element(0).value().toBool() && {owner}->{name}_out_ready.element(0).value().toBool()) pop |= (1u<<{i});",
-            f"if ({owner}->{name}_in_ready.element(0).value().toBool() && {owner}->{name}_in_valid.element(0).value().toBool()) push |= (1u<<{i});",
+            f"if ({owner}.{name}.out_valid.value().toBool() && {owner}.{name}.out_ready.value().toBool()) pop |= (1u<<{i});",
+            f"if ({owner}.{name}.in_ready.value().toBool() && {owner}.{name}.in_valid.value().toBool()) push |= (1u<<{i});",
         ]
-    for owner, field, count in (
-        (sched, "entries", 8),
-        (merge, "cursor", 1),
-        (reorder, "entries", 64),
-        (reorder, "next_key", 1),
-        (sched, "epoch", 1),
-    ):
+    for owner, field, count in ((sched, "entries", 8), (reorder, "entries", 64)):
         raw += [
-            f"for(int i=0;i<{count};++i) {{ auto& q={owner}->pyc_instance_{field}_state->current(i); out+=q.clock?'1':'0';out+=bits(q.q.packed()); }}"
+            f"{{ auto& q={owner}.pyc_{field}_{i}.currentState(); out+=q.clock?'1':'0';out+=bits(q.q.packed()); }}"
+            for i in range(count)
+        ]
+    for owner, field in ((merge, "cursor"), (reorder, "next_key"), (sched, "epoch")):
+        raw += [
+            f"{{ auto& q={owner}.pyc_{field}.currentState(); out+=q.clock?'1':'0';out+=bits(q.q.packed()); }}"
         ]
     snap += [
-        f"for(int i=0;i<8;++i) out += bits({sched}->pyc_instance_entries_state->current(i).q.packed());",
-        f"for(int i=0;i<64;++i) out += bits({reorder}->pyc_instance_entries_state->current(i).q.packed());",
+        *[f"out += bits({sched}.pyc_entries_{i}.currentState().q.packed());" for i in range(8)],
+        *[f"out += bits({reorder}.pyc_entries_{i}.currentState().q.packed());" for i in range(64)],
     ]
     inputs = (
         ""
@@ -134,8 +206,8 @@ def cpp(layout, graph="dut.root_->pyc_implementation", system=False):
         if system
         else "input.valid=known<decltype(input.valid)>(0);input.take=known<decltype(input.take)>(0);input.data=known<decltype(input.data)>(0);"
     )
-    result = f"{graph}->result.element(0).packed()"
-    return f"""#include "pycircuit_system.hpp"
+    result = f"{graph}.result.packed()"
+    return f"""#include "design.hpp"
 #include <iostream>
 #include <string>
 #include <stdexcept>
@@ -168,20 +240,12 @@ int main(int argc,char**argv){{
 
 
 def verilog(layout, graph="dut.dut", system=False):
-    accesses = [
-        (
-            graph
-            + ("." + child if child else "")
-            + "."
-            + name.replace("pyc_queue_", "pyc_instance_", 1)
-        )
-        for child, name in layout["queues"]
-    ]
-    sched = graph + "." + layout["scheduler"]
-    merge = graph + "." + layout["merge"]
-    reorder = graph + "." + layout["reorder"]
+    accesses = [graph + "." + path for path in layout["rtl_queues"]]
+    sched = graph + "." + layout["rtl_scheduler"]
+    merge = graph + "." + layout["rtl_merge"]
+    reorder = graph + "." + layout["rtl_reorder"]
     snap = [
-        f"s={{{sched}.pyc_instance_epoch.q_current,{merge}.pyc_instance_cursor.q_current,{reorder}.pyc_instance_next_key.q_current}};"
+        f"s={{{sched}.{layout['rtl_scheduler_epoch']}.q_current,{merge}.{layout['rtl_merge_cursor']}.q_current,{reorder}.{layout['rtl_reorder_next_key']}.q_current}};"
     ]
     raw = []
     flags = []
@@ -198,16 +262,20 @@ def verilog(layout, graph="dut.dut", system=False):
             f"pop[{i}]={owner}.out_valid & {owner}.out_ready;",
             f"push[{i}]={owner}.in_ready & {owner}.in_valid;",
         ]
-    for owner, field, count in ((sched, "entries", 8), (reorder, "entries", 64)):
-        for i in range(count):
-            path = f"{owner}.pyc_instances_{field}[{i}].pyc_instance_{field}"
+    for owner, paths in ((sched, layout["rtl_scheduler_entries"]), (reorder, layout["rtl_reorder_entries"])):
+        for member in paths:
+            path = f"{owner}.{member}"
             snap += [f"s=(s<<$bits({path}.q_current))|{path}.q_current;"]
             raw += [
                 f's={{s,$sformatf("%b",{{{path}.q_current,{path}.managed.clock_current}})}};'
             ]
-    for owner, field in ((sched, "epoch"), (merge, "cursor"), (reorder, "next_key")):
+    for owner, member in (
+        (sched, layout["rtl_scheduler_epoch"]),
+        (merge, layout["rtl_merge_cursor"]),
+        (reorder, layout["rtl_reorder_next_key"]),
+    ):
         raw += [
-            f's={{s,$sformatf("%b",{{{owner}.pyc_instance_{field}.q_current,{owner}.pyc_instance_{field}.managed.clock_current}})}};'
+            f's={{s,$sformatf("%b",{{{owner}.{member}.q_current,{owner}.{member}.managed.clock_current}})}};'
         ]
     public = graph + ".result"
     ports = "" if system else ".valid(valid),.data(data),.take(take),.result(result),"

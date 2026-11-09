@@ -33,15 +33,14 @@ target_include_directories(ACIRSourceCompiler PUBLIC
 )
 
 add_acir_library(ACIRCodegen SOURCES
-  FinalCppNames.cpp
-  FinalEmitCpp.cpp
-  FinalEmitVerilog.cpp
+  ConcreteDesignPlan.cpp
+  FinalEmissionNames.cpp
   FinalSourceMap.cpp
   HardwareEmitCommon.cpp
-  HardwareEmitCppChecks.cpp
-  HardwareEmitCppDefinition.cpp
-  HardwareEmitVerilogDefinition.cpp
-  LINK_LIBRARIES ACIRDialect MLIRParser
+  StructuralCppBackend.cpp
+  VerilogBackend.cpp
+  VerilogEmissionPlan.cpp
+  LINK_LIBRARIES HWIRDialect MLIRParser
 )
 target_include_directories(ACIRCodegen PUBLIC
   "$<BUILD_INTERFACE:${PYCIRCUIT_SOURCE_DIR}/lib>"

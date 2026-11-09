@@ -60,7 +60,7 @@ def test_timeout_stops_owned_build_children_and_preserves_unrelated_process(tmp_
 def _arguments(source: Path, prefix: Path, build: Path) -> dict:
     return {
         "source": str(source),
-        "target": "cpp",
+        "target": "structural-cpp",
         "build_dir": str(build),
         "toolchain": str(prefix),
         "cycles": 3,
@@ -171,7 +171,7 @@ def test_same_role_retry_failure_invalidates_previous_execution_success(
     build.mkdir()
     (build / "CMakeCache.txt").write_text(
         f"CMAKE_HOME_DIRECTORY:INTERNAL={source}\n"
-        "PYC_EXAMPLE_RUN_TARGET:STRING=cpp\n"
+        "PYC_EXAMPLE_RUN_TARGET:STRING=structural-cpp\n"
     )
     execution = build / "run-execution.json"
     execution.write_text('{"status":"success","stale":true}\n')
@@ -183,7 +183,7 @@ def test_same_role_retry_failure_invalidates_previous_execution_success(
             if command[-1] == "pycircuit_simulation_artifacts":
                 if stage == "artifacts":
                     raise _DriverError("artifact build failed")
-                _write_generated_bundle(build, "cpp")
+                _write_generated_bundle(build, "structural-cpp")
             elif command[-1] == "pycircuit_sim":
                 raise _DriverError("binary build failed")
 
@@ -199,7 +199,11 @@ def test_same_role_retry_failure_invalidates_previous_execution_success(
 def _write_generated_bundle(directory, target):
     generated = directory / target
     generated.mkdir(parents=True, exist_ok=True)
-    harness = "simulation_main.cpp" if target == "cpp" else "simulation_top.sv"
+    harness = (
+        "simulation_main.cpp"
+        if target == "structural-cpp"
+        else "simulation_top.sv"
+    )
     (generated / harness).write_text(f"generated {target} simulation harness\n")
     (generated / "generated.json").write_text(
         json.dumps({"files": [{"path": harness}]})
@@ -258,9 +262,9 @@ def test_parallel_backends_do_not_reconfigure_each_others_default_build(
         _run.run_command(**arguments)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        list(pool.map(execute, ("cpp", "verilog")))
+        list(pool.map(execute, ("structural-cpp", "verilog")))
     assert len(configured) == 2
-    assert set(configured.values()) == {"cpp", "verilog"}
+    assert set(configured.values()) == {"structural-cpp", "verilog"}
     executables = [
         command[0]
         for command in invocations
@@ -279,7 +283,7 @@ def test_parallel_backends_do_not_reconfigure_each_others_default_build(
                 / configured[directory]
                 / (
                     "simulation_main.cpp"
-                    if configured[directory] == "cpp"
+                    if configured[directory] == "structural-cpp"
                     else "simulation_top.sv"
                 )
             ),
@@ -304,7 +308,7 @@ def test_run_execution_receipt_binds_actual_inputs_and_invalidates_old_success(
     def invoke(command, **_kwargs):
         if command[:2] == ["cmake", "--build"]:
             if command[-1] == "pycircuit_simulation_artifacts":
-                _write_generated_bundle(build, "cpp")
+                _write_generated_bundle(build, "structural-cpp")
             elif command[-1] == "pycircuit_sim":
                 _write_simulation_binary(Path(command[2]))
         elif Path(command[0]).name == "pycircuit_sim":
@@ -350,7 +354,7 @@ def test_run_execution_receipt_binds_actual_inputs_and_invalidates_old_success(
 
 def test_module_only_bundle_is_not_executed(project):
     source, prefix, build, calls = project
-    generated = build / "cpp"
+    generated = build / "structural-cpp"
     generated.mkdir(parents=True)
     (generated / "generated.json").write_text('{"files":[{"path":"dut.hpp"}]}')
     with pytest.raises(_DriverError, match="source @system root"):

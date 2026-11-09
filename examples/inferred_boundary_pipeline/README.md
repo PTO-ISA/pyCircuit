@@ -109,6 +109,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/inferred_boundary_pipeline --target cpp --cycles 344
+pycircuit run examples/inferred_boundary_pipeline --target structural-cpp --cycles 344
 pycircuit run examples/inferred_boundary_pipeline --target verilog --cycles 344
 ```

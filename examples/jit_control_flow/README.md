@@ -98,6 +98,6 @@ the public and measured builds share identical final IR and generated outputs.
 DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
 
 ```sh
-pycircuit run examples/jit_control_flow --target cpp --cycles 65
+pycircuit run examples/jit_control_flow --target structural-cpp --cycles 65
 pycircuit run examples/jit_control_flow --target verilog --cycles 65
 ```

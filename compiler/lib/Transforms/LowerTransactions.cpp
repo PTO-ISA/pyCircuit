@@ -1,6 +1,7 @@
 #include "LowerTransactions.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "Dialect/ACIR/SourceTransactionSummary.h"
+#include "pycircuit/Dialect/ACIR/FinalHardwarePackage.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/Passes.h"
@@ -153,7 +154,8 @@ branchJoinLayout(Type root, const ac::HardwareAnalysis &hardware,
           result.operations,
           SourceCheckBudget::add(1, SourceCheckBudget::multiply(count, 2)));
       for (Attribute raw : llvm::reverse(fields)) {
-        if (!charge(budget, site, 2)) return failure();
+        if (!charge(budget, site, 2))
+          return failure();
         auto field = cast<DictionaryAttr>(raw);
         Type declared = field.getAs<TypeAttr>("type").getValue();
         // This traversal's admitted root proves the complete nominal closure.
@@ -162,7 +164,8 @@ branchJoinLayout(Type root, const ac::HardwareAnalysis &hardware,
         if (isa<ac::StructType, ac::EnumType>(declared))
           resolved = declared;
         else if (isa<ac::BitsType>(declared))
-          resolved = branchResultType(declared, hardware, bindings, site, budget);
+          resolved =
+              branchResultType(declared, hardware, bindings, site, budget);
         else
           return site->emitOpError() << "unsupported local branch field type";
         if (failed(resolved) || !prepayAppend(budget, site, pending))
@@ -572,6 +575,10 @@ LogicalResult mergedEnvelope(mlir::ModuleOp package) {
   if (package->hasAttr("ac.stage"))
     return package.emitError()
            << "transaction lowering requires a merged package without ac.stage";
+  if (package->hasAttr(ac::HardwareOnlyAttrName))
+    return package.emitError()
+           << "transaction lowering input cannot carry the final-only "
+           << ac::HardwareOnlyAttrName << " certificate";
   for (StringRef name : {"ac.source_owner", "ac.unit_kind", "ac.interfaces",
                          "ac.exports", "ac.import_bindings"})
     if (package->hasAttr(name))
@@ -3080,7 +3087,8 @@ private:
             SourceCheckBudget::add(
                 1, SourceCheckBudget::multiply(fields.size(), 2)));
         for (Attribute raw : fields) {
-          if (!charge(budget, branch, 2)) return failure();
+          if (!charge(budget, branch, 2))
+            return failure();
           auto field = cast<DictionaryAttr>(raw);
           Type declared = field.getAs<TypeAttr>("type").getValue();
           // Reuse only this proof's independently admitted nominal closure.
@@ -3088,7 +3096,8 @@ private:
           if (isa<ac::StructType, ac::EnumType>(declared))
             resolved = declared;
           else if (isa<ac::BitsType>(declared))
-            resolved = branchResultType(declared, hardware, bindings, branch, budget);
+            resolved =
+                branchResultType(declared, hardware, bindings, branch, budget);
           else
             return reject("original local branch field type is unsupported");
           if (failed(resolved) || !prepayAppend(budget, branch, counting))
@@ -3180,7 +3189,8 @@ private:
     while (!stack.empty()) {
       Frame &frame = stack.back();
       if (frame.fields && frame.next != frame.fields.size()) {
-        if (!charge(budget, branch, 2)) return failure();
+        if (!charge(budget, branch, 2))
+          return failure();
         auto field = cast<DictionaryAttr>(frame.fields[frame.next++]);
         Type declared = field.getAs<TypeAttr>("type").getValue();
         // The original declarations and bindings have not changed since root
@@ -3189,7 +3199,8 @@ private:
         if (isa<ac::StructType, ac::EnumType>(declared))
           fieldType = declared;
         else if (isa<ac::BitsType>(declared))
-          fieldType = branchResultType(declared, hardware, bindings, branch, budget);
+          fieldType =
+              branchResultType(declared, hardware, bindings, branch, budget);
         else
           return reject("original local branch field type is unsupported");
         if (failed(fieldType))
@@ -4460,11 +4471,10 @@ private:
                 falseValue != bound(result.whenFalse) ||
                 actual.value.getType() != result.payloadType ||
                 record.frames[frame].lookupOrNull(original) != actual.value ||
-                failed(
-                    localBranchProof(split, *type,
-                                     plan.instances[resultRef.anchor].bindings,
-                                     condition, trueValue, falseValue, actual,
-                                     &rule.getBody().front(), last)) ||
+                failed(localBranchProof(
+                    split, *type, plan.instances[resultRef.anchor].bindings,
+                    condition, trueValue, falseValue, actual,
+                    &rule.getBody().front(), last)) ||
                 failed(event(ac::TransactionStateEventKind::BranchResult, frame,
                              resultIndex)))
               return reject("original branch yielded-result binding differs");
@@ -5528,6 +5538,7 @@ public:
         return;
       }
       input->setAttr("ac.stage", StringAttr::get(input.getContext(), "final"));
+      ac::markHardwareOnlyPackage(input);
       return;
     }
     const auto &analysis = getAnalysis<ac::SourceTransactionStateAnalysis>();
@@ -5550,6 +5561,10 @@ public:
       return;
     }
     auto &staged = candidate->module;
+    // This is the only publication point for the hardware-only certificate.
+    // Preparation, materialization, original-source proof and canonical final
+    // hardware verification have all succeeded, and no fallible work remains.
+    ac::markHardwareOnlyPackage(*staged);
     // Verification is complete. Preserve the pass root and replace contents
     // atomically, with no fallible step after this first original mutation.
     input->setAttrs((*staged)->getAttrs());

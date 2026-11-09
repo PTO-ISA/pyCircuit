@@ -19,7 +19,7 @@
 !as = !ac.table<[#w2, #w2], !b8>
 !af = !ac.table<[#w6], !b8>
 !apair = !ac.table<[#w2], !b8>
-module {
+module attributes {ac.source_units = [{package = "", path = "Foo.py"}, {package = "", path = "Foo_family.py"}, {package = "", path = "top.py"}]} {
   "ac.module"() ({
   ^bb0(%p: !b8, %impl: !b8, %number: !b8):
     "ac.yield"(%p, %impl, %number) : (!b8, !b8, !b8) -> ()

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
+#include "gfsim/SimModule.h"
 #include "gfsim/wire.h"
 
 #include <array>
@@ -206,6 +207,54 @@ struct fifo_kernel {
     pending.reset = true;
     pending.clock = false;
   }
+};
+
+// Scalar structural-codegen wrapper around the shared FIFO kernel. Collection
+// batching uses the same kernel directly, so the state transition semantics
+// remain single-sourced.
+template <class T, std::size_t Depth, QueueReadyPolicy Policy,
+          std::uint64_t AvailabilityLatency>
+class fifo final : public SimModule {
+public:
+  using Kernel = fifo_kernel<T, Depth, Policy, AvailabilityLatency>;
+  explicit fifo(std::string name) : SimModule(std::move(name)) {}
+  wire<Bits<1>> clk, rst, in_valid, out_ready;
+  wire<T> in_data;
+  wire<Bits<1>> in_ready, out_valid;
+  wire<T> out_data;
+  void RefreshOutputs() noexcept {
+    in_ready = Kernel::readReady(current_, out_ready);
+    out_valid = Kernel::readValid(current_);
+    out_data = Kernel::readData(current_);
+  }
+  void Work() override {
+    RefreshOutputs();
+    Kernel::work(current_, pins(), pending_, outputs());
+  }
+  void Xfer() noexcept override {
+    Kernel::xfer(current_, pending_, outputs());
+    RefreshOutputs();
+  }
+  void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }
+  void Reset() noexcept override { Kernel::reset(current_, pins(), pending_); }
+  bool HasWork() const noexcept override { return true; }
+
+  // Structural backends and white-box protocol tests may inspect committed
+  // FIFO state without depending on private storage layout.
+  typename Kernel::Current &currentState() noexcept { return current_; }
+  const typename Kernel::Current &currentState() const noexcept {
+    return current_;
+  }
+
+private:
+  typename Kernel::Inputs pins() const noexcept {
+    return {clk, rst, in_valid, in_data, out_ready};
+  }
+  typename Kernel::Outputs outputs() noexcept {
+    return {in_ready, out_valid, out_data};
+  }
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
 };
 
 } // namespace gfsim

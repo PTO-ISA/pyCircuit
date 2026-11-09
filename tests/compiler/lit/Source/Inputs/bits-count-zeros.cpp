@@ -1,7 +1,7 @@
 // Endpoint-scan oracle derived from the reviewed three-case X/Z contract.
 // No DUT expression, prefix-fill algorithm, or Runtime count helper is used.
 #include "gfsim/SimExecutor.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>

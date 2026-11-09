@@ -78,7 +78,30 @@ std::string signedDecimal(std::uint64_t bits) {
   return std::to_string(std::bit_cast<std::int64_t>(bits));
 }
 
+std::string planeHex(std::span<const std::uint64_t> words,
+                     std::uint32_t width) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::string text(width / 4 + (width % 4 != 0), '0');
+  for (std::size_t nibble = 0; nibble < text.size(); ++nibble)
+    text[text.size() - 1 - nibble] =
+        digits[(words[nibble / 16] >> (4 * (nibble % 16))) & 15];
+  return text;
+}
+
 void appendValue(std::ostringstream &output, SlotValue value) {
+  if (value.kind == SlotValueKind::Bits4) {
+    if (!value.isCanonicalBits4())
+      throw std::runtime_error("observation has malformed Bits4 planes");
+    output << "{\"kind\":\"bits4\",\"width\":" << value.width
+           << ",\"value\":";
+    appendString(output, planeHex(value.valueWords, value.width));
+    output << ",\"known\":";
+    appendString(output, planeHex(value.knownWords, value.width));
+    output << ",\"z\":";
+    appendString(output, planeHex(value.zWords, value.width));
+    output << '}';
+    return;
+  }
   if (value.kind == SlotValueKind::Bool) {
     output << "{\"kind\":\"bool\",\"value\":"
            << (value.bits != 0 ? "true" : "false") << '}';
@@ -205,7 +228,8 @@ std::string eventRecord(std::span<const OutputItem> group) {
     const SlotValue value = lane.event ? lane.event->value : lane.gauge->value;
     if (value.kind != SlotValueKind::Bool &&
         value.kind != SlotValueKind::Signed &&
-        value.kind != SlotValueKind::Unsigned)
+        value.kind != SlotValueKind::Unsigned &&
+        value.kind != SlotValueKind::Bits4)
       throw std::runtime_error("observation has an unsupported value kind");
     if (hasValue)
       output << ',';

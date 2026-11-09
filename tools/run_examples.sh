@@ -18,11 +18,14 @@ fi
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$(pyc_pythonpath)"
 pyc_set_public_helpers
+test_python="$(pyc_require_python)"
 cd "${PYC_ROOT_DIR}"
 build="${PYCIRCUIT_TEST_OUTPUT}/examples-${tier}"
 cmake -S "${PYC_ROOT_DIR}/examples" -B "${build}" -G Ninja \
   -DCMAKE_PREFIX_PATH="${PYC_TOOLCHAIN_ROOT}" \
-  -Dpycircuit_DIR="${PYC_TOOLCHAIN_ROOT}/share/pycircuit/cmake" -DPYC_EXAMPLE_TIER="${tier}"
+  -Dpycircuit_DIR="${PYC_TOOLCHAIN_ROOT}/share/pycircuit/cmake" \
+  -DPYC_EXAMPLE_TIER="${tier}" \
+  -DPython3_EXECUTABLE="${test_python}"
 if ((list_only)); then
   pyc_list_tests examples "$tier" "${build}"
   exit 0

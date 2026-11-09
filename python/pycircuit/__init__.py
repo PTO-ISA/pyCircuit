@@ -29,6 +29,9 @@ __all__ = [
     "byte_mem",
     "log",
     "report",
+    "four_state",
+    "case_eq",
+    "is_known",
 ]
 __version__ = "6.1.0"
 
@@ -139,3 +142,18 @@ def log(level, event, *items):
 def report(name, value):
     """Declare a compiler-owned gauge without host state."""
     raise RuntimeError("pyCircuit observations require pycircuit compile")
+
+
+def four_state(pattern):
+    """Declare exact fixed Bits from a nonempty 0/1/x/z source literal."""
+    raise RuntimeError("pyCircuit values require pycircuit compile")
+
+
+def case_eq(lhs, rhs):
+    """Compare exact four-state symbols and return a known one-bit result."""
+    raise RuntimeError("pyCircuit values require pycircuit compile")
+
+
+def is_known(value):
+    """Return whether every bit of a fixed Bits value is known 0/1."""
+    raise RuntimeError("pyCircuit values require pycircuit compile")

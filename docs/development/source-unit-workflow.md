@@ -23,7 +23,7 @@ Python or infers a different hardware meaning.
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
 | Common analysis | `HardwareAnalysis` and its dependency, source-check and Work-partition owners | Share packed widths, nominal field layouts, dependency/effect checks and scheduling facts between targets. |
-| Emit | `_emit.py`, `compiler/tools/emit.cpp`, existing target definition emitters | Consume the same verified final snapshot and realize C++ field planes or packed Verilog values. Retain source-owned output inventories and generated CMake metadata. |
+| Emit | `_emit.py`, `compiler/tools/emit.cpp`, existing target definition emitters | Consume the same verified final snapshot and realize structural C++ Runtime values or packed Verilog values. Retain source-owned output inventories and generated CMake metadata. |
 | Execute | `pyc6_runtime`, `SystemRunner`, `SimSystem` | Work observes old state. Complete whole-system Precheck/Precommit before any root Xfer; failure discards proposals. |
 
 The C++ and Verilog representations differ, but element order, field identity,
@@ -251,8 +251,8 @@ pycircuit compile -c src/top.py --source-root src \
   -o .pycircuit_out/units/top
 pycircuit link .pycircuit_out/units/child .pycircuit_out/units/top \
   --top demo.top.Top -o .pycircuit_out/design_top.ac
-pycircuit emit .pycircuit_out/design_top.ac --target cpp \
-  -o .pycircuit_out/cpp
+pycircuit emit .pycircuit_out/design_top.ac --target structural-cpp \
+  -o .pycircuit_out/structural-cpp
 pycircuit emit .pycircuit_out/design_top.ac --target verilog \
   -o .pycircuit_out/verilog
 ```

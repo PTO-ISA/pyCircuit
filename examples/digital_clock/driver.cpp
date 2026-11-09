@@ -1,7 +1,7 @@
 // Host calendar/edge oracle; every DUT epoch runs through the shared SystemRunner.
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <array>
 #include <cstdlib>
 #include <iostream>

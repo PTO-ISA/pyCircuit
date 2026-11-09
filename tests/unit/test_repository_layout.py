@@ -148,7 +148,10 @@ def test_cmake_package_exports_only_the_approved_runtime_and_compiler_components
     root_cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert "pycircuit::pyc6_runtime" in runtime
-    assert "install(TARGETS ACIRDialect ACIRSourceCompiler" in root_cmake
+    assert (
+        "install(TARGETS ACIRDialect HWIRDialect ACIRSourceCompiler ACIRCodegen"
+        in root_cmake
+    )
     assert "EXPORT pycircuitCompilerTargets" in root_cmake
     assert 'component STREQUAL "CompilerDev"' in config
     assert 'component STREQUAL "Runtime"' in config

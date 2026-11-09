@@ -1,6 +1,6 @@
 #include "gfsim/SimExecutor.h"
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -385,26 +385,26 @@ void configure(gfsim::SimExecutor &e) {
   require(e.ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()),
                           config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
 }
-void driveRoot(pyc_root &root, const Row &r) {
-  auto p = ports(r);
-  root.pyc_7079635f636c6b = p.pyc_7079635f636c6b;
-  root.pyc_7079635f727374 = p.pyc_7079635f727374;
-  root.valid = p.valid;
-  root.data = p.data;
-  root.take = p.take;
-}
 void owner(unsigned workers, bool fail) {
-  gfsim::WorkExecutor pool(workers);
-  pyc_root root("owner", &pool);
+  pyc_dut dut(workers);
+  auto &root = dut.root();
   root.Build();
   Golden g;
   Row r;
-  driveRoot(root, r);
+  auto driveRoot = [&](const Row &row) {
+    auto p = ports(row);
+    root.pyc_7079635f636c6b = p.pyc_7079635f636c6b;
+    root.pyc_7079635f727374 = p.pyc_7079635f727374;
+    root.valid = p.valid;
+    root.data = p.data;
+    root.take = p.take;
+  };
+  driveRoot(r);
   root.Reset();
   root.Xfer();
   std::vector<Entry> observed;
   auto step = [&](Row x) {
-    driveRoot(root, x);
+    driveRoot(x);
     root.Work();
     auto e = g.read(x);
     check(root.result.packed(), e);
@@ -429,7 +429,7 @@ void owner(unsigned workers, bool fail) {
   r = {false, false, true, true, entry(0, 50)};
   step(r);
   r.clock = true;
-  driveRoot(root, r);
+  driveRoot(r);
   if (fail)
     root.valid = wire<1>(0, 0, 0);
   bool failed = false;

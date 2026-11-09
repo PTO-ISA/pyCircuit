@@ -445,7 +445,7 @@ and [body-effect contract](../rfcs/serial-rule-method/sampled-body-effects.md).
 
 ## Typed DUT and runner
 
-C++ emission provides source modules and `pycircuit_system.hpp` with `pyc_root`
+C++ emission provides source modules and `design.hpp` with `pyc_root`
 and typed `pyc_dut::Inputs/Outputs`, `drive`, `sample`, `system` and `observations`.
 The DUT owns its root and execution pool. CMake's generated `pycircuit_modules`
 target is reusable; the example separately builds its testbench/runner executable

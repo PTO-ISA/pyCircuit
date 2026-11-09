@@ -1,0 +1,33 @@
+# RUN: %pycircuit_opt %inputs/structural-cpp-combinational.mlir --ac-lower-transactions --ac-final-to-hwir -o %t.hwir.mlir
+# RUN: %FileCheck %s --check-prefix=HWIR < %t.hwir.mlir
+# RUN: %pycircuit_emit %t.hwir.mlir --target structural-cpp --format source > %t.cpp
+# RUN: %FileCheck %s --check-prefix=CPP < %t.cpp
+# RUN: %cxx -std=c++20 -fsyntax-only -I %include %t.cpp
+# RUN: cp %t.cpp %t.run.cpp
+# RUN: %python -c 'import re,sys; p=sys.argv[1]; s=open(p).read(); c=re.search(r"class (top__h[0-9a-f]+)",s).group(1); open(p,"a").write(f"int main() {{ {c} d(\"dut\"); d.a=gfsim::wire<gfsim::Bits<8>>::known(gfsim::Bits<8>{{0x3c}}); d.b=gfsim::wire<gfsim::Bits<8>>::known(gfsim::Bits<8>{{0x0f}}); d.sel=gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{{1}}); d.Work(); return d.k.value()!=gfsim::Bits<8>{{5}} || d.and_out.value()!=gfsim::Bits<8>{{0x0c}} || d.mux_out.value()!=gfsim::Bits<8>{{0x3c}} || d.constant_mux_out.value()!=gfsim::Bits<8>{{18}}; }}\n")' %t.run.cpp
+# RUN: %cxx -std=c++20 -I %include %t.run.cpp -o %t.run
+# RUN: %t.run
+# RUN: %pycircuit_opt %inputs/structural-cpp-aggregate.mlir --ac-lower-transactions --ac-final-to-hwir -o %t.aggregate.hwir.mlir
+# RUN: %pycircuit_emit %t.aggregate.hwir.mlir --target verilog --format source | %FileCheck %s --check-prefix=AGGREGATE-RTL
+# RUN: %pycircuit_emit %t.hwir.mlir --target structural-cpp | %FileCheck %s --check-prefix=BUNDLE
+# RUN: not %pycircuit_emit %t.hwir.mlir --target cpp --format source 2>&1 | %FileCheck %s --check-prefix=REMOVED
+
+# HWIR: hwir.contract = 2
+# HWIR-NOT: ac.value.require
+
+# CPP: class top__h
+# CPP: gfsim::wire<gfsim::Bits<8>> constant_mux_out;
+# CPP: ::known(gfsim::Bits<8>{18ULL})
+# CPP: ::known(gfsim::Bits<8>{165ULL})
+# CPP: gfsim::select(
+
+# AGGREGATE-RTL-COUNT-1: assign packet =
+# AGGREGATE-RTL-COUNT-1: assign field =
+# AGGREGATE-RTL-COUNT-1: assign mode =
+# AGGREGATE-RTL-COUNT-1: assign mode_bits =
+
+# BUNDLE: "manifest"
+# BUNDLE: "source_check_count": 0
+# BUNDLE: "structural_cpp_groups"
+# BUNDLE: "structural_cpp_header"
+# REMOVED: usage: pycircuit-emit FINAL.ac --target verilog|structural-cpp

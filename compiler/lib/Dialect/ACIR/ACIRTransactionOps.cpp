@@ -293,8 +293,8 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
   auto push = [&](Value value) -> LogicalResult {
     auto *operation = value.getDefiningOp();
     if (!operation || operation->getParentOp() != bindings.owner ||
-        !isa<BitsConstantOp, EnumCreateOp, StructCreateOp, TableCreateOp,
-             TableSplatOp, StructGetOp, EnumToBitsOp, BitsExtractOp,
+        !isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp, StructCreateOp,
+             TableCreateOp, TableSplatOp, StructGetOp, EnumToBitsOp, BitsExtractOp,
              BitsResizeOp>(operation))
       return state->emitOpError()
              << "state initializer requires a closed static "
@@ -455,7 +455,7 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
         a.walkImmediateSubElements(attr, type);
       } else {
         if (failed(pay(1))) return failure();
-        Type current = entry.node.get<Type>();
+        Type current = llvm::cast<Type>(entry.node);
         typeFormals += isa<TypeParamType>(current);
         current.walkImmediateSubElements(attr, type);
         Operation *declaration = nullptr;

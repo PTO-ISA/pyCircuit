@@ -20,7 +20,7 @@
 //
 // Key codes: 0..9 digit, 10 add, 11 sub, 12 mul, 13 div, 14 equals, 15 clear.
 #include "gfsim/SystemRunner.h"
-#include "pycircuit_system.hpp"
+#include "design.hpp"
 
 #include <cstdint>
 #include <cstdlib>

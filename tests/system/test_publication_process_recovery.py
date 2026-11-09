@@ -274,7 +274,7 @@ def _prepare_snapshots(tmp_path: Path, env: dict[str, str]) -> dict[str, object]
         _checked(_compile(sources[revision], units[revision]), env=env, cwd=tmp_path)
         programs[revision] = tmp_path / f"baseline-{revision}.ac"
         _checked(_link(units[revision], programs[revision]), env=env, cwd=tmp_path)
-        for target in ("cpp", "verilog"):
+        for target in ("structural-cpp", "verilog"):
             generated[(revision, target)] = tmp_path / f"baseline-{revision}-{target}"
             _checked(
                 _emit(programs[revision], target, generated[(revision, target)]),
@@ -311,7 +311,7 @@ def test_public_compile_link_and_both_emitters_recover_replacement_process_crash
             else ("program" if operation == "link" else "generated")
         )
         target = (
-            "cpp"
+            "structural-cpp"
             if operation == "emit-cpp"
             else ("verilog" if operation == "emit-verilog" else None)
         )
@@ -363,12 +363,12 @@ def test_public_compile_link_and_both_emitters_recover_replacement_process_crash
             elif operation == "link":
                 assert target is None
                 recovery_output = tmp_path / f"recovered-link-cpp-{point}"
-                recovery = _emit(destination, "cpp", recovery_output)
+                recovery = _emit(destination, "structural-cpp", recovery_output)
                 _checked(recovery, env=env, cwd=tmp_path)
                 assert _snapshot(destination) == (new_bytes if committed else old_bytes)
                 assert (
                     _snapshot(recovery_output)
-                    == expected_generated[(expected_revision, "cpp")]
+                    == expected_generated[(expected_revision, "structural-cpp")]
                 )
             else:
                 assert target is not None
@@ -623,7 +623,11 @@ def test_first_final_and_generated_publications_recover_five_reachable_crashes(
 
     # build reliability-03's first-publication matrix has no previous-save checkpoint. Running
     # these five points for final, CPP and RTL is 15 independent child SIGKILLs.
-    cases = (("program", None), ("generated", "cpp"), ("generated", "verilog"))
+    cases = (
+        ("program", None),
+        ("generated", "structural-cpp"),
+        ("generated", "verilog"),
+    )
     for artifact, target in cases:
         expected = (
             expected_program
@@ -671,7 +675,7 @@ def test_first_final_and_generated_publications_recover_five_reachable_crashes(
                 }
                 verified_output = tmp_path / f"read-final-{point}.cpp"
                 result = subprocess.run(
-                    _emit(destination, "cpp", verified_output),
+                    _emit(destination, "structural-cpp", verified_output),
                     cwd=tmp_path,
                     env=env,
                     text=True,
@@ -682,7 +686,9 @@ def test_first_final_and_generated_publications_recover_five_reachable_crashes(
                 if committed:
                     assert result.returncode == 0, result.stdout + result.stderr
                     assert _snapshot(destination) == expected
-                    assert _snapshot(verified_output) == generated_bytes[("new", "cpp")]
+                    assert _snapshot(verified_output) == generated_bytes[
+                        ("new", "structural-cpp")
+                    ]
                     assert _journal(destination)["phase"] == "committed"
                     _checked(_replace(_link(unit, destination)), env=env, cwd=tmp_path)
                 else:

@@ -181,7 +181,7 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
             TableQueryBudget::addProduct(
                 charge, TableQueryResource::PayloadWords,
                 succeeded(weight) ? *weight : 0, 3 * (rows - 1));
-    if (isa<ac::BitsConstantOp>(operation))
+    if (isa<ac::BitsConstantOp, ac::BitsConstant4Op>(operation))
       fits &= succeeded(weight) &&
               TableQueryBudget::addProduct(charge,
                                            TableQueryResource::ConstantBytes,
@@ -196,7 +196,8 @@ bool TableQueryLowering::describeWithoutReservation(Operation *operation,
       rows > TableQueryBudget::limit(TableQueryResource::Work) ||
       operation->getNumRegions() || operation->getNumSuccessors() ||
       operation->getNumResults() != 1 || operation->getNumOperands() > 3 ||
-      !isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsBinaryOp,
+      !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
+           ac::BitsBinaryOp,
            ac::BitsCompareOp, ac::BitsSelectOp, ac::BitsExtractOp,
            ac::BitsResizeOp>(operation))
     return false;

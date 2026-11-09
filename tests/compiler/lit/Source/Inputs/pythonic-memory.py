@@ -795,11 +795,11 @@ for top, kind, width, address_width, depth, scenario in cases:
         "-o",
         final,
     )
-    for target in ("cpp", "verilog"):
+    for target in ("structural-cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
-    receipt = json.loads((output / "cpp/generated.json").read_text())
+    receipt = json.loads((output / "structural-cpp/generated.json").read_text())
     cpp = [
-        output / "cpp" / item["path"]
+        output / "structural-cpp" / item["path"]
         for item in receipt["files"]
         if item["path"].endswith(".cpp")
     ]
@@ -812,7 +812,7 @@ for top, kind, width, address_width, depth, scenario in cases:
             f"-DMEM_KIND={kind}",
             *defines,
             "-I" + str(repo / "include"),
-            "-I" + str(output / "cpp"),
+            "-I" + str(output / "structural-cpp"),
             fixtures / "pythonic-memory.cpp",
             *cpp,
             runtime,

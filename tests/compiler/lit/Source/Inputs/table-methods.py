@@ -69,6 +69,7 @@ def run(command, code=0, diagnostic=None):
 
 
 def cli(*arguments, code=0, diagnostic=None):
+    arguments = list(arguments)
     return run([sys.executable, "-m", "pycircuit.cli", *arguments], code, diagnostic)
 
 
@@ -213,13 +214,13 @@ run(
         build / "guard.verified.ac",
     ]
 )
-for target in ("cpp", "verilog"):
+for target in ("structural-cpp", "verilog"):
     cli("emit", guard_final, "--target", target, "-o", build / ("guard-" + target))
 protected = [guard, provider, guard_final, build / "guard-cpp", build / "guard-verilog"]
 for receipt in receipts:
     output = Path(receipt["output"])
     protected.extend(
-        (output / "unit", output / "design.ac", output / "cpp", output / "verilog")
+        (output / "unit", output / "design.ac", output / "structural-cpp", output / "verilog")
     )
 protected_before = {str(path): managed_snapshot(path) for path in protected}
 negative_receipts = []
