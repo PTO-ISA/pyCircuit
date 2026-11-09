@@ -9,6 +9,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -37,7 +38,7 @@ std::string attributeText(Attribute attr) {
 
 int main(int argc, char **argv) {
   DialectRegistry dialects;
-  dialects.insert<acir::ac::ACIRDialect>();
+  dialects.insert<acir::ac::ACIRDialect, acir::gfir::GFIRDialect>();
   MLIRContext context(dialects);
   context.loadAllAvailableDialects();
   auto emitError = [&] { return mlir::emitError(UnknownLoc::get(&context)); };

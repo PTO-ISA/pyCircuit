@@ -3,6 +3,7 @@
 #include "Compiler/AnchorArtifact.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -727,8 +728,8 @@ int main(int argc, char **argv) {
     return 2;
 
   mlir::DialectRegistry dialects;
-  dialects.insert<acir::ac::ACIRDialect, mlir::arith::ArithDialect,
-                  mlir::func::FuncDialect>();
+  dialects.insert<acir::ac::ACIRDialect, acir::gfir::GFIRDialect,
+                  mlir::arith::ArithDialect, mlir::func::FuncDialect>();
   mlir::MLIRContext context(dialects);
   context.loadAllAvailableDialects();
 
