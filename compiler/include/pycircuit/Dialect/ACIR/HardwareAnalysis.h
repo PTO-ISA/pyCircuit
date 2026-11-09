@@ -351,6 +351,7 @@ public:
   mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
                                           HardwareSourceCheckLimits limits = {});
   mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
+  mlir::LogicalResult
   verifySourceCheckPlan(const HardwareSourceCheckPlan &plan,
                         HardwareSourceCheckLimits limits = {}) const;
   mlir::FailureOr<HardwarePhysicalProjection>
