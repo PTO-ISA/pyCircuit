@@ -43,6 +43,7 @@ add_acir_library(ACIRCodegen SOURCES
   HardwareEmitCommon.cpp
   HardwareEmitCppChecks.cpp
   HardwareEmitCppDefinition.cpp
+  HardwareEmitVerilogFaults.cpp
   HardwareEmitVerilogDefinition.cpp
   LINK_LIBRARIES ACIRDialect MLIRParser
 )

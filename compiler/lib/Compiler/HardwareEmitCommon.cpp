@@ -18,6 +18,42 @@
 #include <tuple>
 using namespace mlir;
 namespace acir::compiler {
+std::string jsonString(StringRef value) {
+  std::string text;
+  llvm::raw_string_ostream out(text);
+  out << llvm::json::Value(value);
+  return text;
+}
+std::string displayLiteral(StringRef value) {
+  std::string text;
+  text.reserve(value.size());
+  for (char character : value) {
+    switch (character) {
+    case '\\':
+      text += "\\\\";
+      break;
+    case '"':
+      text += "\\\"";
+      break;
+    case '\n':
+      text += "\\n";
+      break;
+    case '\r':
+      text += "\\r";
+      break;
+    case '\t':
+      text += "\\t";
+      break;
+    case '%':
+      text += "%%";
+      break;
+    default:
+      text += character;
+      break;
+    }
+  }
+  return text;
+}
 namespace {
 FailureOr<std::string> identifier(StringRef raw, Operation *site) {
   auto value = legalizeIdentifier(raw, [&] { return site->emitOpError(); });

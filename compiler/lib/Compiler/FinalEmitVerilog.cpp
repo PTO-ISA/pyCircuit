@@ -130,42 +130,6 @@ FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
     return failure();
   return SystemControls{std::move(*clockName), std::move(*resetName)};
 }
-std::string jsonString(StringRef value) {
-  std::string text;
-  llvm::raw_string_ostream out(text);
-  out << llvm::json::Value(value);
-  return text;
-}
-std::string displayLiteral(StringRef value) {
-  std::string text;
-  text.reserve(value.size());
-  for (char character : value) {
-    switch (character) {
-    case '\\':
-      text += "\\\\";
-      break;
-    case '"':
-      text += "\\\"";
-      break;
-    case '\n':
-      text += "\\n";
-      break;
-    case '\r':
-      text += "\\r";
-      break;
-    case '\t':
-      text += "\\t";
-      break;
-    case '%':
-      text += "%%";
-      break;
-    default:
-      text += character;
-      break;
-    }
-  }
-  return text;
-}
 struct ObservationAddress {
   std::string object;
   size_t localIndex = 0;
@@ -670,14 +634,18 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
            "    if ($isunknown("
         << *clock << ") || ((" << *clock
         << " === 1'b1) && pyc_physical_error)) begin\n"
-           "      if (!pyc_physical_fault) "
-           "$display(\"PYCIRCUIT_PHYSICAL_FAULT\");\n"
+           "      if (!pyc_physical_fault) begin\n"
+           "        $display(\"PYCIRCUIT_PHYSICAL_FAULT\");\n"
+           "        pyc_report_physical_fault($sformatf(\"%m\"));\n"
+           "      end\n"
            "      pyc_physical_fault = 1'b1;\n"
            "    end\n"
            "  end\n"
            "`else\n"
            "  assign pyc_root_commit_ok = 1'b1;\n"
            "`endif\n";
+    if (failed(emitPhysicalFaultReporter(context, *clock, *reset, out)))
+      return failure();
   }
   out << "  " << callee << *parameters << " dut (";
   first = true;

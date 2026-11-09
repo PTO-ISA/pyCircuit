@@ -115,7 +115,11 @@ checks aggregate internally before any edge commits. It preserves declared
 closed startup values and synchronous reset, and reports
 `PYCIRCUIT_PHYSICAL_FAULT` on invalid controls or clock transitions. Simulation
 then freezes state; a physical reset does not clear the fault. Runners must reject
-that diagnostic even if a testbench later prints success. This is not a host
+that diagnostic even if a testbench later prints success. First-failure
+`PYCIRCUIT_FAULT_DETAIL` JSON lines identify time, actual instance, check or
+primitive control, reason and retained source locations; related control values
+are evidence rather than unique causal attribution. Details preserve the same
+failure and commit policy. This is not a host
 Work/Discard interface. Residual non-guard checks, observations, non-register
 resources, multiple domains, clock-data use and dynamic initializers require
 managed execution. See [physical export](physical-rtl-export.md) for the precise

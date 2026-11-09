@@ -21,6 +21,11 @@ struct EmitNames {
   std::string source;
   std::string verilog;
 };
+// Actual definition-local references, recorded while emitting physical RTL.
+struct PhysicalVerilogLayout {
+  llvm::DenseMap<mlir::Value, std::string> nets;
+  llvm::DenseMap<mlir::Operation *, std::string> checkErrors;
+};
 class HardwareEmitContext {
 public:
   HardwareEmitContext(mlir::ModuleOp package, ac::HardwareAnalysis &analysis,
@@ -95,6 +100,7 @@ public:
                     mlir::Operation *site) const;
   mlir::ModuleOp package;
   ac::HardwareAnalysis &analysis;
+  PhysicalVerilogLayout physicalLayout;
 
 private:
   mlir::LogicalResult prepareImpl(bool allowSourceChecks);
@@ -164,6 +170,12 @@ mlir::LogicalResult cppObservationStaging(
     llvm::StringRef count,
     const std::function<mlir::FailureOr<std::string>(mlir::Value)> &value,
     llvm::raw_ostream &out);
+std::string jsonString(llvm::StringRef value);
+std::string displayLiteral(llvm::StringRef value);
+mlir::LogicalResult emitPhysicalFaultReporter(HardwareEmitContext &context,
+                                              llvm::StringRef clock,
+                                              llvm::StringRef reset,
+                                              llvm::raw_ostream &out);
 mlir::LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
                                                   ac::ModuleOp definition,
                                                   llvm::raw_ostream &out);

@@ -65,6 +65,11 @@ module dffe #(
         end
     endfunction
 
+    // Read-only detail for the generated physical first-failure reporter.
+    function automatic bit [1:0] pyc_physical_control_errors();
+        return edge_control_error(1'b1, rst, en);
+    endfunction
+
     initial begin
         if (PAYLOAD_BITS == 0)
             $fatal(1, "dffe: payload must have positive packed width");

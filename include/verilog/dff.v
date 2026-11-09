@@ -57,6 +57,11 @@ module dff #(
         return rising && $isunknown(reset);
     endfunction
 
+    // Read-only detail for the generated physical first-failure reporter.
+    function automatic bit [1:0] pyc_physical_control_errors();
+        return {1'b0, edge_control_error(1'b1, rst)};
+    endfunction
+
     initial begin
         if (PAYLOAD_BITS == 0)
             $fatal(1, "dff: payload must have positive packed width");

@@ -108,6 +108,7 @@ public:
             << "));\n"
                "`else\n  wire "
             << name << " = 1'b0;\n`endif\n";
+        context.physicalLayout.checkErrors[binding.expect] = name;
         localErrors.push_back(name);
       }
       return success();
@@ -1167,6 +1168,12 @@ public:
     return success();
   }
 
+  void recordPhysicalLayout() {
+    if (context.isPhysical())
+      for (const auto &entry : names)
+        context.physicalLayout.nets.try_emplace(entry.first, entry.second);
+  }
+
   void emitAggregateError() {
     if (context.isPhysical()) {
       out << "  assign pyc_local_error = "
@@ -1299,6 +1306,7 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
   if (failed(nets.emitInstances()))
     return failure();
   nets.emitAggregateError();
+  nets.recordPhysicalLayout();
   out << "endmodule\n";
   return success();
 }
