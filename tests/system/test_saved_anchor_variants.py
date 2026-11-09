@@ -178,7 +178,7 @@ def test_saved_anchor_keeps_table_state_compact_through_refinement(tmp_path):
     body = (anchor / manifest["definitions"][0]["body"]).read_text()
     # Routing represents a persistent Table as one logical state. This checks
     # compact state refinement, not a retained native ac.collection in the anchor.
-    states = [line for line in body.splitlines() if '"ac.state"(' in line]
+    states = [line for line in body.splitlines() if '"gfir.state"(' in line]
     assert len(states) == 2  # One four-lane state plus the scalar position.
     table_states = [line for line in states if 'instance_name = "rows"' in line]
     assert len(table_states) == 1

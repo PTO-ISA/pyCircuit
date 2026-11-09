@@ -506,8 +506,8 @@ FailureOr<json::Object> manifest(const Files &files, ac::detail::EmitError emitE
   if (!keys(object, {"kind", "schema", "routed_contract", "owner", "root", "configuration",
                      "configuration_identity", "content_identity", "files", "definitions", "sources", "producer"}) ||
       object->getString("kind") != "pycircuit-anchor" ||
-      !((object->getInteger("schema") == 1 && object->getInteger("routed_contract") == 2) ||
-        (object->getInteger("schema") == 2 && object->getInteger("routed_contract") == 3)))
+      !((object->getInteger("schema") == 3 && object->getInteger("routed_contract") == 4) ||
+        (object->getInteger("schema") == 4 && object->getInteger("routed_contract") == 5)))
     return emitError() << "unsupported anchor schema/contract; regenerate from source units";
   auto owner = object->getObject("owner");
   auto producer = object->getObject("producer");
@@ -750,7 +750,7 @@ LogicalResult writeAnchorArtifacts(
         StringRef(path).ends_with("/spec.ac") ? "spec" : "body";
     inventory.push_back(json::Object{{"path", path}, {"role", role}, {"sha256", anchorSha256(text)}});
   }
-  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", boundary ? 2 : 1}, {"routed_contract", boundary ? 3 : 2},
+  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", boundary ? 4 : 3}, {"routed_contract", boundary ? 5 : 4},
     {"owner", json::Object{{"kind", "anchor"}, {"source", json::Object(*rootSource)}, {"definition", root}}},
     {"root", root}, {"configuration", json::Object(*config)}, {"configuration_identity", identity(*config)},
     {"files", std::move(inventory)}, {"definitions", std::move(definitions)}, {"sources", std::move(provenance)},
@@ -771,7 +771,7 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   if (failed(parsed)) return failure();
   auto &document = *parsed;
   auto config = document.getObject("configuration");
-  bool boundary = document.getInteger("schema") == 2;
+  bool boundary = document.getInteger("schema") == 4;
   auto definitions = document.getArray("definitions"), sources = document.getArray("sources");
   if (!definitions || definitions->empty() || !sources || sources->empty() ||
       !(boundary ? keys(config, {"root", "implementation_root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})
@@ -943,7 +943,7 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   // until the complete assembled package has passed bounded native admission.
   if (failed(ac::verifyRoutedPackage(*graph))) return failure();
   auto contract = (*graph)->getAttrOfType<IntegerAttr>("ac.routed_contract");
-  if (!contract || contract.getInt() != (boundary ? 3 : 2))
+  if (!contract || contract.getInt() != (boundary ? 5 : 4))
     return emitError() << "anchor schema and native routed contract differ";
 
   for (const auto &raw : *sources) {
@@ -979,7 +979,14 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> refineVerifiedAnchor(
   if (fingerprint.empty() || anchorSha256(fingerprint) != anchor.verifiedPackageSha256)
     return emitError() << "loaded anchor changed after native verification";
   ac::HardwareSourceCheckLimits limits;
-  if (ac::detail::findUnloweredTransaction((*anchor.package).getOperation())) limits.maxWorkUnits = 1024 * 1024;
+  // Loaded routed anchors carry their logical states as GFIR operations; the
+  // previous unlowered-source scan recognized the retired ac.state classes.
+  // Keep the tighter stateful refinement budget for any routed logical state,
+  // detected through the common interface without a GFIR dependency here.
+  bool stateful = false;
+  (*anchor.package)->walk(
+      [&](acir::LogicalStateOpInterface) { stateful = true; });
+  if (stateful) limits.maxWorkUnits = 1024 * 1024;
   ac::detail::SourceCheckBudget budget(limits);
   auto candidate = acir::detail::materializeHardwareState(*anchor.package, budget);
   if (failed(candidate) || failed(acir::detail::verifyHardwareStateMaterialization(

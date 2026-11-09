@@ -30,14 +30,15 @@ if(PYC_BUILD_COMPILER_DEV)
   find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
   set(PYCIRCUIT_BUILD_TESTING "${PYC_BUILD_TESTING}" CACHE BOOL "Build native tests" FORCE)
   add_subdirectory(compiler)
-  # component-split: superseded by pr/analysis (ACIRAnalysis), pr/validation
-  # (GFIRValidation/HWIRValidation), pr/conversion (ACIRConversionCommon/
-  # ACIRToGFIR/GFIRToHWIR) and pr/integration (ACIRSourceCompiler/ACIRCodegen/
-  # ACIRTransforms and the tool executables).
-  install(TARGETS ACIRDialect GFIRDialect ACIRCore PycircuitStateInterfaces pycircuit_project_options
+  # component-split: the validation (GFIRValidation/HWIRValidation) and
+  # conversion (ACIRConversionCommon/ACIRToGFIR/GFIRToHWIR) exports join from
+  # pr/validation and pr/conversion; this state exports every target it builds.
+  install(TARGETS ACIRDialect GFIRDialect ACIRCore ACIRAnalysis ACIRTransforms ACIRSourceCompiler ACIRCodegen PycircuitStateInterfaces pycircuit_project_options
     EXPORT pycircuitCompilerTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+  install(TARGETS pycircuit-source-unit pycircuit-link pycircuit-emit pycircuit-opt
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(DIRECTORY compiler/include/pycircuit
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.h" PATTERN "*.td")

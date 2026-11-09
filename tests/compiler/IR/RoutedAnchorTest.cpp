@@ -7,6 +7,10 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIROps.h"
+#include "Dialect/ACIR/SourceCheckBudget.h"
+#include "pycircuit/Analysis/LogicalStateValidation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "llvm/ADT/STLExtras.h"
@@ -43,12 +47,12 @@ std::string preamble() {
 
 std::string statePackage(llvm::StringRef extra = "") {
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
+module attributes {ac.stage = "routed", ac.routed_contract = 4 : i64} {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %candidate: !b7, %intent: !b1, %wide_intent: !b2):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
-    %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
-    "ac.state.update"(%q, %candidate, %intent) : (!b7, !b7, !b1) -> ()
+    %q = "gfir.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
+    "gfir.state.update"(%q, %candidate, %intent) : (!b7, !b7, !b1) -> ()
 )ir" + extra.str() +
          R"ir(
     "ac.yield"(%q) : (!b7) -> ()
@@ -59,7 +63,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
 
 std::string externPackage() {
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
+module attributes {ac.stage = "routed", ac.routed_contract = 4 : i64} {
   "ac.module.import"() {sym_name = "external.combine", source_owner = #owner, semantic_kind = "hardware", parameters = [], type_parameters = [], function_type = (!b7, !b7) -> !b7, input_names = ["left", "right"], output_names = ["combined"], dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 0 : i64, path = []}, {port = 1 : i64, path = []}]}], ac.external_contract = {state = "none", effects = [], latency = 0 : i64, availability = "all_inputs", value_domain = "four_state", failure = "none"}} : () -> ()
 }
 )ir";
@@ -69,18 +73,61 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
 // logical allocation, and Q/false is the independently specified hold binding.
 std::string fullStateAnchor() {
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
+module attributes {ac.stage = "routed", ac.routed_contract = 4 : i64, ac.source_units = [#owner]} {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
     %false = "ac.bits.constant"() {value = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<0>}, origin = #occ, location = #span}>} : () -> !b1
-    %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
-    "ac.state.update"(%q, %q, %false) : (!b7, !b7, !b1) -> ()
+    %q = "gfir.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
+    "gfir.state.update"(%q, %q, %false) : (!b7, !b7, !b1) -> ()
     "ac.yield"(%q) : (!b7) -> ()
   }) {sym_name = "Counter", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1) -> !b7, input_names = ["pyc_clk", "pyc_rst"], output_names = ["q"], ac.domain_inputs = {clock = 0 : i64, reset = 1 : i64}, ac.transaction_wiring = {states = [#occ], incoming = [], writers = []}} : () -> ()
   "ac.system"() {entry = {callee = @Counter, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 )ir";
+}
+
+// Two declarations share one 37-operand initializer DAG. The shared
+// table.create exposes the per-state, per-operand-edge growth (S*M) that
+// the initializer budget must cover.
+std::string sharedInitializerAnchor() {
+  std::string elements, types;
+  for (unsigned i = 0; i < 37; ++i) {
+    elements += "%one, ";
+    types += "!b1, ";
+  }
+  elements.erase(elements.size() - 2);
+  types.erase(types.size() - 2);
+  std::string zero = "#ac.static_expr<{kind = \"literal\", value = {kind = "
+                     "\"integer\", value = #ac.math_int<0>}, origin = #occ, "
+                     "location = #span}>";
+  return preamble() +
+      "\n#second = {site = {definition = @Counter, ast_path = [{kind = "
+      "\"index\", value = 4 : i64}]}, expansion = []}\n!tbl = !ac.table<[#w37], "
+      "!b1>\nmodule attributes {ac.stage = \"routed\", ac.routed_contract = 4 "
+      ": i64, ac.source_units = [#owner]} {\n"
+      "  \"ac.module\"() ({\n"
+      "  ^bb0(%clk: !b1, %rst: !b1):\n"
+      "    %one = \"ac.bits.constant\"() {value = #w1} : () -> !b1\n"
+      "    %false = \"ac.bits.constant\"() {value = " + zero + "} : () -> !b1\n"
+      "    %shared = \"ac.table.create\"(" + elements +
+      ") {shape = [#w37]} : (" + types + ") -> !tbl\n"
+      "    %left = \"gfir.state\"(%clk, %rst, %shared) {instance_name = "
+      "\"left\", occurrence = #occ} : (!b1, !b1, !tbl) -> !tbl\n"
+      "    %right = \"gfir.state\"(%clk, %rst, %shared) {instance_name = "
+      "\"right\", occurrence = #second} : (!b1, !b1, !tbl) -> !tbl\n"
+      "    \"gfir.state.update\"(%left, %left, %false) : (!tbl, !tbl, !b1) -> ()\n"
+      "    \"gfir.state.update\"(%right, %right, %false) : (!tbl, !tbl, !b1) -> ()\n"
+      "    \"ac.yield\"(%left, %right) : (!tbl, !tbl) -> ()\n"
+      "  }) {sym_name = \"Counter\", source_owner = #owner, parameters = [], "
+      "type_parameters = [], function_type = (!b1, !b1) -> (!tbl, !tbl), "
+      "input_names = [\"pyc_clk\", \"pyc_rst\"], output_names = "
+      "[\"left_value\", \"right_value\"], ac.domain_inputs = {clock = 0 : i64, "
+      "reset = 1 : i64}, ac.transaction_wiring = {states = [#occ, #second], "
+      "incoming = [], writers = []}} : () -> ()\n"
+      "  \"ac.system\"() {entry = {callee = @Counter, parameters = [], "
+      "type_arguments = []}, domain = \"default\"} : () -> ()\n"
+      "}\n";
 }
 
 // Deliberately omit the second input from payload dependencies. Its
@@ -115,7 +162,7 @@ std::string fullExternAnchor(bool cycle = false, bool zeroInputs = false,
     graph.replace(graph.find(yielded), yielded.size(), "\"ac.yield\"(%value)");
   }
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
+module attributes {ac.stage = "routed", ac.routed_contract = 4 : i64, ac.source_units = [#owner]} {
   "ac.module.import"() {sym_name = "External", source_owner = #owner, semantic_kind = "hardware", parameters = [], type_parameters = [], )ir" +
          declaration +
          R"ir(, ac.external_contract = {state = "none", effects = [], latency = 0 : i64, availability = "all_inputs", value_domain = "four_state", failure = "none"}} : () -> ()
@@ -131,11 +178,11 @@ std::string fullWrittenAnchor() {
   return preamble() + R"ir(
 #id = {registration = #child_occ, check = #child_occ, obligation = 0 : i64}
 #state_id = {owner = {instance_path = []}, declaration = #occ, element = []}
-module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
+module attributes {ac.stage = "routed", ac.routed_contract = 4 : i64, ac.source_units = [#owner]} {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
-    %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
+    %q = "gfir.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
     %next, %enabled, %fire, %raw, %reached = "ac.rule"(%clk, %rst, %q) ({
     ^bb0(%clock: !b1, %reset: !b1, %old: !b7):
       %one = "ac.bits.constant"() {value = #w1} : () -> !b1
@@ -145,7 +192,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_
       %write = "ac.bits.binary"(%admit, %one) {opcode = "and"} : (!b1, !b1) -> !b1
       "ac.yield"(%sum, %write, %admit, %one, %one) : (!b7, !b1, !b1, !b1, !b1) -> ()
     }) {name = "increment", occurrence = #child_occ, ac.required_checks = [{id = #id, kind = "guard_known", location = #span}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 2 : i64, controls = [{kind = "callable_guard", id = #id, invocation = [], predecessor = -1 : i64, path = {}}], body_checks = [], observations = []}} : (!b1, !b1, !b7) -> (!b7, !b1, !b1, !b1, !b1)
-    "ac.state.update"(%q, %next, %enabled) : (!b7, !b7, !b1) -> ()
+    "gfir.state.update"(%q, %next, %enabled) : (!b7, !b7, !b1) -> ()
     "ac.expect"(%raw, %reached, %clk, %rst) {kind = "guard_known", location = #span, ac.check_id = #id} : (!b1, !b1, !b1, !b1) -> ()
     "ac.yield"(%q) : (!b7) -> ()
   }) {sym_name = "Counter", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1) -> !b7, input_names = ["pyc_clk", "pyc_rst"], output_names = ["q"], ac.domain_inputs = {clock = 0 : i64, reset = 1 : i64}, ac.transaction_wiring = {states = [#occ], incoming = [], writers = [{registration = #child_occ, ordinary_results = 0 : i64, candidates = [{state = #state_id, data = 0 : i64, enable = 1 : i64}]}]}} : () -> ()
@@ -156,7 +203,10 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_
 
 class RoutedAnchorTest : public ::testing::Test {
 protected:
-  RoutedAnchorTest() { context.loadDialect<ACIRDialect>(); }
+  RoutedAnchorTest() {
+    context.loadDialect<ACIRDialect>();
+    context.loadDialect<gfir::GFIRDialect>();
+  }
 
   mlir::OwningOpRef<mlir::ModuleOp> parse(llvm::StringRef text) {
     return mlir::parseSourceString<mlir::ModuleOp>(
@@ -207,8 +257,8 @@ TEST_F(RoutedAnchorTest, LogicalStateAndDirectUpdateHaveLocalLegality) {
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
   EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)));
-  auto state = find<SourceStateOp>(*file);
-  auto update = find<StateUpdateOp>(*file);
+  auto state = find<gfir::StateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(state);
   ASSERT_TRUE(update);
   EXPECT_EQ(update.getState(), state.getQ());
@@ -222,7 +272,7 @@ TEST_F(RoutedAnchorTest, LogicalStateAndDirectUpdateHaveLocalLegality) {
 TEST_F(RoutedAnchorTest, UpdateWritesSourceStateAndCannotBeEliminatedAsPure) {
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   auto effects = mlir::getEffectsRecursively(update);
   ASSERT_TRUE(effects.has_value());
@@ -240,7 +290,7 @@ TEST_F(RoutedAnchorTest, LogicalStateRequiresOneAndOnlyOneUpdate) {
     SCOPED_TRACE(duplicate ? "duplicate" : "missing");
     auto file = parse(statePackage());
     ASSERT_TRUE(file);
-    auto update = find<StateUpdateOp>(*file);
+    auto update = find<gfir::StateUpdateOp>(*file);
     ASSERT_TRUE(update);
     if (duplicate)
       update->getBlock()->getOperations().insert(update->getIterator(),
@@ -254,25 +304,25 @@ TEST_F(RoutedAnchorTest, LogicalStateRequiresOneAndOnlyOneUpdate) {
 TEST_F(RoutedAnchorTest, AliasAndBlockArgumentCannotSupplyStateOwnership) {
   auto file = parse(statePackage(R"ir(
     %alias = "ac.bits.select"(%intent, %q, %q) : (!b1, !b7, !b7) -> !b7
-    "ac.state.update"(%alias, %candidate, %intent) : (!b7, !b7, !b1) -> ()
+    "gfir.state.update"(%alias, %candidate, %intent) : (!b7, !b7, !b1) -> ()
 )ir"));
   ASSERT_TRUE(file);
-  rejects(*file, "direct result of a same-module ac.state");
+  rejects(*file, "direct result of a same-module gfir.state");
 
   file = parse(statePackage());
   ASSERT_TRUE(file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   update->setOperand(0, update.getCandidate());
   // Isolate ownership from the declaration's separate missing-update check.
   rejects([&] { return update.verify(); },
-          "direct result of a same-module ac.state");
+          "direct result of a same-module gfir.state");
 }
 
 TEST_F(RoutedAnchorTest, ChildResultCannotBecomeParentOwnedState) {
   auto text = statePackage(R"ir(
     %child_q = "ac.instance"(%candidate) {instance_name = "child", callee = @Child, parameters = [], type_arguments = [], occurrence = #child_occ} : (!b7) -> !b7
-    "ac.state.update"(%child_q, %candidate, %intent) : (!b7, !b7, !b1) -> ()
+    "gfir.state.update"(%child_q, %candidate, %intent) : (!b7, !b7, !b1) -> ()
 )ir");
   const auto closing = text.rfind('}');
   ASSERT_NE(closing, std::string::npos);
@@ -284,14 +334,14 @@ TEST_F(RoutedAnchorTest, ChildResultCannotBecomeParentOwnedState) {
 )ir");
   auto file = parse(text);
   ASSERT_TRUE(file);
-  rejects(*file, "direct result of a same-module ac.state");
+  rejects(*file, "direct result of a same-module gfir.state");
 }
 
 TEST_F(RoutedAnchorTest, RuleCannotContainAnUpdate) {
   auto file = parse(statePackage(R"ir(
     "ac.rule"(%q, %candidate, %intent) ({
     ^bb0(%captured_q: !b7, %next: !b7, %write: !b1):
-      "ac.state.update"(%captured_q, %next, %write) : (!b7, !b7, !b1) -> ()
+      "gfir.state.update"(%captured_q, %next, %write) : (!b7, !b7, !b1) -> ()
       "ac.yield"() : () -> ()
     }) {name = "nested", occurrence = #child_occ} : (!b7, !b7, !b1) -> ()
 )ir"));
@@ -302,7 +352,7 @@ TEST_F(RoutedAnchorTest, RuleCannotContainAnUpdate) {
 TEST_F(RoutedAnchorTest, IntentMustResolveToOneBit) {
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   update->setOperand(2, update->getBlock()->getArgument(4));
   rejects(*file, "state update intent requires width-one Bits");
@@ -310,14 +360,14 @@ TEST_F(RoutedAnchorTest, IntentMustResolveToOneBit) {
 
 TEST_F(RoutedAnchorTest, CandidateMustKeepExactNominalIdentity) {
   auto text = preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
+module attributes {ac.stage = "routed", ac.routed_contract = 4 : i64} {
   "ac.enum"() {sym_name = "Left", width = #ac.math_int<7>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}]} : () -> ()
   "ac.enum"() {sym_name = "Right", width = #ac.math_int<7>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %next: !ac.enum<"Left">, %other: !ac.enum<"Right">, %write: !b1):
     %initial = "ac.enum.create"() {member = "ZERO"} : () -> !ac.enum<"Left">
-    %q = "ac.state"(%clk, %rst, %initial) {instance_name = "tag", occurrence = #occ} : (!b1, !b1, !ac.enum<"Left">) -> !ac.enum<"Left">
-    "ac.state.update"(%q, %next, %write) : (!ac.enum<"Left">, !ac.enum<"Left">, !b1) -> ()
+    %q = "gfir.state"(%clk, %rst, %initial) {instance_name = "tag", occurrence = #occ} : (!b1, !b1, !ac.enum<"Left">) -> !ac.enum<"Left">
+    "gfir.state.update"(%q, %next, %write) : (!ac.enum<"Left">, !ac.enum<"Left">, !b1) -> ()
     "ac.yield"(%q) : (!ac.enum<"Left">) -> ()
   }) {sym_name = "Counter", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1, !ac.enum<"Left">, !ac.enum<"Right">, !b1) -> !ac.enum<"Left">, input_names = ["clk", "rst", "next", "other", "write"], output_names = ["tag"]} : () -> ()
 }
@@ -325,7 +375,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
   auto file = parse(text);
   ASSERT_TRUE(file);
   ASSERT_TRUE(mlir::succeeded(mlir::verify(*file)));
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   update->setOperand(1, update->getBlock()->getArgument(3));
   rejects(*file, "candidate must exactly match the state payload type");
@@ -334,7 +384,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
 TEST_F(RoutedAnchorTest, UpdateRejectsOperationSpecificAttributes) {
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   update->setAttr("pretend_commit", builder.getBoolAttr(true));
   rejects(*file, "state update does not accept attributes");
@@ -345,7 +395,7 @@ TEST_F(RoutedAnchorTest, UpdateRejectsSourceFinalAndUnstagedPlacement) {
     SCOPED_TRACE(stage.str());
     auto file = parse(statePackage());
     ASSERT_TRUE(file);
-    auto update = find<StateUpdateOp>(*file);
+    auto update = find<gfir::StateUpdateOp>(*file);
     ASSERT_TRUE(update);
     (*file)->removeAttr("ac.routed_contract");
     if (stage.empty())
@@ -356,7 +406,7 @@ TEST_F(RoutedAnchorTest, UpdateRejectsSourceFinalAndUnstagedPlacement) {
   }
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   (*file)->setAttr("ac.unit_kind", builder.getStringAttr("body"));
   rejects([&] { return update.verify(); }, "versioned routed package");
@@ -367,13 +417,16 @@ TEST_F(RoutedAnchorTest, LogicalStateIsForbiddenInFinalEvenWithoutProvenance) {
   ASSERT_TRUE(file);
   (*file)->removeAttr("ac.routed_contract");
   (*file)->setAttr("ac.stage", builder.getStringAttr("final"));
-  rejects(*file, "logical state is forbidden in a final package");
+  // Final-stage rejection of the GFIR class is its routed placement
+  // contract; executable-final rejection of the interface is separately
+  // owned by the final package stage walk.
+  rejects(*file, "versioned routed package");
 }
 
 TEST_F(RoutedAnchorTest, UpdateRequiresTheRoutedContractMarker) {
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   (*file)->removeAttr("ac.routed_contract");
   rejects([&] { return update.verify(); }, "versioned routed package");
@@ -381,15 +434,15 @@ TEST_F(RoutedAnchorTest, UpdateRequiresTheRoutedContractMarker) {
 
 TEST_F(RoutedAnchorTest, ContractMarkerRejectsMalformedAndUnknownVersions) {
   for (mlir::Attribute invalid :
-       {mlir::Attribute(builder.getStringAttr("2")),
-        mlir::Attribute(builder.getI32IntegerAttr(2)),
+       {mlir::Attribute(builder.getStringAttr("4")),
+        mlir::Attribute(builder.getI32IntegerAttr(4)),
         mlir::Attribute(builder.getI64IntegerAttr(0)),
-        mlir::Attribute(builder.getI64IntegerAttr(1)),
-        mlir::Attribute(builder.getI64IntegerAttr(4))}) {
+        mlir::Attribute(builder.getI64IntegerAttr(3)),
+        mlir::Attribute(builder.getI64IntegerAttr(6))}) {
     auto file = parse("module attributes {ac.stage = \"routed\"} {}");
     ASSERT_TRUE(file);
     (*file)->setAttr("ac.routed_contract", invalid);
-    rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+    rejects(*file, "ac.routed_contract requires version 4 or 5 : i64");
   }
   // Version 3 is known, but it is not a general opt-in for a bare package.
   // Keep this at the native local-verification boundary, independently of the
@@ -397,7 +450,7 @@ TEST_F(RoutedAnchorTest, ContractMarkerRejectsMalformedAndUnknownVersions) {
   for (llvm::StringRef stage : {"routed", "final"}) {
     SCOPED_TRACE(stage.str());
     auto bare = parse("module attributes {ac.stage = \"" + stage.str() +
-                      "\", ac.routed_contract = 3 : i64} {}");
+                      "\", ac.routed_contract = 5 : i64} {}");
     ASSERT_TRUE(bare);
     rejects(*bare, "ac.entry_boundary");
   }
@@ -406,9 +459,9 @@ TEST_F(RoutedAnchorTest, ContractMarkerRejectsMalformedAndUnknownVersions) {
 TEST_F(RoutedAnchorTest, PreviousContractVersionIsRejectedAtBothGraphStages) {
   for (llvm::StringRef stage : {"routed", "final"}) {
     auto file = parse("module attributes {ac.stage = \"" + stage.str() +
-                      "\", ac.routed_contract = 1 : i64} {}");
+                      "\", ac.routed_contract = 2 : i64} {}");
     ASSERT_TRUE(file);
-    rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+    rejects(*file, "ac.routed_contract requires version 4 or 5 : i64");
   }
 }
 
@@ -416,20 +469,20 @@ TEST_F(RoutedAnchorTest, ContractMarkerRequiresTopLevelRoutedOrFinalPackage) {
   for (llvm::StringRef stage : {"source", "unsupported", ""}) {
     auto file = parse("module {}");
     ASSERT_TRUE(file);
-    (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
+    (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(4));
     if (!stage.empty())
       (*file)->setAttr("ac.stage", builder.getStringAttr(stage));
-    rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+    rejects(*file, "ac.routed_contract requires version 4 or 5 : i64");
   }
   auto source = parse("module attributes {ac.stage = \"routed\", ac.unit_kind "
-                      "= \"body\", ac.routed_contract = 2 : i64} {}");
+                      "= \"body\", ac.routed_contract = 4 : i64} {}");
   ASSERT_TRUE(source);
-  rejects(*source, "ac.routed_contract requires version 2 or 3 : i64");
+  rejects(*source, "ac.routed_contract requires version 4 or 5 : i64");
   for (llvm::StringRef stage : {"routed", "final"}) {
     auto nested =
         parse("module attributes {ac.stage = \"" + stage.str() +
-              "\", ac.routed_contract = 2 : i64} { module attributes "
-              "{ac.stage = \"routed\", ac.routed_contract = 2 : i64} {} }");
+              "\", ac.routed_contract = 4 : i64} { module attributes "
+              "{ac.stage = \"routed\", ac.routed_contract = 4 : i64} {} }");
     ASSERT_TRUE(nested);
     // Root identity is established by consuming the actual package. Generic
     // parsing can temporarily nest that package inside a parser-owned module.
@@ -444,8 +497,8 @@ TEST_F(RoutedAnchorTest, ContractMarkerRequiresTopLevelRoutedOrFinalPackage) {
   ASSERT_TRUE(onDefinition);
   auto definition = find<ModuleOp>(*onDefinition);
   ASSERT_TRUE(definition);
-  definition->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
-  rejects(*onDefinition, "ac.routed_contract requires version 2 or 3 : i64");
+  definition->setAttr("ac.routed_contract", builder.getI64IntegerAttr(4));
+  rejects(*onDefinition, "ac.routed_contract requires version 4 or 5 : i64");
 }
 
 TEST_F(RoutedAnchorTest,
@@ -453,10 +506,10 @@ TEST_F(RoutedAnchorTest,
   auto file = parse("module attributes {ac.stage = \"final\"} {}");
   ASSERT_TRUE(file);
   EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)));
-  (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
+  (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(4));
   EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)));
   (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(37));
-  rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+  rejects(*file, "ac.routed_contract requires version 4 or 5 : i64");
 }
 
 TEST_F(RoutedAnchorTest, OrdinaryExternAcceptsExactlyTheCompleteDeclaration) {
@@ -523,8 +576,12 @@ TEST_F(RoutedAnchorTest, ExternStillRequiresExactCompleteDependencySummary) {
       imported->removeAttr("dependency_summary");
     else
       imported->setAttr("dependency_summary", builder.getArrayAttr({}));
-    // The declaration contract does not waive the existing summary verifier.
-    rejects([&] { return mlir::verify(*file); }, "dependency");
+    // The declaration contract does not waive the existing summary verifier;
+    // the import bound checks run from the staged module declaration entry
+    // (r3 ACIRModuleOps row).
+    ac::HardwareAnalysis analysis(*file);
+    rejects([&] { return analysis.verifyModuleDeclaration(imported, {}, true); },
+            "dependency");
   }
 }
 
@@ -574,7 +631,7 @@ TEST_F(RoutedAnchorTest, SourceReferencesAndCallableOrderCannotSurviveRouting) {
       for (llvm::StringRef placement : {"package", "definition", "yield"}) {
         SCOPED_TRACE(stage.str() + ":" + key.str() + ":" + placement.str());
         auto file = parse(preamble() +
-            "module attributes {ac.stage = \"" + stage.str() + R"ir(", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
+            "module attributes {ac.stage = \"" + stage.str() + R"ir(", ac.routed_contract = 4 : i64, ac.source_units = [#owner]} {
   "ac.module"() ({
   ^bb0(%value: !b7):
     "ac.yield"(%value) : (!b7) -> ()
@@ -607,6 +664,7 @@ TEST_F(RoutedAnchorTest, StandaloneLogicalAnchorNeedsNoSourceOrPreparation) {
   {
     mlir::MLIRContext originalContext;
     originalContext.loadDialect<ACIRDialect>();
+    originalContext.loadDialect<gfir::GFIRDialect>();
     auto original = mlir::parseSourceString<mlir::ModuleOp>(fullStateAnchor(),
                                                             &originalContext);
     ASSERT_TRUE(original);
@@ -618,6 +676,7 @@ TEST_F(RoutedAnchorTest, StandaloneLogicalAnchorNeedsNoSourceOrPreparation) {
   // serialized graph enters this independently constructed context.
   mlir::MLIRContext reloadedContext;
   reloadedContext.loadDialect<ACIRDialect>();
+  reloadedContext.loadDialect<gfir::GFIRDialect>();
   auto restored =
       mlir::parseSourceString<mlir::ModuleOp>(saved, &reloadedContext);
   ASSERT_TRUE(restored);
@@ -632,7 +691,7 @@ TEST_F(RoutedAnchorTest, StandaloneLogicalQHasNoCombinationalDependencies) {
   auto file = parse(fullStateAnchor());
   ASSERT_TRUE(file);
   ASSERT_TRUE(mlir::succeeded(verifyRoutedPackage(*file)));
-  auto state = find<SourceStateOp>(*file);
+  auto state = find<gfir::StateOp>(*file);
   ASSERT_TRUE(state);
   HardwareBindings bindings;
   bindings.owner = state->getParentOp();
@@ -640,16 +699,16 @@ TEST_F(RoutedAnchorTest, StandaloneLogicalQHasNoCombinationalDependencies) {
       HardwareAnalysis(*file).getDependencies(state.getQ(), {}, bindings);
   ASSERT_TRUE(mlir::succeeded(dependencies));
   EXPECT_TRUE(dependencies->empty());
-  EXPECT_EQ(find<StateUpdateOp>(*file).getCandidate(), state.getQ());
+  EXPECT_EQ(find<gfir::StateUpdateOp>(*file).getCandidate(), state.getQ());
 }
 
 TEST_F(RoutedAnchorTest, StandaloneSampledWriterFeedsBackAcrossLogicalQCut) {
   auto file = parse(fullWrittenAnchor());
   ASSERT_TRUE(file);
   ASSERT_TRUE(mlir::succeeded(verifyRoutedPackage(*file)));
-  auto state = find<SourceStateOp>(*file);
+  auto state = find<gfir::StateOp>(*file);
   auto rule = find<RuleOp>(*file);
-  auto update = find<StateUpdateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(state);
   ASSERT_TRUE(rule);
   ASSERT_TRUE(update);
@@ -693,9 +752,9 @@ TEST_F(RoutedAnchorTest, StandaloneLogicalStateRequiresItsActualInventory) {
           mutation == "empty"
               ? builder.getArrayAttr({})
               : builder.getArrayAttr(
-                    {find<SourceStateOp>(*file).getOccurrence()});
+                    {find<gfir::StateOp>(*file).getOccurrence()});
       if (mutation == "wrong_identity") {
-        auto declaration = find<SourceStateOp>(*file).getOccurrence();
+        auto declaration = find<gfir::StateOp>(*file).getOccurrence();
         auto site = declaration.getAs<mlir::DictionaryAttr>("site");
         auto step = builder.getDictionaryAttr(
             {builder.getNamedAttr("kind", builder.getStringAttr("index")),
@@ -724,7 +783,7 @@ TEST_F(RoutedAnchorTest, StandaloneRejectsUnmappedWriterRegistration) {
       owner->getAttrOfType<mlir::DictionaryAttr>("ac.transaction_wiring");
   auto writer = builder.getDictionaryAttr(
       {builder.getNamedAttr("registration",
-                            find<SourceStateOp>(*file).getOccurrence()),
+                            find<gfir::StateOp>(*file).getOccurrence()),
        builder.getNamedAttr("ordinary_results", builder.getI64IntegerAttr(0)),
        builder.getNamedAttr("candidates", builder.getArrayAttr({}))});
   owner->setAttr("ac.transaction_wiring",
@@ -737,8 +796,8 @@ TEST_F(RoutedAnchorTest, StandaloneUnwrittenStateRequiresQAndFalse) {
   for (bool wrongCandidate : {true, false}) {
     auto file = parse(fullStateAnchor());
     ASSERT_TRUE(file);
-    auto update = find<StateUpdateOp>(*file);
-    auto state = find<SourceStateOp>(*file);
+    auto update = find<gfir::StateUpdateOp>(*file);
+    auto state = find<gfir::StateOp>(*file);
     ASSERT_TRUE(update);
     ASSERT_TRUE(state);
     if (wrongCandidate)
@@ -756,7 +815,7 @@ TEST_F(RoutedAnchorTest, StandaloneChecksDeadCandidateAndIntentCycles) {
     SCOPED_TRACE(intentCycle);
     auto file = parse(fullStateAnchor());
     ASSERT_TRUE(file);
-    auto update = find<StateUpdateOp>(*file);
+    auto update = find<gfir::StateUpdateOp>(*file);
     ASSERT_TRUE(update);
     mlir::OpBuilder opBuilder(update);
     mlir::Value seed = intentCycle ? update.getIntent() : update.getCandidate();
@@ -778,8 +837,8 @@ TEST_F(RoutedAnchorTest, StandaloneRejectsMissingUpdateAndInvalidOwner) {
   for (bool missing : {true, false}) {
     auto file = parse(fullStateAnchor());
     ASSERT_TRUE(file);
-    auto update = find<StateUpdateOp>(*file);
-    auto state = find<SourceStateOp>(*file);
+    auto update = find<gfir::StateUpdateOp>(*file);
+    auto state = find<gfir::StateOp>(*file);
     ASSERT_TRUE(update);
     ASSERT_TRUE(state);
     if (missing) {
@@ -793,9 +852,79 @@ TEST_F(RoutedAnchorTest, StandaloneRejectsMissingUpdateAndInvalidOwner) {
       update->getBlock()->getOperations().insert(update->getIterator(), forged);
       forged->setOperand(0, state.getInitial());
       rejects([&] { return verifyRoutedPackage(*file); },
-              "direct result of a same-module ac.state");
+              "direct result of a same-module gfir.state");
     }
   }
+}
+
+TEST_F(RoutedAnchorTest, SharedInitializerDagWorkIsBudgeted) {
+  // Two declarations share one 37-operand initializer DAG: the budget pays
+  // per state and per operand edge (S*M), not once per distinct node. A
+  // tight budget that covers the pairing scan and update binding rejects
+  // inside the initializer walk; default limits admit the whole package.
+  auto file = parse(sharedInitializerAnchor());
+  ASSERT_TRUE(file);
+  std::string text;
+  mlir::ScopedDiagnosticHandler handler(&context, [&](mlir::Diagnostic &d) {
+    llvm::raw_string_ostream out(text);
+    d.print(out);
+    return mlir::success();
+  });
+  EXPECT_TRUE(mlir::succeeded(verifyRoutedPackage(*file))) << text;
+  acir::LogicalStateOpInterface state;
+  file->walk([&](acir::LogicalStateOpInterface found) {
+    if (!state) state = found;
+  });
+  ASSERT_TRUE(static_cast<bool>(state));
+  HardwareAnalysis analysis(*file);
+  HardwareBindings bindings = ac::stateOwnerScope(state.getOperation());
+  HardwareSourceCheckLimits tight;
+  tight.maxWorkUnits = 8;
+  detail::SourceCheckBudget budget{tight};
+  text.clear();
+  EXPECT_TRUE(mlir::failed(verifyLogicalStateDeclarationBinding(
+      state, &analysis, &bindings, &budget)));
+  EXPECT_NE(text.find("exceeds analysis work budget"), std::string::npos)
+      << text;
+}
+
+TEST_F(RoutedAnchorTest, RoutedAdmissionIsClosedToForgedGfirNames) {
+  // Generic construction can build unregistered raw IR carrying a forged
+  // gfir.* name. Routed admission is limited to the two registered GFIR
+  // operations, so the stage walk rejects the forged name outright.
+  auto file = parse(fullStateAnchor());
+  ASSERT_TRUE(file);
+  auto state = find<gfir::StateOp>(*file);
+  ASSERT_TRUE(state);
+  mlir::OpBuilder builder(state->getBlock()->getTerminator());
+  mlir::OperationState forged(state.getLoc(), "gfir.unknown");
+  forged.addOperands({state.getQ()});
+  forged.addTypes(state.getQ().getType());
+  builder.create(forged);
+  rejects([&] { return verifyRoutedPackage(*file); },
+          "operation outside closed routed hardware package");
+}
+
+TEST_F(RoutedAnchorTest, NativeLocalVerificationDoesNotProveBoundInitializer) {  // B1's native/package distinction, made observable: a gfir.state whose
+  // initial operand is a runtime-selected wire is well shaped for parsing
+  // and the native local verifier, which proves structure and placement
+  // only. The closed static-initializer obligation belongs to the
+  // package's bound declaration walk and rejects exactly there.
+  auto file = parse(fullStateAnchor());
+  ASSERT_TRUE(file);
+  auto state = find<gfir::StateOp>(*file);
+  ASSERT_TRUE(state);
+  mlir::OpBuilder builder(state);
+  mlir::OperationState select(state.getLoc(), BitsSelectOp::getOperationName());
+  select.addOperands({state.getClk(), state.getInitial(),
+                      state.getInitial()});
+  select.addTypes(state.getQ().getType());
+  auto *runtime = builder.create(select);
+  state->setOperand(2, runtime->getResult(0));
+  EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)))
+      << "the well-shaped replacement must pass native local verification";
+  rejects([&] { return verifyRoutedPackage(*file); },
+          "state initializer requires a closed static literal/constructor DAG");
 }
 
 TEST_F(RoutedAnchorTest, StandaloneRequiresMarkerAndRejectsRemainingSourceOps) {
@@ -805,13 +934,13 @@ TEST_F(RoutedAnchorTest, StandaloneRequiresMarkerAndRejectsRemainingSourceOps) {
     if (missing)
       (*file)->removeAttr("ac.routed_contract");
     else
-      (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(3));
+      (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(5));
     rejects([&] { return verifyRoutedPackage(*file); },
             "unsupported or missing ac.routed_contract");
   }
   auto file = parse(fullStateAnchor());
   ASSERT_TRUE(file);
-  auto state = find<SourceStateOp>(*file);
+  auto state = find<gfir::StateOp>(*file);
   ASSERT_TRUE(state);
   mlir::OpBuilder opBuilder(state);
   mlir::OperationState read(state.getLoc(),
@@ -895,8 +1024,8 @@ TEST_F(RoutedAnchorTest,
   ASSERT_TRUE(file);
   ASSERT_TRUE(mlir::succeeded(verifyRoutedPackage(*file)));
   auto owner = find<ModuleOp>(*file);
-  auto state = find<SourceStateOp>(*file);
-  auto update = find<StateUpdateOp>(*file);
+  auto state = find<gfir::StateOp>(*file);
+  auto update = find<gfir::StateUpdateOp>(*file);
   ASSERT_TRUE(owner);
   ASSERT_TRUE(state);
   ASSERT_TRUE(update);

@@ -142,6 +142,7 @@ function(_pyc_link_closure target out)
     # layer target itself. Missing properties and false-constant values
     # (e.g. an entry named OFF) are handled explicitly — a truthiness test
     # would silently drop a real dependency line (r8 review follow-up).
+    get_target_property(priv "${head}" LINK_LIBRARIES)
     # get_target_property returns the link line as a CMake list, so a
     # semicolon inside $<BUILD_INTERFACE:A;B> arrives as a list separator:
     # re-join the raw entries with ';' and run ONE depth-aware split over

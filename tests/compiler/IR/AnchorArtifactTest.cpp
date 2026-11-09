@@ -8,6 +8,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/SmallString.h"
@@ -237,7 +239,10 @@ module attributes {ac.stage = "source", ac.unit_kind = "implementation", ac.sour
 
 class AnchorArtifactTest : public ::testing::Test {
 protected:
-  AnchorArtifactTest() { context.loadDialect<ac::ACIRDialect>(); }
+  AnchorArtifactTest() {
+    context.loadDialect<ac::ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
+  }
   ~AnchorArtifactTest() override {
     if (!temporary.empty())
       fs::remove_all(temporary);
@@ -406,8 +411,8 @@ TEST_F(AnchorArtifactTest,
   auto loaded = load(directory);
   ASSERT_TRUE(mlir::succeeded(loaded)) << diagnostics;
   unsigned logical = 0, updates = 0, modules = 0, allocations = 0;
-  loaded->package->walk([&](ac::SourceStateOp) { ++logical; });
-  loaded->package->walk([&](ac::StateUpdateOp) { ++updates; });
+  loaded->package->walk([&](acir::gfir::StateOp) { ++logical; });
+  loaded->package->walk([&](acir::gfir::StateUpdateOp) { ++updates; });
   loaded->package->walk([&](ac::ModuleOp) { ++modules; });
   loaded->package->walk([&](ac::InstanceOp) { ++allocations; });
   EXPECT_EQ(logical, 1u);
@@ -476,6 +481,7 @@ TEST_F(AnchorArtifactTest,
   input.reset();
   mlir::MLIRContext fresh;
   fresh.loadDialect<ac::ACIRDialect>();
+  fresh.loadDialect<acir::gfir::GFIRDialect>();
   auto loaded = loadVerifiedAnchor(directory.string(), fresh, [&] {
     return mlir::emitError(mlir::UnknownLoc::get(&fresh));
   });
@@ -630,8 +636,8 @@ TEST_F(AnchorArtifactTest, MalformedAssembledStateIsRejectedBeforeBinding) {
     auto fragment = mlir::parseSourceString<mlir::ModuleOp>(
         read(path), mlir::ParserConfig(&context, false));
     ASSERT_TRUE(fragment);
-    ac::StateUpdateOp update;
-    fragment->walk([&](ac::StateUpdateOp op) { update = op; });
+    acir::gfir::StateUpdateOp update;
+    fragment->walk([&](acir::gfir::StateUpdateOp op) { update = op; });
     ASSERT_TRUE(update);
     update->setOperands(update.getState());
     write(path, print(&fragment->getBody()->front()));
