@@ -1,5 +1,6 @@
 add_executable(pycircuit-source-unit source-unit.cpp)
 target_link_libraries(pycircuit-source-unit PRIVATE
+  ACIRAnalysis
   pycircuit_project_options
   ACIRDialect
   ACIRSourceCompiler
@@ -11,6 +12,7 @@ target_link_libraries(pycircuit-source-unit PRIVATE
 
 add_executable(pycircuit-link link.cpp)
 target_link_libraries(pycircuit-link PRIVATE
+  ACIRAnalysis
   pycircuit_project_options
   ACIRDialect
   ACIRSourceCompiler
