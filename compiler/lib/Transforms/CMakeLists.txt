@@ -14,8 +14,7 @@ add_acir_library(ACIRTransforms SOURCES
   LINK_LIBRARIES
     ACIRDialect
     ACIRAnalysis
-    GFIRValidation
-    HWIRValidation
+    # component-split: GFIRValidation/HWIRValidation join in pr/validation.
     GFIRDialect
     PycircuitStateInterfaces
     MLIRPass
