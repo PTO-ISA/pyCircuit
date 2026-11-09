@@ -348,7 +348,9 @@ public:
   getIndependentWorkSubtrees(ModuleOp definition) const;
   mlir::FailureOr<HardwareSourceCheckPlan>
   getSourceCheckPlan(HardwareSourceCheckLimits limits = {}) const;
-  mlir::LogicalResult
+  mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
+                                          HardwareSourceCheckLimits limits = {});
+  mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
   verifySourceCheckPlan(const HardwareSourceCheckPlan &plan,
                         HardwareSourceCheckLimits limits = {}) const;
   mlir::FailureOr<HardwarePhysicalProjection>
