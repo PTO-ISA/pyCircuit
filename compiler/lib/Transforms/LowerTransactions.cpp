@@ -5,9 +5,18 @@
 #include "TransactionValueAvailability.h"
 #include "Dialect/ACIR/HardwareValueAvailability.h"
 #include "Dialect/ACIR/HardwareQueueResources.h"
-#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/SourceCheckBudget.h"
+#include "Dialect/ACIR/HardwareSourceChecks.h"
 #include "Dialect/ACIR/SourceTransactionSummary.h"
+#include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/GFIRPackageValidation.h"
+#include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIROps.h"
+#include "pycircuit/Interfaces/LogicalStateInterfaces.h"
+#include "pycircuit/Analysis/LogicalStateValidation.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/Passes.h"
 
@@ -3608,7 +3617,7 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
   Builder attributes(staged.getContext());
   // No source envelope or input object is changed before the complete proof.
   staged->setAttr("ac.stage", attributes.getStringAttr("routed"));
-  staged->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged.getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 3 : 2));
+  staged->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged.getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 5 : 4));
   using CandidateMap = llvm::DenseMap<RoutingKey, std::pair<Value, Value>>;
   llvm::DenseMap<Operation *, CandidateMap> nextValues;
   llvm::DenseMap<Operation *, SmallVector<std::pair<Value, Value>>> incoming;
@@ -4020,16 +4029,33 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
     }
   }
   for (auto original : prepared.states) {
-    auto state = cast<ac::SourceStateOp>(mapping.lookup(original.operator->()));
+    auto replaced = cast<ac::SourceStateOp>(mapping.lookup(original.operator->()));
+    // gfir.state keeps the declaration's exact operands, one Q result,
+    // instance_name/occurrence properties, optional payload constraint and
+    // location. The ODS builder stores the declared attributes in the
+    // property shape, matching the source declaration's storage exactly.
+    // Q uses and the object/value locator mapping move to the replacement
+    // before the source declaration clone is erased, so the candidate never
+    // retains the source class.
+    OpBuilder builder(replaced);
+    auto routed = builder.create<gfir::StateOp>(
+        original.getLoc(), replaced.getQ().getType(), replaced.getClk(),
+        replaced.getRst(), replaced.getInitial(),
+        original.getInstanceNameAttr(), original.getOccurrence());
+    if (auto constraint = replaced.getPayloadConstraint())
+      routed->setAttr("ac.payload_constraint", constraint);
+    replaced.getQ().replaceAllUsesWith(routed.getQ());
+    mapping.map(original.operator->(), routed.getOperation());
+    mapping.map(original.getQ(), routed.getQ());
+    replaced->erase();
     auto module = original->getParentOfType<ac::ModuleOp>();
-    OpBuilder builder(state->getBlock()->getTerminator());
+    OpBuilder terminal(routed->getBlock()->getTerminator());
     auto [data, intent] =
         candidate(module, {}, original.getQ(), original.getQ().getType(),
                   original.getClk().getType(), original.getOccurrence(),
-                  original.getLoc(), builder);
-    OperationState update(original.getLoc(), ac::StateUpdateOp::getOperationName());
-    update.addOperands({state.getQ(), data, intent});
-    builder.create(update);
+                  original.getLoc(), terminal);
+    terminal.create<gfir::StateUpdateOp>(original.getLoc(), routed.getQ(),
+                                         data, intent);
   }
   SmallVector<Operation *> retired;
   for (auto replacement : replacements) {
@@ -4396,7 +4422,7 @@ public:
                          StringAttr::get(staged.getContext(), "routed"));
     expectedEnvelope.set("ac.routed_contract",
                          IntegerAttr::get(IntegerType::get(staged.getContext(), 64),
-                             llvm::any_of(prepared.original->getRegion(0).getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 3 : 2));
+                             llvm::any_of(prepared.original->getRegion(0).getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 5 : 4));
     if (staged->getAttrs() != expectedEnvelope.getAttrs() ||
         staged->getPropertiesAsAttribute() !=
             prepared.original->getPropertiesAsAttribute())
@@ -5298,11 +5324,13 @@ private:
     }
     for (auto state : prepared.states) {
       auto module = state->getParentOfType<ac::ModuleOp>();
-      auto declaration = cast<ac::SourceStateOp>(
+      // The candidate side carries the gfir replacement; authentication
+      // proves the exact cross-operation correspondence after the fact.
+      auto declaration = cast<gfir::StateOp>(
           candidate.packageMap.lookup(state.operator->()));
-      ac::StateUpdateOp update;
+      gfir::StateUpdateOp update;
       for (auto user : declaration.getQ().getUsers())
-        if (auto actual = dyn_cast<ac::StateUpdateOp>(user);
+        if (auto actual = dyn_cast<gfir::StateUpdateOp>(user);
             actual && actual.getState() == declaration.getQ()) {
           if (update && update != actual)
             return reject("original logical state has multiple updates");
@@ -5311,7 +5339,7 @@ private:
       if (!update)
         return reject("original logical state update is missing");
       if (failed(generatedProof(
-              update, ac::StateUpdateOp::getOperationName(),
+              update, gfir::StateUpdateOp::getOperationName(),
               {declaration.getQ(), update.getCandidate(), update.getIntent()}, {},
               DictionaryAttr::get(state.getContext()), state.getLoc(),
               declaration->getBlock())) ||
@@ -5667,9 +5695,38 @@ private:
           target->getBlock() != &module.getBody().front())
         return reject("original module-body operation owner differs");
       if (auto state = dyn_cast<ac::SourceStateOp>(op)) {
-        if (!isa<ac::SourceStateOp>(target) ||
-            failed(exactClone(state, target, authenticated, candidate.packageMap)))
+        // Source authentication across different operation names: the
+        // candidate is the gfir replacement, never a renamed clone. The
+        // locator checks above already place the target in the staged
+        // module body; compare location, the complete admitted attribute
+        // and property dictionaries, exact one-result arity and Q type,
+        // then the authenticated clock/reset/initial operand mapping. The
+        // source declaration class cannot remain in the candidate.
+        if (!charge(budget, &op,
+                    16 + 4 * op.getNumOperands() + 4 * op.getNumResults() +
+                        op.getRawDictionaryAttrs().size() +
+                        SourceCheckBudget::bytes(op.getPropertiesStorageSize())))
+          return failure();
+        if (!isa<gfir::StateOp>(target) ||
+            target->getLoc() != op.getLoc() ||
+            target->getNumResults() != 1 ||
+            target->getNumRegions() != 0 ||
+            target->getResultTypes() != op.getResultTypes() ||
+            target->getNumOperands() != 3 ||
+            target->getAttrDictionary() != op.getAttrDictionary() ||
+            target->getPropertiesAsAttribute() !=
+                op.getPropertiesAsAttribute())
           return reject("original logical state owner/Q/type/domain/initial differs");
+        for (auto [original, actual] :
+             llvm::zip(op.getOperands(), target->getOperands())) {
+          auto expected = authenticated.lookupOrNull(original);
+          if (!expected || actual != expected)
+            return reject("original logical state domain/initial binding differs");
+        }
+        // Cover registers the authenticated replacement in the clone
+        // inventory exactly as exactClone registers an unchanged clone.
+        if (failed(cover(target)))
+          return failure();
       } else if (auto memory = dyn_cast<ac::InstanceOp>(op);
                  memory && memory->hasAttr("ac.source_memory")) {
         NamedAttrList expected(memory->getAttrs());
@@ -8420,14 +8477,14 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
   // Pay every inferred allocation and all three Table control splats before
   // cloning or constructing physical state. Width/layout is already verified.
   for (auto module : routed.getOps<ac::ModuleOp>())
-    for (auto state : module.getBody().front().getOps<ac::SourceStateOp>())
+    for (auto state : module.getBody().front().getOps<gfir::StateOp>())
       if (!charge(budget, state, 128)) return failure();
   OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(routed->clone());
   ac::HardwareAnalysis analysis(*staged);
   Builder attributes(routed.getContext());
   for (auto module : staged->getOps<ac::ModuleOp>())
     for (auto state : llvm::make_early_inc_range(
-             module.getBody().front().getOps<ac::SourceStateOp>())) {
+             module.getBody().front().getOps<gfir::StateOp>())) {
       auto update = logicalUpdate(state, budget);
       if (failed(update)) return failure();
       bool dff = unconditionalScalarState(state, *update, analysis, budget);
@@ -8497,6 +8554,10 @@ class RouteTransactionsPass
     : public PassWrapper<RouteTransactionsPass, OperationPass<mlir::ModuleOp>> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RouteTransactionsPass)
+  void getDependentDialects(DialectRegistry &registry) const override {
+    // Routing constructs the GFIR replacement of every source state.
+    registry.insert<ac::ACIRDialect, acir::gfir::GFIRDialect>();
+  }
   StringRef getArgument() const final { return "ac-route-transactions"; }
   StringRef getDescription() const final {
     return "Route sampled transactions to independently verified logical-state ACIR";
@@ -8523,7 +8584,7 @@ public:
       OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(input->clone());
       Builder attributes(input.getContext());
       (*staged)->setAttr("ac.stage", attributes.getStringAttr("routed"));
-      (*staged)->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged->getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 3 : 2));
+      (*staged)->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged->getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 5 : 4));
       if (failed(ac::verifyRoutedPackage(*staged, graphLimits))) {
         signalPassFailure();
         return;
@@ -8555,6 +8616,10 @@ class LowerTransactionsPass
     : public PassWrapper<LowerTransactionsPass, OperationPass<mlir::ModuleOp>> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LowerTransactionsPass)
+  void getDependentDialects(DialectRegistry &registry) const override {
+    // Refinement consumes the routed GFIR state classes concretely.
+    registry.insert<ac::ACIRDialect, acir::gfir::GFIRDialect>();
+  }
   StringRef getArgument() const final { return "ac-lower-transactions"; }
   StringRef getDescription() const final {
     return "Refine verified routed logical state to final hardware storage";

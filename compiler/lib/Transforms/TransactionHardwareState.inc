@@ -25,7 +25,7 @@ hardwareStatePrimitives(mlir::ModuleOp routed, SourceCheckBudget &budget) {
   }
   bool hasState = false;
   for (auto module : routed.getOps<ac::ModuleOp>())
-    for (auto state : module.getBody().front().getOps<ac::SourceStateOp>()) {
+    for (auto state : module.getBody().front().getOps<gfir::StateOp>()) {
       if (!charge(budget, state)) return failure();
       hasState = true;
     }
@@ -35,30 +35,24 @@ hardwareStatePrimitives(mlir::ModuleOp routed, SourceCheckBudget &budget) {
   return result;
 }
 
-FailureOr<ac::StateUpdateOp> logicalUpdate(ac::SourceStateOp state,
-                                         SourceCheckBudget &budget) {
-  ac::StateUpdateOp result;
-  for (auto *user : state.getQ().getUsers()) {
-    if (!charge(budget, state)) return failure();
-    auto update = dyn_cast<ac::StateUpdateOp>(user);
-    if (!update || update.getState() != state.getQ()) continue;
-    // One operation may use Q in both the state and candidate positions.
-    if (result && result != update)
-      return state.emitOpError() << "logical state has multiple update bindings";
-    result = update;
-  }
-  if (!result)
-    return state.emitOpError() << "logical state has no update binding";
-  return result;
+FailureOr<gfir::StateUpdateOp> logicalUpdate(gfir::StateOp state,
+                                             SourceCheckBudget &budget) {
+  // Shared admission pairing through the common interface; refinement
+  // consumes the routed GFIR classes concretely.
+  auto paired = ac::admissionPairLogicalStateUpdate(state, budget);
+  if (failed(paired))
+    return failure();
+  return cast<gfir::StateUpdateOp>(paired->getOperation());
 }
 
-bool unconditionalScalarState(ac::SourceStateOp state, ac::StateUpdateOp update,
+bool unconditionalScalarState(gfir::StateOp state,
+                              acir::LogicalStateUpdateOpInterface update,
                               const ac::HardwareAnalysis &analysis,
                               SourceCheckBudget &budget) {
   if (isa<ac::TableType>(state.getQ().getType())) return false;
-  auto rule = update.getIntent().getDefiningOp<ac::RuleOp>();
+  auto rule = update.getStateWriteIntent().getDefiningOp<ac::RuleOp>();
   return rule && rule->getParentOp() == state->getParentOp() &&
-         knownTrue(update.getIntent(), analysis, budget);
+         knownTrue(update.getStateWriteIntent(), analysis, budget);
 }
 
 // Derive lexical correspondence from the two live graphs. A materializer map is
@@ -83,7 +77,7 @@ public:
 
 private:
   struct StatePair {
-    ac::SourceStateOp source;
+    gfir::StateOp source;
     Operation *target;
     SmallVector<ac::TableSplatOp, 3> splats;
   };
@@ -116,8 +110,8 @@ private:
         auto next = right.begin();
         for (Operation &op : left) {
           if (!charge(budget, &op)) return failure();
-          if (isa<ac::StateUpdateOp>(op)) continue;
-          if (auto state = dyn_cast<ac::SourceStateOp>(op)) {
+          if (isa<acir::LogicalStateUpdateOpInterface>(op)) continue;
+          if (auto state = dyn_cast<gfir::StateOp>(op)) {
             StatePair pair{state, nullptr, {}};
             if (isa<ac::TableType>(state.getQ().getType()))
               for (unsigned i = 0; i < 3; ++i) {
