@@ -23,6 +23,7 @@ add_acir_library(ACIRSourceCompiler SOURCES
   TableQueryStages.cpp
   LINK_LIBRARIES
     ACIRDialect
+    ACIRAnalysis
     ACIRTransforms
     MLIRArithDialect
     MLIRFuncDialect
