@@ -15,6 +15,7 @@ target_link_libraries(pycircuit-link PRIVATE
   ACIRAnalysis
   pycircuit_project_options
   ACIRDialect
+  GFIRDialect
   ACIRSourceCompiler
   MLIRArithDialect
   MLIRFuncDialect
@@ -27,6 +28,7 @@ add_executable(pycircuit-emit emit.cpp)
 target_link_libraries(pycircuit-emit PRIVATE
   pycircuit_project_options
   ACIRDialect
+  GFIRDialect
   ACIRCodegen
   ACIRAnalysis
   MLIRArithDialect
