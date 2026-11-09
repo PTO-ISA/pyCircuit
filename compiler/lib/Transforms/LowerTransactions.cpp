@@ -9,7 +9,7 @@
 #include "Dialect/ACIR/HardwareSourceChecks.h"
 #include "Dialect/ACIR/SourceTransactionSummary.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
-#include "#include "#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/GFIR/GFIROps.h"
