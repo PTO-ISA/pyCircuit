@@ -1465,7 +1465,8 @@ TEST_F(QueueContractsTest, CanonicalFifoRequiresMatchingTrustedImportProfile) {
     rejects([&] { return analysis.resolveQueue(queue, bindings); },
             "canonical FIFO requires its trusted builtin import");
     (*body)->setAttr("ac.stage", Builder(&context).getStringAttr("final"));
-    rejects([&] { return mlir::verify(*body); }, "trusted");
+    rejects([&] { return analysis.verifyInstance(queue, bindings); },
+            "trusted");
   }
 }
 

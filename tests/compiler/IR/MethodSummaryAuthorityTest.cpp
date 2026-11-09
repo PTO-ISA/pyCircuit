@@ -147,6 +147,37 @@ protected:
         });
     return function();
   }
+  // The Method contract and formal-write rejections moved to the staged
+  // transaction entry (B2.3-preC-6 rows); these pins run the staged entry
+  // over the file's transaction-surface operations.
+  mlir::LogicalResult stagedTransactions(mlir::ModuleOp file) {
+    ac::HardwareAnalysis analysis(file);
+    mlir::LogicalResult result = mlir::success();
+    file.walk([&](mlir::Operation *op) {
+      if (isa<ac::SourceStateReadOp, ac::SourceStateWriteOp,
+              ac::SourceFormalWriteOp, ac::SourceMethodOp,
+              ac::SourceMethodCallOp, ac::SourceBranchOp,
+              ac::SourceTransactionOp>(op)) {
+        result = analysis.verifyTransactionSurfaceOperation(op, {}, true);
+        return failed(result) ? mlir::WalkResult::interrupt()
+                              : mlir::WalkResult::advance();
+      }
+      return mlir::WalkResult::advance();
+    });
+    return result;
+  }
+  // Accept either the remaining native grammar rejection or the staged
+  // transaction-surface rejection, keeping the pinned diagnostic texts.
+  bool rejectsSurface(mlir::ModuleOp file) {
+    if (mlir::failed(capture([&] { return mlir::verify(file); })))
+      return true;
+    return mlir::failed(capture([&] { return stagedTransactions(file); }));
+  }
+  mlir::LogicalResult acceptedSurface(mlir::ModuleOp file) {
+    if (mlir::failed(capture([&] { return mlir::verify(file); })))
+      return mlir::failure();
+    return capture([&] { return stagedTransactions(file); });
+  }
   mlir::OwningOpRef<mlir::ModuleOp> parse() {
     auto file = mlir::parseSourceString<mlir::ModuleOp>(
         nativeFixture(), mlir::ParserConfig(&context, false));
@@ -2116,6 +2147,14 @@ TEST_F(MethodSummaryAuthorityTest,
         "transaction_summary"));
     EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
         << diagnostics;
+    // The derived transaction-summary schema is owned by the staged module
+    // declaration entry (r3 ACIRModuleOps row); native verification keeps the
+    // import grammar only. The staged checks keep the native message texts.
+    ac::HardwareAnalysis analysis(*file);
+    EXPECT_TRUE(mlir::succeeded(capture([&] {
+      return analysis.verifyModuleDeclaration(declaration, {}, true);
+    })))
+        << diagnostics;
     structureAccepts(declaration,
                      declaration->getAttrOfType<mlir::DictionaryAttr>(
                          "transaction_summary"));
@@ -2123,7 +2162,9 @@ TEST_F(MethodSummaryAuthorityTest,
         declaration->getAttrOfType<mlir::DictionaryAttr>("transaction_summary"),
         "unexpected", builder.getUnitAttr());
     declaration->setAttr("transaction_summary", malformed);
-    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_TRUE(mlir::failed(capture([&] {
+      return analysis.verifyModuleDeclaration(declaration, {}, true);
+    })));
     EXPECT_FALSE(diagnostics.empty());
   }
 }
@@ -2754,7 +2795,10 @@ TEST_F(MethodSummaryAuthorityTest,
       call->setOperand(2, call->getOperand(1));
     if (mutation == 2)
       call->getResult(0).setType(call->getOperand(0).getType());
-    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    // The bound-SSA arity and payload agreement are the staged transaction
+    // entry.
+    EXPECT_TRUE(
+        mlir::failed(capture([&] { return stagedTransactions(*file); })));
     EXPECT_FALSE(diagnostics.empty());
   }
 }
@@ -2914,8 +2958,9 @@ TEST_F(MethodSummaryAuthorityTest,
     }
     }
     method->setAttr(key, bad);
-    EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })))
-        << mutation;
+    // The proposal/constraint schema rejections are the staged transaction
+    // entry; the return-form/public-count and count grammar stay native.
+    EXPECT_TRUE(rejectsSurface(*file)) << mutation;
     EXPECT_FALSE(diagnostics.empty());
     llvm::SmallVector<mlir::Attribute> rows;
     for (auto entry : array(published, "methods"))
@@ -2966,11 +3011,13 @@ TEST_F(MethodSummaryAuthorityTest,
         method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints")[1];
     method->setAttr("ac.result_constraints",
                     builder.getArrayAttr({logical, intent}));
-    ASSERT_TRUE(mlir::succeeded(capture([&] { return method.verify(); })))
-        << diagnostics;
+    // The hardware constraints and the writable-formal proposal contract
+    // are the staged transaction entry; a legal logical constraint passes
+    // both tiers.
+    ASSERT_TRUE(mlir::succeeded(acceptedSurface(*file))) << diagnostics;
     method->setAttr("ac.result_constraints",
                     builder.getArrayAttr({fixed, intent}));
-    EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+    EXPECT_TRUE(rejectsSurface(*file));
     EXPECT_NE(diagnostics.find("source kind and logical domain"),
               std::string::npos)
         << diagnostics;
@@ -2983,7 +3030,7 @@ TEST_F(MethodSummaryAuthorityTest,
               &context));
       method->setAttr("ac.result_constraints",
                       builder.getArrayAttr({narrowed, intent}));
-      EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+      EXPECT_TRUE(rejectsSurface(*file));
       // The ordinary source contract already rejects a domain that no longer
       // spans its physical Integer representation.
       EXPECT_NE(diagnostics.find("Integer domain"), std::string::npos)
@@ -3021,8 +3068,8 @@ TEST_F(MethodSummaryAuthorityTest,
       method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints")[1];
   method->setAttr("ac.result_constraints",
                   builder.getArrayAttr({nominal, intent}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return method.verify(); })))
-      << diagnostics;
+  // The nominal proposal data contract is the staged transaction entry.
+  ASSERT_TRUE(mlir::succeeded(acceptedSurface(*file))) << diagnostics;
   method->setAttr("function_type",
                   mlir::TypeAttr::get(mlir::FunctionType::get(
                       &context, {packet}, {otherPacket, bit})));
@@ -3031,7 +3078,11 @@ TEST_F(MethodSummaryAuthorityTest,
       builder.getArrayAttr(
           {changed(nominal, "type", mlir::TypeAttr::get(otherPacket)),
            intent}));
-  EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+  // The nominal proposal-data contract is the staged transaction entry; the
+  // mutation also trips the native body-yield grammar, so the staged entry
+  // is pinned directly to keep the proposal-data diagnostic text.
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return stagedTransactions(*file); })));
   EXPECT_NE(diagnostics.find("match its input contract"), std::string::npos)
       << diagnostics;
 }
@@ -3267,8 +3318,10 @@ TEST_F(MethodSummaryAuthorityTest,
     if (mutation == 5)
       marker->setAttr("operandSegmentSizes",
                       builder.getDenseI32ArrayAttr({1, 1, 1, 0, 1}));
-    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })))
-        << diagnostics;
+    // The selected payload schema and the control predicate are the staged
+    // transaction entry; the segment and forwarded-pairing grammar stays
+    // native.
+    EXPECT_TRUE(rejectsSurface(*file)) << diagnostics;
     EXPECT_FALSE(diagnostics.empty());
   }
 }
