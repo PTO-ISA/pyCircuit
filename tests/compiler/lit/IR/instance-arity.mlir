@@ -1,4 +1,4 @@
-// RUN: %pycircuit_opt %s --verify-diagnostics
+// RUN: %pycircuit_opt %s --ac-verify-hardware --verify-diagnostics
 #w1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
 !b1 = !ac.bits<#w1>
 #w5 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<5>}}>
@@ -17,8 +17,8 @@ module {
     ^bb0(%input: !b8):
       %not = "ac.bits.unary"(%input) {opcode = "not"} : (!b8) -> !b8
       "ac.yield"(%not) : (!b8) -> ()
-    }) {name = "invert", occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b8) -> !b8
-    %right = "ac.instance"(%clk, %rst, %en, %invert, %init) {instance_name = "right", callee = @storage, parameters = [], type_arguments = [!b8], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b1, !b8, !b8) -> !b8
+    }) {name = "invert", occurrence = {site = {definition = @top, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}} : (!b8) -> !b8
+    %right = "ac.instance"(%clk, %rst, %en, %invert, %init) {instance_name = "right", callee = @storage, parameters = [], type_arguments = [!b8], occurrence = {site = {definition = @top, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}} : (!b1, !b1, !b1, !b8, !b8) -> !b8
     "ac.yield"(%left, %right) : (!b8, !b8) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b8, !b8) -> (!b8, !b8), input_names = ["clk", "rst", "en", "d", "init"], output_names = ["qa", "qb"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()

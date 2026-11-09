@@ -48,7 +48,10 @@ def run(command, accepted=True):
         env=env,
         capture_output=True,
         text=True,
-        timeout=30,
+        # Source-unit compiles legitimately take ~40 s on the ARM64 dev
+        # box (instrumented); 30 s killed healthy invocations and made
+        # the extraction cases flap with machine load.
+        timeout=300,
     )
     row = {
         "command": list(map(str, command)),

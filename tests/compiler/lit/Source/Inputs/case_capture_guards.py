@@ -184,7 +184,7 @@ def main():
             env=env,
             text=True,
             capture_output=True,
-            timeout=45,
+            timeout=300,
         )
         row = {
             "command": list(map(str, command)),

@@ -454,7 +454,14 @@ def main():
     def run(command, code=0, diagnostic=None):
         command = list(map(str, command))
         result = subprocess.run(
-            command, cwd=repo, env=env, capture_output=True, text=True, timeout=45
+            command,
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            # Healthy source-unit compiles measure ~40 s on the ARM64 dev
+            # box under gate load; 45 s made this driver flap the gate.
+            timeout=300,
         )
         row = {
             "command": command,

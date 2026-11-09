@@ -1,4 +1,4 @@
-// RUN: %pycircuit_opt %s --split-input-file --verify-diagnostics
+// RUN: %pycircuit_opt %s --split-input-file --ac-verify-hardware --verify-diagnostics
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
 #w0 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<0>}}>
 #w1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
@@ -30,6 +30,7 @@ module {
     %q = "ac.collection"(%clk, %controls, %controls, %data, %data) {instance_name = "family", callee = @storage, parameters = [], type_arguments = [!b8], shape = [#w3], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !controls, !controls, !lanes, !lanes) -> !lanes
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !controls, !lanes) -> (), input_names = ["clk", "controls", "data"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -63,6 +64,7 @@ module {
     %q = "ac.collection"(%controls, %controls, %controls, %data, %data) {instance_name = "family", callee = @storage, parameters = [], type_arguments = [!b8], shape = [#w3], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}, constrained = true} : (!controls, !controls, !controls, !lanes, !lanes) -> !lanes
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !controls, !lanes) -> (), input_names = ["clk", "controls", "data"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -96,6 +98,7 @@ module {
     %q = "ac.collection"(%controls, %controls, %controls, %data, %data) {instance_name = "family", callee = @storage, parameters = [], type_arguments = [!b8], shape = [#w3], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}, layout = [{kind = "slice", parameters = {offsets = [#w0], sizes = [#w3], strides = [#w1]}}]} : (!controls, !controls, !controls, !lanes, !lanes) -> !lanes
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !controls, !lanes) -> (), input_names = ["clk", "controls", "data"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -130,4 +133,5 @@ module {
     %q2 = "ac.collection"(%controls, %controls, %controls, %data, %data) {instance_name = "family", callee = @storage, parameters = [], type_arguments = [!b8], shape = [#w3], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!controls, !controls, !controls, !lanes, !lanes) -> !lanes
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !controls, !lanes) -> (), input_names = ["clk", "controls", "data"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }

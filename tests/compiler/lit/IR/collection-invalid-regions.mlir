@@ -1,4 +1,4 @@
-// RUN: %pycircuit_opt %s --split-input-file --verify-diagnostics
+// RUN: %pycircuit_opt %s --split-input-file --ac-verify-hardware --verify-diagnostics
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
 #w0 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<0>}}>
 #w1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
@@ -30,6 +30,7 @@ module {
     }) {shape = [#w2, #w3], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a) -> (), input_names = ["p0"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -63,6 +64,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a) -> (), input_names = ["p0"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -99,6 +101,7 @@ module {
     }) {shape = [#w2, #w3], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a) -> (), input_names = ["p0"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -134,6 +137,7 @@ module {
     }) {shape = [#w2, #w3], operandSegmentSizes = array<i32: 1, 0>} : (!a) -> !a
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !b8) -> (), input_names = ["p0", "p1"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -167,6 +171,7 @@ module {
     }) : (!a) -> !b6
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a) -> (), input_names = ["p0"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -202,6 +207,7 @@ module {
     %i, %valid = "ac.table.choose"(%b, %mask) {count = 1 : i64, policy = "first", order = "low"} : (!a, !b6) -> (!b3, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !a, !b8) -> (), input_names = ["p0", "p1", "p2"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -237,6 +243,7 @@ module {
     %i, %valid = "ac.table.choose"(%a, %mask) {count = 1 : i64, policy = "min", order = "low"} : (!a, !b6) -> (!b3, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !a, !b8) -> (), input_names = ["p0", "p1", "p2"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -272,6 +279,7 @@ module {
     %i, %valid = "ac.table.choose"(%a, %mask) {count = 1 : i64, policy = "first", order = "middle"} : (!a, !b6) -> (!b3, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !a, !b8) -> (), input_names = ["p0", "p1", "p2"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -307,6 +315,7 @@ module {
     %i, %valid = "ac.table.choose"(%a, %mask) {count = 1 : i64, policy = "first", order = "low"} : (!a, !b6) -> (!b2, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !a, !b8) -> (), input_names = ["p0", "p1", "p2"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -342,6 +351,7 @@ module {
     %i, %valid = "ac.table.choose"(%a, %mask) {count = 1 : i64, policy = "first", order = "low", cursor = 0 : i64} : (!a, !b6) -> (!b3, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !a, !b8) -> (), input_names = ["p0", "p1", "p2"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 // -----
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
@@ -372,6 +382,7 @@ module {
     %i, %valid = "ac.table.choose"(%a, %rawmask) {count = 1 : i64, policy = "first", order = "low"} : (!a, !b6) -> (!b3, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!a, !b6) -> (), input_names = ["p0", "p1"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -408,6 +419,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -448,6 +460,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -489,6 +502,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -532,6 +546,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -574,6 +589,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -615,6 +631,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -653,6 +670,7 @@ module {
     }) {shape = [#w6], operandSegmentSizes = array<i32: 1, 0>} : (!af) -> !af
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!af) -> (), input_names = ["a"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -679,6 +697,7 @@ module {
     }) : (!rows) -> !b3
     "ac.yield"(%mask) : (!b3) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!rows) -> !b3, input_names = ["source"], output_names = ["mask"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -705,6 +724,7 @@ module {
     }) : (!rows) -> !b3
     "ac.yield"(%mask) : (!b3) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!rows) -> !b3, input_names = ["source"], output_names = ["mask"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -735,6 +755,7 @@ module {
     }) : (!rows, !lookup) -> !b3
     "ac.yield"(%mask) : (!b3) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!rows, !lookup) -> !b3, input_names = ["source", "lookup"], output_names = ["mask"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -767,4 +788,5 @@ module {
     }) : (!rows, !lookup) -> !b3
     "ac.yield"(%mask) : (!b3) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!rows, !lookup) -> !b3, input_names = ["source", "lookup"], output_names = ["mask"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
