@@ -51,16 +51,9 @@ std::unique_ptr<mlir::Pass> createVerifyRoutedPass() {
 std::unique_ptr<mlir::Pass> createVerifyHardwarePass() {
   return std::make_unique<VerifyHardwarePass>();
 }
-void registerACIRPasses() {
-  PassRegistration<VerifyHardwarePass>();
-  PassRegistration<VerifyRoutedPass>();
-  registerPass([] { return createRouteTransactionsPass(); });
-  registerPass([] { return createNormalizeSourceControlFlowPass(); });
-  registerPass([] { return createExtractSourceInterfacePass(); });
-  registerPass([] { return createSimplifyRecordWiresPass(); });
-  registerPass([] { return createAnalyzeSourceMethodSummariesPass(); });
-  registerPass([] { return createAnalyzeTransactionStateSSAPass(); });
-  registerPass([] { return createLowerTransactionsPass(); });
-}
+// Pass registration lives in PassRegistration.cpp: this stack state keeps one
+// registration point for the source-stage transforms and the verification
+// passes (the GFIRValidation/HWIRValidation registration split arrives with
+// pr/validation).
 
 } // namespace acir

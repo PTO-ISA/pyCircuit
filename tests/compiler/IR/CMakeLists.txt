@@ -99,7 +99,7 @@ add_acir_api_test(ACIRTransactionEffectsTests TransactionEffectsTest.cpp
   SourceFormalOwnerBindingTest.cpp SourceRegistrationEntryTest.cpp
   HardwareWriteDomainsTest.cpp HardwareResourceDemandTest.cpp)
 target_link_libraries(ACIRTransactionEffectsTests PRIVATE
-  ACIRSourceCompiler ACIRTransforms MLIRPass)
+  ACIRSourceCompiler GFIRDialect ACIRTransforms MLIRPass)
 target_compile_definitions(ACIRTransactionEffectsTests PRIVATE
   PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
   PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")

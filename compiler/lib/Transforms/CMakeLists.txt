@@ -11,6 +11,7 @@ add_acir_library(ACIRTransforms SOURCES
   AnalyzeTransactionStateSSA.cpp
   LowerTransactions.cpp
   TransactionValueAvailability.cpp
+  VerifyHardware.cpp
   LINK_LIBRARIES
     ACIRDialect
     ACIRAnalysis

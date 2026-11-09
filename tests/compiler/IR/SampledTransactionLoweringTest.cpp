@@ -1,11 +1,13 @@
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
-#include "Transforms/LowerTransactions.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIROps.h"
+#include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 #include "llvm/ADT/STLExtras.h"
@@ -56,7 +58,10 @@ protected:
   mlir::OpBuilder builder{&context};
   std::string diagnostics;
 
-  void SetUp() override { context.loadDialect<ACIRDialect>(); }
+  void SetUp() override {
+    context.loadDialect<ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
+  }
 
   template <typename Function> decltype(auto) capture(Function function) {
     diagnostics.clear();
@@ -112,16 +117,20 @@ protected:
     return {};
   }
 
-  SourceStateOp logicalState(ModuleOp definition, llvm::StringRef name) {
-    for (auto state : definition.getBody().front().getOps<SourceStateOp>())
+  // The staged routed candidate carries the GFIR replacement classes; the
+  // original source fixture keeps its source ac.state spelling.
+  acir::gfir::StateOp logicalState(ModuleOp definition, llvm::StringRef name) {
+    for (auto state :
+         definition.getBody().front().getOps<acir::gfir::StateOp>())
       if (state.getInstanceName() == name)
         return state;
     ADD_FAILURE() << "missing logical state " << name.str();
     return {};
   }
 
-  StateUpdateOp update(SourceStateOp state) {
-    for (auto update : state->getBlock()->getOps<StateUpdateOp>())
+  acir::gfir::StateUpdateOp update(acir::gfir::StateOp state) {
+    for (auto update :
+         state->getBlock()->getOps<acir::gfir::StateUpdateOp>())
       if (update.getState() == state.getQ())
         return update;
     ADD_FAILURE() << "missing logical state update";
@@ -1691,7 +1700,9 @@ TEST_F(SampledTransactionLoweringTest,
               (*staged->candidate.module)->getAttr("ac.routed_contract"));
     unsigned logicalOperations = 0;
     final->walk([&](mlir::Operation *op) {
-      logicalOperations += mlir::isa<SourceStateOp, StateUpdateOp>(op);
+      logicalOperations +=
+          mlir::isa<SourceStateOp, acir::LogicalStateOpInterface,
+                    acir::LogicalStateUpdateOpInterface>(op);
     });
     EXPECT_EQ(logicalOperations, 0u);
     auto hold = instance(module(*final), "hold");
