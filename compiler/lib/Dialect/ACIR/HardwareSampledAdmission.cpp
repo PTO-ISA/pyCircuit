@@ -1,9 +1,10 @@
 #include "HardwareSampledAdmission.h"
+#include "HardwarePhysicalState.h"
 #include "HardwareQueueResources.h"
 #include "HardwareValueAvailability.h"
 #include "HardwareGrantProof.h"
 #include "ACIRSourceContracts.h"
-#include "HardwareSourceCheckPreflight.h"
+#include "SourceCheckBudget.h"
 #include "HardwareSourceChecks.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/APSInt.h"
@@ -273,21 +274,6 @@ LogicalResult wholeStateID(DictionaryAttr state, Operation *site) {
            << "sampled transaction state requires whole finite ownership";
   return success();
 }
-// A Collection has scalar DFFE elements and replicated control columns.
-// Authenticate that replication before recovering the shared sampled control.
-FailureOr<Value> stateControl(Operation *storage, unsigned ordinal) {
-  Value value = storage->getOperand(ordinal);
-  auto collection = dyn_cast<CollectionOp>(storage);
-  if (!collection) return value;
-  auto splat = value.getDefiningOp<TableSplatOp>();
-  if (!splat || splat.getShape() != collection.getShape() ||
-      !isa<BitsType>(splat.getInput().getType()) || !areEquivalentHardwareTypes(
-          value.getType(), TableType::get(storage->getContext(), collection.getShape(),
-                                          splat.getInput().getType())))
-    return storage->emitOpError()
-           << "transaction Collection requires replicated scalar controls";
-  return splat.getInput();
-}
 FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
                                   const HardwareAnalysis &analysis,
                                   SourceCheckBudget &budget) {
@@ -297,7 +283,8 @@ FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
   Operation *found = nullptr;
   for (Operation &operation : module.getBody().front()) {
     auto *instance = &operation;
-    if (!isa<InstanceOp, CollectionOp, SourceStateOp>(instance))
+    if (!isa<InstanceOp, CollectionOp>(instance) &&
+        !isa<acir::LogicalStateOpInterface>(instance))
       continue;
     if (failed(budget.debit(1, instance)))
       return failure();
@@ -313,26 +300,14 @@ FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
     if (found)
       return module->emitOpError()
              << "state declaration resolves to multiple logical or physical allocations";
-    if (isa<SourceStateOp>(instance)) {
+    if (isa<acir::LogicalStateOpInterface>(instance)) {
       if (instance->getNumOperands() != 3 || instance->getNumResults() != 1)
         return instance->emitOpError() << "logical state requires clock, reset, initial and one Q result";
       found = instance;
       continue;
     }
-    StringRef kind =
-        analysis.getPrimitiveKind(
-            isa<InstanceOp>(instance)
-                ? analysis.resolveCallee(cast<InstanceOp>(instance))
-                : analysis.resolveCallee(cast<CollectionOp>(instance)));
-    bool dff = kind == "dff";
-    if ((!dff && kind != "dffe") ||
-        instance->getNumOperands() != (dff ? 4u : 5u) ||
-        instance->getNumResults() != 1)
-      return instance->emitOpError()
-             << "transaction inventory requires a direct verified DFF/DFFE";
-    unsigned controls = dff ? 2 : 3;
-    for (unsigned ordinal = 0; ordinal < controls; ++ordinal)
-      if (failed(stateControl(instance, ordinal))) return failure();
+    if (failed(verifyPhysicalStateAllocation(instance, analysis)))
+      return failure();
     found = instance;
   }
   if (!found)
@@ -358,26 +333,29 @@ LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
   result.ownerBindings = bound;
   result.payloadType = *payload;
   result.q = storage->getResult(0);
-  if (auto logical = dyn_cast<SourceStateOp>(storage)) {
+  if (auto logical = dyn_cast<acir::LogicalStateOpInterface>(storage)) {
     result.form = StateEndpointForm::Logical;
     result.storageBindings = bound;
-    result.clock = logical.getClk();
-    result.reset = logical.getRst();
-    result.initial = logical.getInitial();
-    for (auto update : owner.getBody().front().getOps<StateUpdateOp>()) {
+    result.clock = logical.getStateClock();
+    result.reset = logical.getStateReset();
+    result.initial = logical.getStateInitial();
+    for (auto update :
+         owner.getBody().front().getOps<acir::LogicalStateUpdateOpInterface>()) {
       if (failed(budget.debit(1, update))) return failure();
       if (update->getNumOperands() != 3 || update->getNumResults() ||
           update->getNumRegions())
         return update.emitOpError() << "logical state update requires three operands and no results or regions";
-      if (update.getState() != logical.getQ()) continue;
+      if (update.getUpdatedStateQ() != logical.getStateQ()) continue;
       if (result.update)
-        return logical.emitOpError() << "logical state requires exactly one update";
+        return logical.getOperation()->emitOpError()
+               << "logical state requires exactly one update";
       result.update = update;
     }
     if (!result.update)
-      return logical.emitOpError() << "logical state requires exactly one update";
-    result.data = result.update.getCandidate();
-    result.enable = result.update.getIntent();
+      return logical.getOperation()->emitOpError()
+             << "logical state requires exactly one update";
+    result.data = result.update.getStateCandidate();
+    result.enable = result.update.getStateWriteIntent();
     auto candidate = analysis.resolveType(result.data.getType(), bound, result.update);
     auto intentWidth = analysis.getPackedWidth(result.enable.getType(), bound, result.update);
     if (failed(candidate) || failed(intentWidth)) return failure();
@@ -385,30 +363,7 @@ LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
       return result.update.emitOpError() << "bound candidate and intent must match logical state payload and one bit";
     return success();
   }
-  auto leaf = isa<InstanceOp>(storage)
-                  ? analysis.bindInstance(cast<InstanceOp>(storage), bound)
-                  : analysis.bindInstance(cast<CollectionOp>(storage), bound);
-  if (failed(leaf)) return failure();
-  result.storageBindings = std::move(*leaf);
-  auto clock = stateControl(storage, 0), reset = stateControl(storage, 1);
-  if (failed(clock) || failed(reset)) return failure();
-  result.clock = *clock;
-  result.reset = *reset;
-  bool dff = analysis.getPrimitiveKind(result.storageBindings.owner) == "dff";
-  result.form = dff ? StateEndpointForm::DFF
-                   : isa<CollectionOp>(storage) ? StateEndpointForm::DFFECollection
-                                                : StateEndpointForm::DFFE;
-  if (dff) {
-    result.data = storage->getOperand(2);
-    result.initial = storage->getOperand(3);
-  } else {
-    auto enable = stateControl(storage, 2);
-    if (failed(enable)) return failure();
-    result.enable = *enable;
-    result.data = storage->getOperand(3);
-    result.initial = storage->getOperand(4);
-  }
-  return success();
+  return bindPhysicalStateEndpoint(result, storage, bound, analysis);
 }
 } // namespace
 
@@ -1197,14 +1152,15 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     result.states.push_back({declaration, *storage});
   }
   auto &body = module.getBody().front();
-  for (auto logical : body.getOps<SourceStateOp>()) {
+  for (auto logical : body.getOps<acir::LogicalStateOpInterface>()) {
     bool inventoried = false;
     for (const auto &entry : result.states) {
       if (failed(budget.debit(1, logical))) return failure();
       inventoried |= entry.storage == logical.getOperation();
     }
     if (!inventoried)
-      return logical.emitOpError() << "logical state is missing its transaction inventory";
+      return logical->emitOpError()
+             << "logical state is missing its transaction inventory";
   }
   uint64_t nextPair = ports->sourceInputCount;
   for (auto raw : incoming) {
@@ -3219,7 +3175,7 @@ private:
     for (auto &operation : module.getBody().front()) {
       if (failed(budget.debit(1, &operation)))
         return failure();
-      witness |= isa<SourceStateOp>(operation);
+      witness |= isa<acir::LogicalStateOpInterface>(operation);
       if (auto rule = dyn_cast<RuleOp>(operation)) {
         witness |= rule->hasAttr("ac.sampled_admission");
         if (auto required =
@@ -4573,14 +4529,17 @@ private:
           return failure();
         continue;
       }
-      if (auto update = dyn_cast<StateUpdateOp>(consumer)) {
-        auto logical = update.getState().getDefiningOp<SourceStateOp>();
+      if (auto update = dyn_cast<acir::LogicalStateUpdateOpInterface>(consumer)) {
+        auto logical =
+            update.getUpdatedStateQ()
+                .getDefiningOp<acir::LogicalStateOpInterface>();
         if (route.kind == PrivateRoute::Data && operand == 1 && logical &&
-            stateTerminal(endpoint.scope, logical, route.state))
+            stateTerminal(endpoint.scope, logical.getOperation(), route.state))
           continue;
         if (route.kind == PrivateRoute::Enable && operand == 2 && logical) {
           auto found = stateIndex.find({currentOccurrence, logical.getOperation()});
-          if (found != stateIndex.end() && stateTerminal(endpoint.scope, logical, found->second)) {
+          if (found != stateIndex.end() &&
+              stateTerminal(endpoint.scope, logical.getOperation(), found->second)) {
             auto allowed = enableTarget(route, found->second);
             if (failed(allowed)) return failure();
             if (*allowed) continue;
@@ -4594,7 +4553,7 @@ private:
               stateTerminal(endpoint.scope, collection, route.state))
             continue;
           if (route.kind == PrivateRoute::Enable && operand == 2) {
-            auto control = stateControl(collection, 2);
+            auto control = getPhysicalStateControl(collection, 2);
             auto found = stateIndex.find({currentOccurrence, collection});
             if (failed(control)) return failure();
             if (found != stateIndex.end() &&
@@ -4754,7 +4713,7 @@ bool localWitness(ModuleOp module) {
       module->hasAttr("ac.internal_ports"))
     return true;
   for (auto &operation : module.getBody().front()) {
-    if (isa<SourceStateOp>(operation) ||
+    if (isa<acir::LogicalStateOpInterface>(operation) ||
         operation.hasAttr("ac.sampled_admission") ||
         operation.hasAttr("ac.transaction_wiring"))
       return true;

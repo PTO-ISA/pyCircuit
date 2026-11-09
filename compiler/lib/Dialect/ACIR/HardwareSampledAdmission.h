@@ -1,8 +1,8 @@
 #ifndef PYCIRCUIT_HARDWARE_SAMPLED_ADMISSION_H
 #define PYCIRCUIT_HARDWARE_SAMPLED_ADMISSION_H
 
-#include "pycircuit/Dialect/GFIR/GFIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 #include <memory>
 #include <optional>
 #include <utility>
@@ -249,7 +249,7 @@ struct StateEndpoint {
   HardwareIdentityScope ownerScope;
   ModuleOp owner;
   mlir::Operation *storage = nullptr;
-  gfir::StateUpdateOp update;
+  acir::LogicalStateUpdateOpInterface update;
   HardwareBindings ownerBindings, storageBindings;
   mlir::Type payloadType;
   mlir::Value clock, reset, enable, data, initial, q;

@@ -1,6 +1,7 @@
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "ACIRSourceContracts.h"
-#include "HardwareSourceCheckPreflight.h"
+#include "SourceCheckBudget.h"
+#include "HardwareSourceChecks.h"
 #include "SourceTransactionSummary.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"

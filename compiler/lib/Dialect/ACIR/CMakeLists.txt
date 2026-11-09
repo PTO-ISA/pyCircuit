@@ -87,6 +87,13 @@ target_include_directories(ACIRDialect PRIVATE
   "${PYCIRCUIT_SOURCE_DIR}/lib"
 )
 
+# ACIRAnalysis: the staged hardware/source analysis above the operations
+# archive (B2 step-2 design r3 §4 MOVE-WHOLE rows, adjusted at IX for the
+# current TU set). It links ACIRDialect because its members drive the
+# generated verifiers (verifyInvariantsImpl, custom verify bodies) and the
+# shared grammar helpers homed in the operations TUs; the reverse edge
+# (ACIRDialect referencing analysis symbols) is forbidden and enforced by
+# pycircuit_verify_layering and the two layer probes.
 add_acir_library(ACIRAnalysis SOURCES
   HardwareAnalysis.cpp
   HardwareAnalysisDependencies.cpp
@@ -136,4 +143,15 @@ target_link_libraries(ACIRAnalysis PUBLIC
   MLIRSCFDialect
   MLIRSideEffectInterfaces
 )
+target_include_directories(ACIRAnalysis PUBLIC
+  "$<BUILD_INTERFACE:${PYCIRCUIT_SOURCE_DIR}/include>"
+  "$<BUILD_INTERFACE:${PYCIRCUIT_BINARY_DIR}/include>"
+  "$<INSTALL_INTERFACE:include>"
+)
+target_include_directories(ACIRAnalysis PRIVATE
+  "${PYCIRCUIT_SOURCE_DIR}/lib"
+)
 
+# component-split: superseded by pr/validation (the GFIRValidation and
+# HWIRValidation target definitions return with the package-verification
+# component).

@@ -1,10 +1,12 @@
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Analysis/LogicalStateValidation.h"
 #include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -168,6 +170,79 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
     return failure();
   if (failed(mlir::verify(unit)))
     return failure();
+  // Source-tier semantic entry (B2 step-2 design r9 §4): after native
+  // structure verification, re-run the enum/collection value checks in
+  // their symbolic-tolerant mode (requireResolved=false — exactly what the
+  // native verifiers passed). Definite facts are checked here; obligations
+  // that need actual integer bindings are DEFERRED to the binding tiers
+  // (routing preparation / routed package verification). This keeps every
+  // rejection for source packages while the native verifiers' reroute (§5)
+  // moves their analysis-dependent calls out of the operations archive.
+  // Skip bodies with any retained transaction surface (state, Methods,
+  // transactions or rule bodies): their semantic checks run during the
+  // routing preparation instead; the walk here covers only plain modules.
+  // The semantic walk is per operation (r8 review fix): a unit retaining a
+  // transaction surface no longer skips the checks of its other operations.
+  // Definite facts are checked everywhere — including inside method and
+  // rule regions — while the surface's own resolution-dependent obligations
+  // stay deferred to the routing preparation, and state declarations run
+  // their source binding checks (clock/reset widths, payload constraint,
+  // initializer closure) exactly as the pre-split native verifier did.
+  HardwareAnalysis analysis(unit);
+  HardwareBindings bindings;
+  auto semanticWalk = unit.walk([&](Operation *operation) {
+    // Transaction-surface operations keep their DEFINITE facts at the
+    // source stage (r8 review follow-up): the tolerant dual-mode entry
+    // checks placement-lexical agreements such as the read result against
+    // the selected state payload without requiring actual bindings; the
+    // resolution-dependent obligations stay deferred to the routing
+    // preparation (requireResolved=false).
+    bool surfaceControl =
+        isa<SourceStateReadOp, SourceStateWriteOp, SourceFormalWriteOp,
+            SourceMethodOp, SourceMethodCallOp, SourceBranchOp,
+            SourceTransactionOp>(operation);
+    // The family entries expect the enclosing module's scope: pre-split
+    // each native wrapper bound the parent module as the owner (r8 review
+    // fix follow-up — an empty owner scope rejects legal symbolic reads).
+    HardwareBindings local = bindings;
+    local.owner = operation->getParentOfType<ModuleOp>();
+    bool enumFamily = isa<EnumCreateOp, EnumToBitsOp, EnumFromBitsOp>(operation);
+    bool collectionFamily = isa<CollectionOp, TableCreateOp, TableSplatOp,
+        TableMapOp, TableViewOp, TableIndexOp, TableReadOp, TableGetOp,
+        TableMatchOp, TableChooseOp, TableFoldOp, ValueMergeOp>(operation);
+    bool structFamily =
+        isa<StructOp, StructCreateOp, StructGetOp>(operation);
+    bool bitsWidthFamily = isa<BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
+                               BitsSelectOp>(operation);
+    LogicalResult result = success();
+    if (surfaceControl)
+      result = analysis.verifyTransactionSurfaceOperation(operation, local);
+    else if (enumFamily)
+      result = analysis.verifyEnumValueOperation(operation, local);
+    else if (collectionFamily)
+      result = analysis.verifyCollectionOperation(operation, local);
+    else if (structFamily)
+      result = analysis.verifyStructOperation(operation, local);
+    else if (bitsWidthFamily)
+      result = analysis.verifyBitsSymbolicWidths(operation);
+    else if (auto state = dyn_cast<SourceStateOp>(operation))
+      result = verifyLogicalStateSourceBinding(state);
+    else if (isa<ModuleOp, ModuleImportOp, InstanceOp, SourceExpectOp>(
+                 operation))
+      result = analysis.verifyModuleDeclaration(operation, bindings);
+    else if (auto pred = dyn_cast<SourcePredicateOp>(operation)) {
+      auto width = analysis.getPackedWidth(pred.getInput().getType(),
+                                           local, pred);
+      if (failed(width) || *width != 1)
+        result = pred.emitOpError()
+                 << "source SCF predicate requires width-one Bits";
+    }
+    if (failed(result))
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  if (semanticWalk.wasInterrupted())
+    return failure();
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   if (body && (!kind || (kind.getValue() != "implementation" &&
                          kind.getValue() != "declarations")))
@@ -220,15 +295,6 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
 } // namespace
 
 namespace detail {
-DictionaryAttr declarationSourceOwner(Operation *operation) {
-  if (auto module = dyn_cast_or_null<ModuleOp>(operation))
-    return module.getSourceOwner();
-  if (auto imported = dyn_cast_or_null<ModuleImportOp>(operation))
-    return imported.getSourceOwner();
-  return operation ? operation->getAttrOfType<DictionaryAttr>("ac.source_owner")
-                   : DictionaryAttr();
-}
-
 bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
                                              DictionaryAttr owner) {
   auto name =
@@ -269,19 +335,6 @@ bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
   return false;
 }
 
-LogicalResult verifyOriginDefinition(DictionaryAttr origin,
-                                     FlatSymbolRefAttr expected,
-                                     StringRef description,
-                                     EmitError emitError) {
-  auto site = origin ? origin.getAs<DictionaryAttr>("site") : DictionaryAttr();
-  auto definition =
-      site ? site.getAs<FlatSymbolRefAttr>("definition") : FlatSymbolRefAttr();
-  if (!expected || !definition || definition != expected)
-    return emitError()
-           << description
-           << " occurrence definition does not match its canonical symbol";
-  return success();
-}
 } // namespace detail
 
 FailureOr<SourceUnitStructure>
