@@ -26,6 +26,7 @@ target_link_libraries(pycircuit-emit PRIVATE
   pycircuit_project_options
   ACIRDialect
   ACIRCodegen
+  ACIRAnalysis
   MLIRArithDialect
   MLIRFuncDialect
   MLIRParser
