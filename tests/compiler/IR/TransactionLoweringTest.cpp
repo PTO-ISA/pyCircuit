@@ -15,6 +15,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
@@ -147,7 +148,10 @@ protected:
   mlir::MLIRContext context;
   mlir::OpBuilder builder{&context};
   std::string diagnostics;
-  void SetUp() override { context.loadDialect<ACIRDialect>(); }
+  void SetUp() override {
+    context.loadDialect<ACIRDialect>();
+    context.loadDialect<gfir::GFIRDialect>();
+  }
   template <typename Function> decltype(auto) capture(Function function) {
     diagnostics.clear();
     mlir::ScopedDiagnosticHandler handler(
@@ -3368,7 +3372,12 @@ TEST_F(TransactionLoweringTest,
           {builder.getNamedAttr("clock", builder.getI64IntegerAttr(arity - 2)),
            builder.getNamedAttr("reset",
                                 builder.getI64IntegerAttr(arity - 1))}));
-  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  // The source call contract, including the domain ordinals, runs from the
+  // staged module declaration entry (r3 ACIRModuleOps row); native
+  // verification keeps the declaration grammar only.
+  ac::HardwareAnalysis analysis(*file);
+  EXPECT_TRUE(mlir::failed(capture(
+      [&] { return analysis.verifyModuleDeclaration(provider, {}, true); })));
 }
 
 TEST_F(TransactionLoweringTest,
@@ -4517,6 +4526,7 @@ TEST_F(SourceLinkStageTest,
   // object or source registry is supplied to the standalone consumer.
   mlir::MLIRContext fresh;
   fresh.loadDialect<ACIRDialect>();
+  fresh.loadDialect<gfir::GFIRDialect>();
   auto restored = mlir::parseSourceString<mlir::ModuleOp>(saved, &fresh);
   ASSERT_TRUE(restored);
   EXPECT_TRUE(mlir::succeeded(verifyRoutedPackage(*restored)));
