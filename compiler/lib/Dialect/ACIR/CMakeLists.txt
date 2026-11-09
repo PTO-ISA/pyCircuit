@@ -87,5 +87,53 @@ target_include_directories(ACIRDialect PRIVATE
   "${PYCIRCUIT_SOURCE_DIR}/lib"
 )
 
-# component-split: superseded by pr/analysis (the ACIRAnalysis target
-# definition returns with the staged analysis component).
+add_acir_library(ACIRAnalysis SOURCES
+  HardwareAnalysis.cpp
+  HardwareAnalysisDependencies.cpp
+  HardwareAnalysisValidation.cpp
+  HardwareDependencySerialization.cpp
+  HardwarePhysicalProjection.cpp
+  HardwarePhysicalState.cpp
+  HardwareQueueResources.cpp
+  HardwareSampledAdmission.cpp
+  HardwareSourceCheckPreflight.cpp
+  HardwareSourceChecks.cpp
+  HardwareValueAvailability.cpp
+  HardwareWorkPartition.cpp
+  PackageVerification.cpp
+  SourceHelperAnalysis.cpp
+  SourceMethodAnalysis.cpp
+  SourceMethodResolution.cpp
+  SourceTransactionStateAnalysis.cpp
+  SourceTransactionSummary.cpp
+  CollectionAnalysis.cpp
+  EnumAnalysis.cpp
+  StructBoundChecks.cpp
+  QueueBoundChecks.cpp
+  BitsBoundChecks.cpp
+  ModuleDefinitionBoundChecks.cpp
+  TransactionBoundChecks.cpp
+  EntryBoundaryEnvelope.cpp
+  SourceUnitValidation.cpp
+  FinalSourceUnitValidation.cpp
+  SourceRegistrationEntry.cpp
+  HardwareGrantProof.cpp
+  "${PYCIRCUIT_SOURCE_DIR}/lib/Analysis/LogicalStateValidation.cpp"
+)
+add_dependencies(ACIRAnalysis
+  ACIRDialectIncGen
+  ACIRAttributesIncGen
+  ACIRTypesIncGen
+  ACIROpsIncGen
+)
+target_link_libraries(ACIRAnalysis PUBLIC
+  ACIRCore
+  ACIRDialect
+  PycircuitStateInterfaces
+  LLVMCore
+  MLIRArithDialect
+  MLIRFuncDialect
+  MLIRSCFDialect
+  MLIRSideEffectInterfaces
+)
+
