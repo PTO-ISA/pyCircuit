@@ -388,10 +388,4 @@ mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
                                        HardwareSourceCheckLimits limits = {});
 
 } // namespace acir::ac
-
-namespace acir::ac {
-mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
-                                        HardwareSourceCheckLimits limits = {});
-mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
-} // namespace acir::ac
 #endif

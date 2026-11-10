@@ -5,6 +5,7 @@
 # Conversion/ACIRToGFIR and Conversion/GFIRToHWIR targets.
 add_acir_library(ACIRTransforms SOURCES
   VerifyHardware.cpp
+  PassRegistration.cpp
   NormalizeSourceControlFlow.cpp
   ExtractSourceInterface.cpp
   SimplifyRecordWires.cpp
