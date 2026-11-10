@@ -66,6 +66,17 @@ def _capture_transport(
             'VALUE = "quote\\" slash\\\\ nul\\x00 ctrl\\x01 piπ sep\u2028"\n',
             'quo"te-π.py',
         ),
+        (
+            "long_chain.py",
+            "def lookup(value):\n    result = 0\n"
+            + "".join(
+                f"    {'if' if index == 0 else 'elif'} value == {index}:\n"
+                f"        result = {1000 + index}\n"
+                for index in range(256)
+            )
+            + "    return result\n",
+            None,
+        ),
         ("huge.py", f"VALUE = 0x{'F' * 5000}\n", None),
     ],
 )
