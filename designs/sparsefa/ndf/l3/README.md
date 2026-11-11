@@ -6,6 +6,7 @@
 - [16×16×16 三维阵列、树形数值期望与流水周期](fa2-core-array3d-1003.md)
 - [此前的 16×16 二维阵列验证基线](fa2-core-array-1003.md)
 - [精确索引校验、完整2048项和同输入周期对照](fa2-core-idx-1004.md)
+- [Shared-KV批处理、跨Head重用与双缓冲验收](fa2-core-skv-1006.md)
 - [本次实际通过/失败/未运行项](../../VALIDATION.md)
 
 数学Oracle与真实生成DUT独立。compile、link、emit、构建、C++执行、RTL执行和PPA

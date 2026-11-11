@@ -51,3 +51,6 @@ P0S不支持无tag旧包任意重放；复位后须由外部bus fence保证隔�
 
 P0S通道字段、2/4字节标量事务、单outstanding所有权、请求保持、写ack和drain时序见
 [FA2-CORE-XFER-1001](../l2/fa2-core-xfer-1001.md)。
+Shared-KV 目标的连续64项Index批次、scatter KV行请求、tag/credit及双缓冲
+重叠见 [SKV-1005](../l2/fa2-core-skv-1005.md)；它需要新的传输适配，不能
+从P0S标量端口推断已有此能力。

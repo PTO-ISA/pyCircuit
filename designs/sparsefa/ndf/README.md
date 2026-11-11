@@ -25,6 +25,11 @@ P0S串行实现与 P0T 并行阵列分开，不混用容量/吞吐/证据。当�
 [16×16×16 三维阵列](l2/fa2-core-array3d-1002.md)，配套
 [供数与 buffer 布局](l2/fa2-core-array3d-buf-1004.md)及
 [独立逐位/周期验证](l3/fa2-core-array3d-1003.md)。
+进一步的 [Shared-KV 多Head合同](l1/fa2-core-skv-0002.md) 规定单份 KV 同时
+作为 K/V、64 项 Index 批次和跨Head复用；对应
+[DMA/双缓冲微架构](l2/fa2-core-skv-1005.md)、
+[新泳道图](l2/fa2-core-skv-swimlane-1005.md)及
+[验收矩阵](l3/fa2-core-skv-1006.md) 均为目标草案，尚非当前硬件实现。
 此前的 [二维阵列](l2/fa2-core-array-1002.md)及其
 [验证合同](l3/fa2-core-array-1003.md)保留为独立基线；具体编译和运行结果以
 [VALIDATION](../VALIDATION.md)为准。

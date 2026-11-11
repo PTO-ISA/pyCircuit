@@ -9,3 +9,4 @@
 - [计算阶段与数值边界](fa2-core-comp-0001.md)
 - [控制与同步](fa2-core-ctrl-0001.md)
 - [外部索引、集合和KV cache](fa2-core-idx-0001.md)
+- [Shared-KV多Head与64项Index批处理目标](fa2-core-skv-0002.md)

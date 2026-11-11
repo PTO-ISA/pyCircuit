@@ -56,6 +56,11 @@ P0 候选是已经展开为 K/V 向量、以逻辑 token 编号寻址的 cache�
 本 profile 的 Q/K/V head 数一致；只读输入的 head stride 可为零，以表达
 上游在多个 head 共享同一列表。不同 query 的共享也必须由明确的 stride 描述。
 
+新的 [Shared-KV 目标 profile](fa2-core-skv-0002.md) 进一步要求 K=V 且所有
+head 共享单份 `KV[B,Sk,D]`；index 是否跨 head 共享仍由其布局明确决定，
+不能从 KV 共享自行推断。它的 64 项批处理、双缓冲与带 tag gather 不属于
+当前 P0S 的单 outstanding 实现。
+
 Paged KV 的 block table、cache 环形窗口位置变换、GQA/MQA head 映射、MLA latent
 重建和量化解码属于后续 profile。当前描述符没有这些格式的识别字段；调用方或适配层
 必须拒绝未经展开的布局，或先提供符合本ABI的线性K/V视图，不能依赖硬件自动识别。

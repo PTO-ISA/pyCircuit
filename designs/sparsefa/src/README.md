@@ -1,5 +1,10 @@
 # FA2 hardware sources
 
+The [Shared-KV multihead/batched target](../ndf/l2/fa2-core-skv-1005.md)
+is an NDF design. No batched DMA, shared-KV slot manager, or integrated
+16×16×16 feeder is present in these source units; the existing P0S and
+standalone P0T descriptions below retain their own validation limits.
+
 The P0S closure has four source units, compiled independently:
 
 | Source | Hardware owner |

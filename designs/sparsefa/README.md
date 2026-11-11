@@ -4,6 +4,12 @@
 count和index，按原token直接读取线性KV cache，再执行online softmax和PV；不计算
 indexer/top-k，不宣称兼容完整DeepSeek MLA/paged/量化cache ABI。
 
+新增的 [Shared-KV多Head目标](ndf/l1/fa2-core-skv-0002.md) 将 K 和 V 定义为
+所有head共享的同一份数据，运行时配置head数和KV维度；
+[64项Index/Gather与双缓冲设计](ndf/l2/fa2-core-skv-1005.md) 及
+[新泳道图](ndf/l2/fa2-core-skv-swimlane-1005.md) 描述传输/计算重叠。
+这些是待实现架构，下面的P0S性能和验证结果不适用于新路径。
+
 ## 当前实现
 
 ```text

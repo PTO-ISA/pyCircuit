@@ -8,6 +8,8 @@
 阵列源码接收已经准备好的 binary32 操作数；本页的 SRAM、装载器、转置器和双缓冲
 控制器是待集成模块，不能计入已实现或已仿真的硬件。P0S 的 40.75 KiB 工作集和标量
 总线仍按 [BUF-1001](fa2-core-buf-1001.md) 执行，不自动获得本页带宽。
+后续的 [Shared-KV目标](fa2-core-skv-1005.md) 选择单份KV在QK/PV及多个head间
+复用，并给出64项Index/Gather批次和不同于本页独立A/B store的slot布局。
 
 阵列三个空间坐标为 `(m,n,k_lane)`。一组计算
 `A[m,16*g+k_lane] * B[16*g+k_lane,n]`，其中 `g` 是归约组号。

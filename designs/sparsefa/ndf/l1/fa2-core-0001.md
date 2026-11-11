@@ -17,6 +17,11 @@ PE 数、片上存储 bank、流水级或请求仲裁算法。
 FP16/BF16 输入和 FP32 中间累加。该 profile 仍属于 `draft`；如果实现选择其他精度、
 训练语义或独立的 key/value 维度，必须同步更新本条款和 L3 Oracle。
 
+下表保留现有 P0S 的独立 K/V 逻辑视图。新的
+[Shared-KV 多 Head 目标 profile](fa2-core-skv-0002.md) 明确采用单份
+`KV[B,Sk,D]` 同时作为 K 与 V，所有 head 共享它，并按 64 项处理外部 index。
+新 profile 不表示现有 P0S 已经具备批量 DMA 或双缓冲。
+
 按 [ADR-002](../l0/fa2-adr-002.md) 增加外部 index 输入和 KV cache gather。dense 与
 indexed 为独立选择模式；索引架构由同层 [FA2-CORE-IDX-0001](fa2-core-idx-0001.md)
 定义。首版 indexed 候选逐 query 读取其列表并执行，复用计算路径。
@@ -129,6 +134,7 @@ P0S可以先捕获非法描述符，再通过code1 completion报告拒绝；comm
 - [FA2-CORE-COMP-0001：注意力计算架构合同](fa2-core-comp-0001.md)
 - [FA2-CORE-CTRL-0001：控制、同步和资源可见语义](fa2-core-ctrl-0001.md)
 - [FA2-CORE-IDX-0001：索引输入与稀疏 KV 访问合同](fa2-core-idx-0001.md)
+- [FA2-CORE-SKV-0002：多 Head 共享 KV 与 64-Index 批处理合同](fa2-core-skv-0002.md)
 
 L2 再将这些架构职责具体化为 buffer 规格、通道和请求协议、计算阵列以及控制器状态。
 L3 必须使用独立参考实现，分别验证逻辑结果、事件数量、错误隔离、布局映射和无越界写回。

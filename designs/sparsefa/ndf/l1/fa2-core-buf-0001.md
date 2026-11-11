@@ -72,3 +72,5 @@ Accumulator、metadata 和 output staging 资源；资源不足时拒绝，不�
 [FA2-CORE-BUF-1001](../l2/fa2-core-buf-1001.md)。
 三维阵列的独立供数容量、32 个逻辑 bank 和 2 KiB/group 接口见
 [ARRAY3D-BUF-1004](../l2/fa2-core-array3d-buf-1004.md)；该 feeder 尚待实现和集成。
+Shared-KV 目标将一份 KV tile 在 QK/PV 和多个 head 间复用；其 64-position
+双/多 slot 容量、bank 与生命周期见 [SKV-1005](../l2/fa2-core-skv-1005.md)。

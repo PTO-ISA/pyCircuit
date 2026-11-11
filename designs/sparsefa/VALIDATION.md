@@ -1,5 +1,14 @@
 # FA2 当前验证记录
 
+## Shared-KV 批处理目标
+
+新增的 [Shared-KV 多Head合同](ndf/l1/fa2-core-skv-0002.md)、
+[64项Gather与双/多缓冲微架构](ndf/l2/fa2-core-skv-1005.md) 和
+[泳道图](ndf/l2/fa2-core-skv-swimlane-1005.md) 均为设计草案。
+目前没有 `SharedKVCommand`、批量DMA、KV slot manager、跨Head feeder 或完整
+System 源码；因此该目标的 compile、link、C++执行、传输掩盖和物理性能全部
+**NOT RUN**。下方的P0S及独立三维阵列记录不能视为Shared-KV目标的验收。
+
 ## 当前三维 MAC 阵列
 
 新增 `fa2_array3d_interfaces.py` 和 `fa2_array3d.py`，顶层为

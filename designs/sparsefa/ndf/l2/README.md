@@ -13,6 +13,8 @@
 - [TensorCommand、地址验证、tensor/row FSM](fa2-core-ctrl-1001.md)
 - [P0T 16×16×16 三维阵列、归约流水与生命周期](fa2-core-array3d-1002.md)
 - [三维阵列供数、bank 布局和双缓冲候选](fa2-core-array3d-buf-1004.md)
+- [Shared-KV的64项Gather、bank、DMA与多缓冲目标](fa2-core-skv-1005.md)
+- [Shared-KV双缓冲数据流泳道图](fa2-core-skv-swimlane-1005.md)
 - [此前的 16×16 二维阵列基线](fa2-core-array-1002.md)
 
 P0S源码的可运行状态见 [VALIDATION.md](../../VALIDATION.md)。L2仍draft；组合延迟、
