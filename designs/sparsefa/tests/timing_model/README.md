@@ -7,7 +7,7 @@ model advances Count/Index/Q transfer time, bounded DMA credits, row responses,
 independent KV slots, head waves, QK/softmax/PV stages, write acknowledgement
 and completion cycle by cycle. `render_trace.py` creates the SVG/PNG from those
 events and verifies their timing order, complete KV traffic and overlapping
-slot use. The model assumes 128 precomputed, valid, distinct Index IDs that
+slot use. The model assumes precomputed, valid, distinct Index IDs that
 are not masked by causal rules. It budgets one cycle per ID for validation but
 does **not** ingest or check real Index contents, issue address-bearing memory
 transactions, or compute attention values.
@@ -21,6 +21,8 @@ cycles including memory latency. Count, Index, Q, KV responses and output
 writeback share the modeled 32 B/cycle bus, with Count/Index/Q loaded in order
 before the first KV request.
 This parameter set is a model assumption, **not measured hardware latency**.
+The optional `INDEX_COUNT` argument accepts a multiple of 64 from 64 to 2048;
+omitting it preserves the 128-item default.
 
 From the repository root, using a C++20 compiler:
 
@@ -47,6 +49,32 @@ run are included for review: [PNG](assets/shared-kv-2slot-model.png),
 [single-slot CSV](assets/shared-kv-1slot-model.csv) and
 [two-slot CSV](assets/shared-kv-2slot-model.csv). Tests do not read the
 snapshots.
+
+For the 2048-item long sequence, use the same executable with a separate
+output prefix and run the long-trace renderer:
+
+```sh
+.pycircuit_out/shared_kv_trace .pycircuit_out/sparsefa-shared-kv-2048 2048
+python3 designs/sparsefa/tests/timing_model/render_long_trace.py \
+  .pycircuit_out/sparsefa-shared-kv-2048
+```
+
+The executed 2048-item run produced **32 batches** and 2048 KV row requests.
+It assumes `Sk >= 2048` so all selected token IDs can be valid.
+One slot took **26,410 model cycles**; two slots took **17,978 cycles**, a
+difference of 8,432 cycles (31.9%) under the same timing assumptions. The
+complete Index prefix reaches its timing barrier at cycle 2701, Q finishes
+loading at 2973, batch 0 fills during 2973–3245 and computes during
+3245–3697, while slot 1 fills batch 1 during 3245–3517. The 31 later batch
+fills overlap computation in the other slot. Read the
+[full-run PNG](assets/shared-kv-2048-overview.png) or
+[startup and first five compute batches](assets/shared-kv-2048-detail.png),
+with zoomable [full-run SVG](assets/shared-kv-2048-overview.svg) and
+[detail SVG](assets/shared-kv-2048-detail.svg). The corresponding
+[one-slot CSV.gz](assets/shared-kv-2048-1slot.csv.gz) and
+[two-slot CSV.gz](assets/shared-kv-2048-2slot.csv.gz) preserve the executed
+events in gzip form; decompress them to compare with a fresh run.
+No actual Index IDs or attention values were evaluated.
 
 The generated pyCircuit P0S System was also attempted from this checkout. Its
 source units compiled after a temporary local Rule-syntax migration, but native

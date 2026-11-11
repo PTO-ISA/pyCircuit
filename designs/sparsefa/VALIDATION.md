@@ -23,6 +23,13 @@ Count=128、8个 KV 行 credit、32 B/cycle 总线、16周期行延迟的固定�
 单独行引擎的 native link 均超过默认分析预算，因此没有新的 P0S 硬件 trace。
 上述试验改动未保留，失败证据在忽略的 `docs/gates/logs/fa2-p0-completion/`。
 
+同一独立周期模型的 [2048 Index 长序列运行](tests/timing_model/README.md) 共
+32 批、2048 次 KV 行请求；[全程图](tests/timing_model/assets/shared-kv-2048-overview.png)
+和[前五批计算放大图](tests/timing_model/assets/shared-kv-2048-detail.png)由原始
+CSV 事件生成。单 slot 为26,410模型周期，双 slot 为17,978模型周期，差8,432周期
+（31.9%）。模型先顺序读取并预留校验全部 Index 的时延，Q 加载结束后才开始
+KV gather；这仍不是生成硬件或真实 Index 内容的仿真。
+
 ## 当前三维 MAC 阵列
 
 新增 `fa2_array3d_interfaces.py` 和 `fa2_array3d.py`，顶层为

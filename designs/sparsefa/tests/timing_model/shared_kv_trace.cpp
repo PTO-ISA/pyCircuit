@@ -12,7 +12,7 @@ namespace {
 
 constexpr int kHeads = 64;
 constexpr int kDim = 64;
-constexpr int kCount = 128;
+constexpr int kDefaultCount = 128;
 constexpr int kBatch = 64;
 constexpr int kIndexLatency = 12;
 constexpr int kRowLatency = 16;
@@ -64,8 +64,10 @@ struct Result {
   std::vector<Event> events;
 };
 
-Result run(int slot_count) {
+Result run(int slot_count, int count) {
   if (slot_count < 1 || slot_count > 3) throw std::runtime_error("slot count");
+  if (count <= 0 || count % kBatch != 0 || count > 2048)
+    throw std::runtime_error("count must be a multiple of 64 in [64, 2048]");
   Result result{};
   auto &events = result.events;
   auto mark = [&](int cycle, std::string kind, int batch = -1, int slot = -1,
@@ -77,7 +79,7 @@ Result run(int slot_count) {
   mark(cycle, "count_read_start");
   cycle += kIndexLatency + ceil_div(4, kBusBytes);
   mark(cycle, "count_read_end");
-  for (int batch = 0; batch < ceil_div(kCount, kBatch); ++batch) {
+  for (int batch = 0; batch < ceil_div(count, kBatch); ++batch) {
     mark(cycle, "index_dma_start", batch);
     cycle += kIndexLatency + ceil_div(kBatch * 4, kBusBytes);
     mark(cycle, "index_dma_end", batch);
@@ -110,7 +112,7 @@ Result run(int slot_count) {
   auto start_fill = [&](int slot_id) {
     Slot &slot = slots.at(slot_id);
     assert(slot.state == Slot::FREE);
-    assert(next_fill < ceil_div(kCount, kBatch));
+    assert(next_fill < ceil_div(count, kBatch));
     slot = Slot{Slot::FILLING, next_fill, 0, 0};
     mark(cycle, "kv_fill_start", next_fill, slot_id);
     ++next_fill;
@@ -135,7 +137,7 @@ Result run(int slot_count) {
     }
   };
 
-  while (next_compute < ceil_div(kCount, kBatch) || active_slot >= 0) {
+  while (next_compute < ceil_div(count, kBatch) || active_slot >= 0) {
     if (cycle > 100000) throw std::runtime_error("simulation did not terminate");
 
     for (Row &row : rows) {
@@ -201,7 +203,7 @@ Result run(int slot_count) {
       }
     }
 
-    if (active_slot < 0 && next_compute < ceil_div(kCount, kBatch)) {
+    if (active_slot < 0 && next_compute < ceil_div(count, kBatch)) {
       for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
         Slot &slot = slots[slot_id];
         if (slot.state == Slot::READY && slot.batch == next_compute) {
@@ -217,14 +219,14 @@ Result run(int slot_count) {
     }
 
     // Prefetch begins only after a preceding batch has entered the array.
-    if (next_fill < ceil_div(kCount, kBatch) && next_compute > 0) {
+    if (next_fill < ceil_div(count, kBatch) && next_compute > 0) {
       for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
         if (slots[slot_id].state == Slot::FREE) {
           start_fill(slot_id);
           break;
         }
       }
-    } else if (next_fill < ceil_div(kCount, kBatch) && active_slot >= 0) {
+    } else if (next_fill < ceil_div(count, kBatch) && active_slot >= 0) {
       for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
         if (slots[slot_id].state == Slot::FREE) {
           start_fill(slot_id);
@@ -255,7 +257,7 @@ Result run(int slot_count) {
   assert(index_barrier < q_ready_cycle && q_ready_cycle <= first_kv_request);
   assert(outstanding == 0);
   assert(result.peak_outstanding <= kCredits);
-  assert(result.row_requests == kCount);
+  assert(result.row_requests == count);
   mark(cycle, "output_write_start");
   cycle += ceil_div(kHeads * kDim * 2, kBusBytes) + kOutputAckLatency;
   mark(cycle, "output_write_ack");
@@ -276,16 +278,32 @@ void write_csv(const std::string &path, const Result &result) {
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::cerr << "usage: shared_kv_trace OUTPUT_PREFIX\n";
+  if (argc != 2 && argc != 3) {
+    std::cerr << "usage: shared_kv_trace OUTPUT_PREFIX [INDEX_COUNT]\n";
     return 2;
   }
   const std::string prefix = argv[1];
-  const Result one = run(1);
-  const Result two = run(2);
+  int count = kDefaultCount;
+  if (argc == 3) {
+    const std::string argument = argv[2];
+    std::size_t parsed = 0;
+    try {
+      count = std::stoi(argument, &parsed);
+    } catch (const std::exception &) {
+      std::cerr << "invalid INDEX_COUNT: expected a multiple of 64 in [64, 2048]\n";
+      return 2;
+    }
+    if (parsed != argument.size() || count <= 0 || count % kBatch != 0 ||
+        count > 2048) {
+      std::cerr << "invalid INDEX_COUNT: expected a multiple of 64 in [64, 2048]\n";
+      return 2;
+    }
+  }
+  const Result one = run(1, count);
+  const Result two = run(2, count);
   write_csv(prefix + "-1slot.csv", one);
   write_csv(prefix + "-2slot.csv", two);
-  std::cout << "H=" << kHeads << " D=" << kDim << " count=" << kCount
+  std::cout << "H=" << kHeads << " D=" << kDim << " count=" << count
             << " index_batch=64 kv_credit=" << kCredits
             << " memory_latency=" << kRowLatency
             << " bus_bytes_per_cycle=" << kBusBytes << '\n';

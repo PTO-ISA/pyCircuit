@@ -12,6 +12,8 @@ indexer/top-k，不宣称兼容完整DeepSeek MLA/paged/量化cache ABI。
 [实际运行的 C++ 时序模型泳道图](tests/timing_model/assets/shared-kv-2slot-model.png)
 及[复现程序](tests/timing_model/README.md)展示上述目标的资源/周期假设，
 不代表已生成的硬件仿真或实测 PPA。
+[2048 个 Index 的全程泳道图](tests/timing_model/assets/shared-kv-2048-overview.png)
+及[前五批计算放大图](tests/timing_model/assets/shared-kv-2048-detail.png)也已生成。
 
 ## 当前实现
 
