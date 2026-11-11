@@ -18,7 +18,7 @@ constexpr int kIndexLatency = 12;
 constexpr int kRowLatency = 16;
 constexpr int kBusBytes = 32;
 constexpr int kCredits = 8;
-constexpr int kArrayDrain = 5;
+constexpr int kArrayBubblesAfterEnd = 4;
 constexpr int kSoftmaxCycles = 16;
 constexpr int kOutputAckLatency = 12;
 
@@ -53,8 +53,8 @@ struct Row {
 int array_cycles(int columns, int reduction) {
   const int tiles = ceil_div(columns, 16);
   const int groups = ceil_div(reduction, 16);
-  // Each column tile has its own begin, accepted GROUPs, END, drain, take.
-  return tiles * (1 + groups + 1 + kArrayDrain + 1);
+  // NDF cadence: begin, GROUPs, END, four BUBBLEs, take, then next begin.
+  return tiles * (1 + groups + 1 + kArrayBubblesAfterEnd + 1);
 }
 
 struct Result {

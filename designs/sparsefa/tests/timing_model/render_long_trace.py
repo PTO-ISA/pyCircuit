@@ -82,6 +82,20 @@ def validate(
                 < at(double, "pv_end", batch, slot, wave)
             ):
                 raise ValueError(f"batch {batch} wave {wave} stage order mismatch")
+            for first, last, expected in (
+                ("qk_start", "qk_end", 44),
+                ("softmax_start", "softmax_end", 16),
+                ("pv_start", "pv_end", 44),
+                ("state_commit_start", "state_commit_end", 1),
+            ):
+                if (
+                    at(double, last, batch, slot, wave)
+                    - at(double, first, batch, slot, wave)
+                    != expected
+                ):
+                    raise ValueError(
+                        f"batch {batch} wave {wave} {first} timing mismatch"
+                    )
     if any(
         int(row["cycle"]) < q_ready for row in double if row["kind"] == "kv_row_request"
     ):
@@ -279,7 +293,7 @@ def draw(
             "Index 内容假定有效，模型未检查实际 ID。</text>",
             '<text x="49" y="903" font-family="sans-serif" font-size="15" '
             'fill="#536277">Count 4 B；Q/O 各 8192 B；KV 行延迟 16 周期；'
-            "softmax 每 wave 16 周期。时延为模型参数，非硬件实测。</text>",
+            "QK/PV 每 tile 11 周期，softmax 每 wave 16 周期。非硬件实测。</text>",
             "</svg>",
         ]
     )

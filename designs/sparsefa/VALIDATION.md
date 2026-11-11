@@ -12,8 +12,8 @@ System 源码；因此该目标硬件的 compile、link、C++执行、传输掩�
 另有[测试自有的 C++ 周期模型](tests/timing_model/README.md)已实际执行并输出
 [泳道图](tests/timing_model/assets/shared-kv-2slot-model.png)：H=64、D=64、
 Count=128、8个 KV 行 credit、32 B/cycle 总线、16周期行延迟的固定场景中，
-包含 Count 4 B 与 Q 8192 B 的传输时间，单 slot 2170 周期，双 slot 1898
-周期，模型节省272周期（12.5%）。模型假定预先生成的128个 Index ID 均有效、
+包含 Count 4 B 与 Q 8192 B 的传输时间，单 slot 2106 周期，双 slot 1834
+周期，模型节省272周期（12.9%）。模型假定预先生成的128个 Index ID 均有效、
 互异且未被 causal mask 屏蔽；每项预留1周期校验时延，但未输入或校验实际 ID。
 原始 CSV 和图的[可审阅快照](tests/timing_model/README.md)已保存；
 原始运行文件与命令证据保存在忽略的
@@ -26,8 +26,8 @@ Count=128、8个 KV 行 credit、32 B/cycle 总线、16周期行延迟的固定�
 同一独立周期模型的 [2048 Index 长序列运行](tests/timing_model/README.md) 共
 32 批、2048 次 KV 行请求；[全程图](tests/timing_model/assets/shared-kv-2048-overview.png)
 和[前五批计算放大图](tests/timing_model/assets/shared-kv-2048-detail.png)由原始
-CSV 事件生成。单 slot 为26,410模型周期，双 slot 为17,978模型周期，差8,432周期
-（31.9%）。模型先顺序读取并预留校验全部 Index 的时延，Q 加载结束后才开始
+CSV 事件生成。单 slot 为25,386模型周期，双 slot 为16,954模型周期，差8,432周期
+（33.2%）。模型先顺序读取并预留校验全部 Index 的时延，Q 加载结束后才开始
 KV gather；这仍不是生成硬件或真实 Index 内容的仿真。
 
 ## 当前三维 MAC 阵列

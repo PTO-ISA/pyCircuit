@@ -73,6 +73,22 @@ def render(prefix: Path) -> tuple[Path, Path]:
         at(double, "kv_fill_end", batch=1) < at(double, "batch_compute_end", batch=0)
     ):
         raise ValueError("second slot did not overlap first batch computation")
+    for batch in range(2):
+        for wave in range(4):
+            for first, last, expected in (
+                ("qk_start", "qk_end", 44),
+                ("softmax_start", "softmax_end", 16),
+                ("pv_start", "pv_end", 44),
+                ("state_commit_start", "state_commit_end", 1),
+            ):
+                if (
+                    at(double, last, batch, batch, wave)
+                    - at(double, first, batch, batch, wave)
+                    != expected
+                ):
+                    raise ValueError(
+                        f"batch {batch} wave {wave} {first} timing mismatch"
+                    )
 
     width, height = 1820, 940
     left, right = 210, 75
@@ -232,7 +248,7 @@ def render(prefix: Path) -> tuple[Path, Path]:
             "Index 内容假定有效、互异，模型未计算或校验实际 ID。</text>",
             '<text x="49" y="920" font-family="sans-serif" font-size="14" '
             'fill="#536277">模型参数：Index 启动 12 周期，KV 行延迟 16 周期，'
-            "阵列 5 周期排空，softmax 每 wave 16 周期。</text>",
+            "END 后 4 个气泡，softmax 每 wave 16 周期。</text>",
             "</svg>",
         ]
     )

@@ -14,7 +14,13 @@ transactions, or compute attention values.
 
 Default scenario: H=64, D=64, Count=128 with two 64-item Index batches, 8
 outstanding KV row credits, 32 B/cycle bus, 12-cycle Index startup, 16-cycle KV
-row latency, 5-cycle array drain and 16-cycle softmax stage per head wave.
+row latency, 4 post-END array bubble cycles and a 16-cycle softmax stage per
+head wave. The last accepted GROUP reaches accumulation five cycles later;
+after take, the next tile can begin on the following cycle.
+At D=64 and a full 64-Index batch, each 16-head wave has four 16-column tiles
+with four accepted GROUPs per tile. The NDF tile cadence is 11 cycles, so QK
+and PV each take 44 model cycles per wave. Softmax takes 16 and state commit
+one more cycle; four waves take 420 cycles per batch.
 Every 16-column array tile has its own begin/GROUP/END/drain/take lifecycle.
 Count is 4 B and takes 13 cycles including startup; Q is 8192 B and takes 272
 cycles including memory latency. Count, Index, Q, KV responses and output
@@ -37,9 +43,9 @@ python3 designs/sparsefa/tests/timing_model/render_trace.py \
   .pycircuit_out/sparsefa-shared-kv
 ```
 
-The executed default run produced 2170 cycles with one slot and 1898 cycles
-with two slots, saving 272 model cycles (12.5%). In the two-slot CSV, batch 0
-computes during cycles 725–1177 while slot 1 fills during cycles 725–997. The
+The executed default run produced 2106 cycles with one slot and 1834 cycles
+with two slots, saving 272 model cycles (12.9%). In the two-slot CSV, batch 0
+computes during cycles 725–1145 while slot 1 fills during cycles 725–997. The
 raw CSV records 128 accepted KV row requests and completions, and the model's
 peak outstanding count is 8. Both slot counts use the same inputs and memory
 timing assumptions. The raw CSV and rendered evidence are generated under
@@ -61,11 +67,11 @@ python3 designs/sparsefa/tests/timing_model/render_long_trace.py \
 
 The executed 2048-item run produced **32 batches** and 2048 KV row requests.
 It assumes `Sk >= 2048` so all selected token IDs can be valid.
-One slot took **26,410 model cycles**; two slots took **17,978 cycles**, a
-difference of 8,432 cycles (31.9%) under the same timing assumptions. The
+One slot took **25,386 model cycles**; two slots took **16,954 cycles**, a
+difference of 8,432 cycles (33.2%) under the same timing assumptions. The
 complete Index prefix reaches its timing barrier at cycle 2701, Q finishes
 loading at 2973, batch 0 fills during 2973–3245 and computes during
-3245–3697, while slot 1 fills batch 1 during 3245–3517. The 31 later batch
+3245–3665, while slot 1 fills batch 1 during 3245–3517. The 31 later batch
 fills overlap computation in the other slot. Read the
 [full-run PNG](assets/shared-kv-2048-overview.png) or
 [startup and first five compute batches](assets/shared-kv-2048-detail.png),
