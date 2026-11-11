@@ -82,6 +82,48 @@ sticky failure is set. Simulations may continue for post-NBA state inspection;
 verification/benchmark runners must reject this diagnostic even if the unchanged
 upstream TB later prints success or exits zero. No authored status port is added.
 
+### First-failure details
+
+The marker remains a separate, unchanged line. At that first failure, physical
+RTL also prints one `PYCIRCUIT_FAULT_DETAIL` line per failing endpoint, followed
+by a JSON object. Later edges do not print more details. A simulator's zero exit
+status does not override the fault marker.
+
+Each object has `schema_version: 1`, `event: "physical_fault"`, `time_s` (seconds),
+`instance` (actual simulator hierarchy), `logical_instance` (linked owner path),
+`kind`, `reason`, `source` and `values`. Four-state values are objects such as
+`{"width": 1, "bits": "x"}`; they are never coerced to Boolean or integer values.
+Time uses `$realtime / 1s` without changing the caller's time format or precision.
+
+| Kind | Identity and reason |
+| --- | --- |
+| `root_clock` / `root_reset` | `endpoint` identifies the physical input. Reasons are `clock_unknown` / `reset_unknown`; reset checks use the final artifact's interpreted reset policy. |
+| `source_check` | `check_id`, `check_kind`, `rule` and optional `message` retain the verified source-check identity. Reasons distinguish `reachability_unknown` and `predicate_unknown`. |
+| `primitive_control` | `endpoint` identifies the allocation and `reset` or `enable` role; `primitive` identifies DFF/DFFE. Reasons are `reset_unknown` / `enable_unknown`. |
+| `diagnostic_gap` | `unattributed_error` and `attribution_complete: false` indicate that a triggered aggregate error could not be attributed. The simulation remains failed. |
+
+A source-check's `source` is its verified source span. A primitive's `source` is
+its allocation's retained source location. Compiler-owned inputs or operations
+without a retained file location use `null`, rather than an invented location.
+Enable faults additionally list `related_controls`: existing one-bit SSA
+computations, their source locations, Rule identities and four-state values.
+These are dataflow evidence, not a claim that one expression uniquely caused
+the fault. Tracing stops at inputs/storage and unsupported producers; exhausting
+the diagnostic tracing budget sets `related_controls_truncated: true` without
+omitting the actual endpoint or changing compilation admission.
+
+For example, an uninitialized timer may report `enable_unknown` on its count
+DFFE, point to the count declaration, and list the unknown `count != 0` control
+at its own source location. This does not imply a failed source-check ID.
+
+Details are collected synchronously at the original first-failure point, before
+NBA updates. Clock-X/Z transitions report the clock fault without attributing
+unexecuted source/primitive checks. Concurrent endpoint details have a stable
+inventory order, not a causal order. Static metadata and dynamic instance paths
+are JSON-escaped; private generated wire names and field order are not stable
+interfaces. Diagnostics add no ports, phases, functional state or delays and
+are excluded under `SYNTHESIS`.
+
 Time-zero testbench setup establishes a known clock and settled controls before
 the first exercised edge. Initial X-to-known setup is initialization, not an
 invalid-clock transition. Consistent with existing autonomous leaves, initial
