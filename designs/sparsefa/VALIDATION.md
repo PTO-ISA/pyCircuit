@@ -6,8 +6,22 @@
 [64项Gather与双/多缓冲微架构](ndf/l2/fa2-core-skv-1005.md) 和
 [泳道图](ndf/l2/fa2-core-skv-swimlane-1005.md) 均为设计草案。
 目前没有 `SharedKVCommand`、批量DMA、KV slot manager、跨Head feeder 或完整
-System 源码；因此该目标的 compile、link、C++执行、传输掩盖和物理性能全部
+System 源码；因此该目标硬件的 compile、link、C++执行、传输掩盖和物理性能全部
 **NOT RUN**。下方的P0S及独立三维阵列记录不能视为Shared-KV目标的验收。
+
+另有[测试自有的 C++ 周期模型](tests/timing_model/README.md)已实际执行并输出
+[泳道图](tests/timing_model/assets/shared-kv-2slot-model.png)：H=64、D=64、
+Count=128、8个 KV 行 credit、32 B/cycle 总线、16周期行延迟的固定场景中，
+包含 Count 4 B 与 Q 8192 B 的传输时间，单 slot 2170 周期，双 slot 1898
+周期，模型节省272周期（12.5%）。模型假定预先生成的128个 Index ID 均有效、
+互异且未被 causal mask 屏蔽；每项预留1周期校验时延，但未输入或校验实际 ID。
+原始 CSV 和图的[可审阅快照](tests/timing_model/README.md)已保存；
+原始运行文件与命令证据保存在忽略的
+`docs/gates/logs/sparsefa-skv-timing-284d0921/`。这是独立资源/日程模型，
+不计算注意力结果，也不是 pyCircuit 生成硬件的 C++ 仿真。当前工作树重新
+编译 P0S 源码时遇到旧式局部 Rule 显式调用；临时改为现行语法后，整机与
+单独行引擎的 native link 均超过默认分析预算，因此没有新的 P0S 硬件 trace。
+上述试验改动未保留，失败证据在忽略的 `docs/gates/logs/fa2-p0-completion/`。
 
 ## 当前三维 MAC 阵列
 

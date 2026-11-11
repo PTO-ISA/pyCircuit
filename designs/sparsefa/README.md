@@ -9,6 +9,9 @@ indexer/top-k，不宣称兼容完整DeepSeek MLA/paged/量化cache ABI。
 [64项Index/Gather与双缓冲设计](ndf/l2/fa2-core-skv-1005.md) 及
 [新泳道图](ndf/l2/fa2-core-skv-swimlane-1005.md) 描述传输/计算重叠。
 这些是待实现架构，下面的P0S性能和验证结果不适用于新路径。
+[实际运行的 C++ 时序模型泳道图](tests/timing_model/assets/shared-kv-2slot-model.png)
+及[复现程序](tests/timing_model/README.md)展示上述目标的资源/周期假设，
+不代表已生成的硬件仿真或实测 PPA。
 
 ## 当前实现
 

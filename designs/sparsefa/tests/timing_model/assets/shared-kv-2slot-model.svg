@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1820" height="940" viewBox="0 0 1820 940" role="img" aria-label="SparseFA Shared-KV C++ 周期性能模型实测泳道图">
+<rect width="100%" height="100%" fill="#fbfcfe"/>
+<text x="48" y="48" font-size="29" font-family="sans-serif" font-weight="700" fill="#182739">SparseFA Shared-KV · C++ 周期模型执行泳道图</text>
+<text x="49" y="77" font-size="16" font-family="sans-serif" fill="#536277">H=64, D=64, Count=128 · 每批 64 Index · 8 个 KV 行 credit · 32 B/cycle 总线</text>
+<text x="49" y="106" font-size="16" font-family="sans-serif" fill="#7b3f00">双 slot 1898 周期；单 slot 2170 周期；模型节省 272 周期（12.5%）</text>
+<text x="49" y="131" font-size="14" font-family="sans-serif" fill="#a03030">这是实际执行的独立 C++ 时序模型输出；共享 KV 硬件尚未实现，非 RTL/C++ DUT 实测。</text>
+<line x1="210.0" y1="160" x2="210.0" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="210.0" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">0</text>
+<line x1="351.5" y1="160" x2="351.5" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="351.5" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">200</text>
+<line x1="492.9" y1="160" x2="492.9" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="492.9" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">400</text>
+<line x1="634.4" y1="160" x2="634.4" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="634.4" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">600</text>
+<line x1="775.9" y1="160" x2="775.9" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="775.9" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">800</text>
+<line x1="917.4" y1="160" x2="917.4" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="917.4" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">1000</text>
+<line x1="1058.8" y1="160" x2="1058.8" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="1058.8" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">1200</text>
+<line x1="1200.3" y1="160" x2="1200.3" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="1200.3" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">1400</text>
+<line x1="1341.8" y1="160" x2="1341.8" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="1341.8" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">1600</text>
+<line x1="1483.3" y1="160" x2="1483.3" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="1483.3" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">1800</text>
+<line x1="1624.7" y1="160" x2="1624.7" y2="793" stroke="#e1e6ef" stroke-width="1"/>
+<text x="1624.7" y="160" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#66758a">2000</text>
+<text x="185" y="192" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">Index DMA</text>
+<line x1="210" y1="205" x2="1745" y2="205" stroke="#4c78a8" stroke-opacity=".19"/>
+<text x="185" y="255" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">校验时延</text>
+<line x1="210" y1="268" x2="1745" y2="268" stroke="#54a24b" stroke-opacity=".19"/>
+<text x="185" y="318" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">Q 载入</text>
+<line x1="210" y1="331" x2="1745" y2="331" stroke="#6f9c46" stroke-opacity=".19"/>
+<text x="185" y="381" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">KV slot 0</text>
+<line x1="210" y1="394" x2="1745" y2="394" stroke="#f58518" stroke-opacity=".19"/>
+<text x="185" y="444" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">KV slot 1</text>
+<line x1="210" y1="457" x2="1745" y2="457" stroke="#e45756" stroke-opacity=".19"/>
+<text x="185" y="507" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">QK 阵列</text>
+<line x1="210" y1="520" x2="1745" y2="520" stroke="#7a5195" stroke-opacity=".19"/>
+<text x="185" y="570" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">Softmax</text>
+<line x1="210" y1="583" x2="1745" y2="583" stroke="#bc5090" stroke-opacity=".19"/>
+<text x="185" y="633" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">PV 阵列</text>
+<line x1="210" y1="646" x2="1745" y2="646" stroke="#2a9d8f" stroke-opacity=".19"/>
+<text x="185" y="696" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">状态提交</text>
+<line x1="210" y1="709" x2="1745" y2="709" stroke="#9b9b1f" stroke-opacity=".19"/>
+<text x="185" y="759" text-anchor="end" font-family="sans-serif" font-size="18" fill="#26374a">O 写回</text>
+<line x1="210" y1="772" x2="1745" y2="772" stroke="#6c757d" stroke-opacity=".19"/>
+<rect x="210.0" y="169" width="9.2" height="32" rx="5" fill="#4c78a8" opacity="1.0"/>
+<title>Count: cycle 0–13</title>
+<rect x="219.2" y="169" width="14.1" height="32" rx="5" fill="#4c78a8" opacity="1.0"/>
+<title>B0 DMA: cycle 13–33</title>
+<rect x="233.3" y="232" width="45.3" height="32" rx="5" fill="#54a24b" opacity="1.0"/>
+<text x="256.0" y="253" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">B0 时延</text>
+<title>B0 时延: cycle 33–97</title>
+<rect x="278.6" y="169" width="14.1" height="32" rx="5" fill="#4c78a8" opacity="1.0"/>
+<title>B1 DMA: cycle 97–117</title>
+<rect x="292.8" y="232" width="45.3" height="32" rx="5" fill="#54a24b" opacity="1.0"/>
+<text x="315.4" y="253" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">B1 时延</text>
+<title>B1 时延: cycle 117–181</title>
+<rect x="338.0" y="295" width="192.4" height="32" rx="5" fill="#6f9c46" opacity="1.0"/>
+<text x="434.2" y="316" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">8192 B Q 载入</text>
+<title>8192 B Q 载入: cycle 181–453</title>
+<rect x="530.4" y="358" width="192.4" height="32" rx="5" fill="#f58518" opacity="1.0"/>
+<text x="626.6" y="379" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">B0 gather 64 行</text>
+<title>B0 gather 64 行: cycle 453–725</title>
+<rect x="722.8" y="358" width="319.7" height="32" rx="5" fill="#c97718" opacity="0.62"/>
+<text x="882.7" y="379" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">B0 供 4 个 head wave</text>
+<title>B0 供 4 个 head wave: cycle 725–1177</title>
+<rect x="722.8" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B0 W0 QK: cycle 725–773</title>
+<rect x="756.8" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B0 W0 SM: cycle 773–789</title>
+<rect x="768.1" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B0 W0 PV: cycle 789–837</title>
+<rect x="802.1" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B0 W0 commit: cycle 837–838</title>
+<rect x="802.8" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B0 W1 QK: cycle 838–886</title>
+<rect x="836.7" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B0 W1 SM: cycle 886–902</title>
+<rect x="848.1" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B0 W1 PV: cycle 902–950</title>
+<rect x="882.0" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B0 W1 commit: cycle 950–951</title>
+<rect x="882.7" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B0 W2 QK: cycle 951–999</title>
+<rect x="916.7" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B0 W2 SM: cycle 999–1015</title>
+<rect x="928.0" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B0 W2 PV: cycle 1015–1063</title>
+<rect x="961.9" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B0 W2 commit: cycle 1063–1064</title>
+<rect x="962.6" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B0 W3 QK: cycle 1064–1112</title>
+<rect x="996.6" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B0 W3 SM: cycle 1112–1128</title>
+<rect x="1007.9" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B0 W3 PV: cycle 1128–1176</title>
+<rect x="1041.9" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B0 W3 commit: cycle 1176–1177</title>
+<rect x="722.8" y="421" width="192.4" height="32" rx="5" fill="#e45756" opacity="1.0"/>
+<text x="819.0" y="442" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">B1 gather 64 行</text>
+<title>B1 gather 64 行: cycle 725–997</title>
+<rect x="915.3" y="421" width="127.3" height="32" rx="5" fill="#b5bdc9" opacity="1.0"/>
+<text x="978.9" y="442" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">READY 等待</text>
+<title>READY 等待: cycle 997–1177</title>
+<rect x="1042.6" y="421" width="319.7" height="32" rx="5" fill="#b93d40" opacity="0.62"/>
+<text x="1202.4" y="442" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">B1 供 4 个 head wave</text>
+<title>B1 供 4 个 head wave: cycle 1177–1629</title>
+<rect x="1042.6" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B1 W0 QK: cycle 1177–1225</title>
+<rect x="1076.5" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B1 W0 SM: cycle 1225–1241</title>
+<rect x="1087.9" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B1 W0 PV: cycle 1241–1289</title>
+<rect x="1121.8" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B1 W0 commit: cycle 1289–1290</title>
+<rect x="1122.5" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B1 W1 QK: cycle 1290–1338</title>
+<rect x="1156.5" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B1 W1 SM: cycle 1338–1354</title>
+<rect x="1167.8" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B1 W1 PV: cycle 1354–1402</title>
+<rect x="1201.7" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B1 W1 commit: cycle 1402–1403</title>
+<rect x="1202.4" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B1 W2 QK: cycle 1403–1451</title>
+<rect x="1236.4" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B1 W2 SM: cycle 1451–1467</title>
+<rect x="1247.7" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B1 W2 PV: cycle 1467–1515</title>
+<rect x="1281.7" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B1 W2 commit: cycle 1515–1516</title>
+<rect x="1282.4" y="484" width="34.0" height="32" rx="5" fill="#7a5195" opacity="1.0"/>
+<title>B1 W3 QK: cycle 1516–1564</title>
+<rect x="1316.3" y="547" width="11.3" height="32" rx="5" fill="#bc5090" opacity="1.0"/>
+<title>B1 W3 SM: cycle 1564–1580</title>
+<rect x="1327.6" y="610" width="34.0" height="32" rx="5" fill="#2a9d8f" opacity="1.0"/>
+<title>B1 W3 PV: cycle 1580–1628</title>
+<rect x="1361.6" y="673" width="1.0" height="32" rx="5" fill="#9b9b1f" opacity="1.0"/>
+<title>B1 W3 commit: cycle 1628–1629</title>
+<rect x="1363.0" y="736" width="189.6" height="32" rx="5" fill="#6c757d" opacity="1.0"/>
+<text x="1457.8" y="757" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="600" fill="white">8192 B O 写 + ack</text>
+<title>8192 B O 写 + ack: cycle 1630–1898</title>
+<line x1="338.0" y1="169" x2="338.0" y2="798" stroke="#34455c" stroke-width="1.3" stroke-dasharray="4 5" opacity=".6"/>
+<text x="342.0" y="818" font-family="sans-serif" font-size="12" fill="#34455c">181: Index 假定有效</text>
+<line x1="530.4" y1="169" x2="530.4" y2="798" stroke="#34455c" stroke-width="1.3" stroke-dasharray="4 5" opacity=".6"/>
+<text x="534.4" y="818" font-family="sans-serif" font-size="12" fill="#34455c">453: Q 载入完成</text>
+<line x1="722.8" y1="169" x2="722.8" y2="798" stroke="#34455c" stroke-width="1.3" stroke-dasharray="4 5" opacity=".6"/>
+<text x="726.8" y="818" font-family="sans-serif" font-size="12" fill="#34455c">725: slot 0 READY</text>
+<line x1="915.3" y1="169" x2="915.3" y2="798" stroke="#34455c" stroke-width="1.3" stroke-dasharray="4 5" opacity=".6"/>
+<text x="919.3" y="818" font-family="sans-serif" font-size="12" fill="#34455c">997: slot 1 READY</text>
+<line x1="1552.6" y1="169" x2="1552.6" y2="798" stroke="#34455c" stroke-width="1.3" stroke-dasharray="4 5" opacity=".6"/>
+<text x="1556.6" y="818" font-family="sans-serif" font-size="12" fill="#34455c">1898: 完成</text>
+<text x="49" y="870" font-family="sans-serif" font-size="14" fill="#536277">每条彩色区间来自 CSV 事件；底层 trace 含 128 次 KV 请求与返回、四个 head wave/批。</text>
+<text x="49" y="895" font-family="sans-serif" font-size="14" fill="#536277">Count 4 B 读 13 周期，Q 8192 B 读 272 周期；Index 内容假定有效、互异，模型未计算或校验实际 ID。</text>
+<text x="49" y="920" font-family="sans-serif" font-size="14" fill="#536277">模型参数：Index 启动 12 周期，KV 行延迟 16 周期，阵列 5 周期排空，softmax 每 wave 16 周期。</text>
+</svg>
