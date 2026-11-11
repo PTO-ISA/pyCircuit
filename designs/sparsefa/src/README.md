@@ -5,6 +5,12 @@ is an NDF design. No batched DMA, shared-KV slot manager, or integrated
 16×16×16 feeder is present in these source units; the existing P0S and
 standalone P0T descriptions below retain their own validation limits.
 
+`fa2_shared_kv_timing.py` is a separate pyCircuit-authored abstract resource
+schedule. Its generated C++ System runs and reports cycle events, but it does
+not implement the DMA payload, Index checks, numeric attention, or array
+feeder. See [the generated timing run](../tests/generated_timing/README.md)
+for its exact assumptions and measurements.
+
 The P0S closure has four source units, compiled independently:
 
 | Source | Hardware owner |

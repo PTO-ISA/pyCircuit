@@ -9,6 +9,19 @@
 System 源码；因此该目标硬件的 compile、link、C++执行、传输掩盖和物理性能全部
 **NOT RUN**。下方的P0S及独立三维阵列记录不能视为Shared-KV目标的验收。
 
+另有 [pyCircuit 源码生成的抽象资源模型](tests/generated_timing/README.md)：
+`fa2_shared_kv_timing.py` 与四个 System bench 通过 compile/link，从同一
+verified final 分别 emit C++/Verilog，生成 C++ 在 workers 1/2 下的事件一致。
+H=64、D=64、每批64项时，128项单/双 KV slot 为 **3021/2572** 周期；2048项为
+**38901/24837** 周期。[2048项全程图](tests/generated_timing/assets/sparsefa-pyc-2048-overview.svg)
+和[启动细节图](tests/generated_timing/assets/sparsefa-pyc-2048-startup-detail.svg)
+由生成 C++ 的事件 CSV 绘制。四例均完成全部批次/请求，Index slot≤2、KV
+slot≤配置值、KV outstanding≤8；第二批 Index 在首批 KV 发起后继续装入。
+本轮证据：`docs/gates/logs/sparsefa-pyc-timing-20261111T100610.883626Z/manifest.json`
+（包含命令、exit、源码及工具链 hash）。该模型不读取真实 Index/KV 数据、
+不执行数值注意力、错误路径或物理三维阵列，故不能取代上述目标硬件 NOT RUN；
+Verilog 只生成未仿真。
+
 另有[测试自有的 C++ 周期模型](tests/timing_model/README.md)已按目标
 [Index 双缓冲机制](ndf/l2/fa2-core-idx-stream-1007.md)重新执行。模型使用两个
 64 项 Index slot，第一批校验预算完成即放行本批 KV 请求，同时装载下一批 Index。

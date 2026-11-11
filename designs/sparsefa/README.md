@@ -11,6 +11,11 @@ indexer/top-k，不宣称兼容完整DeepSeek MLA/paged/量化cache ABI。
 这些是待实现架构，下面的P0S性能和验证结果不适用于新路径。
 [硬件模块架构图](ndf/assets/sparsefa-shared-kv-hardware-architecture.svg)给出控制、
 DMA、Index、KV buffer 与计算子系统的边界。
+[pyCircuit 生成的 Shared-KV 抽象资源时序模型](tests/generated_timing/README.md)已通过
+源码 compile/link、同一 final 的 C++/Verilog 生成及 C++ 双 worker 执行；
+[2048 项实测事件泳道图](tests/generated_timing/assets/sparsefa-pyc-2048-overview.svg)和
+[启动放大图](tests/generated_timing/assets/sparsefa-pyc-2048-startup-detail.svg)
+来自生成 C++ 的日志。它仍未执行实际 Index/KV 载荷或数值 attention。
 [独立 C++ 时序模型](tests/timing_model/README.md)已按 Index 双缓冲逐批放行重新执行：
 查看 [128 项泳道图](tests/timing_model/assets/sparsefa-index-stream-128-overview.png)、
 [2048 项全程图](tests/timing_model/assets/sparsefa-index-stream-2048-overview.png)
@@ -95,6 +100,8 @@ python3 designs/sparsefa/tests/array/test_oracle.py
 python3 designs/sparsefa/tests/array/run.py
 python3 -m unittest designs.sparsefa.tests.array3d.test_oracle -v
 python3 designs/sparsefa/tests/array3d/run.py
+python3 designs/sparsefa/tests/generated_timing/run.py --snapshot
+python3 designs/sparsefa/tests/generated_timing/render.py
 ```
 
 每组经compile/link/同一final双emit/C++运行；按用户要求，本次不执行Verilog仿真。完整命令、退出码、
