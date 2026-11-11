@@ -108,11 +108,8 @@ LogicalResult transactionPlacement(Operation *operation, bool allowGuard,
   auto *placed = operation;
   auto *parent = placed->getParentOp();
   while (allowBranch && parent &&
-         (isa<SourceBranchOp>(parent) ||
-          (captureControl(parent) && parent->getNumRegions()))) {
-    if (!allowGuard && parent->getName().getStringRef() == "scf.while" &&
-        placed->getParentRegion() == &parent->getRegion(0))
-      return operation->emitOpError("effects are forbidden in while conditions");
+         detail::isSourceStatementControlRegion(placed->getParentRegion(),
+                                                allowGuard)) {
     placed = parent;
     parent = placed->getParentOp();
   }

@@ -138,6 +138,10 @@ mlir::LogicalResult verifySourceSpan(mlir::DictionaryAttr value,
 mlir::LogicalResult verifySourceGuardLocation(mlir::DictionaryAttr location,
                                               mlir::DictionaryAttr sourceOwner,
                                               EmitError emitError);
+// Statement ancestry shared by source effects and transaction operations.
+bool isSourceStatementControlRegion(mlir::Region *region,
+                                    bool allowWhileCondition = false);
+
 mlir::LogicalResult verifySourceEffectMetadata(mlir::DictionaryAttr occurrence,
                                                mlir::DictionaryAttr location,
                                                mlir::Operation *lexicalModule,

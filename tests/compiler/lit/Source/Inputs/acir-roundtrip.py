@@ -194,6 +194,37 @@ for name, fixture in (("count", "COUNT_DESIGN"), ("maps", "NAMED_MAP_DESIGN")):
     body = unit / receipt["files"]["body"]
     cases.append((name, acir, body))
 
+# Source effects remain legal inside retained Rule and Method control regions.
+path = source / "loop_effects.py"
+path.write_text("""import pycircuit as ac
+@ac.rule
+def evaluate(value: ac.u8) -> ac.u8:
+    for index in range(3):
+        assert value == 0
+        ac.log('info', 'rule', value)
+    return value
+@ac.module
+def Top(value: ac.u8) -> ac.u8:
+    @ac.method
+    def inspect(item: ac.u8) -> ac.u8:
+        for index in range(2):
+            assert item == 0
+            ac.log('info', 'method', item)
+        return item
+    @ac.rule
+    def run() -> ac.u8:
+        inspected = inspect(value)
+        return inspected
+    result = evaluate(run)
+    return result
+""")
+acir = scratch / "loop_effects.acir"
+compile_source(path, acir, "--emit", "acir")
+unit = scratch / "loop_effects.unit"
+compile_source(path, unit)
+receipt = json.loads((unit / "unit.json").read_text())
+cases.append(("loop_effects", acir, unit / receipt["files"]["body"]))
+
 # These existing contracts require post-inline range reasoning. Export keeps
 # the original carrier; only standalone lowering decides index admissibility.
 admission = runpy.run_path(
@@ -289,11 +320,15 @@ standalone_env.pop("PYCIRCUIT_SOURCE_COMPILER", None)
 standalone_env.pop("PYCIRCUIT_LINKER", None)
 for name, acir, body in cases:
     lowered = scratch / (name + ".lowered.ac")
+    pipeline = "acir-to-source,ac-analyze-source-method-summaries"
+    # Transaction units retain effects until link, matching normal compile.
+    if name != "loop_effects":
+        pipeline += ",ac-simplify-record-wires"
     run(
         [
             args.optimizer,
             acir,
-            "--pass-pipeline=builtin.module(acir-to-source,ac-analyze-source-method-summaries,ac-simplify-record-wires)",
+            f"--pass-pipeline=builtin.module({pipeline})",
             "-o",
             lowered,
         ],

@@ -249,6 +249,56 @@ static std::string runtimeWhileFixture() {
 }
 
 TEST_F(SourceControlFlowTest,
+       CaptureWhileBodyAcceptsEffectsBeforeNormalization) {
+  auto file = parse(runtimeWhileFixture(), "Owner");
+  ASSERT_TRUE(file) << diagnostics;
+  (*file)->setAttr("ac.stage", StringAttr::get(&context, "acir"));
+  file->walk([&](ac::SourceExpectOp check) {
+    EXPECT_TRUE(succeeded(check.verify())) << diagnostics;
+  });
+  file->walk([&](ac::SourceMethodCallOp call) {
+    EXPECT_TRUE(succeeded(call.verify())) << diagnostics;
+  });
+}
+
+TEST_F(SourceControlFlowTest,
+       ConditionsGuardsAndPureHelpersRejectAssertions) {
+  auto file = parse(runtimeWhileFixture(), "Owner");
+  ASSERT_TRUE(file) << diagnostics;
+  (*file)->setAttr("ac.stage", StringAttr::get(&context, "acir"));
+  ac::SourceExpectOp check;
+  scf::WhileOp loop;
+  file->walk([&](ac::SourceExpectOp operation) { check = operation; });
+  file->walk([&](scf::WhileOp operation) { loop = operation; });
+  ASSERT_TRUE(check);
+  ASSERT_TRUE(loop);
+  auto transaction = loop->getParentOfType<ac::SourceTransactionOp>();
+  ASSERT_TRUE(transaction);
+  // Use the destination's own predicate so placement is the only changed
+  // contract; neither rejection depends on an out-of-scope SSA operand.
+  auto conditionPath = transaction.getBody().front().getArgument(0);
+  check->setOperands({conditionPath, conditionPath});
+  check->moveBefore(loop.getBefore().front().getTerminator());
+  EXPECT_TRUE(failed(check.verify()));
+  auto guardPath = transaction.getGuard().front().getArgument(0);
+  check->setOperands({guardPath, guardPath});
+  check->moveBefore(transaction.getGuard().front().getTerminator());
+  EXPECT_TRUE(failed(check.verify()));
+  OpBuilder builder(&context);
+  builder.setInsertionPointToEnd(file->getBody());
+  auto helper = func::FuncOp::create(
+      builder, loop.getLoc(), "pure",
+      builder.getFunctionType({guardPath.getType()}, {}));
+  helper->setAttr("ac.helper_kind", builder.getStringAttr("value"));
+  auto *entry = helper.addEntryBlock();
+  builder.setInsertionPointToEnd(entry);
+  auto returned = func::ReturnOp::create(builder, loop.getLoc());
+  check->setOperands({entry->getArgument(0), entry->getArgument(0)});
+  check->moveBefore(returned);
+  EXPECT_TRUE(failed(check.verify()));
+}
+
+TEST_F(SourceControlFlowTest,
        RuntimeWhileKeepsReachedControlExitCheckAndEffectIterationIdentity) {
   auto file = parse(runtimeWhileFixture(), "Owner");
   ASSERT_TRUE(file) << diagnostics;

@@ -386,18 +386,13 @@ LogicalResult payEffectMetadata(
   }
   return success();
 }
-// Only statement arms extend a callable body. Other region owners (including
-// guards and pure helpers) never acquire source-effect placement by ancestry.
+// Only legal statement control regions extend a callable body.
 Operation *sourceEffectCallable(Operation *operation) {
   Region *region = operation->getParentRegion();
   Operation *parent = operation->getParentOp();
-  while (auto branch = dyn_cast_or_null<SourceBranchOp>(parent)) {
-    if (branch->getNumRegions() != 2)
-      return nullptr;
-    if (region != &branch.getThenRegion() && region != &branch.getElseRegion())
-      return nullptr;
-    region = branch->getParentRegion();
-    parent = branch->getParentOp();
+  while (detail::isSourceStatementControlRegion(region)) {
+    region = parent->getParentRegion();
+    parent = parent->getParentOp();
   }
   return isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent) &&
                  parent->getNumRegions() == 2 && region == &parent->getRegion(1)

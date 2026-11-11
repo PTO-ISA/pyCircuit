@@ -256,3 +256,25 @@ LogicalResult verifySite(DictionaryAttr value, EmitError emitError) {
 
 } // namespace detail
 } // namespace acir::ac
+
+namespace acir::ac::detail {
+bool isSourceStatementControlRegion(Region *region, bool allowWhileCondition) {
+  if (!region) return false;
+  Operation *owner = region->getParentOp();
+  if (auto branch = dyn_cast<SourceBranchOp>(owner))
+    return branch->getNumRegions() == 2 &&
+           (region == &branch.getThenRegion() || region == &branch.getElseRegion());
+  if (!isACIRCapture(owner)) return false;
+  StringRef name = owner->getName().getStringRef();
+  if (name == "scf.for")
+    return owner->getNumRegions() == 1 && region == &owner->getRegion(0);
+  if (name == "scf.if")
+    return owner->getNumRegions() == 2 &&
+           (region == &owner->getRegion(0) || region == &owner->getRegion(1));
+  if (name == "scf.while")
+    return owner->getNumRegions() == 2 &&
+           (region == &owner->getRegion(1) ||
+            (allowWhileCondition && region == &owner->getRegion(0)));
+  return false;
+}
+} // namespace acir::ac::detail
