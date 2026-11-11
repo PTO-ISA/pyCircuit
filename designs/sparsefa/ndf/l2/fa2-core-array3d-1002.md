@@ -5,8 +5,8 @@
 ## 状态与边界
 
 本页是新增 3D 阵列的有界实现合同，M=N=P_K=16。架构方案和独立分解已完成，
-源码、默认预算下的完整链接、双目标生成与执行证据分别验收；本文的容量、II 和
-周期公式是设计目标，不能当作已经执行的结果。旧 ARRAY-1002/1003、P0S 和冻结
+源码、默认预算下的完整链接、双目标生成与执行证据分别验收；本文的容量、
+空间并行度和流水边界是设计目标，不能当作已经执行的结果。旧 ARRAY-1002/1003、P0S 和冻结
 L0 不作改写。旧 2D 阵列连 clear 闭包都曾触发默认 transaction 工作预算，新增
 3D 规模不会因为接口设计完成而自动获得编译支持。
 
@@ -149,23 +149,13 @@ Module 层注解用于持久状态并使用定义良好的初始化；动态 wir
 状态量之外的操作数广播和结果连线不计入 32 KiB；control bits、暂存、编译器
 导出结构和物理综合面积必须分别报告。4096 是逻辑空间乘法位置，不是 DSP 数。
 
-## 周期与统计
+## 流水结构与统计
 
-GROUP 在边沿 E 接受并保存产品，E+1/E+2/E+3/E+4 分别保存四级树，E+5 更新
-total。这里有六个数据寄存边界、五个边沿间隔。流水目标组 II=1，不隐含 MHz。
-没有 advance 的边沿不计一次流水推进；气泡推进则计一次。
-
-以 begin=e0，连续 GROUP=e1..eG，END=eG+1，其余必要边沿都调用 BUBBLE：
-
-| 事件 | 最早边沿 |
-| --- | --- |
-| 第一个组累加 | e6 |
-| 最后一个组累加并进入 RESULT | e(G+5) |
-| take | e(G+6) |
-| 下一个 begin | e(G+7) |
-
-G=4 时 begin-to-take 为 10 周期，tile cadence 为 11 周期；这是无 stall 合同值，
-不是实测性能。无 tile overlap 或 begin/take 同拍旁路。
+GROUP 依次经过产品、四级树和 total 的六个持久数据寄存边界；每次成功
+advance 推进在途组，没有调用则保持，BUBBLE 只推进旧组。资源须支持连续
+GROUP 接受，目标组 II=1。RESULT 必须在已接受的全部组退休且 END 已接受后
+才可取；本接口不支持 tile overlap 或 begin/take 同拍旁路。算子时延和
+tile cadence 不属于本 NDF。
 `groups` 是实际接受组数，`useful_macs` 是有效叶乘法数，最大 64×256=16,384。
 空组也占 4096 个容量 slot；不能计成有效运算。非空 cell 每组执行 15 个树加法
 和 1 个跨组加法，所以带 mask 时加法数一般不等于 useful_macs。
@@ -177,25 +167,4 @@ G=4 时 begin-to-take 为 10 周期，tile cadence 为 11 周期；这是无 sta
 
 ## 当前证据边界（2026-11-04）
 
-完整 3D source unit 已在默认预算下 compile 通过，候选
-`fa2_array3d.py` SHA256 为
-`4c806fd2108ff1e1bdd6b21b4e66327493b5f607aabdafae15c2774a54552cb0`。
-记录：`docs/gates/logs/fa2-array3d-author-syntax/mask-command.json`。
-先前在单 Cell 展开 16 次乘法 helper 的版本触发 Table query slots 预算；当前版本
-保留全部空间乘法，使用独立 Product 子 Module、标量尾掩码 helper 和普通掩码表达式。
-本状态仅说明 source compile；完整 final、结构证明、双 emit、C++ workers1/2、
-实测 II/周期和背压/四态执行尚不由该记录证明。
-
-首轮完整 System 的五个 source unit compile 均通过；link 在默认 transaction
-预算下失败：`requested 768, used 1048555, limit 1048576, phase transaction plans`。
-记录为 `docs/gates/logs/fa2-array3d/20261104T073610.941015Z/manifest.json`，输入与
-工具 hash 在执行前后不变。该轮没有 final、双 emit 或生成执行，不能报告实际
-4096 乘法硬件结构、实测 II=1 或 tile cadence 11 已通过。
-
-最终补入 length=33 测例并整理 import 的候选使用源码 SHA256
-`d69a86b634aa2ee2cc03b923702f8fec45ce7618718bf704bec7bdebbbbf36dc`；
-产品函数体未变。新一轮五个 source unit compile 通过，link 仍失败：
-`requested 512, used 1048269, limit 1048576, phase transaction plans`。
-准确记录为 `docs/gates/logs/fa2-array3d/20261104T074254.674027Z/manifest.json`。
-459 条输入指令和 43 个预期成功 tile 的 host oracle/checker 七项测试通过，
-完整阵列 final、双 emit 和 workers1/2 仍未运行。
+实际编译、运行和性能状态见 [VALIDATION](../../VALIDATION.md)。

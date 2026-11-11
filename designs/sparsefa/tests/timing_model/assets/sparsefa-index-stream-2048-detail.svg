@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2600" height="1010" viewBox="0 0 2600 1010">
+<rect width="100%" height="100%" fill="#fbfdff"/>
+<text x="45" y="46" font-family="sans-serif" font-size="30" font-weight="700" fill="#172033">SparseFA · 2048 Index · 启动及前五批放大泳道图</text>
+<text x="46" y="78" font-family="sans-serif" font-size="17" fill="#46556b">独立 C++ 时序模型实际执行 trace；64 Index/批，两个 Index slot，两个 KV slot；H=64，D=64</text>
+<text x="46" y="110" font-family="sans-serif" font-size="18" fill="#854d0e">双 KV slot 24,730 周期；单 KV slot 33,394 周期；节省 8,664 周期（25.9%）</text>
+<text x="46" y="141" font-family="sans-serif" font-size="15" fill="#a11b1b">模型时延，不是已生成硬件 DUT 或 RTL 的实测数据；Index 值假定有效且互异。</text>
+<text x="220" y="185" font-family="sans-serif" font-size="15" fill="#475569">模型周期 0–4,373</text>
+<line x1="220.0" y1="204" x2="220.0" y2="859" stroke="#e2e8f0"/>
+<text x="220.0" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">0</text>
+<line x1="352.9" y1="204" x2="352.9" y2="859" stroke="#e2e8f0"/>
+<text x="352.9" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">250</text>
+<line x1="485.8" y1="204" x2="485.8" y2="859" stroke="#e2e8f0"/>
+<text x="485.8" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">500</text>
+<line x1="618.8" y1="204" x2="618.8" y2="859" stroke="#e2e8f0"/>
+<text x="618.8" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">750</text>
+<line x1="751.7" y1="204" x2="751.7" y2="859" stroke="#e2e8f0"/>
+<text x="751.7" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,000</text>
+<line x1="884.6" y1="204" x2="884.6" y2="859" stroke="#e2e8f0"/>
+<text x="884.6" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,250</text>
+<line x1="1017.5" y1="204" x2="1017.5" y2="859" stroke="#e2e8f0"/>
+<text x="1017.5" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,500</text>
+<line x1="1150.4" y1="204" x2="1150.4" y2="859" stroke="#e2e8f0"/>
+<text x="1150.4" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,750</text>
+<line x1="1283.3" y1="204" x2="1283.3" y2="859" stroke="#e2e8f0"/>
+<text x="1283.3" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">2,000</text>
+<line x1="1416.3" y1="204" x2="1416.3" y2="859" stroke="#e2e8f0"/>
+<text x="1416.3" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">2,250</text>
+<line x1="1549.2" y1="204" x2="1549.2" y2="859" stroke="#e2e8f0"/>
+<text x="1549.2" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">2,500</text>
+<line x1="1682.1" y1="204" x2="1682.1" y2="859" stroke="#e2e8f0"/>
+<text x="1682.1" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">2,750</text>
+<line x1="1815.0" y1="204" x2="1815.0" y2="859" stroke="#e2e8f0"/>
+<text x="1815.0" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">3,000</text>
+<line x1="1947.9" y1="204" x2="1947.9" y2="859" stroke="#e2e8f0"/>
+<text x="1947.9" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">3,250</text>
+<line x1="2080.9" y1="204" x2="2080.9" y2="859" stroke="#e2e8f0"/>
+<text x="2080.9" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">3,500</text>
+<line x1="2213.8" y1="204" x2="2213.8" y2="859" stroke="#e2e8f0"/>
+<text x="2213.8" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">3,750</text>
+<line x1="2346.7" y1="204" x2="2346.7" y2="859" stroke="#e2e8f0"/>
+<text x="2346.7" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">4,000</text>
+<line x1="2479.6" y1="204" x2="2479.6" y2="859" stroke="#e2e8f0"/>
+<text x="2479.6" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">4,250</text>
+<text x="205" y="250" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Count / Q 预载</text>
+<line x1="220" y1="269" x2="2545" y2="269" stroke="#64748b" stroke-opacity=".22"/>
+<text x="205" y="312" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Index slot 0</text>
+<line x1="220" y1="331" x2="2545" y2="331" stroke="#2563eb" stroke-opacity=".22"/>
+<text x="205" y="374" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Index slot 1</text>
+<line x1="220" y1="393" x2="2545" y2="393" stroke="#3b82f6" stroke-opacity=".22"/>
+<text x="205" y="436" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">KV slot 0</text>
+<line x1="220" y1="455" x2="2545" y2="455" stroke="#ea580c" stroke-opacity=".22"/>
+<text x="205" y="498" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">KV slot 1</text>
+<line x1="220" y1="517" x2="2545" y2="517" stroke="#ef4444" stroke-opacity=".22"/>
+<text x="205" y="560" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">QK 阵列</text>
+<line x1="220" y1="579" x2="2545" y2="579" stroke="#7c3aed" stroke-opacity=".22"/>
+<text x="205" y="622" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Softmax</text>
+<line x1="220" y1="641" x2="2545" y2="641" stroke="#db2777" stroke-opacity=".22"/>
+<text x="205" y="684" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">PV 阵列</text>
+<line x1="220" y1="703" x2="2545" y2="703" stroke="#0d9488" stroke-opacity=".22"/>
+<text x="205" y="746" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">状态提交</text>
+<line x1="220" y1="765" x2="2545" y2="765" stroke="#a16207" stroke-opacity=".22"/>
+<text x="205" y="808" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">O 写回</text>
+<line x1="220" y1="827" x2="2545" y2="827" stroke="#475569" stroke-opacity=".22"/>
+<rect x="220.0" y="228" width="6.9" height="34" rx="4" fill="#64748b"><title>Count: 0–13</title></rect>
+<rect x="226.9" y="228" width="144.6" height="34" rx="4" fill="#64748b"><title>Q 8192 B: 13–285</title></rect>
+<text x="299.2" y="250" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">Q 8192 B</text>
+<rect x="371.5" y="290" width="10.6" height="34" rx="4" fill="#2563eb"><title>B0 DMA: 285–305</title></rect>
+<rect x="382.2" y="290" width="34.0" height="34" rx="4" fill="#16a34a"><title>B0 check: 305–369</title></rect>
+<rect x="416.2" y="290" width="129.7" height="34" rx="4" fill="#0891b2"><title>B0 issue: 369–613</title></rect>
+<text x="481.1" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0 issue</text>
+<rect x="416.2" y="414" width="151.0" height="34" rx="4" fill="#ea580c"><title>B0 gather: 369–653</title></rect>
+<text x="491.7" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0 gather</text>
+<rect x="567.2" y="414" width="395.6" height="34" rx="4" fill="#c2410c"><title>B0 compute: 653–1,397</title></rect>
+<text x="765.0" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0 compute</text>
+<rect x="567.2" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B0 W0: 653–697</title></rect>
+<rect x="590.6" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B0 W0: 697–794</title></rect>
+<text x="616.4" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="642.1" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B0 W0: 794–838</title></rect>
+<rect x="665.5" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W0: 838–839</title></rect>
+<rect x="666.1" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B0 W1: 839–883</title></rect>
+<rect x="689.5" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B0 W1: 883–980</title></rect>
+<text x="715.3" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="741.0" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B0 W1: 980–1,024</title></rect>
+<rect x="764.4" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W1: 1,024–1,025</title></rect>
+<rect x="765.0" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B0 W2: 1,025–1,069</title></rect>
+<rect x="788.4" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B0 W2: 1,069–1,166</title></rect>
+<text x="814.1" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="839.9" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B0 W2: 1,166–1,210</title></rect>
+<rect x="863.3" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W2: 1,210–1,211</title></rect>
+<rect x="863.9" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B0 W3: 1,211–1,255</title></rect>
+<rect x="887.2" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B0 W3: 1,255–1,352</title></rect>
+<text x="913.0" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="938.8" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B0 W3: 1,352–1,396</title></rect>
+<rect x="962.2" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W3: 1,396–1,397</title></rect>
+<rect x="416.2" y="352" width="10.6" height="34" rx="4" fill="#3b82f6"><title>B1 DMA: 369–389</title></rect>
+<rect x="426.8" y="352" width="34.0" height="34" rx="4" fill="#16a34a"><title>B1 check: 389–453</title></rect>
+<rect x="460.8" y="352" width="225.4" height="34" rx="4" fill="#0891b2"><title>B1 issue: 453–877</title></rect>
+<text x="573.6" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 issue</text>
+<rect x="460.8" y="476" width="246.7" height="34" rx="4" fill="#ef4444"><title>B1 gather: 453–917</title></rect>
+<text x="584.2" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 gather</text>
+<rect x="707.5" y="476" width="255.2" height="34" rx="4" fill="#94a3b8"><title>B1 ready: 917–1,397</title></rect>
+<text x="835.1" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 ready</text>
+<rect x="962.7" y="476" width="395.6" height="34" rx="4" fill="#be123c"><title>B1 compute: 1,397–2,141</title></rect>
+<text x="1160.5" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 compute</text>
+<rect x="962.7" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B1 W0: 1,397–1,441</title></rect>
+<rect x="986.1" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B1 W0: 1,441–1,538</title></rect>
+<text x="1011.9" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1037.7" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B1 W0: 1,538–1,582</title></rect>
+<rect x="1061.1" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W0: 1,582–1,583</title></rect>
+<rect x="1061.6" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B1 W1: 1,583–1,627</title></rect>
+<rect x="1085.0" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B1 W1: 1,627–1,724</title></rect>
+<text x="1110.8" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1136.6" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B1 W1: 1,724–1,768</title></rect>
+<rect x="1160.0" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W1: 1,768–1,769</title></rect>
+<rect x="1160.5" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B1 W2: 1,769–1,813</title></rect>
+<rect x="1183.9" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B1 W2: 1,813–1,910</title></rect>
+<text x="1209.7" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1235.5" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B1 W2: 1,910–1,954</title></rect>
+<rect x="1258.9" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W2: 1,954–1,955</title></rect>
+<rect x="1259.4" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B1 W3: 1,955–1,999</title></rect>
+<rect x="1282.8" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B1 W3: 1,999–2,096</title></rect>
+<text x="1308.6" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1334.4" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B1 W3: 2,096–2,140</title></rect>
+<rect x="1357.8" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W3: 2,140–2,141</title></rect>
+<rect x="546.4" y="290" width="12.2" height="34" rx="4" fill="#2563eb"><title>B2 DMA: 614–637</title></rect>
+<rect x="558.7" y="290" width="34.0" height="34" rx="4" fill="#16a34a"><title>B2 check: 637–701</title></rect>
+<rect x="592.7" y="290" width="370.0" height="34" rx="4" fill="#94a3b8"><title>B2 valid: 701–1,397</title></rect>
+<text x="777.7" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2 valid</text>
+<rect x="962.7" y="290" width="127.6" height="34" rx="4" fill="#0891b2"><title>B2 issue: 1,397–1,637</title></rect>
+<text x="1026.5" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2 issue</text>
+<rect x="962.7" y="414" width="148.9" height="34" rx="4" fill="#ea580c"><title>B2 gather: 1,397–1,677</title></rect>
+<text x="1037.2" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2 gather</text>
+<rect x="1111.6" y="414" width="246.7" height="34" rx="4" fill="#94a3b8"><title>B2 ready: 1,677–2,141</title></rect>
+<text x="1235.0" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2 ready</text>
+<rect x="1358.3" y="414" width="395.6" height="34" rx="4" fill="#c2410c"><title>B2 compute: 2,141–2,885</title></rect>
+<text x="1556.1" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2 compute</text>
+<rect x="1358.3" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B2 W0: 2,141–2,185</title></rect>
+<rect x="1381.7" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B2 W0: 2,185–2,282</title></rect>
+<text x="1407.5" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2</text>
+<rect x="1433.3" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B2 W0: 2,282–2,326</title></rect>
+<rect x="1456.7" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B2 W0: 2,326–2,327</title></rect>
+<rect x="1457.2" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B2 W1: 2,327–2,371</title></rect>
+<rect x="1480.6" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B2 W1: 2,371–2,468</title></rect>
+<text x="1506.4" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2</text>
+<rect x="1532.2" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B2 W1: 2,468–2,512</title></rect>
+<rect x="1555.6" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B2 W1: 2,512–2,513</title></rect>
+<rect x="1556.1" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B2 W2: 2,513–2,557</title></rect>
+<rect x="1579.5" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B2 W2: 2,557–2,654</title></rect>
+<text x="1605.3" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2</text>
+<rect x="1631.1" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B2 W2: 2,654–2,698</title></rect>
+<rect x="1654.5" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B2 W2: 2,698–2,699</title></rect>
+<rect x="1655.0" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B2 W3: 2,699–2,743</title></rect>
+<rect x="1678.4" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B2 W3: 2,743–2,840</title></rect>
+<text x="1704.2" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B2</text>
+<rect x="1729.9" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B2 W3: 2,840–2,884</title></rect>
+<rect x="1753.3" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B2 W3: 2,884–2,885</title></rect>
+<rect x="686.8" y="352" width="12.2" height="34" rx="4" fill="#3b82f6"><title>B3 DMA: 878–901</title></rect>
+<rect x="699.0" y="352" width="34.0" height="34" rx="4" fill="#16a34a"><title>B3 check: 901–965</title></rect>
+<rect x="733.1" y="352" width="625.2" height="34" rx="4" fill="#94a3b8"><title>B3 valid: 965–2,141</title></rect>
+<text x="1045.7" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3 valid</text>
+<rect x="1358.3" y="352" width="127.6" height="34" rx="4" fill="#0891b2"><title>B3 issue: 2,141–2,381</title></rect>
+<text x="1422.1" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3 issue</text>
+<rect x="1358.3" y="476" width="148.9" height="34" rx="4" fill="#ef4444"><title>B3 gather: 2,141–2,421</title></rect>
+<text x="1432.7" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3 gather</text>
+<rect x="1507.2" y="476" width="246.7" height="34" rx="4" fill="#94a3b8"><title>B3 ready: 2,421–2,885</title></rect>
+<text x="1630.5" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3 ready</text>
+<rect x="1753.9" y="476" width="395.6" height="34" rx="4" fill="#be123c"><title>B3 compute: 2,885–3,629</title></rect>
+<text x="1951.7" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3 compute</text>
+<rect x="1753.9" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B3 W0: 2,885–2,929</title></rect>
+<rect x="1777.3" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B3 W0: 2,929–3,026</title></rect>
+<text x="1803.1" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3</text>
+<rect x="1828.8" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B3 W0: 3,026–3,070</title></rect>
+<rect x="1852.2" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B3 W0: 3,070–3,071</title></rect>
+<rect x="1852.8" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B3 W1: 3,071–3,115</title></rect>
+<rect x="1876.2" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B3 W1: 3,115–3,212</title></rect>
+<text x="1901.9" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3</text>
+<rect x="1927.7" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B3 W1: 3,212–3,256</title></rect>
+<rect x="1951.1" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B3 W1: 3,256–3,257</title></rect>
+<rect x="1951.7" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B3 W2: 3,257–3,301</title></rect>
+<rect x="1975.0" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B3 W2: 3,301–3,398</title></rect>
+<text x="2000.8" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3</text>
+<rect x="2026.6" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B3 W2: 3,398–3,442</title></rect>
+<rect x="2050.0" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B3 W2: 3,442–3,443</title></rect>
+<rect x="2050.5" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B3 W3: 3,443–3,487</title></rect>
+<rect x="2073.9" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B3 W3: 3,487–3,584</title></rect>
+<text x="2099.7" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B3</text>
+<rect x="2125.5" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B3 W3: 3,584–3,628</title></rect>
+<rect x="2148.9" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B3 W3: 3,628–3,629</title></rect>
+<rect x="1090.9" y="290" width="12.2" height="34" rx="4" fill="#2563eb"><title>B4 DMA: 1,638–1,661</title></rect>
+<rect x="1103.1" y="290" width="34.0" height="34" rx="4" fill="#16a34a"><title>B4 check: 1,661–1,725</title></rect>
+<rect x="1137.1" y="290" width="616.7" height="34" rx="4" fill="#94a3b8"><title>B4 valid: 1,725–2,885</title></rect>
+<text x="1445.5" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4 valid</text>
+<rect x="1753.9" y="290" width="127.6" height="34" rx="4" fill="#0891b2"><title>B4 issue: 2,885–3,125</title></rect>
+<text x="1817.7" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4 issue</text>
+<rect x="1753.9" y="414" width="148.9" height="34" rx="4" fill="#ea580c"><title>B4 gather: 2,885–3,165</title></rect>
+<text x="1828.3" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4 gather</text>
+<rect x="1902.7" y="414" width="246.7" height="34" rx="4" fill="#94a3b8"><title>B4 ready: 3,165–3,629</title></rect>
+<text x="2026.1" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4 ready</text>
+<rect x="2149.4" y="414" width="395.6" height="34" rx="4" fill="#c2410c"><title>B4 compute: 3,629–4,373</title></rect>
+<text x="2347.2" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4 compute</text>
+<rect x="2149.4" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B4 W0: 3,629–3,673</title></rect>
+<rect x="2172.8" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B4 W0: 3,673–3,770</title></rect>
+<text x="2198.6" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4</text>
+<rect x="2224.4" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B4 W0: 3,770–3,814</title></rect>
+<rect x="2247.8" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B4 W0: 3,814–3,815</title></rect>
+<rect x="2248.3" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B4 W1: 3,815–3,859</title></rect>
+<rect x="2271.7" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B4 W1: 3,859–3,956</title></rect>
+<text x="2297.5" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4</text>
+<rect x="2323.3" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B4 W1: 3,956–4,000</title></rect>
+<rect x="2346.7" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B4 W1: 4,000–4,001</title></rect>
+<rect x="2347.2" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B4 W2: 4,001–4,045</title></rect>
+<rect x="2370.6" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B4 W2: 4,045–4,142</title></rect>
+<text x="2396.4" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4</text>
+<rect x="2422.2" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B4 W2: 4,142–4,186</title></rect>
+<rect x="2445.6" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B4 W2: 4,186–4,187</title></rect>
+<rect x="2446.1" y="538" width="23.4" height="34" rx="4" fill="#7c3aed"><title>B4 W3: 4,187–4,231</title></rect>
+<rect x="2469.5" y="600" width="51.6" height="34" rx="4" fill="#db2777"><title>B4 W3: 4,231–4,328</title></rect>
+<text x="2495.3" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B4</text>
+<rect x="2521.1" y="662" width="23.4" height="34" rx="4" fill="#0d9488"><title>B4 W3: 4,328–4,372</title></rect>
+<rect x="2544.5" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B4 W3: 4,372–4,373</title></rect>
+<rect x="1486.4" y="352" width="12.2" height="34" rx="4" fill="#3b82f6"><title>B5 DMA: 2,382–2,405</title></rect>
+<rect x="1498.7" y="352" width="34.0" height="34" rx="4" fill="#16a34a"><title>B5 check: 2,405–2,469</title></rect>
+<rect x="1532.7" y="352" width="616.7" height="34" rx="4" fill="#94a3b8"><title>B5 valid: 2,469–3,629</title></rect>
+<text x="1841.1" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B5 valid</text>
+<rect x="2149.4" y="352" width="127.6" height="34" rx="4" fill="#0891b2"><title>B5 issue: 3,629–3,869</title></rect>
+<text x="2213.2" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B5 issue</text>
+<rect x="2149.4" y="476" width="148.9" height="34" rx="4" fill="#ef4444"><title>B5 gather: 3,629–3,909</title></rect>
+<text x="2223.9" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B5 gather</text>
+<rect x="2298.3" y="476" width="246.7" height="34" rx="4" fill="#94a3b8"><title>B5 ready: 3,909–4,373</title></rect>
+<text x="2421.7" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B5 ready</text>
+<rect x="1882.0" y="290" width="12.2" height="34" rx="4" fill="#2563eb"><title>B6 DMA: 3,126–3,149</title></rect>
+<rect x="1894.2" y="290" width="34.0" height="34" rx="4" fill="#16a34a"><title>B6 check: 3,149–3,213</title></rect>
+<rect x="1928.3" y="290" width="616.7" height="34" rx="4" fill="#94a3b8"><title>B6 valid: 3,213–4,373</title></rect>
+<text x="2236.6" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B6 valid</text>
+<rect x="2277.6" y="352" width="12.2" height="34" rx="4" fill="#3b82f6"><title>B7 DMA: 3,870–3,893</title></rect>
+<rect x="2289.8" y="352" width="34.0" height="34" rx="4" fill="#16a34a"><title>B7 check: 3,893–3,957</title></rect>
+<rect x="2323.8" y="352" width="221.2" height="34" rx="4" fill="#94a3b8"><title>B7 valid: 3,957–5,117</title></rect>
+<text x="2434.4" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B7 valid</text>
+<line x1="416.2" y1="225" x2="416.2" y2="849" stroke="#334155" stroke-dasharray="4 5" opacity=".5"/>
+<text x="420.2" y="883" text-anchor="start" font-family="sans-serif" font-size="13" fill="#334155">369: 首批 Index 放行</text>
+<line x1="416.2" y1="225" x2="416.2" y2="849" stroke="#334155" stroke-dasharray="4 5" opacity=".5"/>
+<text x="420.2" y="883" text-anchor="start" font-family="sans-serif" font-size="13" fill="#334155">369: 首笔 KV 请求</text>
+<text x="46" y="925" font-family="sans-serif" font-size="15" fill="#475569">trace 含 2,048 笔 KV 请求和完成；蓝色 Index DMA、绿色校验预算、青色请求发射与 KV gather 交叠。</text>
+<text x="46" y="951" font-family="sans-serif" font-size="15" fill="#475569">softmax 每 wave 97 周期：普通 FP32 64 元素/周期 × 4 遍，exp 32 元素/周期；QK/PV 各 44 周期。</text>
+<text x="46" y="977" font-family="sans-serif" font-size="15" fill="#475569">Index 的 64 周期仅为校验调度预算；模型没有读取真实 ID、执行 Patricia 校验或计算 Attention 数值。</text>
+</svg>

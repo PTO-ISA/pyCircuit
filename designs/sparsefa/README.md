@@ -9,11 +9,13 @@ indexer/top-k，不宣称兼容完整DeepSeek MLA/paged/量化cache ABI。
 [64项Index/Gather与双缓冲设计](ndf/l2/fa2-core-skv-1005.md) 及
 [新泳道图](ndf/l2/fa2-core-skv-swimlane-1005.md) 描述传输/计算重叠。
 这些是待实现架构，下面的P0S性能和验证结果不适用于新路径。
-[实际运行的 C++ 时序模型泳道图](tests/timing_model/assets/shared-kv-2slot-model.png)
-及[复现程序](tests/timing_model/README.md)展示上述目标的资源/周期假设，
-不代表已生成的硬件仿真或实测 PPA。
-[2048 个 Index 的全程泳道图](tests/timing_model/assets/shared-kv-2048-overview.png)
-及[前五批计算放大图](tests/timing_model/assets/shared-kv-2048-detail.png)也已生成。
+[硬件模块架构图](ndf/assets/sparsefa-shared-kv-hardware-architecture.svg)给出控制、
+DMA、Index、KV buffer 与计算子系统的边界。
+[独立 C++ 时序模型](tests/timing_model/README.md)已按 Index 双缓冲逐批放行重新执行：
+查看 [128 项泳道图](tests/timing_model/assets/sparsefa-index-stream-128-overview.png)、
+[2048 项全程图](tests/timing_model/assets/sparsefa-index-stream-2048-overview.png)
+和 [2048 项启动放大图](tests/timing_model/assets/sparsefa-index-stream-2048-detail.png)。
+模型没有读取实际 Index ID 或计算注意力数值，不代表生成硬件仿真或实测 PPA。
 
 ## 当前实现
 

@@ -4,8 +4,9 @@
 
 本页验证 [ARRAY3D-1002](../l2/fa2-core-array3d-1002.md) 的新增 16×16×16 阵列。
 独立 host 模型、source compile、完整 final、双 emit 和生成执行分别记录。
-当前设计合同不是完整阵列已运行的声明；旧 2D、P0S 或缩小微例的通过不能代替
-当前 4096 空间乘法位置的证据。按用户要求不运行 Verilog 仿真。
+旧 2D、P0S 或缩小微例的通过不能代替当前 4096 空间乘法位置的证据。
+按用户要求不运行 Verilog 仿真；实际执行状态见
+[VALIDATION](../../VALIDATION.md)。
 
 ## 所有权与独立性
 
@@ -15,7 +16,7 @@ DUT 算术实现。`tests/array3d/` 的独立实例负责 Fraction 数值 oracle
 不能以角色名称代替发生过的审查。旧 P0S、L0 和 2D 历史文档保持原状。
 
 oracle 不导入产品 source，不执行 Python 设计函数，不把期望 rows、接收次数或
-周期答案写入 DUT。输入和期望分别保存；generated System/公开 adapter 只驱动
+预期结果写入 DUT。输入和期望分别保存；generated System/公开 adapter 只驱动
 输入并读取公开输出。管理日志和 review 记录不是测试运行依赖。
 
 ## 独立算术 oracle
@@ -73,60 +74,31 @@ guard 不可用则调用事务不提交，与上述协议返回 0 不同。
 take、公开结果记录及成功 tile 计数放在同一事务，未提交的 take 不得伪造结果。
 不能改产品接口暴露私有寄存器以直接注入阶段或给 DUT 填入期望结果。
 
-## 结构与周期证据
+## 结构与行为验收
 
 保留独立 compile/link/emit 的 source-unit 和 final manifests。最终 verified IR
 检查 16 Row、每 Row 16 Dot16、4096 逻辑乘法位置、3840 树加法位置和 256 累加
 位置，以及 16/8/4/2/1/1 数据存储布局。source 中实例或 helper 调用计数仅为
 审查线索；不能据此宣称 final 硬件结构存在。验证阶段寄存边界而非固定延迟计数。
 
-同一 verified final 生成 C++ 和 Verilog，C++ workers 1/2 比较全部结果、事件
-与周期；Verilog 仿真明确 NOT RUN。不得从其他 worktree 拷贝工具链或生成产物。
+同一 verified final 生成 C++ 和 Verilog，C++ workers 1/2 比较全部结果与
+事件顺序；Verilog 仿真明确 NOT RUN。不得从其他 worktree 拷贝工具链或生成产物。
 完整规模默认预算失败时保留失败阶段、预算种类、requested/used/limit 和闭包
 identity；不提高预算、不减少 M/N/P_K、不调用 host 计算替代 DUT。
 
-用实际成功 rising-edge commit 标记 begin、每个 advance、actionAccepted 和 take，
-不能把低/高 Work sample 计算为两个组。模型应验证：
-
-```text
-group acceptance at E -> accumulation at fifth subsequent successful advance
-continuous input group II = 1
-begin=e0, groups=e1..eG, END=eG+1
-last accumulation/RESULT=e(G+5), take=e(G+6), next begin=e(G+7)
-```
-
-“第五次后续 advance”可以跨越若干无调用 hold 周期；这与五个绝对时钟周期不同。
+用实际成功 commit 标记 begin、每个 advance、actionAccepted 和 take，
+不能把低/高 Work sample 计算为两个组。模型应验证 GROUP 经过全部寄存阶段
+才累加；没有 advance 时保持，BUBBLE 推进；END 与全部组退休之前不能 take。
+连续输入时检查资源组 II=1，但不把固定算子完成周期写成 NDF 断言。
 记录 accepted groups、rejected actions、bubble advances、no-call holds、RESULT waits、
 abort 和完整 tile 数。每个结果比较完整 16×16 words、tag、groups、useful_macs。
 useful_macs 是有效乘法叶数；容量 slot=4096×accepted_groups。带 mask 时树加法
 次数与有效乘法数不同，不能把二者都记成 useful_macs。
 
-G=4 理想 begin-to-take=10、tile cadence=11 只在连续必要 advance、无外部阻塞且
-无取消时成立。实测逐项对照这些前提；host 秒数、MHz、DSP 数、SRAM/片外带宽
-和完整 attention 加速均不由周期模型直接推导。
+算子时延、tile cadence、host 秒数和完整 attention 加速由独立性能测试记录，
+不属于本 NDF 的通过条件。
 
 ## 结果发布
 
-在 ignored `docs/gates/logs/<run-id>/` 记录确切 source/tool hashes、命令、退出码、
-完整 artifacts 路径、独立 review 和所有 NOT RUN。正式文档只更新可复查的状态
-摘要，测试不读取本地管理日志。提案审查、源码审查、oracle 通过、编译通过、
-生成执行通过逐层报告，不用“已实现”概括尚未通过的完整闭包。
-
-首轮完整闭包的实际结果：五个 source unit compile PASS，默认预算 link FAIL
-（transaction plans，requested 768、used 1048555、limit 1048576）。见
-`docs/gates/logs/fa2-array3d/20261104T073610.941015Z/manifest.json`。
-该轮的 final 结构检查、C++/Verilog emit、workers1/2 全部未运行；七项独立 host
-oracle/checker 测试通过不能替代这些阶段。Queue 背压、中途 reset、X/Z 注入仍是
-明确未执行项，RTL 仿真按用户要求排除。
-
-首轮冻结输入为 449 条指令、42 个预期成功 tile。后续候选补入独立 length=33
-用例，覆盖第三组单叶尾部，成为 459 条指令、43 个预期成功 tile；此前的执行
-记录仍绑定旧输入。独立 host 检查另覆盖全部 160 个合法 length/group 尾掩码
-组合，两者都不能替代生成硬件执行证据。
-
-新增边界后的最终轮次为
-`docs/gates/logs/fa2-array3d/20261104T074254.674027Z/manifest.json`：五个 source unit
-compile PASS，link FAIL（requested 512、used 1048269、limit 1048576，transaction
-plans）；全部 181 个输入/tool hash 前后不变。host 最终七项测试与 Ruff 通过，
-记录在 `docs/gates/logs/fa2-array3d/host-final-k33/manifest.json`。该轮仍无 final、
-双 emit 或 C++ workers1/2 执行；所有周期值保持设计合同身份。
+编译、link、双目标生成、C++ 执行与结构检查分别记录；任一阶段未运行不能
+推定通过。实际结果和证据位置见 [VALIDATION](../../VALIDATION.md)。

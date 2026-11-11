@@ -25,11 +25,14 @@ P0S 的 S_k 上限为
 `2^32-1`，K_max 上限为 2048；均为待冻结参数。`IndexCount` 范围为 `0..min(K_max,S_k)`，有效 token
 编号满足 `0 <= j < S_k`，类型是整数。允许无序列表；有效前缀中的重复编号报
 `INDEX_DUPLICATE`，不能重复计分或静默去重。越界报 `INDEX_RANGE`，count 非法报
-`INDEX_COUNT`。先验证整个有效前缀，再发出该 query 的 KV 读请求。
+`INDEX_COUNT`。P0S 先验证整个有效前缀，再发出该 query 的 KV 读请求；
+Shared-KV 目标按 [SKV-0002](fa2-core-skv-0002.md) 的 64 项双缓冲规则，
+仅要求本批验证后才发本批 KV 请求，跨批查重状态持续保留。
 
 `Index[..., count:K_max]` 是 padding，内容不参与合法性判断和地址生成；没有特殊 sentinel
-语义。count=0 合法，不发出该行 KV 请求，输出全零。向量化 index 读取可以覆盖分配
-范围内的 padding 字节，但不能越过声明的可读区间。
+语义。count=0 合法，不发出该行 KV 请求，输出全零。P0S 向量化 index 读取可以覆盖分配
+范围内的 padding 字节，但不能越过声明的可读区间；Shared-KV 目标按
+[SKV-0002](fa2-core-skv-0002.md) 只读取 count 内的有效项，不读取 padding。
 
 ## 选择与 mask
 
@@ -72,7 +75,8 @@ Paged KV 的 block table、cache 环形窗口位置变换、GQA/MQA head 映射�
 
 ## 硬件边界与失败
 
-IndexStore 保存有限容量的索引、count、query identity 和验证状态；GatherAddress
+P0S 的 IndexStore 保存有效前缀；Shared-KV 目标只保留两个 64 项 Index slot、
+count、query identity 和跨批校验状态，不要求片上保存全部 2048 个输入索引。GatherAddress
 输出携带原 token ID 的 K/V 请求。并行实现的KVTileStore按局部packed row存放数据；P0S仅保存当前token及K/V标量，
 不需要packed row映射。计算只消费当前已接受请求的响应，并在V向量完整后提交行状态。
 资源不足只能等待或拒绝，不得扩大无限索引缓存。

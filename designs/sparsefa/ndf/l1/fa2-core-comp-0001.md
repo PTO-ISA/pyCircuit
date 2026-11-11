@@ -34,8 +34,8 @@ FP32 语义定义。指数、倒数、舍入和输出 cast 可以由实现选择
 更新必须是全有或全无：`m`、`l` 和 `acc` 不能只提交其中一部分。normalize 只读取
 已经完成所有 K/V tile 的行状态；writeback 只提交已经完成 normalize 的输出 tile。
 
-L1 不规定阵列是 systolic、SIMD、vector 或时分复用，也不规定 exp/reciprocal 的周期。
-这些是 L2 的实现选择，只要保持依赖、精度和提交边界。
+L1 不规定阵列是 systolic、SIMD、vector 或时分复用。L2 可进一步规定资源
+组织和吞吐能力，但算子时延不属于 NDF；依赖、精度和提交边界必须保持。
 
 ## L2 细化
 
@@ -58,7 +58,9 @@ P0S共享标量ALU、phase操作数选择、位级算术、exp、PV影子提交�
 片上供数须同时提供两侧各 256 个 binary32 操作数，尾部和 mask 不得参与有效贡献。
 K 分组号不能替代外部预生成的 KV token index。
 
-具体接口、六级寄存数据路径、停顿/取消与周期公式见
+具体接口、寄存数据路径和停顿/取消规则见
 [ARRAY3D-1002](../l2/fa2-core-array3d-1002.md)，供数容量与布局见
 [ARRAY3D-BUF-1004](../l2/fa2-core-array3d-buf-1004.md)。独立阵列先于完整 attention
 集成验证，不能由设计并行度推断已测吞吐或更新 P0S 的执行合同。
+P0T Vector 和 exp 的独立资源吞吐规格见
+[VECTOR-1006](../l2/fa2-core-vector-1006.md)。

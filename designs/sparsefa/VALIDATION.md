@@ -9,26 +9,25 @@
 System 源码；因此该目标硬件的 compile、link、C++执行、传输掩盖和物理性能全部
 **NOT RUN**。下方的P0S及独立三维阵列记录不能视为Shared-KV目标的验收。
 
-另有[测试自有的 C++ 周期模型](tests/timing_model/README.md)已实际执行并输出
-[泳道图](tests/timing_model/assets/shared-kv-2slot-model.png)：H=64、D=64、
-Count=128、8个 KV 行 credit、32 B/cycle 总线、16周期行延迟的固定场景中，
-包含 Count 4 B 与 Q 8192 B 的传输时间，单 slot 2106 周期，双 slot 1834
-周期，模型节省272周期（12.9%）。模型假定预先生成的128个 Index ID 均有效、
-互异且未被 causal mask 屏蔽；每项预留1周期校验时延，但未输入或校验实际 ID。
-原始 CSV 和图的[可审阅快照](tests/timing_model/README.md)已保存；
-原始运行文件与命令证据保存在忽略的
-`docs/gates/logs/sparsefa-skv-timing-284d0921/`。这是独立资源/日程模型，
-不计算注意力结果，也不是 pyCircuit 生成硬件的 C++ 仿真。当前工作树重新
+另有[测试自有的 C++ 周期模型](tests/timing_model/README.md)已按目标
+[Index 双缓冲机制](ndf/l2/fa2-core-idx-stream-1007.md)重新执行。模型使用两个
+64 项 Index slot，第一批校验预算完成即放行本批 KV 请求，同时装载下一批 Index。
+Count=128、H=64、D=64 的模型运行得到单 KV slot **2674** 周期、双 KV slot
+**2402** 周期；[128 项 PNG](tests/timing_model/assets/sparsefa-index-stream-128-overview.png)
+来自实际 CSV 事件。Count=2048 的运行得到单 KV slot **33394** 周期、双 KV slot
+**24730** 周期；[全程 PNG](tests/timing_model/assets/sparsefa-index-stream-2048-overview.png)
+与[启动放大 PNG](tests/timing_model/assets/sparsefa-index-stream-2048-detail.png)
+覆盖 32 批和全部 2048 次 KV 行请求/完成。首批 Index 在模型周期 369 放行，
+首笔 KV 请求与下一批 Index DMA 同周期开始。两种运行均假定预生成 Index
+有效、互异且未被 causal mask 屏蔽；64 项校验只是时序预算，模型未读取真实 ID
+或执行 Patricia 检查。原始 CSV、复现命令和资源假设见模型 README；当前候选的
+运行记录在忽略的 `docs/gates/logs/sparsefa-index-stream-20261111/results.json`。
+旧 `shared-kv-*` 图保留为全 Index 先读、softmax 16 周期的历史模型结果，
+不得视为本次流水结果。这是独立资源/日程模型，不计算注意力结果，
+也不是 pyCircuit 生成硬件的 C++ 仿真。当前工作树重新
 编译 P0S 源码时遇到旧式局部 Rule 显式调用；临时改为现行语法后，整机与
 单独行引擎的 native link 均超过默认分析预算，因此没有新的 P0S 硬件 trace。
 上述试验改动未保留，失败证据在忽略的 `docs/gates/logs/fa2-p0-completion/`。
-
-同一独立周期模型的 [2048 Index 长序列运行](tests/timing_model/README.md) 共
-32 批、2048 次 KV 行请求；[全程图](tests/timing_model/assets/shared-kv-2048-overview.png)
-和[前五批计算放大图](tests/timing_model/assets/shared-kv-2048-detail.png)由原始
-CSV 事件生成。单 slot 为25,386模型周期，双 slot 为16,954模型周期，差8,432周期
-（33.2%）。模型先顺序读取并预留校验全部 Index 的时延，Q 加载结束后才开始
-KV gather；这仍不是生成硬件或真实 Index 内容的仿真。
 
 ## 当前三维 MAC 阵列
 

@@ -50,9 +50,9 @@ phase4成功到25的诊断边界。phase5不再是旧逐项比较语义，其余
 | 32 | engine写indices[position]并推进position；整前缀完成则position=0→Q，否则→INDEX_REQ |
 
 分歧位为31-clz(incoming_index XOR leaf.key)，仅两个不同有限uint32值执行该计算。
-两次遍历保持固定key宽度上界；正常插入最坏两次各33个读/检查节点，加4个写/发布阶段，
-不超过136个内部周期；首项4周期。N项非空上界4+136(N-1)，不计COUNT/INDEX总线等待。
-此为源码时序合同上界，不是综合频率或实测周期。实际平均深度由key集合决定。
+两次遍历保持固定 key 宽度上界，每次至多沿 32 个 branch 检查节点；
+节点写入和原序列表发布分属明确的状态阶段。实际路径深度由 key 集合决定，
+不在 NDF 中推导每项或整批校验的完成时延。
 
 parent链接公布前只写新节点；取消在任一阶段抑制新写并进入原终止/drain路径。
 链接已公布而indices尚未发布时取消也允许留下内部无效数据；没有Q/KV访问，下一命令
@@ -64,7 +64,7 @@ phase31修改parent只写一个节点；每阶段最多一个Memory读或写，�
 实现前独立审查树不变量、指针边界、最高位分裂和发布/取消；实现后独立host set oracle
 覆盖N128/512/2048、升序/降序/无序、高uint32、相同低位/长公共前缀、首尾duplicate、
 range/error优先级、空表、cancel/restart、密集路径不访问树。相同C++适配器和输入运行
-旧/新生成DUT，记录命令接受、首Q、首KV和最终完成的真实rising-edge周期；检查外部
+旧/新生成DUT，检查命令接受、首Q、首KV和最终完成的外部
 请求顺序、结果和单outstanding。保持原完整System和controller四态回归。
 
 同一verified final生成C++/Verilog，执行C++ workers1/2；按用户要求不做RTL仿真。

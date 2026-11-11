@@ -1,62 +1,69 @@
-# FA2-CORE-SKV-SWIMLANE-1005：64-Index 与共享 KV 双缓冲泳道图
+# FA2-CORE-SKV-SWIMLANE-1005：Index/KV 双缓冲数据流
 
-<!-- ndf: kind=mechanism modality=may refinement=L2 status=draft owner=sparsefa refines=FA2-CORE-SKV-0002,FA2-CORE-SKV-1005 -->
+<!-- ndf: kind=mechanism modality=may refinement=L2 status=draft owner=sparsefa refines=FA2-CORE-SKV-0002,FA2-CORE-SKV-1005,FA2-CORE-IDX-STREAM-1007 -->
 
-下图是**目标并行架构**的事务顺序，不是当前 P0S 的实测逐拍日志。
-时间向下；Index 由 Host 提前产生，K 和 V 是同一份 `KV[b,token,d]`。
-为了保持当前完整前缀校验的错误边界，所有最多 64 项的 Index 批次先验证完，
-再开始本行的 KV 请求。双 slot 的重叠发生在后续 KV batch 装载与计算之间。
+下图只表达目标架构的事务依赖和可重叠关系，不表达周期数或固定算子时延。
+Index 由 Host 提前产生，K 和 V 是同一份 `KV[b,token,d]`。每个 64 项
+Index 批次单独校验并放行对应 KV；跨批查重状态持续保留。Index slot 与
+KV slot 各有两个，编号不要求相同。
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Host as Host/Index 输入
-    participant Sch as 调度/HeadState
-    participant Idx as Index DMA (64项)
-    participant Val as IndexStore/校验
+    participant Host as Host / 预生成 Index + KV
+    participant Sch as 调度 / HeadState
+    participant Idx as Index DMA + 双 slot
+    participant Val as 跨批校验器
     participant DMA as KV Gather DMA
     participant S0 as KV Slot 0
     participant S1 as KV Slot 1
-    participant MAC as QK/Softmax/PV
+    participant MAC as QK / Softmax / PV
     participant O as O 写回
 
     Host->>Sch: SharedKVCommand(H,D,KV,Index,Q,O)
-    Sch->>Idx: 读取 count
-    loop t=0..ceil(count/64)-1
-        Idx->>Host: 读取最多 64 个 uint32 Index
-        Host-->>Idx: 按位置返回 Index 批次
-        Idx->>Val: 逐项 range/duplicate 校验并保存原顺序
-    end
-    Val-->>Sch: 完整前缀 VALID（错误则终止）
-    Sch->>DMA: batch 0 的至多 64 个原 token
-    DMA->>Host: gather 至多 64 行，共用一份 KV
-    Host-->>DMA: 带 tag 的 KV 响应，可乱序
-    DMA->>S0: 按原位置填充，全部返回后 READY
-    par 消费 batch 0
-        S0->>MAC: 同一 KV tile 广播到全部 16-head wave
-        MAC->>MAC: QK token×D 分块 → batch max/weight → PV output-dim×token 分块
-        MAC->>Sch: 整批完成后原子发布每 head 的 m/l/acc
-    and 预取 batch 1
-        Sch->>DMA: batch 1 的至多 64 个原 token
-        DMA->>Host: 下一组 scatter KV 行读取
+    Sch->>Idx: 读取 Count、装载 Index batch 0
+    Host-->>Idx: 最多 64 个 uint32，按原位置装配
+    Idx->>Val: 顺序校验 batch 0，保留跨批去重状态
+    Val-->>Sch: BATCH_VALID(0)
+    par 当前批 KV 与计算
+        Sch->>DMA: batch 0 原 token 与位置
+        DMA->>Host: 按有效 token scatter 读取 KV
         Host-->>DMA: 带 tag 的 KV 响应
-        DMA->>S1: 填充后 READY
+        DMA->>S0: 全部有效数据到齐后 READY
+        S0->>MAC: 同一 KV tile 供所有共享列表 head wave
+        MAC->>Sch: 更新候选 m/l/acc
+    and 下一批 Index 与 KV 预取
+        Sch->>Idx: 在另一 Index slot 装载 batch 1
+        Host-->>Idx: batch 1 的有效项
+        Idx->>Val: 按原列表位置做跨批 range/duplicate 校验
+        Val-->>Sch: BATCH_VALID(1)
+        Sch->>DMA: 有可用 KV slot/credit 后发 batch 1
+        DMA->>Host: batch 1 的 KV scatter 请求
+        Host-->>DMA: 带 tag 的响应
+        DMA->>S1: batch 1 READY
     end
-    Note over S0,S1: slot 0 在全部 head wave 消费后才可复用；下一批交换角色
-    loop 后续 batch：READY 后交替消费/填充
-        Sch->>MAC: 从当前 READY slot 供 QK → online softmax → PV
-        MAC->>Sch: 保留各 head 的跨 batch 状态
-        Sch->>DMA: 只向已释放的 slot 预取后续批次
+    loop 其余 batch：Index slot 和 KV slot 分别释放、复用
+        Sch->>Idx: 装载并校验后续最多 64 项
+        Val-->>Sch: 本批 BATCH_VALID 或首个 Index 错误
+        Sch->>DMA: 只放行已校验批的 KV
+        Sch->>MAC: 按 batch 顺序消费 READY KV tile
     end
-    Sch->>O: 每 head 归一化并写 O
-    O-->>Sch: 所有 O 写入 ack
-    Sch-->>Host: 一次 completion
+    alt 全部 Index/KV/计算成功
+        Sch->>O: 归一化后写每 head 的 O
+        O-->>Sch: 所有 O 写入 ack
+        Sch-->>Host: 一次正常 completion
+    else 后批 Index 错误、KV 错误或取消
+        Sch->>Idx: 停止新请求，drain 已接受 Index 响应
+        Sch->>DMA: 停止新 KV 请求，drain 已接受 KV 响应
+        Sch->>Sch: 丢弃候选行状态，整次 O 无效
+        Sch-->>Host: 错误或取消完成
+    end
 ```
 
-对于 head-specific Index，每个 head 的 Index 前缀须独立验证；KV 仍来自同一
-共享 cache，但首版按 head 顺序一次处理一个列表，slot 绑定
-`list_identity,head_id,batch`，阵列只启用该 head 行。消费其 batch `t` 时
-仅预取同一 head 的 batch `t+1`；列表不同的 tile 不能仅按 `batch` 位置复用。
-无论双缓冲还是三缓冲，
-DMA 返回慢时 MAC 等待 READY；图中的并行分支不承诺固定 II 或零停顿。
-详细 tag、bank、容量和失效规则见 [SKV-1005](fa2-core-skv-1005.md)。
+Index slot 在本批所有位置已发 KV 请求或因 mask 跳过，且 metadata 已复制
+到 KV slot 后释放；KV slot 在所有需要的 head wave 消费完后释放。较晚批
+发现重复、越界或总线错误时，先前批可以已经发过 KV 请求，但 O 尚未写回。
+head-specific Index 逐 head 使用同一规则；首版一次处理一个 head 的列表，
+不把不同 head 的同号批次当作同一 tile。总线和 slot 反压使重叠成为条件能力，
+详细状态与错误优先级见 [IDX-STREAM-1007](fa2-core-idx-stream-1007.md)
+和 [SKV-1005](fa2-core-skv-1005.md)。

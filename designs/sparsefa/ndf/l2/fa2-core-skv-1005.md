@@ -11,8 +11,9 @@
 
 ```mermaid
 flowchart LR
-  IDX[64-entry Index DMA] --> VAL[全前缀校验\nIndexStore + Patricia]
-  VAL --> AGU[64-position Gather AGU]
+  IDX[64-entry Index DMA] --> IBUF[Index slot 0/1]
+  IBUF --> VAL[逐批校验 + 跨批 Patricia]
+  VAL --> AGU[本批 VALID 后的 64-position Gather AGU]
   AGU --> DMA[带 tag 的 KV Gather DMA]
   DMA --> SLOT[KV slot 0/1/可选更多]
   SLOT --> XBAR[16-bank 读出/转置/解码]
@@ -23,6 +24,11 @@ flowchart LR
   STATE --> MAC
   STATE --> OUT[归一化与 O 写回]
 ```
+
+完整的 Shared-KV 目标硬件模块结构、片上存储和数据/控制连线见
+[可放大的 SVG 架构图](../assets/sparsefa-shared-kv-hardware-architecture.svg)
+或 [PNG 架构图](../assets/sparsefa-shared-kv-hardware-architecture.png)。
+图示为本页的目标草案，不表示 P0S 串行实现与独立三维阵列已经集成。
 
 ## 命令和唯一状态 owner
 
@@ -37,7 +43,8 @@ operation tag 及取消。count/index 的 head stride 同时为零才启用共�
 | 模块 | 唯一拥有的状态 | 关键输出 |
 | --- | --- | --- |
 | CommandScheduler | operation/generation、`b,i`、head wave 和 64 项 batch 游标 | 给 index、gather、计算和写回的事务身份 |
-| IndexLoader/Validator | count、2048 项有序 IndexStore、Patricia 节点与校验游标 | 完整前缀的 VALID 或首个错误 |
+| IndexSlotManager/Loader | count、两个 64 项 Index slot、DMA tag 与批次游标 | 按原位置装载下一批、管理 slot |
+| IndexValidator | 跨批 Patricia 节点、当前校验位置与首错 | 当前批的 BATCH_VALID 或错误 |
 | GatherDMA | 请求 credit、tag→slot/position 表、未返回 fragment 位图 | KV slot 填充和错误/drain |
 | KVSlotManager | 每个 slot 的 tag、状态、位置有效位、原 token ID | 已完整装载的共享 tile |
 | HeadState | 最多 64 个 head 的 Q、`m/l`、PV accumulator 和有效性 | 独立 head 的下一批计算状态 |
@@ -46,9 +53,10 @@ operation tag 及取消。count/index 的 head stride 同时为零才启用共�
 
 模块之间传一个带 `operation,generation,b,i,batch,valid_count,list_identity,
 consumer_kind,consumer_id` 的 tile 描述符。共享列表的 consumer 是 `head_wave`，
-head-specific 列表的 consumer 是单个 `head_id`；`list_identity` 包含该次完整
-前缀校验的 `(b,i,head_id 或 shared,count,index 视图,generation)` 身份，不能
-只以 batch 序号或 KV base 判定命中。KVSlotManager 是 slot 元数据的唯一 owner；DMA 不直接宣告
+head-specific 列表的 consumer 是单个 `head_id`；`list_identity` 包含已快照的
+`(operation,generation,b,i,head_id 或 shared,count,index 描述符)`，tile 还须
+匹配批号及本批有效位置/token metadata，不能只以 batch 序号或 KV base 判定命中。
+KVSlotManager 是 slot 元数据的唯一 owner；DMA 不直接宣告
 READY，阵列不直接释放 slot。状态/Queue 的仲裁和可用性由编译器或真实接口控制，
 不能用未验证的同拍组合链假定 DMA、SRAM 和 MAC 同时提交。
 
@@ -58,12 +66,14 @@ Index 连续区间按 `N=ceil(count/64)` 个事务处理，批 `t` 的有效项�
 `n_t=min(64,count-64*t)`，最多 32 批。一次满批的载荷是 256 B；总线可拆成
 物理 beat，但必须按列表位置归并。即使响应乱序或某个 beat 报错，也要先还原
 每个位置的值/错误，再按 `p` 递增校验，以保留首个错误的优先级；不能让较晚的
-bus.error 抢在较早的越界/重复之前。每项先检查 `token<Sk`，再在精确校验结构中
-检查重复，最后写 `IndexStore[p]`。所有批均验证后才发布该行的 VALID 屏障；
-首个错误按原列表顺序报告，后续批不触发 KV 读取。共享 index 只校验一次，
-head-specific index 对每个 head 分别建立校验身份。
+bus.error 抢在较早的越界/重复之前。每项先检查 `token<Sk`，再在跨批精确校验
+结构中检查重复。**一批全部有效项通过后即发布 BATCH_VALID**，不等其余
+Index 批次；GatherAGU 可以立即取本批 KV，同时 IndexLoader 装载下一批。
+共享 Index 只校验一次，head-specific Index 对每个 head 分别建立校验身份。
+两个 64 项 Index slot、跨批 Patricia、放行与故障协议见
+[IDX-STREAM-1007](fa2-core-idx-stream-1007.md)。
 
-VALID 后，GatherAGU 按相同的 64 个原列表位置装载 KV。每个被选中且通过 causal
+BATCH_VALID 后，GatherAGU 按相同的 64 个原列表位置装载 KV。每个被选中且通过 causal
 的 token 发一个长度 `2*D` 字节的连续行读取：
 
 ```text
@@ -144,12 +154,11 @@ slot 状态按 `FREE → FILLING → READY → IN_USE → FREE` 推进；取消/
 不是无限预取。
 
 ```text
-完整 Index 前缀校验通过
-时间 ↓           slot 0                    slot 1                 阵列/每 head 状态
-阶段 A           填充 KV batch 0           FREE                   等待
-阶段 B           供 batch 0 给所有 head    填充 KV batch 1        QK → softmax → PV
-阶段 C           填充 KV batch 2           供 batch 1 给所有 head QK → softmax → PV
-...              只在释放后复用             只在释放后复用         最后一批后归一化
+逻辑推进 ↓       Index slot 0/1             KV slot 0/1              阵列/每 head 状态
+batch 0          装载→校验→BATCH_VALID       放行后填充 KV 0           READY 后消费 batch 0
+batch 1          另一 slot 装载→校验          KV 0 填充/消费时预取 KV 1 保留上一批行状态
+batch 2..        已释放 Index slot 继续复用   KV slot 完成消费后复用     顺序 QK→softmax→PV
+列表完成         全部 Index 校验通过         全部相关 KV/计算无错      归一化后才允许 O 写
 ```
 
 共享 index 时，先为一个 `(b,i)` 装载最多 64 个 Q head 并初始化各自状态。
@@ -192,6 +201,10 @@ score 做 16-lane 树最大值，再按组递增取最大值；最大值比较�
 `has_value=false` 时跳过旧状态项，避免 `0*exp` 的无意义路径。全被 mask
 或空 batch 保持旧状态和 `has_value` 原值，不做除零或写回。
 
+Vector 普通 FP32 计算按每周期 256 B、即 64 个元素的稳态能力配置；
+exp 资源按每周期 32 个 FP32 元素配置。资源与端口要求见
+[VECTOR-1006](fa2-core-vector-1006.md)；本页不规定完整 softmax 时延。
+
 每个 wave 的 QK 先按最多四个 16-token 列 tile、每 tile 最多
 `ceil(D/16)` 个维度归约组执行；满批 `n=64,D=64` 时共接受 **16 个**
 阵列 GROUP，形成至多 64 个 score。完成 `bmax/w_p` 和分母候选后，PV
@@ -209,10 +222,10 @@ score/weight scratch 分阶段复用；某组概率在对应 PV 被接受并完�
 与现有空集合合同一致。候选数值精度是目标合同，不能声称与旧 P0S 逐 token
 结果逐位相同。
 
-head-specific index 模式必须对每个 head 的完整列表分别校验。该模式使用相同
-64 项 loader 和双 slot。首版按 `head_id` 递增，一次只使一个 head 的列表
-处于计算/预取状态：先验证该 head 的完整前缀，再装载它的 batch 0；消费
-batch `t` 时只预取**同一 head** 的 batch `t+1`，直到该 head 写回完成才
+head-specific index 模式必须对每个 head 的列表分别做跨批校验。该模式使用相同
+64 项 Index 双 slot 和 KV 双 slot。首版按 `head_id` 递增，一次只使一个 head 的列表
+处于计算/预取状态：该 head 的 batch 0 验证后立即可装载 KV 0；消费
+batch `t` 时只预取**同一 head** 的 Index/KV batch `t+1`，直到该 head 写回完成才
 切到下一 head。slot tag 必须同时匹配 `list_identity,head_id,batch`，阵列
 只开该 head 的一行、其余 15 行 mask；不能按共享列表的 16-head 广播。
 首版跨 head 不命中复用，即使两个列表内容相同也重新装载；以后若增加复用，
@@ -221,17 +234,17 @@ batch `t` 时只预取**同一 head** 的 batch `t+1`，直到该 head 写回完
 
 ## 传输掩盖、反压和失效
 
-设一次 batch 的实际装载时间为 `T_load`，消费所有 head wave 的时间为
-`T_compute`。双 slot 在已完成首批预取后，只有当每次
-`T_load <= T_compute` 且 bank/总线无额外冲突时才可能持续隐藏传输；否则
-阵列必须等待 READY。三 slot 可吸收有限抖动，不能消除长期带宽不足。
+双 slot 允许一个 slot 供给阵列时另一个 slot 填充 KV；若下一批尚未 READY，
+阵列必须等待。三 slot 可容纳更多在途 batch，但每个 slot 仍受状态、tag 和
+credit 约束。是否掩盖传输等待由独立性能模型测量，不在 NDF 设固定时延条件。
 可估外部读字节数：共享列表时每 `(b,i)` 的有效 KV 最少为
 `2*D*N_active`，而不是 `H*2*D*N_active`；再加 Q、Index、O 和可能的重读。
 这是流量下界，不是已测带宽或加速比。
 
 取消立即停止新 DMA/计算/写回，已接受请求按 tag/generation 消费并丢弃旧响应；
-错误优先级仍由完整前缀校验及总线错误定义。不能靠清 slot valid 位假装外部请求
-已完成。operation 的 O 在错误/取消后整体无效，已确认写不能撤销；正常 completion
+错误优先级由跨批 Index 校验及总线错误定义；后批错误使已开始的前批候选计算失效。
+不能靠清 slot valid 位假装外部请求已完成。完整 Index 列表未校验通过之前不得
+发 O 写；operation 的 O 在错误/取消后整体无效，已确认写不能撤销；正常 completion
 必须等待所有 head 的最后 O 写响应。复位后的旧 tag 要求真实 bus fence/reset
 或可证明的 generation 隔离，不能凭有限计数器回绕后继续使用陈旧响应。
 

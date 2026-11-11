@@ -16,7 +16,7 @@ P0S实际在发KV前mask，DUT事件检查应依据L2有效集合独立构造，
 | count0 | 无Index/KV读；Q装载后逐维零输出 |
 | count>min(2048,S_k) | code2，count响应后终止，无Index/KV/O访问 |
 | token==S_k或uint32高位越界 | code3，无该query KV/O |
-| 重复token，包括0和masked项 | code4，完整前缀校验之前不执行KV |
+| 重复token，包括0和masked项 | P0S 报 code4，完整前缀校验之前不执行KV；Shared-KV 的逐批放行另见 [IDX-STREAM-1008](fa2-core-idx-stream-1008.md) |
 | padding含重复/越界垃圾 | padding不读、不验证、不生成请求 |
 | 不同query/head列表 | 不合并、不跨行复用此前缀 |
 | count2048 | 全前缀验证、实际比较次数、计数不截成0 |

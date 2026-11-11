@@ -15,7 +15,7 @@
 | 类别 | 内容 | 生命周期 | 对外可见性 |
 | --- | --- | --- | --- |
 | Q tile store | 当前 query 行块 | 当前 query tile | 仅计算路径 |
-| Index store | 外部索引有效前缀、count 与验证状态 | 当前 query | gather 边界可见 |
+| Index store | P0S 的完整前缀，或 Shared-KV 的两个 64 项 slot、count 与跨批校验状态 | 当前 query | gather 边界可见 |
 | Original-token metadata | 当前原token或packed KV row对应的token ID | 当前 K/V tile | mask/传输边界可见 |
 | K tile store | 当前 key 行块或 gathered key 行块 | 当前 K/V tile | 仅 score 路径 |
 | V tile store | 当前 value 行块 | 当前 K/V tile | 仅 value 路径 |

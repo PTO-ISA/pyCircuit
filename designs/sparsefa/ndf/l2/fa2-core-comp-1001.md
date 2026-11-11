@@ -53,12 +53,12 @@ FA2Engine主数据通路有一个显式fp_mul、一个fp_add、一个fp_exp_neg�
 无有效token时l保持0，O写入正零。负score、相同score、max下降（保持old_m）和max
 上升均使用原数值比较，而不是无符号编码大小直接比较。masked token不更新任何row统计。
 
-## 时间和复用约束
+## 数据复用与提交约束
 
-每个有效token需要D次K事务、scale/max/alpha/beta/denominator阶段、D次V事务和
-每维rescale/accumulate阶段；最后还有D次输出load/write/ack。外部等待可以任意插入。
-exp是组合子网络，ALPHA/BETA各在一个提交边沿采样结果；这只是功能周期，不是GHz
-时钟承诺。流水化需要新增latency/tag/flush合同和重新验证跨阶段可见性。
+每个有效 token 都必须完成 QK、scale/max、alpha/beta、分母与 value 累加；
+最后按输出维度归一化并等待写回确认。外部等待可在任一请求边界插入。
+P0S exp 使用组合子网络，ALPHA/BETA 的采样服从状态阶段和原子提交规则。
+若改为流水实现，须保留操作身份、取消清空和跨阶段可见性；此处不规定时延。
 
 ## 数值验证
 

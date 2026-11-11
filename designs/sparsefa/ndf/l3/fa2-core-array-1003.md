@@ -1,4 +1,4 @@
-# FA2-CORE-ARRAY-1003：并行阵列验证与周期统计 {#FA2-CORE-ARRAY-1003}
+# FA2-CORE-ARRAY-1003：并行阵列结构与行为验证 {#FA2-CORE-ARRAY-1003}
 
 <!-- ndf: kind=verification modality=must refinement=L3 status=draft owner=flash_attention2 refines=FA2-CORE-ARRAY-1002 verifies=FA2-CORE-COMP-0001 -->
 
@@ -45,31 +45,14 @@ completed 计数位于同一事务，非法 take 不能增加完成数。测试�
 手算锚点覆盖正负零、下溢、饱和以及 nonfused/FMA 差异。首批 generated 矩阵不是
 整个有限 FP32 域的穷举，也不能借此宣称 NaN/Inf 支持。
 
-## 周期和吞吐的统计口径
+## 结构与行为观察
 
-生成 System 每周期有低/高两个 Work sample。仅偶数 `commit_epoch` 对应本测试
-驱动的 rising edge；校验 `commit_epoch == 2*(cycle+1)`，不能把两次观察计为两次
-接受。日志须与独立模型完全一致，包括顺序、次数和被拒动作的缺失：
-
-- `array_action(cycle, op, tag, index)`：实际接受的生命周期动作。
-- `array_row(tag, row, c0, ..., c15)`：take 当拍的完整行；每 tile 恰好 16 条。
-- `array_result(tag, steps, useful_macs)`：take 当拍元数据。
-- `array_pass(total_results)`：日程结束后仅一次完成检查。
-
-记录 begin、各 step、end、take 的真实接受周期，并计算：
-
-```text
-begin_to_take = take_cycle - begin_cycle
-occupied_cycles = take_cycle - begin_cycle + 1
-active_stall_cycles = end_cycle - begin_cycle - accepted_steps - 1
-result_wait_cycles = take_cycle - end_cycle - 1
-step_intervals = 相邻两次实际 step 的周期差
-```
-
-无阻塞期望为 step II=1、begin-to-take=K+2、tile 占用 K+3。
-满阵列每个接受 step 是 256 MAC；有 mask 时用 useful_macs 统计，不把空槽计入
-有效吞吐。仿真停止的 epoch 仅表示日程完成界限；host 执行秒数不是硬件周期。
-完整 attention 性能还需要包含供数、KV gather、softmax、rescale、写回及各层等待。
+生成 System 的低/高 Work sample 不得重复计为两次接受。日志须与独立模型
+在动作顺序、次数和被拒动作的缺失上完全一致：begin、各 step、end、take，
+take 返回的 16 行结果、tag、steps、useful_macs，以及取消和等待时的状态保持。
+满阵列每个接受 step 含 256 个逻辑 MAC；有 mask 时只以 useful_macs 统计
+有效叶。资源连续 step 的能力按 II=1 验证，tile/算子时延和性能对照放在
+测试记录，不构成 NDF 合同。
 
 ## 后续验收边界
 
@@ -82,4 +65,4 @@ Queue 测试外推本阵列已经通过。
 源代码实例计数本身不证明最终硬件结构。若链接/生成失败，保留具体阶段和诊断，
 不缩小阵列、不提高检查预算、不替换为 host 计算结果。
 Verilog 与 C++ 由同一 final 生成；按用户要求不执行 Verilog 仿真。
-综合面积、时序、MHz、功耗和端到端加速比不属于这组周期模型的通过结论。
+综合面积、时序、MHz、功耗和端到端加速比不属于本架构验收结论。

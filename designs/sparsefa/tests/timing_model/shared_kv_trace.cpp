@@ -19,10 +19,15 @@ constexpr int kRowLatency = 16;
 constexpr int kBusBytes = 32;
 constexpr int kCredits = 8;
 constexpr int kArrayBubblesAfterEnd = 4;
-constexpr int kSoftmaxCycles = 16;
+constexpr int ceil_div(int value, int divisor) {
+  return (value + divisor - 1) / divisor;
+}
+// Per 16-head wave: four 1024-element ordinary-FP32 passes at 64/cycle,
+// plus 1024 weight and 16 alpha exponentials at 32/cycle. This is a
+// scheduling assumption, not an implementation or a numeric computation.
+constexpr int kSoftmaxCycles = 4 * ceil_div(kBatch * 16, 64) +
+                               ceil_div(kBatch * 16 + 16, 32);
 constexpr int kOutputAckLatency = 12;
-
-int ceil_div(int value, int divisor) { return (value + divisor - 1) / divisor; }
 
 struct Event {
   int cycle;
@@ -38,6 +43,22 @@ struct Slot {
   int batch = -1;
   int issued = 0;
   int completed = 0;
+};
+
+struct IndexSlot {
+  enum State {
+    FREE,
+    DMA_WAIT,
+    DMA_RECEIVE,
+    LOADED,
+    VALIDATING,
+    VALID,
+    DISPATCHING
+  } state = FREE;
+  int batch = -1;
+  int due = -1;
+  int end = -1;
+  int kv_slot = -1;
 };
 
 struct Row {
@@ -65,7 +86,7 @@ struct Result {
 };
 
 Result run(int slot_count, int count) {
-  if (slot_count < 1 || slot_count > 3) throw std::runtime_error("slot count");
+  if (slot_count < 1 || slot_count > 2) throw std::runtime_error("slot count");
   if (count <= 0 || count % kBatch != 0 || count > 2048)
     throw std::runtime_error("count must be a multiple of 64 in [64, 2048]");
   Result result{};
@@ -79,28 +100,23 @@ Result run(int slot_count, int count) {
   mark(cycle, "count_read_start");
   cycle += kIndexLatency + ceil_div(4, kBusBytes);
   mark(cycle, "count_read_end");
-  for (int batch = 0; batch < ceil_div(count, kBatch); ++batch) {
-    mark(cycle, "index_dma_start", batch);
-    cycle += kIndexLatency + ceil_div(kBatch * 4, kBusBytes);
-    mark(cycle, "index_dma_end", batch);
-    mark(cycle, "index_validate_start", batch);
-    cycle += kBatch;  // Validation budget for assumed-valid IDs, not data checks.
-    mark(cycle, "index_validate_end", batch);
-  }
-  mark(cycle, "index_valid_barrier");
-  const int index_barrier = cycle;
-  // This first target keeps all Q heads in HeadState before KV/array execution.
-  // Q is a contiguous FP16/BF16 input and shares the modeled external bus.
+  // Q is resident before streaming Index batches; it shares the external bus.
   mark(cycle, "q_load_start");
   cycle += kRowLatency + ceil_div(kHeads * kDim * 2, kBusBytes);
   mark(cycle, "q_load_end");
   const int q_ready_cycle = cycle;
 
+  const int batches = ceil_div(count, kBatch);
+  std::vector<IndexSlot> index_slots(2);
   std::vector<Slot> slots(slot_count);
   std::vector<Row> rows;
   std::vector<std::vector<int>> bank_free(slot_count, std::vector<int>(16, 0));
   int next_fill = 0;
   int next_compute = 0;
+  int next_index_load = 0;
+  int next_index_validate = 0;
+  int active_index_dma = -1;
+  int active_validator = -1;
   int active_slot = -1;
   int wave = 0;
   int stage = -1;  // 0 QK, 1 softmax, 2 PV, 3 atomic batch commit.
@@ -109,15 +125,31 @@ Result run(int slot_count, int count) {
   int outstanding = 0;
   int first_kv_request = -1;
 
-  auto start_fill = [&](int slot_id) {
+  auto start_index_dma = [&](int index_slot_id) {
+    IndexSlot &index = index_slots.at(index_slot_id);
+    assert(index.state == IndexSlot::FREE && active_index_dma < 0);
+    index = IndexSlot{IndexSlot::DMA_WAIT, next_index_load,
+                      cycle + kIndexLatency, -1, -1};
+    active_index_dma = index_slot_id;
+    mark(cycle, "index_slot_acquire", index.batch, index_slot_id);
+    mark(cycle, "index_dma_start", index.batch, index_slot_id);
+    ++next_index_load;
+  };
+  start_index_dma(0);
+
+  auto start_fill = [&](int slot_id, int index_slot_id) {
     Slot &slot = slots.at(slot_id);
     assert(slot.state == Slot::FREE);
-    assert(next_fill < ceil_div(count, kBatch));
+    assert(next_fill < batches);
     slot = Slot{Slot::FILLING, next_fill, 0, 0};
     mark(cycle, "kv_fill_start", next_fill, slot_id);
+    IndexSlot &index = index_slots.at(index_slot_id);
+    assert(index.state == IndexSlot::VALID && index.batch == next_fill);
+    index.state = IndexSlot::DISPATCHING;
+    index.kv_slot = slot_id;
+    mark(cycle, "index_dispatch_start", next_fill, index_slot_id);
     ++next_fill;
   };
-  start_fill(0);
 
   auto begin_stage = [&](int next_stage) {
     stage = next_stage;
@@ -137,7 +169,7 @@ Result run(int slot_count, int count) {
     }
   };
 
-  while (next_compute < ceil_div(count, kBatch) || active_slot >= 0) {
+  while (next_compute < batches || active_slot >= 0) {
     if (cycle > 100000) throw std::runtime_error("simulation did not terminate");
 
     for (Row &row : rows) {
@@ -156,24 +188,66 @@ Result run(int slot_count, int count) {
       }
     }
 
-    // One nonpreemptive response stream. A D64 row uses four 32-byte beats.
-    if (cycle >= response_bus_free) {
-      Row *chosen = nullptr;
-      for (Row &row : rows) {
-        if (!row.responded && row.due <= cycle &&
-            (!chosen || row.due < chosen->due))
-          chosen = &row;
+    if (active_index_dma >= 0) {
+      IndexSlot &index = index_slots[active_index_dma];
+      if (index.state == IndexSlot::DMA_RECEIVE && cycle == index.end) {
+        mark(cycle, "index_dma_end", index.batch, active_index_dma);
+        index.state = IndexSlot::LOADED;
+        active_index_dma = -1;
       }
-      if (chosen) {
-        const int words = ceil_div(kDim, 16);
-        const int bank = chosen->position % 16;
-        const int start = std::max(cycle, bank_free[chosen->slot][bank]);
-        chosen->write_done = start + words;
-        bank_free[chosen->slot][bank] = chosen->write_done;
-        response_bus_free = cycle + words;
-        chosen->responded = true;
-        mark(cycle, "kv_response_start", chosen->batch, chosen->slot, -1,
-             chosen->position);
+    }
+    if (active_validator >= 0) {
+      IndexSlot &index = index_slots[active_validator];
+      if (cycle == index.end) {
+        mark(cycle, "index_validate_end", index.batch, active_validator);
+        mark(cycle, "index_batch_valid", index.batch, active_validator);
+        index.state = IndexSlot::VALID;
+        ++next_index_validate;
+        active_validator = -1;
+      }
+    }
+
+    // Index and KV responses share one nonpreemptive 32 B/cycle stream.
+    if (cycle >= response_bus_free) {
+      IndexSlot *index = active_index_dma >= 0
+                             ? &index_slots[active_index_dma] : nullptr;
+      if (index && index->state == IndexSlot::DMA_WAIT && index->due <= cycle) {
+        index->state = IndexSlot::DMA_RECEIVE;
+        index->end = cycle + ceil_div(kBatch * 4, kBusBytes);
+        response_bus_free = index->end;
+        mark(cycle, "index_response_start", index->batch, active_index_dma);
+      } else {
+        Row *chosen = nullptr;
+        for (Row &row : rows) {
+          if (!row.responded && row.due <= cycle &&
+              (!chosen || row.due < chosen->due))
+            chosen = &row;
+        }
+        if (chosen) {
+          const int words = ceil_div(kDim, 16);
+          const int bank = chosen->position % 16;
+          const int start = std::max(cycle, bank_free[chosen->slot][bank]);
+          chosen->write_done = start + words;
+          bank_free[chosen->slot][bank] = chosen->write_done;
+          response_bus_free = cycle + words;
+          chosen->responded = true;
+          mark(cycle, "kv_response_start", chosen->batch, chosen->slot, -1,
+               chosen->position);
+        }
+      }
+    }
+
+    if (active_validator < 0 && next_index_validate < batches) {
+      for (int index_slot_id = 0; index_slot_id < 2; ++index_slot_id) {
+        IndexSlot &index = index_slots[index_slot_id];
+        if (index.state == IndexSlot::LOADED &&
+            index.batch == next_index_validate) {
+          index.state = IndexSlot::VALIDATING;
+          index.end = cycle + kBatch;  // Assumed-valid IDs, no content check.
+          active_validator = index_slot_id;
+          mark(cycle, "index_validate_start", index.batch, index_slot_id);
+          break;
+        }
       }
     }
 
@@ -203,7 +277,7 @@ Result run(int slot_count, int count) {
       }
     }
 
-    if (active_slot < 0 && next_compute < ceil_div(count, kBatch)) {
+    if (active_slot < 0 && next_compute < batches) {
       for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
         Slot &slot = slots[slot_id];
         if (slot.state == Slot::READY && slot.batch == next_compute) {
@@ -218,18 +292,28 @@ Result run(int slot_count, int count) {
       }
     }
 
-    // Prefetch begins only after a preceding batch has entered the array.
-    if (next_fill < ceil_div(count, kBatch) && next_compute > 0) {
-      for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
-        if (slots[slot_id].state == Slot::FREE) {
-          start_fill(slot_id);
-          break;
+    // A validated batch can reserve an independent KV slot immediately.
+    if (next_fill < batches) {
+      for (int index_slot_id = 0; index_slot_id < 2; ++index_slot_id) {
+        if (index_slots[index_slot_id].state != IndexSlot::VALID ||
+            index_slots[index_slot_id].batch != next_fill) continue;
+        for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
+          if (slots[slot_id].state == Slot::FREE) {
+            start_fill(slot_id, index_slot_id);
+            break;
+          }
         }
+        break;
       }
-    } else if (next_fill < ceil_div(count, kBatch) && active_slot >= 0) {
-      for (int slot_id = 0; slot_id < slot_count; ++slot_id) {
-        if (slots[slot_id].state == Slot::FREE) {
-          start_fill(slot_id);
+    }
+
+    // Only two 64-entry Index slots; a new batch waits until a slot is free.
+    // Starting after the preceding batch validates exposes Index/KV overlap.
+    if (active_index_dma < 0 && next_index_load < batches &&
+        next_index_load <= next_index_validate) {
+      for (int index_slot_id = 0; index_slot_id < 2; ++index_slot_id) {
+        if (index_slots[index_slot_id].state == IndexSlot::FREE) {
+          start_index_dma(index_slot_id);
           break;
         }
       }
@@ -247,6 +331,17 @@ Result run(int slot_count, int count) {
           result.peak_outstanding = std::max(result.peak_outstanding, outstanding);
           if (first_kv_request < 0) first_kv_request = cycle;
           mark(cycle, "kv_row_request", slot.batch, slot_id, -1, position);
+          if (slot.issued == kBatch) {
+            for (int index_slot_id = 0; index_slot_id < 2; ++index_slot_id) {
+              IndexSlot &index = index_slots[index_slot_id];
+              if (index.state == IndexSlot::DISPATCHING &&
+                  index.batch == slot.batch && index.kv_slot == slot_id) {
+                mark(cycle, "index_slot_release", index.batch, index_slot_id);
+                index = IndexSlot{};
+                break;
+              }
+            }
+          }
           break;
         }
       }
@@ -254,7 +349,9 @@ Result run(int slot_count, int count) {
     ++cycle;
   }
 
-  assert(index_barrier < q_ready_cycle && q_ready_cycle <= first_kv_request);
+  assert(q_ready_cycle <= first_kv_request);
+  assert(next_index_load == batches && next_index_validate == batches);
+  for (const IndexSlot &index : index_slots) assert(index.state == IndexSlot::FREE);
   assert(outstanding == 0);
   assert(result.peak_outstanding <= kCredits);
   assert(result.row_requests == count);

@@ -6,12 +6,10 @@
 
 本页保留二维基线，后续并行设计转向
 [16×16×16 三维阵列](fa2-core-array3d-1002.md)。两者使用不同归约次序和接口，
-本页的 K+2 周期合同不能用于三维阵列。
+本页的逐项归约结构不能用于三维阵列。
 
-本页记录首个有界实现合同。**16×16 阵列源码已实现，四个 source unit compile
-通过；完整 System 在默认预算下 link 受阻，尚无 final、双 emit 或生成 C++ 执行
-证据**。独立分解、root 合同审查及独立源码语义审查已完成；这些不替代硬件执行。
-P0S 已有生成 C++ 功能/周期仿真证据，不是 P0T 性能验收。L0 不变，L1/L2 仍为 draft。
+本页记录首个有界二维阵列架构。实现与验收的实际状态见
+[VALIDATION](../../VALIDATION.md)；P0S 运行结果不构成 P0T 验收。L0 保持冻结。
 
 第一交付物是独立 `Array16x16` 计算块、独立算术 oracle 和生成 System 测试。
 计算块被 QK 与 PV 分时复用；本次不连接 DMA、SRAM、softmax、指数/归一化、
@@ -117,39 +115,23 @@ RESULT 状态不再接受 step/begin；无 take 时 accumulator 和元数据无�
 abort 不必清除物理 PE 内容；它令旧结果不可再取，下一 begin 原子清零。
 reset 初始化 IDLE 和零计数/PE；中断 ACTIVE/RESULT 后不得发布旧结果。
 
-## 周期、II 和计数定义
+## 资源推进与计数定义
 
-第一版 PE 是组合 `fp_mul -> fp_add` 加一个累加状态，没有隐藏 pipeline 或
-浮点流水线 flush；每个被接受 step 在一个 rising edge 提交。目标 step II=1，
-成立条件是调用方每拍供数且整个事务可提交。它是周期语义目标，必须由生成 C++
-记录证明；没有综合/时序结果时不能转写成 MHz 或物理吞吐。
+第一版 PE 是组合 `fp_mul -> fp_add` 加一个累加状态，没有隐藏流水或浮点
+flush。每个被接受的 step 原子更新有效 PE；目标是连续接受 step，资源 II=1。
+调用顺序为 begin、按 index 递增的 step、end、take；未接受的 step 不得更新
+累加器。没有 tile overlap、双缓冲或 begin/take 同拍旁路。具体 tile 完成时延
+由独立性能模型测量，不属于本架构合同。
 
-以 begin 被接受的边沿为 `e0`，无 stall 的 K 项 tile：
-
-| 边沿 | 动作 |
-| --- | --- |
-| `e0` | begin，清零 |
-| `e1 .. eK` | 按 index `0 .. K-1` 依次 step |
-| `e(K+1)` | end |
-| `e(K+2)` | 最早 take；Work 读取 end 后已提交 RESULT |
-| `e(K+3)` | 最早下一个 begin |
-
-因此单 tile 占用 K+3 个动作边沿，begin-to-next-begin 间隔 K+3 周期；
-begin 到最早 take 是 K+2 周期间隔。每个无动作/被阻塞的 ACTIVE 边沿及 RESULT
-等待边沿分别增加 1 周期。没有 tile overlap、双缓冲或 begin/take 同拍旁路。
-观察以成功 Work 和 rising-edge commit 定义；不能把 falling/held sample 重复算作 step。
-
-D64 满 QK：K=64，16,384 MAC，32,768 算术操作；tile cadence 67 周期，
-理想均摊 16,384/67 MAC/周期。PV 的一个 16-token×16-output-dim slice：K=16，
-4,096 MAC，8,192 操作，cadence 19 周期。D64 输出需要四个独立 PV slice；
-其调度和结果存储不在本块实现范围。
+D64 满 QK 包含 64 个 reduction 项、16,384 个有效 MAC；PV 的一个
+16-token×16-output-dim slice 包含 16 个 reduction 项、4,096 个有效 MAC。
+D64 输出需要四个独立 PV slice；其调度和结果存储不在本块实现范围。
 
 `accepted_steps` 每次实际 step commit 加 1；`useful_macs` 每次加有效 cell 数，
 最大 64×256=16,384，u32 足够；结果给出的乘法数、加法数都等于 useful_macs。
 容量 slot 数为 `256*accepted_steps`，不把 masked slot 计为有效计算。
-独立 bench 同时记录 begin/end/take edge、ACTIVE stall、RESULT wait、abort 和
-成功 tile 数。计数从实际成功边沿导出，不能把 host wall time、请求次数或固定
-结束 epoch 当作已完成运算。模块不增加与功能无关的自由运行性能寄存器。
+独立 bench 检查 begin/end/take、ACTIVE 停顿、RESULT 等待、abort 和成功
+tile 数。模块不增加与功能无关的自由运行性能寄存器。
 
 ## QK / PV 调度责任
 
@@ -175,7 +157,7 @@ query 的索引列表直接拼成 dense tile。将来共享不同 query 的 KV�
    mask、全空 mask、逐步 mask、两 tile 隔离、错误 tag/index/length、早 end、
    stall、RESULT 保持、ACTIVE/RESULT abort、reset 和重新开始。报告触发次数。
 3. **执行与结构证据**：独立 compile/link，默认预算；同一 verified final 双 emit；
-   生成 C++ workers1/2 逐位结果/周期一致，确认恰好 16 Row / 256 独立 PE owner
+   生成 C++ workers1/2 逐位结果和事件顺序一致，确认恰好 16 Row / 256 独立 PE owner
    及算术链。源码调用计数不能单独证明 final 保留该结构。按用户要求不跑 RTL 仿真。
 4. **背压和负例**：在该候选确实支持的标准 Queue 调用路径测试 take+push 原子保持；
    若编译器不支持该组合，记录具体 stage/diagnostic 为实现缺口，不添加手工 ready
@@ -208,39 +190,4 @@ rather than hidden as an unchanged-source claim.
 
 ## 当前执行记录（2026-11-04）
 
-首批完整 16×16 System 使用原始默认预算。numeric、array interfaces、array 和
-bench 四个 source unit compile 均返回 0；link 返回失败：
-
-```text
-transaction state analysis work budget exceeded
-(requested 6144, used 1047468, limit 1048576, phase transaction plans)
-```
-
-实际失败记录：`docs/gates/logs/fa2-p0t-array/20261104T013007/manifest.json`。
-源文件与 installed toolchain 的前后 hash 保持一致。没有缩小阵列、提高预算或
-注入 host 期望；final 中 256 owner 的结构检查、双 emit、C++ workers1/2、实测
-II/周期/有效 MAC 统计均 **NOT RUN**。Queue 原子背压、中途 reset、X/Z 零提交
-也未执行；Verilog 仿真按用户要求排除。检查方法见
-[ARRAY-1003](../l3/fa2-core-array-1003.md)。
-
-numeric pure-helper 重构已完成，候选 SHA256 为
-`d1e48bb0c99fbc97e93eede5d9f91a3c6a708b3d38b621c6b3c46a240799ddc7`。
-独立 AST 审查确认原算法仅作 helper 名称替换，四个 public Module wrapper 保持
-原签名；其余 numeric 算法不变。新的 numeric/RTZ/exp 回归已通过 C++ workers1/2，
-32 个 numeric、32 个 exact case、edge 与 4,096 点 exp sweep 均完成，双 emit 保留；
-记录为 `docs/gates/logs/fa2-p0t-start/p0s-numeric-regression-20261103T172532.497260Z/manifest.json`。
-
-原 P0S 六个完整 System（tensor/layout/recovery/lifecycle/vectors/faults）、product
-静态库、standalone row 和每 worker 21 个 controller case 已全部重跑通过；使用
-默认预算、同 final 双 emit、C++ workers1/2。独立复查全部 12 个 System 终态及
-事件，原 35 文件 P0S closure 和 installed 工具在执行期间不变；相对旧基线唯一
-源码差异是上述 numeric 重构。记录为
-`docs/gates/logs/fa2-p0t-start/p0s-regression-20261103T172532.554329Z/result.md`。
-这些是 P0S 回归证据，不能将尚未链接的 P0T 标成运行通过。
-
-后续通用入口快照复用已通过302项编译器专项和P0S完整回归，但保留原始阵列闭包时
-仍超预算。将测试输入改为14组共享向量、保留全部235条指令后，四个unit再次compile
-通过，link仍在transaction plans处失败（requested1024、used1048429、limit1048576）。
-最后记录为 `docs/gates/logs/fa2-p0t-array/20261104T014911/manifest.json`。
-输入等价审查、工具链身份及当前未运行项统一记录在
-[VALIDATION.md](../../VALIDATION.md)；本页的K+2/K+3仍是合同值，尚非阵列实测值。
+实际编译、运行和性能状态见 [VALIDATION](../../VALIDATION.md)。
