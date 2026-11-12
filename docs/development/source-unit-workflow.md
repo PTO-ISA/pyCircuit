@@ -389,6 +389,30 @@ code measurements must include first-use initialization and resident memory,
 as well as repeated simulation time. This representation adds no hardware state
 or source API.
 
+## Large C++ evaluation functions
+
+C++ emission preserves the verified field evaluation order while outlining
+large `Work()` bodies into ordered, non-inlined helpers. Each emitted module
+definition uses the same policy, including children whose computations are
+evaluated through an ancestor. Parallel task eligibility does not decide whether
+the remaining ordered computation can be split into functions.
+
+`Work()` bodies up to 256 KiB of generated C++ remain a single function with
+local temporaries. Larger bodies use typed, per-call temporary pages with normal
+four-state initialization. Page construction and helper dispatch are grouped to
+bound the work performed by each constructor and caller.
+Immutable constant planes retain their static lifetime. The original check,
+observation, exception/discard and whole-System commit boundaries are unchanged;
+helper calls do not advance time or transfer state.
+
+Once outlining is active, each helper targets 8 KiB of generated C++.
+Splits fall between complete generated statement groups. An indivisible group
+can exceed the target, and the generated comment reports the largest group size.
+There is no promise that a source-byte target equals a particular machine-code
+size or that every target linker can accept an arbitrary design. The CodeGen
+gate exercises deep splitting, optimized helper boundaries, aggregate X/Z
+transport, state timing and failed-check rollback.
+
 ## Common Python statement lowering
 
 `LowerPythonSource` shares local binding and branch semantics across ordinary

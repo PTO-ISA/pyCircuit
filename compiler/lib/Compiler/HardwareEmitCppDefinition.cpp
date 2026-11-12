@@ -1,3 +1,4 @@
+#include "CppWorkOutlining.h"
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "HardwareEmitCppChecks.h"
@@ -73,12 +74,15 @@ struct Leaf {
 class WorkEmitter {
 public:
   WorkEmitter(HardwareEmitContext &context, ac::ModuleOp definition,
-              raw_ostream &stream, bool resetting = false)
-      : ctx(context), out(stream), resetting(resetting) {
+              raw_ostream &stream, bool resetting = false,
+              CppWorkOutlining *outline = nullptr, bool probeSize = false)
+      : ctx(context), out(stream), resetting(resetting), outline(outline),
+        probeSize(probeSize) {
     ac::HardwareBindings b;
     b.owner = definition;
     scopes.push_back({definition, b, nullptr, nullptr, "this->", "pyc_count"});
   }
+  bool needsOutlining() const { return exceededSize; }
   LogicalResult run() {
     if (failed(collect(scopes.front())))
       return failure();
@@ -117,6 +121,7 @@ public:
           return failure();
       }
     if (!delegated.empty()) {
+      statement();
       out << "    std::array<gfsim::WorkItem, " << delegated.size()
           << "> pyc_tasks{{\n";
       for (Operation *task : delegated) {
@@ -132,13 +137,18 @@ public:
       out << "    }};\n    if (pyc_work_executor_) "
              "pyc_work_executor_->run(pyc_tasks);\n"
              "    else for (auto task : pyc_tasks) task.work(task.instance);\n";
+      statement();
     }
     tasksFinished = true;
     if (failed(outputs(scopes.front())))
       return failure();
-    for (auto &leaf : storage)
-      if (!isDelegated(*leaf.scope) && failed(sample(leaf)))
+    for (auto &leaf : storage) {
+      if (isDelegated(*leaf.scope))
+        continue;
+      if (failed(sample(leaf)))
         return failure();
+      statement();
+    }
     for (auto &scope : scopes)
       if (&scope != &scopes.front() && !isDelegated(scope) &&
           failed(outputs(scope)))
@@ -162,10 +172,21 @@ public:
               ctx, scope.definition, scope.bindings, scope.object, scope.count,
               [&](Value value) { return emit(scope, value); }, out)))
         return failure();
+    statement();
     return success();
   }
 
 private:
+  void statement() {
+    if (outline)
+      outline->finishStatement();
+  }
+  std::string planeDeclaration(StringRef type, StringRef name) {
+    if (outline)
+      return outline->plane(type, name).value;
+    out << "    " << type << " " << name << ";\n";
+    return name.str();
+  }
   bool isDelegated(Scope &scope) const {
     for (Scope *current = &scope; current->parent; current = current->parent)
       if (current->parent == &scopes.front())
@@ -540,6 +561,13 @@ private:
     memo.push_back({&s, v, p, std::move(text)});
   }
   FailureOr<std::string> emit(Scope &s, Value v, Path path = {}) {
+    if (probeSize && out.tell() > CppWorkOutlining::outlineTriggerBytes) {
+      exceededSize = true;
+      return failure();
+    }
+    // Callers finish their generated C++ block before requesting another
+    // value. Capture that code even when this request hits the memo.
+    statement();
     for (auto &n : memo)
       if (n.scope == &s && n.value == v && n.path == path)
         return n.name;
@@ -583,6 +611,7 @@ private:
     if (failed(result))
       return failure();
     memoize(s, v, path, *result);
+    statement();
     return *result;
   }
   FailureOr<std::string> projectPlane(Scope &s, Value v, Path path,
@@ -599,8 +628,7 @@ private:
     auto p = payload(plan->element, s, s.definition);
     if (failed(t) || failed(w) || failed(count) || failed(p))
       return failure();
-    auto result = name();
-    out << "    " << *t << " " << result << ";\n";
+    auto result = planeDeclaration(*t, name());
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
         << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
         << *p << ">::fromPacked(gfsim::extract<" << *w << ">(" << source
@@ -1095,6 +1123,11 @@ private:
     out << "    static const " << *exactType << " " << result << " = [] {\n"
         << initializerText << "      return " << *constructed
         << ";\n    }();\n";
+    if (outline) {
+      auto borrowed = outline->plane(*exactType, result, true);
+      out << "    " << borrowed.storage << " = &" << result << ";\n";
+      return borrowed.value;
+    }
     return result;
   }
   FailureOr<std::string> declarePlane(Scope &s, Value v, Path path = {}) {
@@ -1102,9 +1135,7 @@ private:
                        v.getDefiningOp() ? v.getDefiningOp() : s.definition);
     if (failed(p))
       return failure();
-    auto temp = name();
-    out << "    " << *p << " " << temp << ";\n";
-    return temp;
+    return planeDeclaration(*p, name());
   }
   FailureOr<std::string> scalarPlane(Scope &s, Value v, Path path) {
     auto result = declarePlane(s, v, path);
@@ -1707,6 +1738,8 @@ private:
   HardwareEmitContext &ctx;
   raw_ostream &out;
   bool resetting;
+  CppWorkOutlining *outline = nullptr;
+  bool probeSize = false, exceededSize = false;
   bool promoteConstantPlanes = true;
   llvm::DenseMap<ConstantKey, ConstantState> constantMemo;
   bool tasksFinished = false;
@@ -1960,12 +1993,23 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
         << " + pyc_site, pyc_value, pyc_event_bool, pyc_valid, pyc_path, "
            "pyc_sink_->system->cycle());\n"
            "  }\n";
-  out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try "
-         "{\n";
-  WorkEmitter work(ctx, definition, out);
-  if (failed(work.run()))
+  std::string workBody;
+  llvm::raw_string_ostream workStream(workBody);
+  WorkEmitter work(ctx, definition, workStream, false, nullptr, true);
+  auto emitted = work.run();
+  if (failed(emitted) && !work.needsOutlining())
     return failure();
-  out << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
+  if (work.needsOutlining() ||
+      workBody.size() > CppWorkOutlining::outlineTriggerBytes) {
+    CppWorkOutlining outline;
+    WorkEmitter outlined(ctx, definition, outline.stream, false, &outline);
+    if (failed(outlined.run()))
+      return failure();
+    outline.emit(out);
+  } else {
+    out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try {\n"
+        << workBody << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
+  }
   for (StringRef method : {"Xfer", "DiscardNext"}) {
     out << "  void " << method << "() noexcept {\n";
     if (method == "DiscardNext")
