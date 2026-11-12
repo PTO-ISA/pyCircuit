@@ -79,13 +79,7 @@ def _span_attr(span: _CapturedSourceSpan) -> str:
     )
 
 
-def _value(
-    captured: _CapturedSourceFile,
-    value: object,
-    inherited: _CapturedSourceSpan,
-) -> str:
-    if isinstance(value, ast.AST):
-        return _node(captured, value, inherited)
+def _scalar(value: object) -> str:
     if value is None:
         return "unit"
     if value is Ellipsis:
@@ -108,10 +102,6 @@ def _value(
         return '["bytes", ' + _mlir_string(value.hex()) + "]"
     if isinstance(value, str):
         return _mlir_string(value)
-    if isinstance(value, list | tuple):
-        return (
-            "[" + ", ".join(_value(captured, item, inherited) for item in value) + "]"
-        )
     raise TypeError(f"cannot serialize Python AST field {type(value).__name__}")
 
 
@@ -120,20 +110,37 @@ def _node(
     node: ast.AST,
     inherited: _CapturedSourceSpan,
 ) -> str:
-    span = _span(captured, node, inherited)
-    fields = ", ".join(
-        f"{name} = {_value(captured, value, span)}"
-        for name, value in ast.iter_fields(node)
-    )
-    return (
-        "{kind = "
-        + _mlir_string(type(node).__name__)
-        + ", fields = {"
-        + fields
-        + "}, span = "
-        + _span_attr(span)
-        + "}"
-    )
+    """Serialize depth-first without consuming Python frames for nested syntax."""
+
+    parts: list[str] = []
+    # A missing span marks literal transport text; all values carry a span.
+    pending: list[tuple[object, _CapturedSourceSpan | None]] = [(node, inherited)]
+    while pending:
+        value, span = pending.pop()
+        if span is None:
+            assert isinstance(value, str)
+            parts.append(value)
+        elif isinstance(value, ast.AST):
+            span = _span(captured, value, span)
+            parts.append(
+                "{kind = " + _mlir_string(type(value).__name__) + ", fields = {"
+            )
+            pending.append(("}, span = " + _span_attr(span) + "}", None))
+            fields = list(ast.iter_fields(value))
+            for index in range(len(fields) - 1, -1, -1):
+                name, field = fields[index]
+                pending.append((field, span))
+                pending.append(((", " if index else "") + name + " = ", None))
+        elif isinstance(value, list | tuple):
+            parts.append("[")
+            pending.append(("]", None))
+            for index in range(len(value) - 1, -1, -1):
+                pending.append((value[index], span))
+                if index:
+                    pending.append((", ", None))
+        else:
+            parts.append(_scalar(value))
+    return "".join(parts)
 
 
 def _emit_source_transport(captured: _CapturedSourceFile) -> str:

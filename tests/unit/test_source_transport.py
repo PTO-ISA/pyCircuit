@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from dataclasses import replace
 from decimal import Decimal
@@ -223,3 +224,36 @@ def test_located_ast_node_with_reversed_span_is_rejected(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="ends before it starts"):
         _emit_source_transport(captured)
+
+
+def test_long_elif_chain_preserves_content_order_and_spans(tmp_path: Path) -> None:
+    recursion_limit = sys.getrecursionlimit()
+    source = "def lookup(value):\n    result = 0\n"
+    source += "".join(
+        f"    {'if' if index == 0 else 'elif'} value == {index}:\n"
+        f"        result = {1000 + index}\n"
+        for index in range(256)
+    )
+    source += "    return result\n"
+    captured = _capture_text(tmp_path, source)
+
+    transport = _emit_transport(captured)
+
+    assert sys.getrecursionlimit() == recursion_limit
+    assert transport.count('kind = "If"') == 256
+    assert transport.count('kind = "Assign"') == 257
+    assert re.findall(r'integer = "(\d+)"', transport) == ["0"] + [
+        str(value) for index in range(256) for value in (index, 1000 + index)
+    ]
+    assert transport.count('kind = "Return"') == 1
+    assert transport.index('kind = "Return"') > transport.index('integer = "1255"')
+    assert 'id = "result"' in transport[transport.index('kind = "Return"') :]
+    function = captured.syntax.body[0]
+    branch = function.body[1]
+    for index in range(256):
+        if index in (0, 128, 255):
+            for node in (branch, branch.test, branch.body[0]):
+                assert _span_text(captured, node) in transport
+        if branch.orelse:
+            branch = branch.orelse[0]
+    assert _span_text(captured, function.body[-1]) in transport
