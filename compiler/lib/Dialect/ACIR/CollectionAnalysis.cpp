@@ -1,11 +1,19 @@
-#include "ACIRSourceContracts.h"
+// Collection/table member resolution and verification (B2 step-2 design
+// r9): the HardwareAnalysis members and their helper cluster. The staged
+// entries — the source-unit semantic walk in its symbolic-tolerant mode and
+// HardwareAnalysis::verifyResolvedOperation at the binding tiers — run these
+// members after the IX reroute severed the native staged calls
+// (CollectionLocalVerifies.cpp keeps only local grammar).
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
-#include "llvm/ADT/STLExtras.h"
-#include <limits>
-#include <optional>
+#include "AnalysisResolver.h"
+#include "ACIRSourceContracts.h"
+#include "pycircuit/Dialect/ACIR/ACIROps.h"
+
 using namespace mlir;
+
 namespace acir::ac {
 namespace {
+
 Attribute semantic(Attribute attr) {
   if (auto expr = dyn_cast_or_null<StaticExprAttr>(attr))
     return semantic(expr.getTree());
@@ -32,36 +40,6 @@ bool equivalentTypes(TypeRange lhs, TypeRange rhs) {
       return false;
   return true;
 }
-LogicalResult shapeSchema(ArrayAttr shape,
-                          function_ref<InFlightDiagnostic()> error) {
-  if (!shape || shape.empty())
-    return error() << "table shape requires positive rank";
-  uint64_t product = 1;
-  for (auto raw : shape) {
-    auto expr = dyn_cast<StaticExprAttr>(raw);
-    if (!expr || failed(StaticExprAttr::verify(error, expr.getTree())))
-      return error() << "table extent requires valid StaticExpr";
-    auto tree = expr.getTree();
-    auto value = tree.getAs<DictionaryAttr>("value");
-    auto literal = value ? value.getAs<MathIntAttr>("value") : MathIntAttr();
-    if (!literal)
-      continue;
-    llvm::APSInt n(literal.getCanonicalValue());
-    if (n.isNegative() || n.isZero() || n.getActiveBits() > 63)
-      return error() << "table extent must be positive and fit signed 64 bits";
-    if (product >
-        uint64_t(std::numeric_limits<int64_t>::max()) / n.getZExtValue())
-      return error() << "table element count exceeds signed 64 bits";
-    product *= n.getZExtValue();
-  }
-  return success();
-}
-uint64_t product(ArrayRef<uint64_t> shape) {
-  uint64_t n = 1;
-  for (auto x : shape)
-    n *= x;
-  return n;
-}
 uint64_t indexWidth(uint64_t n) {
   return std::max<uint64_t>(1, llvm::APInt(64, n - 1).getActiveBits());
 }
@@ -72,12 +50,6 @@ HardwareBindings scope(Operation *op) {
   HardwareBindings b;
   b.owner = op->getParentOfType<ModuleOp>();
   return b;
-}
-LogicalResult verifyCommon(Operation *op) {
-  auto package = op->getParentOfType<mlir::ModuleOp>();
-  if (!package)
-    return op->emitOpError() << "requires hardware package placement";
-  return HardwareAnalysis(package).verifyCollectionOperation(op, scope(op));
 }
 LogicalResult scalarRegion(Operation *op, TypeRange args, TypeRange results) {
   auto &region = op->getRegion(0);
@@ -252,7 +224,7 @@ viewShape(const HardwareAnalysis &a, StringRef kind, DictionaryAttr p,
     auto shape = a.resolveShape(cast<ArrayAttr>(p.get("shape")), b, site);
     if (failed(shape))
       return failure();
-    if (product(*shape) != product(in))
+    if (detail::shapeProduct(*shape) != detail::shapeProduct(in))
       return site->emitOpError() << "reshape must preserve element count";
     return *shape;
   }
@@ -304,54 +276,26 @@ viewShape(const HardwareAnalysis &a, StringRef kind, DictionaryAttr p,
   }
   return out;
 }
+
+
 } // namespace
-LogicalResult TableType::verify(function_ref<InFlightDiagnostic()> error,
-                                ArrayAttr shape, Type elementType) {
-  if (failed(shapeSchema(shape, error)))
-    return failure();
-  if (!isa<BitsType, StructType, EnumType, TypeParamType, TableType>(elementType))
-    return error() << "table element must be bits, struct, enum or type parameter";
-  return success();
-}
+
+
+
 FailureOr<SmallVector<uint64_t>> HardwareAnalysis::resolveShape(
     ArrayAttr shape, const HardwareBindings &bindings, Operation *site) const {
-  if (failed(shapeSchema(shape, [&] { return site->emitOpError(); })))
-    return failure();
-  SmallVector<uint64_t> result;
-  uint64_t n = 1;
-  for (auto raw : shape) {
-    auto value = evaluateStatic(cast<StaticExprAttr>(raw), bindings, site);
-    if (failed(value))
-      return failure();
-    auto integer = dyn_cast<MathIntAttr>(*value);
-    if (!integer)
-      return site->emitOpError() << "table extent requires integer";
-    llvm::APSInt v(integer.getCanonicalValue());
-    if (v.isNegative() || v.isZero() || v.getActiveBits() > 63)
-      return site->emitOpError()
-             << "table extent must be positive and fit signed 64 bits";
-    uint64_t extent = v.getZExtValue();
-    if (n > uint64_t(std::numeric_limits<int64_t>::max()) / extent)
-      return site->emitOpError()
-             << "table element count exceeds signed 64 bits";
-    n *= extent;
-    result.push_back(extent);
-  }
-  return result;
+  return detail::resolveHardwareShape(AnalysisResolver(*this), shape, bindings,
+                                      site);
 }
 FailureOr<SmallVector<uint64_t>> HardwareAnalysis::getTableShape(
     TableType table, const HardwareBindings &bindings, Operation *site) const {
-  auto resolved = resolveType(table, bindings, site);
-  if (failed(resolved))
-    return failure();
-  return resolveShape(cast<TableType>(*resolved).getShape(), bindings, site);
+  return detail::hardwareTableShape(AnalysisResolver(*this), table, bindings,
+                                    site);
 }
 FailureOr<uint64_t> HardwareAnalysis::getTableSize(
     TableType table, const HardwareBindings &bindings, Operation *site) const {
-  auto shape = getTableShape(table, bindings, site);
-  if (failed(shape))
-    return failure();
-  return product(*shape);
+  return detail::hardwareTableSize(AnalysisResolver(*this), table, bindings,
+                                   site);
 }
 FailureOr<uint64_t>
 HardwareAnalysis::getViewSourceOrdinal(TableViewOp view, uint64_t ordinal,
@@ -360,7 +304,7 @@ HardwareAnalysis::getViewSourceOrdinal(TableViewOp view, uint64_t ordinal,
   auto out = getTableShape(view.getResult().getType(), bindings, view);
   if (failed(in) || failed(out))
     return failure();
-  if (ordinal >= product(*out))
+  if (ordinal >= detail::shapeProduct(*out))
     return view.emitOpError() << "view output ordinal out of range";
   SmallVector<uint64_t> coords(out->size()), source(in->size());
   for (size_t i = out->size(); i-- > 0;) {
@@ -468,7 +412,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
                : LogicalResult(error() << "table payload type mismatch");
   };
   auto shape = [&](ArrayAttr s) -> LogicalResult {
-    if (failed(shapeSchema(s, error)))
+    if (failed(detail::shapeSchema(s, error)))
       return failure();
     if (requireResolved || isStaticEvaluable(s, bindings))
       return success(succeeded(resolveShape(s, bindings, op)));
@@ -600,7 +544,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
         return error() << "table.map ordinal requires bits";
       if (requireResolved || isStaticEvaluable(map.getShape(), bindings)) {
         auto s = resolveShape(map.getShape(), bindings, op);
-        if (failed(s) || failed(width(ordinal, indexWidth(product(*s)))))
+        if (failed(s) || failed(width(ordinal, indexWidth(detail::shapeProduct(*s)))))
           return failure();
       }
     }
@@ -633,7 +577,7 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
     if (requireResolved || isStaticEvaluable(index.getShape(), bindings)) {
       auto s = resolveShape(index.getShape(), bindings, op);
       if (failed(s) ||
-          failed(width(index.getResult().getType(), countWidth(product(*s)))))
+          failed(width(index.getResult().getType(), countWidth(detail::shapeProduct(*s)))))
         return failure();
     }
   } else if (auto read = dyn_cast<TableReadOp>(op)) {
@@ -655,8 +599,29 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
         failed(width(get.getInRange().getType(), 1)))
       return failure();
   } else if (auto match = dyn_cast<TableMatchOp>(op)) {
-    if (auto n = count(match.getInput().getType()))
-      return width(match.getMask().getType(), *n);
+    if (auto n = count(match.getInput().getType())) {
+      if (failed(width(match.getMask().getType(), *n)))
+        return failure();
+      // Same width-one rejection the native verifyRegions used before the
+      // r3 residual split, evaluated with the current bindings. Only runs
+      // once the native region grammar has established the yield shape.
+      auto &body = match.getBody();
+      if (!body.empty() && !body.front().empty() &&
+          isa<YieldOp>(body.front().back()) &&
+          body.front().back().getNumOperands() == 1) {
+        auto yielded =
+            dyn_cast<BitsType>(body.front().back().getOperand(0).getType());
+        if (!yielded)
+          return match.emitOpError()
+                 << "table.match predicate must yield one bit";
+        auto w = getPackedWidth(yielded, bindings, match);
+        if (failed(w))
+          return failure();
+        if (*w != 1)
+          return match.emitOpError()
+                 << "table.match predicate must yield one bit";
+      }
+    }
   } else if (auto choose = dyn_cast<TableChooseOp>(op)) {
     if (choose.getPolicy() != "first" ||
         (choose.getOrder() != "low" && choose.getOrder() != "high"))
@@ -745,60 +710,5 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
   }
   return success();
 }
-LogicalResult CollectionOp::verify() {
-  auto parent = dyn_cast_or_null<ModuleOp>((*this)->getParentOp());
-  if (!parent || getInstanceName().empty())
-    return emitOpError() << "collection requires named direct module placement";
-  for (Operation &other : parent.getBody().front())
-    if (&other != getOperation() && isa<InstanceOp, CollectionOp, QueueOp>(other) &&
-        other.getAttrOfType<StringAttr>("instance_name") ==
-            getInstanceNameAttr())
-      return emitOpError() << "instance_name must be unique within parent";
-  if (failed(detail::verifyOccurrence(getOccurrence(),
-                                      [&] { return emitOpError(); })))
-    return failure();
-  return verifyCommon(*this);
-}
-LogicalResult CollectionOp::verifySymbolUses(SymbolTableCollection &) {
-  return verifyCommon(*this);
-}
-LogicalResult TableCreateOp::verify() { return verifyCommon(*this); }
-LogicalResult TableSplatOp::verify() { return verifyCommon(*this); }
-LogicalResult TableMapOp::verify() { return verifyCommon(*this); }
-LogicalResult TableViewOp::verify() { return verifyCommon(*this); }
-LogicalResult TableIndexOp::verify() { return verifyCommon(*this); }
-LogicalResult TableReadOp::verify() { return verifyCommon(*this); }
-LogicalResult TableGetOp::verify() { return verifyCommon(*this); }
-LogicalResult TableMatchOp::verify() { return verifyCommon(*this); }
-LogicalResult TableChooseOp::verify() { return verifyCommon(*this); }
-LogicalResult TableFoldOp::verify() { return verifyCommon(*this); }
-LogicalResult ValueMergeOp::verify() { return verifyCommon(*this); }
-LogicalResult TableMapOp::verifyRegions() {
-  if (getBody().empty() || getBody().front().getArguments().empty())
-    return emitOpError() << "table.map requires ordinal argument";
-  SmallVector<Type> args{getBody().front().getArgument(0).getType()}, results;
-  for (Value v : getTables())
-    args.push_back(cast<TableType>(v.getType()).getElementType());
-  llvm::append_range(args, getCaptures().getTypes());
-  for (Value v : getResults())
-    results.push_back(cast<TableType>(v.getType()).getElementType());
-  return scalarRegion(*this, args, results);
-}
-LogicalResult TableMatchOp::verifyRegions() {
-  SmallVector<Type> args{getInput().getType().getElementType()};
-  llvm::append_range(args, getCaptures().getTypes());
-  if (getBody().empty() || getBody().front().empty() ||
-      !isa<YieldOp>(getBody().front().back()) ||
-      getBody().front().back().getNumOperands() != 1)
-    return emitOpError() << "table.match predicate must yield one bit";
-  auto result =
-      dyn_cast<BitsType>(getBody().front().back().getOperand(0).getType());
-  if (!result)
-    return emitOpError() << "table.match predicate must yield one bit";
-  HardwareAnalysis a((*this)->getParentOfType<mlir::ModuleOp>());
-  auto w = a.getPackedWidth(result, scope(*this), *this);
-  if (failed(w) || *w != 1)
-    return emitOpError() << "table.match predicate must yield one bit";
-  return scalarRegion(*this, args, TypeRange{result});
-}
+
 } // namespace acir::ac

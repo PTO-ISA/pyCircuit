@@ -194,7 +194,11 @@ LogicalResult verifySourceEffectMetadata(DictionaryAttr occurrence,
                                          DictionaryAttr location,
                                          Operation *lexicalModule,
                                          EmitError emitError) {
-  if (!lexicalModule || !isa<ModuleOp, ModuleImportOp>(lexicalModule))
+  // Declaration category by registered name, not op TypeID (B2 step-2
+  // design r9: the core layer carries no operation-class symbols).
+  llvm::StringRef kind =
+      lexicalModule ? lexicalModule->getName().getStringRef() : llvm::StringRef();
+  if (kind != "ac.module" && kind != "ac.module.import")
     return emitError()
            << "source effect requires a lexical module declaration";
   auto symbol = lexicalModule->getAttrOfType<StringAttr>("sym_name");

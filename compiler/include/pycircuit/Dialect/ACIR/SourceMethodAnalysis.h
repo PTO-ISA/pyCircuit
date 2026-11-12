@@ -1,6 +1,7 @@
 #ifndef PYCIRCUIT_DIALECT_ACIR_SOURCEMETHODANALYSIS_H
 #define PYCIRCUIT_DIALECT_ACIR_SOURCEMETHODANALYSIS_H
 
+#include "mlir/IR/SymbolTable.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/DenseMap.h"
@@ -85,19 +86,189 @@ struct SourceMethodView {
   bool isNativeTerminal() const {
     return isNativeQueueTerminal() || isNativeMemoryTerminal();
   }
-  mlir::FunctionType getFunctionType() const;
-  mlir::ArrayAttr getArgumentNames() const;
-  mlir::ArrayAttr getParameters() const;
-  mlir::ArrayAttr getResultConstraints() const;
-  mlir::ArrayAttr getFormalProposals() const;
+  mlir::ArrayAttr getFormalProposals() const {
+    if (isNativeTerminal())
+      return {};
+    return definition
+               ? definition->getAttrOfType<mlir::ArrayAttr>("ac.formal_proposals")
+               : row.getAs<mlir::ArrayAttr>("ac.formal_proposals");
+  }
   /// Number of authored results, excluding checked trailing [data, intent]
   /// pairs for writable formals. Requires a verified Method contract.
-  unsigned getNumPublicResults() const;
-  mlir::StringAttr getReturnForm() const;
-  mlir::StringAttr getVisibility() const;
-  mlir::DictionaryAttr getDeclaration() const;
-  mlir::DictionaryAttr getGuardLocation() const;
-  mlir::SymbolRefAttr getSymbol() const;
+  unsigned getNumPublicResults() const {
+    auto proposals = getFormalProposals();
+    return getFunctionType().getNumResults() -
+           2 * (proposals ? proposals.size() : 0);
+  }
+
+mlir::FunctionType getFunctionType() const {
+  if (isNativeMemoryTerminal()) {
+    auto signature = cast<mlir::FunctionType>(module->getAttrOfType<mlir::TypeAttr>("function_type").getValue());
+    auto kind = module->getAttrOfType<mlir::StringAttr>("primitive_kind").getValue();
+    unsigned address = kind == "byte_mem" ? 2 : 3 + 2 * nativeMemoryPort;
+    unsigned write = kind == "byte_mem" ? 3 : kind == "sync_mem_dp" ? 6 : 4;
+    llvm::SmallVector<mlir::Type> inputs, results;
+    if (nativeMemoryAction == NativeMemoryAction::Request ||
+        nativeMemoryAction == NativeMemoryAction::Read)
+      inputs.push_back(signature.getInput(address));
+    else if (nativeMemoryAction == NativeMemoryAction::Write)
+      for (unsigned ordinal : {write + 1, write + 2, write + 3})
+        inputs.push_back(signature.getInput(ordinal));
+    if (nativeMemoryAction == NativeMemoryAction::Result ||
+        nativeMemoryAction == NativeMemoryAction::Read)
+      results.push_back(signature.getResult(nativeMemoryPort));
+    return mlir::FunctionType::get(module->getContext(), inputs, results);
+  }
+  if (isNativeQueueTerminal()) {
+    auto moduleType = cast<mlir::FunctionType>(
+        module->getAttrOfType<mlir::TypeAttr>("function_type").getValue());
+    mlir::Type formalPayload = moduleType.getInput(3);
+    llvm::SmallVector<mlir::Type> inputs, results;
+    (nativeQueueAction == NativeQueueAction::Push ? inputs : results)
+        .push_back(formalPayload);
+    return mlir::FunctionType::get(module->getContext(), inputs, results);
+  }
+  return definition ? cast<mlir::FunctionType>(
+                          definition->getAttrOfType<mlir::TypeAttr>("function_type")
+                              .getValue())
+                    : cast<mlir::FunctionType>(
+                          row.getAs<mlir::TypeAttr>("function_type").getValue());
+}
+mlir::ArrayAttr getArgumentNames() const {
+  if (isNativeMemoryTerminal()) {
+    mlir::Builder builder(module->getContext());
+    if (nativeMemoryAction == NativeMemoryAction::Result) return builder.getArrayAttr({});
+    if (nativeMemoryAction == NativeMemoryAction::Write)
+      return builder.getStrArrayAttr({"address", "value", "mask"});
+    return builder.getStrArrayAttr({"address"});
+  }
+  if (isNativeQueueTerminal()) {
+    mlir::Builder builder(module->getContext());
+    return nativeQueueAction == NativeQueueAction::Push
+               ? builder.getArrayAttr({builder.getStringAttr("value")})
+               : builder.getArrayAttr({});
+  }
+  return definition ? definition->getAttrOfType<mlir::ArrayAttr>("argument_names")
+                    : row.getAs<mlir::ArrayAttr>("argument_names");
+}
+mlir::ArrayAttr getParameters() const {
+  if (isNativeMemoryTerminal()) {
+    mlir::Builder builder(module->getContext());
+    auto signature = getFunctionType();
+    auto names = getArgumentNames();
+    llvm::SmallVector<mlir::Attribute> parameters;
+    for (auto [ordinal, type] : llvm::enumerate(signature.getInputs())) {
+      mlir::Attribute constraint = nativeMemoryAction == NativeMemoryAction::Write && ordinal == 1
+          ? nativeMemoryPayloadConstraint
+          : builder.getDictionaryAttr({
+              builder.getNamedAttr("kind", builder.getStringAttr("hardware")),
+              builder.getNamedAttr("type", mlir::TypeAttr::get(type)),
+              builder.getNamedAttr("source_kind", builder.getStringAttr("fixed_bits"))});
+      parameters.push_back(builder.getDictionaryAttr({
+          builder.getNamedAttr("name", names[ordinal]),
+          builder.getNamedAttr("binding", builder.getStringAttr("positional_or_keyword")),
+          builder.getNamedAttr("constraint", constraint),
+          builder.getNamedAttr("default", builder.getDictionaryAttr({
+              builder.getNamedAttr("present", builder.getBoolAttr(false))}))}));
+    }
+    return builder.getArrayAttr(parameters);
+  }
+  if (isNativeQueueTerminal()) {
+    mlir::Builder builder(module->getContext());
+    if (nativeQueueAction != NativeQueueAction::Push)
+      return builder.getArrayAttr({});
+    return builder.getArrayAttr({builder.getDictionaryAttr({
+        builder.getNamedAttr("name", builder.getStringAttr("value")),
+        builder.getNamedAttr("binding",
+                             builder.getStringAttr("positional_or_keyword")),
+        builder.getNamedAttr("constraint", nativeQueuePayloadConstraint),
+        builder.getNamedAttr(
+            "default",
+            builder.getDictionaryAttr({builder.getNamedAttr(
+                "present", builder.getBoolAttr(false))}))})});
+  }
+  return definition ? definition->getAttrOfType<mlir::ArrayAttr>("ac.parameters")
+                    : row.getAs<mlir::ArrayAttr>("ac.parameters");
+}
+mlir::ArrayAttr getResultConstraints() const {
+  if (isNativeMemoryTerminal()) {
+    mlir::Builder builder(module->getContext());
+    return getFunctionType().getNumResults()
+        ? builder.getArrayAttr({nativeMemoryPayloadConstraint}) : builder.getArrayAttr({});
+  }
+  if (isNativeQueueTerminal()) {
+    mlir::Builder builder(module->getContext());
+    return nativeQueueAction == NativeQueueAction::Push
+               ? builder.getArrayAttr({})
+               : builder.getArrayAttr({nativeQueuePayloadConstraint});
+  }
+  return definition
+             ? definition->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints")
+             : row.getAs<mlir::ArrayAttr>("ac.result_constraints");
+}
+mlir::StringAttr getReturnForm() const {
+  if (isNativeMemoryTerminal())
+    return mlir::StringAttr::get(module->getContext(), getFunctionType().getNumResults() ? "single" : "none");
+  if (isNativeQueueTerminal())
+    return mlir::StringAttr::get(module->getContext(),
+                           nativeQueueAction == NativeQueueAction::Push
+                               ? "none"
+                               : "single");
+  return definition ? definition->getAttrOfType<mlir::StringAttr>("ac.return_form")
+                    : row.getAs<mlir::StringAttr>("ac.return_form");
+}
+mlir::StringAttr getVisibility() const {
+  if (isNativeTerminal())
+    return mlir::StringAttr::get(module->getContext(), "public");
+  return definition ? definition->getAttrOfType<mlir::StringAttr>("sym_visibility")
+                    : row.getAs<mlir::StringAttr>("visibility");
+}
+mlir::DictionaryAttr getDeclaration() const {
+  if (isNativeMemoryTerminal())
+    return nativeMemoryInstance ? nativeMemoryInstance->getAttrOfType<mlir::DictionaryAttr>("occurrence")
+        : nativeMemoryOwnerRow.getAs<mlir::DictionaryAttr>("occurrence");
+  if (isNativeQueueTerminal())
+    return nativeQueueInstance
+               ? nativeQueueInstance->getAttrOfType<mlir::DictionaryAttr>(
+                     "occurrence")
+                               : nativeQueueOwnerRow.getAs<mlir::DictionaryAttr>(
+                                     "occurrence");
+  return definition ? definition->getAttrOfType<mlir::DictionaryAttr>("occurrence")
+                    : row.getAs<mlir::DictionaryAttr>("declaration");
+}
+mlir::DictionaryAttr getGuardLocation() const {
+  if (isNativeTerminal())
+    return {};
+  return definition
+             ? definition->getAttrOfType<mlir::DictionaryAttr>("ac.guard_location")
+             : row.getAs<mlir::DictionaryAttr>("guard_location");
+}
+mlir::SymbolRefAttr getSymbol() const {
+  if (isNativeMemoryTerminal()) {
+    std::string name = nativeMemoryAction == NativeMemoryAction::Request ? "request" :
+        nativeMemoryAction == NativeMemoryAction::Result ? "result" :
+        nativeMemoryAction == NativeMemoryAction::Read ? "read" : "write";
+    if (nativeMemoryAction == NativeMemoryAction::Request || nativeMemoryAction == NativeMemoryAction::Result)
+      name += std::to_string(nativeMemoryPort);
+    return mlir::SymbolRefAttr::get(module->getContext(), mlir::SymbolTable::getSymbolName(module).getValue(),
+        {mlir::FlatSymbolRefAttr::get(module->getContext(), name)});
+  }
+  if (isNativeQueueTerminal()) {
+    llvm::StringRef name = nativeQueueAction == NativeQueueAction::Push
+                         ? "push"
+                         : nativeQueueAction == NativeQueueAction::Pop ? "pop"
+                                                                       : "peek";
+    return mlir::SymbolRefAttr::get(module->getContext(),
+                              mlir::SymbolTable::getSymbolName(module).getValue(),
+                              {mlir::FlatSymbolRefAttr::get(module->getContext(),
+                                                     name)});
+  }
+  auto name = definition ? definition->getAttrOfType<mlir::StringAttr>("sym_name")
+                         : row.getAs<mlir::StringAttr>("name");
+  return mlir::SymbolRefAttr::get(module->getContext(),
+                            mlir::SymbolTable::getSymbolName(module).getValue(),
+                            {mlir::FlatSymbolRefAttr::get(name)});
+}
 };
 
 /// Check the optional writable-formal mapping and its physical result suffix.

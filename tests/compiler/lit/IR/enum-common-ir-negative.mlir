@@ -1,4 +1,4 @@
-// RUN: %pycircuit_opt %s --split-input-file --verify-diagnostics
+// RUN: %pycircuit_opt %s --split-input-file --ac-verify-hardware --verify-diagnostics
 // Schema/type cases must fail at native constraints; semantic cases must
 // reach the named Enum owning guard.
 // This fixture does not claim source, common layout, storage or backend support.
@@ -238,8 +238,13 @@ module {
 !b1 = !ac.bits<#w1>
 !b3 = !ac.bits<#w3>
 module {
-  // expected-error @+1 {{cannot resolve nominal enum declaration}}
-  %state = "ac.enum.create"() {member = "IDLE"} : () -> !ac.enum<"missing.State">
+  "ac.module"() ({
+  ^bb0(%input: !b1):
+    // expected-error @+1 {{cannot resolve nominal enum declaration}}
+    %state = "ac.enum.create"() {member = "IDLE"} : () -> !ac.enum<"missing.State">
+    "ac.yield"(%input) : (!b1) -> ()
+  }) {sym_name = "user", source_owner = {package = "fixture", path = "fixture.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !b1, input_names = ["input"], output_names = ["output"]} : () -> ()
+  "ac.system"() {entry = {callee = @user, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -251,8 +256,13 @@ module {
 !b3 = !ac.bits<#w3>
 module {
   "ac.enum"() {sym_name = "pkg.State", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<0>}, {name = "RUN", code = #ac.math_int<7>}]} : () -> ()
-  // expected-error @+1 {{unknown enum member}}
-  %state = "ac.enum.create"() {member = "MISSING"} : () -> !ac.enum<"pkg.State">
+  "ac.module"() ({
+  ^bb0(%input: !b1):
+    // expected-error @+1 {{unknown enum member}}
+    %state = "ac.enum.create"() {member = "MISSING"} : () -> !ac.enum<"pkg.State">
+    "ac.yield"(%input) : (!b1) -> ()
+  }) {sym_name = "user", source_owner = {package = "fixture", path = "fixture.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !b1, input_names = ["input"], output_names = ["output"]} : () -> ()
+  "ac.system"() {entry = {callee = @user, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -266,9 +276,14 @@ module {
 !b5 = !ac.bits<#w5>
 module {
   "ac.enum"() {sym_name = "pkg.State", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<0>}, {name = "RUN", code = #ac.math_int<7>}]} : () -> ()
-  %state = "ac.enum.create"() {member = "IDLE"} : () -> !ac.enum<"pkg.State">
-  // expected-error @+1 {{enum.to_bits result width must equal 3}}
-  %bad = "ac.enum.to_bits"(%state) : (!ac.enum<"pkg.State">) -> !b5
+  "ac.module"() ({
+  ^bb0(%input: !b1):
+    %state = "ac.enum.create"() {member = "IDLE"} : () -> !ac.enum<"pkg.State">
+    // expected-error @+1 {{enum.to_bits result width must equal 3}}
+    %bad = "ac.enum.to_bits"(%state) : (!ac.enum<"pkg.State">) -> !b5
+    "ac.yield"(%input) : (!b1) -> ()
+  }) {sym_name = "user", source_owner = {package = "fixture", path = "fixture.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !b1, input_names = ["input"], output_names = ["output"]} : () -> ()
+  "ac.system"() {entry = {callee = @user, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -282,9 +297,14 @@ module {
 !b5 = !ac.bits<#w5>
 module {
   "ac.enum"() {sym_name = "pkg.State", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<0>}, {name = "RUN", code = #ac.math_int<7>}]} : () -> ()
-  %raw = "ac.bits.constant"() {value = #w0} : () -> !b5
-  // expected-error @+1 {{enum.from_bits input width must equal 3}}
-  %bad, %member = "ac.enum.from_bits"(%raw) : (!b5) -> (!ac.enum<"pkg.State">, !b1)
+  "ac.module"() ({
+  ^bb0(%input: !b1):
+    %raw = "ac.bits.constant"() {value = #w0} : () -> !b5
+    // expected-error @+1 {{enum.from_bits input width must equal 3}}
+    %bad, %member = "ac.enum.from_bits"(%raw) : (!b5) -> (!ac.enum<"pkg.State">, !b1)
+    "ac.yield"(%input) : (!b1) -> ()
+  }) {sym_name = "user", source_owner = {package = "fixture", path = "fixture.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !b1, input_names = ["input"], output_names = ["output"]} : () -> ()
+  "ac.system"() {entry = {callee = @user, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -298,9 +318,14 @@ module {
 !b3 = !ac.bits<#w3>
 module {
   "ac.enum"() {sym_name = "pkg.State", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<0>}, {name = "RUN", code = #ac.math_int<7>}]} : () -> ()
-  %raw = "ac.bits.constant"() {value = #w0} : () -> !b3
-  // expected-error @+1 {{enum.from_bits membership result width must equal 1}}
-  %bad, %member = "ac.enum.from_bits"(%raw) : (!b3) -> (!ac.enum<"pkg.State">, !b2)
+  "ac.module"() ({
+  ^bb0(%input: !b1):
+    %raw = "ac.bits.constant"() {value = #w0} : () -> !b3
+    // expected-error @+1 {{enum.from_bits membership result width must equal 1}}
+    %bad, %member = "ac.enum.from_bits"(%raw) : (!b3) -> (!ac.enum<"pkg.State">, !b2)
+    "ac.yield"(%input) : (!b1) -> ()
+  }) {sym_name = "user", source_owner = {package = "fixture", path = "fixture.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !b1, input_names = ["input"], output_names = ["output"]} : () -> ()
+  "ac.system"() {entry = {callee = @user, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----

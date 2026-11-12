@@ -1,6 +1,7 @@
 #include "SourceEntryBoundary.h"
 #include "Dialect/ACIR/EntryBoundary.h"
-#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/SourceCheckBudget.h"
+#include "Dialect/ACIR/HardwareSourceChecks.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Verifier.h"

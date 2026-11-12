@@ -1,0 +1,10 @@
+set(LLVM_TARGET_DEFINITIONS GFIRDialect.td)
+mlir_tablegen(GFIRDialect.h.inc -gen-dialect-decls -dialect=gfir)
+mlir_tablegen(GFIRDialect.cpp.inc -gen-dialect-defs -dialect=gfir)
+add_public_tablegen_target(GFIRDialectIncGen)
+
+set(LLVM_TARGET_DEFINITIONS GFIROps.td)
+mlir_tablegen(GFIROps.h.inc -gen-op-decls)
+mlir_tablegen(GFIROps.cpp.inc -gen-op-defs)
+add_public_tablegen_target(GFIROpsIncGen)
+add_dependencies(GFIROpsIncGen LogicalStateInterfacesIncGen)

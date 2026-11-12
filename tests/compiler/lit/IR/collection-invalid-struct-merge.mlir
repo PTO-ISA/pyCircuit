@@ -1,4 +1,4 @@
-// RUN: %pycircuit_opt %s --split-input-file --verify-diagnostics
+// RUN: %pycircuit_opt %s --split-input-file --ac-verify-hardware --verify-diagnostics
 #wm1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<-1>}}>
 #w0 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<0>}}>
 #w1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
@@ -32,6 +32,7 @@ module {
     %next, %en = "ac.value.merge"(%base, %zero, %zero, %inner, %y) {paths = [["inner"], ["inner", "y"]], operandSegmentSizes = array<i32: 1, 2, 2>} : (!outer, !b1, !b1, !ac.struct<"Inner">, !b8) -> (!outer, !b1)
     "ac.yield"(%next) : (!outer) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!outer, !b1, !ac.struct<"Inner">, !b8) -> !outer, input_names = ["base", "zero", "inner", "y"], output_names = ["next"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -74,6 +75,7 @@ module {
     %next, %en = "ac.value.merge"(%base, %guard, %long) {paths = [["chunks"]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!packet, !b1, !long) -> (!packet, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b1) -> (), input_names = ["value", "guard"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 
 // -----
@@ -120,4 +122,5 @@ module {
     %next, %en = "ac.value.merge"(%base, %guard, %seconds) {paths = [["chunks"]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!packet, !b1, !seconds) -> (!packet, !b1)
     "ac.yield"() : () -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b1) -> (), input_names = ["value", "guard"], output_names = []} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }

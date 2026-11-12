@@ -90,8 +90,8 @@ def _artifact(root: Path):
     }
     manifest = {
         "kind": "pycircuit-anchor",
-        "schema": 1,
-        "routed_contract": 2,
+        "schema": 3,
+        "routed_contract": 4,
         "owner": {"kind": "anchor", "source": source, "definition": symbol},
         "root": symbol,
         "configuration": configuration,
@@ -301,7 +301,7 @@ def test_manifest_serialization_is_exact(tmp_path, encoding):
     path = source / "anchor.json"
     raw = path.read_bytes()
     if encoding == "duplicate-key":
-        raw = b'{"schema":1,' + raw[1:]
+        raw = b'{"schema":3,' + raw[1:]
     elif encoding == "pretty":
         raw = json.dumps(manifest, indent=2).encode() + b"\n"
     elif encoding == "no-lf":
@@ -309,7 +309,7 @@ def test_manifest_serialization_is_exact(tmp_path, encoding):
     elif encoding == "two-lfs":
         raw += b"\n"
     elif encoding == "nonfinite":
-        raw = raw.replace(b'"schema":1', b'"schema":NaN')
+        raw = raw.replace(b'"schema":3', b'"schema":NaN')
     path.write_bytes(raw)
     with pytest.raises(_PublicationError):
         anchor._capture_anchor(source)
@@ -466,7 +466,7 @@ def _entry_artifact(root: Path):
     manifest["files"].sort(key=lambda row: row["path"])
     manifest["definitions"].append(adapter)
     manifest["definitions"].sort(key=lambda row: row["definition"])
-    manifest["schema"], manifest["routed_contract"] = 2, 3
+    manifest["schema"], manifest["routed_contract"] = 4, 5
     config = manifest["configuration"]
     config["implementation_root"] = {
         "source": adapter["source"],
@@ -530,7 +530,7 @@ def test_schema2_transport_rejects_malformed_implementation_root(tmp_path, damag
     elif damage == "extra":
         config["implementation_root"]["trusted"] = True
     elif damage == "wrong-pair":
-        manifest["routed_contract"] = 2
+        manifest["routed_contract"] = 3
     elif damage == "wrong-variant":
         config["implementation_root"]["variant_id"] = config["root"]["variant_id"]
     elif damage == "swap-roots":

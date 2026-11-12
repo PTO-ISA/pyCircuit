@@ -23,6 +23,9 @@ add_acir_library(ACIRSourceCompiler SOURCES
   TableQueryStages.cpp
   LINK_LIBRARIES
     ACIRDialect
+    # component-split: interim staged-analysis link. GFIRValidation/HWIRValidation
+    # join with pr/validation; ACIRToGFIR/GFIRToHWIR join with pr/conversion.
+    ACIRAnalysis
     ACIRTransforms
     MLIRArithDialect
     MLIRFuncDialect
@@ -45,7 +48,7 @@ add_acir_library(ACIRCodegen SOURCES
   HardwareEmitCppDefinition.cpp
   HardwareEmitVerilogFaults.cpp
   HardwareEmitVerilogDefinition.cpp
-  LINK_LIBRARIES ACIRDialect MLIRParser
+  LINK_LIBRARIES ACIRDialect ACIRAnalysis MLIRParser
 )
 target_include_directories(ACIRCodegen PUBLIC
   "$<BUILD_INTERFACE:${PYCIRCUIT_SOURCE_DIR}/lib>"

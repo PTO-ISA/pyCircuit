@@ -95,7 +95,7 @@ def _publish(tmp_path, *, remove_sources=True):
         manifest["definitions"]
     )
     assert any(
-        '"ac.state.update"' in (anchor / row["body"]).read_text()
+        '"gfir.state.update"' in (anchor / row["body"]).read_text()
         for row in manifest["definitions"]
     )
     if remove_sources:

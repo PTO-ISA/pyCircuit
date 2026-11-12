@@ -11,6 +11,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
@@ -39,6 +40,7 @@ protected:
   std::unique_ptr<ScopedDiagnosticHandler> handler;
   void SetUp() override {
     context.loadDialect<ac::ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
     ASSERT_FALSE(
         llvm::sys::fs::createUniqueDirectory("write-domain-proof", directory));
     handler =
@@ -667,8 +669,13 @@ TEST_F(HardwareWriteDomainsTest,
                           mutation == 3 ? 0 : 1));
     }
     if (mutation < 3) {
+      // The transaction wiring schema checks run from the staged module
+      // declaration entry (r3 ACIRModuleOps row); native verification keeps
+      // the declaration grammar only.
       diagnostics.clear();
-      EXPECT_TRUE(failed(verify(*file)));
+      ac::HardwareAnalysis analysis(*file);
+      EXPECT_TRUE(
+          failed(analysis.verifyModuleDeclaration(owner.module, {}, true)));
       EXPECT_NE(diagnostics.find(mutation == 0 ? "exactly cover appended inputs"
                                               : "exact appended pair"),
                 std::string::npos)

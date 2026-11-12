@@ -386,24 +386,9 @@ LogicalResult payEffectMetadata(
   }
   return success();
 }
-// Only statement arms extend a callable body. Other region owners (including
-// guards and pure helpers) never acquire source-effect placement by ancestry.
-Operation *sourceEffectCallable(Operation *operation) {
-  Region *region = operation->getParentRegion();
-  Operation *parent = operation->getParentOp();
-  while (auto branch = dyn_cast_or_null<SourceBranchOp>(parent)) {
-    if (branch->getNumRegions() != 2)
-      return nullptr;
-    if (region != &branch.getThenRegion() && region != &branch.getElseRegion())
-      return nullptr;
-    region = branch->getParentRegion();
-    parent = branch->getParentOp();
-  }
-  return isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent) &&
-                 parent->getNumRegions() == 2 && region == &parent->getRegion(1)
-             ? parent
-             : nullptr;
-}
+// Only statement arms extend a callable body; the shared placement walk is
+// detail::sourceEffectCallable, defined with the observation grammar in the
+// operations layer.
 int compareCheckWithinRegistration(DictionaryAttr lhs, DictionaryAttr rhs) {
   for (StringRef key : {"check", "obligation"})
     if (int order =
@@ -412,130 +397,17 @@ int compareCheckWithinRegistration(DictionaryAttr lhs, DictionaryAttr rhs) {
   return 0;
 }
 } // namespace
-LogicalResult
-detail::verifySourceObservationStructure(SourceObserveOp observe) {
-  auto error = [&] { return observe.emitOpError(); };
-  auto kind = observe->getAttrOfType<StringAttr>("kind");
-  auto spec = observe->getAttrOfType<DictionaryAttr>("spec");
-  auto *parent = sourceEffectCallable(observe);
-  bool source = parent != nullptr;
-  if (!source)
-    parent = observe->getParentOp();
-  if (source) {
-    if (!kind ||
-        !llvm::is_contained(ArrayRef<StringRef>{"log", "report"},
-                            kind.getValue()) ||
-        observe->hasAttr("ac.observation_id") ||
-        observe->hasAttr("ac.check_id"))
-      return error()
-             << "source observation requires statement Method/transaction "
-                "body placement, log/report kind and no final identity";
-    if (failed(verifySourceEffectMetadata(
-            observe->getAttrOfType<DictionaryAttr>("occurrence"),
-            observe->getAttrOfType<DictionaryAttr>("ac.location"),
-            parent->getParentOp(), error)))
-      return failure();
-  } else {
-    if (!isa<ModuleOp>(parent) || !kind ||
-        !llvm::is_contained(ArrayRef<StringRef>{"print", "log", "report"},
-                            kind.getValue()))
-      return error() << "observation requires module placement and known kind";
-    if (failed(verifyObservationID(
-            observe->getAttrOfType<DictionaryAttr>("ac.observation_id"),
-            error)) ||
-        failed(verifySourceSpan(
-            observe->getAttrOfType<DictionaryAttr>("ac.location"), error)))
-      return failure();
-  }
-  if (observe->getNumOperands() == 0 ||
-      !isa<BitsType, TypeParamType>(observe->getOperand(0).getType()))
-    return error() << "observation path requires scalar Bits";
-  HardwareBindings bindings;
-  bindings.owner = source ? parent->getParentOp() : parent;
-  if (source &&
-      failed(predicate(
-          HardwareAnalysis(observe->getParentOfType<mlir::ModuleOp>()),
-          observe->getOperand(0), bindings, observe)))
-    return failure();
-  for (auto operand : observe->getOperands().drop_front())
-    if (!isa<BitsType, EnumType, TypeParamType>(operand.getType()))
-      return error() << "observation value requires a scalar hardware payload";
-  return verifySourceObservationSpec(kind, spec, observe->getNumOperands() - 1,
-                                     error);
-}
-
-LogicalResult detail::verifySourceObservationSpec(StringAttr kind,
-                                                  DictionaryAttr spec,
-                                                  uint64_t valueCount,
-                                                  EmitError error) {
-  if (!kind || !spec)
-    return error() << "observation requires a known kind and closed spec";
-  auto text = [&](StringRef key, bool nonempty = false) {
-    auto value = spec.getAs<StringAttr>(key);
-    return value && (!nonempty || !value.getValue().empty());
-  };
-  if (kind.getValue() == "report") {
-    if (spec.size() != 1 || !text("name", true) || valueCount != 1)
-      return error() << "report requires a nonempty name and one scalar value";
+// The observation grammar (structure, spec and module identity duplicates)
+// lives in the operations layer (ACIRModuleOps.cpp) so the native verifiers
+// keep it; this tier keeps the source-placement path-width predicate the
+// native verifier used to run with empty bindings, now under the caller's
+// actual bindings (B2 step-2 design r7 diagnostic-site move).
+LogicalResult detail::verifySourceObservationWidths(
+    const HardwareAnalysis &analysis, SourceObserveOp observe,
+    const HardwareBindings &bindings) {
+  if (!detail::sourceEffectCallable(observe))
     return success();
-  }
-  if (spec.size() != 3 ||
-      (kind.getValue() == "print" && (!text("sep") || !text("end"))) ||
-      (kind.getValue() == "log" &&
-       (!text("event", true) || !text("level") ||
-        !llvm::is_contained(
-            ArrayRef<StringRef>{"debug", "info", "warning", "error"},
-            spec.getAs<StringAttr>("level").getValue()))))
-    return error() << "observation spec has invalid closed fields";
-  auto items = spec.getAs<ArrayAttr>("items");
-  if (!items)
-    return error() << "observation items must be an array";
-  uint64_t next = 0;
-  for (auto raw : items) {
-    auto item = dyn_cast<DictionaryAttr>(raw);
-    auto itemKind = item ? item.getAs<StringAttr>("kind") : StringAttr();
-    if (!item || item.size() != 2 || !itemKind)
-      return error() << "observation item requires exact kind and payload";
-    if (itemKind.getValue() == "literal") {
-      if (!item.getAs<StringAttr>("text"))
-        return error() << "literal observation item requires text";
-    } else if (itemKind.getValue() == "value") {
-      auto ordinal = decodeU32(item.getAs<IntegerAttr>("ordinal"),
-                               "observation item ordinal", error);
-      if (failed(ordinal) || *ordinal != next++)
-        return error()
-               << "observation items must cover values exactly in order";
-    } else {
-      return error() << "observation item kind must be literal or value";
-    }
-  }
-  if (next != valueCount)
-    return error() << "observation items must cover values exactly in order";
-  return success();
-}
-
-LogicalResult detail::verifyModuleObservationIdentities(ModuleOp definition) {
-  SmallVector<ObservationLocalKey, 0> keys;
-  for (auto observe : definition.getBody().front().getOps<SourceObserveOp>()) {
-    if (failed(verifySourceObservationStructure(observe)))
-      return failure();
-    auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
-    ObservationLocalKey key{identity, identity.getAs<DictionaryAttr>("owner"),
-                            observe.getKind() == "report"
-                                ? observe.getSpec().getAs<StringAttr>("name")
-                                : StringAttr()};
-    for (const auto &prior : keys) {
-      if (prior.identity == key.identity)
-        return observe.emitOpError() << "duplicate full ObservationID";
-      if (key.reportName && prior.reportName == key.reportName &&
-          prior.owner == key.owner)
-        return observe.emitOpError()
-               << "report name must be unique within logical owner: "
-               << key.reportName.getValue();
-    }
-    keys.push_back(key);
-  }
-  return success();
+  return predicate(analysis, observe->getOperand(0), bindings, observe);
 }
 
 #include "HardwareTransactionReturns.inc"
@@ -1145,7 +1017,7 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
                                           SourceExpectOp expect,
                                           const HardwareBindings &bindings) {
   auto error = [&] { return expect.emitOpError(); };
-  auto *parent = sourceEffectCallable(expect);
+  auto *parent = detail::sourceEffectCallable(expect);
   bool source = parent != nullptr;
   if (!source)
     parent = expect->getParentOp();
@@ -1391,218 +1263,5 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
         lhs.ordinal != rhs.ordinal)
       return mismatch();
   return success();
-}
-
-FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
-    const HardwareSourceCheckPlan &plan,
-    HardwareSourceCheckLimits limits) const {
-  if (failed(verifySourceCheckPlan(plan, limits)))
-    return failure();
-  if (plan.owners.empty())
-    return package.emitOpError() << "physical RTL requires a root owner";
-  auto root = plan.owners.front().definition;
-  auto kind = root->getAttrOfType<StringAttr>("ac.root_kind");
-  if (kind && kind.getValue() == "system")
-    return root.emitOpError()
-           << "physical RTL requires an ordinary Module, not a closed System";
-  auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
-  auto clock = domain ? domain.getAs<IntegerAttr>("clock") : IntegerAttr();
-  auto reset = domain ? domain.getAs<IntegerAttr>("reset") : IntegerAttr();
-  auto layout = getModulePortLayout(root);
-  if (failed(layout))
-    return failure();
-  if (!clock || !reset || clock.getValue().getActiveBits() > 32 ||
-      reset.getValue().getActiveBits() > 32 || clock == reset ||
-      clock.getValue().getZExtValue() >= layout->sourceInputCount ||
-      reset.getValue().getZExtValue() >= layout->sourceInputCount)
-    return root.emitOpError()
-           << "physical RTL requires one actual root clock/reset pair";
-  unsigned clk = clock.getValue().getZExtValue(),
-           rst = reset.getValue().getZExtValue();
-  detail::SourceCheckBudget budget(limits);
-  budget.setPhase("physical RTL projection");
-  // Identity-only transport is sufficient for domain proof. Uniform Tables
-  // preserve identity through Collection slicing and layout permutations.
-  // Derived expressions deliberately have no domain identity.
-  std::function<FailureOr<unsigned>(Value, uint64_t, unsigned)> identity;
-  identity = [&](Value value, uint64_t owner,
-                 unsigned depth) -> FailureOr<unsigned> {
-    auto &occurrence = plan.owners[owner];
-    Operation *site = value.getDefiningOp();
-    if (!site)
-      site = value.getParentBlock()->getParentOp();
-    if (depth > 256 || failed(budget.debit(1, site)))
-      return site->emitOpError()
-             << "physical domain identity exceeds bounded traversal";
-    if (auto argument = dyn_cast<BlockArgument>(value)) {
-      auto *parent = argument.getOwner()->getParentOp();
-      if (auto rule = dyn_cast<RuleOp>(parent))
-        return identity(rule->getOperand(argument.getArgNumber()), owner,
-                        depth + 1);
-      if (parent == occurrence.definition) {
-        if (!occurrence.parent)
-          return argument.getArgNumber() == clk   ? 1u
-                 : argument.getArgNumber() == rst ? 2u
-                                                  : 0u;
-        auto *allocation = occurrence.path.back().allocation;
-        return identity(allocation->getOperand(argument.getArgNumber()),
-                        *occurrence.parent, depth + 1);
-      }
-      return 0u;
-    }
-    if (auto result = dyn_cast<OpResult>(value)) {
-      if (auto rule = dyn_cast<RuleOp>(result.getOwner()))
-        return identity(cast<YieldOp>(rule.getBody().front().back())
-                            .getValues()[result.getResultNumber()],
-                        owner, depth + 1);
-    }
-    if (auto extract = value.getDefiningOp<BitsExtractOp>()) {
-      auto low = evaluateStatic(extract.getLow(), occurrence.bindings, extract);
-      auto inWidth = getPackedWidth(extract.getInput().getType(),
-                                    occurrence.bindings, extract);
-      auto outWidth =
-          getPackedWidth(value.getType(), occurrence.bindings, extract);
-      if (failed(low) || failed(inWidth) || failed(outWidth))
-        return failure();
-      auto integer = dyn_cast<MathIntAttr>(*low);
-      if (integer && llvm::APSInt(integer.getCanonicalValue()).isZero() &&
-          *inWidth == *outWidth)
-        return identity(extract.getInput(), owner, depth + 1);
-    }
-    if (auto splat = value.getDefiningOp<TableSplatOp>())
-      return identity(splat.getInput(), owner, depth + 1);
-    if (auto create = value.getDefiningOp<TableCreateOp>()) {
-      unsigned uniform = 0;
-      for (Value element : create->getOperands()) {
-        auto part = identity(element, owner, depth + 1);
-        if (failed(part))
-          return failure();
-        if (!*part || (uniform && uniform != *part))
-          return 0u;
-        uniform = *part;
-      }
-      return uniform;
-    }
-    return 0u;
-  };
-  auto pair = [&](Value clockValue, Value resetValue, uint64_t owner,
-                  Operation *site) -> LogicalResult {
-    auto c = identity(clockValue, owner, 0), r = identity(resetValue, owner, 0);
-    if (failed(c) || failed(r))
-      return failure();
-    if (*c != 1 || *r != 2)
-      return site->emitOpError()
-             << "physical RTL requires all sampling and storage to use the "
-                "actual root clock/reset pair";
-    return success();
-  };
-  llvm::DenseSet<Operation *> reachable;
-  for (const auto &owner : plan.owners)
-    reachable.insert(owner.definition);
-  for (const auto &check : plan.bindings)
-    if (reachable.contains(check.definition) &&
-        check.kind.getValue() != "guard_known")
-      return check.expect->emitOpError()
-             << "physical RTL requires managed execution for residual "
-             << check.kind.getValue() << " checks";
-  for (const auto &sampling : plan.samplingOccurrences) {
-    const auto &binding = plan.samplingBindings[sampling.bindingIndex];
-    if (failed(pair(binding.clock, binding.reset, sampling.ownerOccurrence,
-                    binding.definition)))
-      return failure();
-  }
-  for (auto [owner, occurrence] : llvm::enumerate(plan.owners)) {
-    auto definition = occurrence.definition;
-    auto observations = definition.getBody().front().getOps<SourceObserveOp>();
-    if (!observations.empty())
-      return definition.emitOpError()
-             << "physical RTL does not support observations";
-    // Include stateless and readonly transactions even if no storage/check
-    // occurrence happens to retain their domain in the managed plan.
-    for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
-      if (!rule->hasAttr("ac.sampled_admission"))
-        continue;
-      auto view = detail::parseSampledAdmission(rule, *this,
-                                                occurrence.bindings, budget);
-      if (failed(view) || failed(pair(view->clock, view->reset, owner, rule)))
-        return failure();
-      for (const auto &control : view->controls)
-        if (control.kind != detail::SampledControlKind::CallableGuard &&
-            control.kind != detail::SampledControlKind::BranchSelect)
-          return rule.emitOpError() << "physical RTL requires managed "
-                                       "execution for non-guard controls";
-    }
-    for (Operation &op : definition.getBody().front()) {
-      if (!isa<InstanceOp, CollectionOp>(op))
-        continue;
-      auto *callee = isa<InstanceOp>(op)
-                         ? resolveCallee(cast<InstanceOp>(op))
-                         : resolveCallee(cast<CollectionOp>(op));
-      auto primitive = getPrimitiveKind(callee);
-      if (primitive.empty())
-        continue;
-      if (primitive != "dff" && primitive != "dffe")
-        return op.emitOpError()
-               << "physical RTL supports only DFF/DFFE storage primitives";
-      if (op.getNumOperands() < 2 ||
-          failed(pair(op.getOperand(0), op.getOperand(1), owner, &op)))
-        return failure();
-      unsigned initialIndex = primitive == "dff" ? 3 : 4;
-      if (op.getNumOperands() <= initialIndex ||
-          failed(detail::verifyClosedStateInitializer(
-              *this, op.getOperand(initialIndex), occurrence.bindings, &op)))
-        return failure();
-    }
-    auto uses = definition.walk([&](Operation *op) {
-      for (auto [index, operand] : llvm::enumerate(op->getOperands())) {
-        auto id = identity(operand, owner, 0);
-        if (failed(id))
-          return WalkResult::interrupt();
-        if (*id != 1)
-          continue;
-        bool transport = isa<TableSplatOp>(op);
-        if (auto create = dyn_cast<TableCreateOp>(op)) {
-          auto result = identity(create.getResult(), owner, 0);
-          if (failed(result))
-            return WalkResult::interrupt();
-          transport = *result == 1;
-        }
-        if (auto extract = dyn_cast<BitsExtractOp>(op)) {
-          auto result = identity(extract.getResult(), owner, 0);
-          if (failed(result))
-            return WalkResult::interrupt();
-          transport = *result == 1;
-        }
-        if (auto rule = dyn_cast<RuleOp>(op)) {
-          auto metadata =
-              rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-          auto capture = metadata ? metadata.getAs<IntegerAttr>("clock_capture")
-                                  : IntegerAttr();
-          transport = capture && index == capture.getValue().getZExtValue();
-        }
-        if (isa<InstanceOp, CollectionOp>(op)) {
-          auto *callee = isa<InstanceOp>(op)
-                             ? resolveCallee(cast<InstanceOp>(op))
-                             : resolveCallee(cast<CollectionOp>(op));
-          auto primitive = getPrimitiveKind(callee);
-          // Ordinary child arguments are checked in their actual occurrence.
-          transport =
-              primitive.empty() ||
-              ((primitive == "dff" || primitive == "dffe") && index == 0);
-        }
-        if (auto expect = dyn_cast<SourceExpectOp>(op))
-          transport = expect.getKind() == "guard_known" && index == 2;
-        if (!transport) {
-          op->emitOpError() << "physical RTL forbids clock use as data or "
-                               "combinational control";
-          return WalkResult::interrupt();
-        }
-      }
-      return WalkResult::advance();
-    });
-    if (uses.wasInterrupted())
-      return failure();
-  }
-  return HardwarePhysicalProjection{root, clk, rst};
 }
 } // namespace acir::ac

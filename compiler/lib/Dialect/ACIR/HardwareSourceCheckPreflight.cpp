@@ -2,6 +2,7 @@
 #include "HardwareSourceCheckPreflight.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
+#include "pycircuit/Analysis/LogicalStateValidation.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -38,8 +39,8 @@ struct BoundDefinition {
 class Builder {
 public:
   Builder(const HardwareAnalysis &analysis, HardwareSourceCheckLimits limits,
-          PackageVerificationProfile profile)
-      : analysis(analysis), profile(profile), budget(limits), validation(analysis, budget) {}
+          const PackageStagePolicy &policy)
+      : analysis(analysis), policy(policy), budget(limits), validation(analysis, budget) {}
   FailureOr<HardwareSourceCheckPlan> build() {
     auto package = analysis.getPackage();
     budget.setPhase("raw preflight");
@@ -50,7 +51,7 @@ public:
       if (failed(rawPreflight()))
         return failure();
     }
-    if (failed(verifyHardwarePackageStage(analysis, profile))) return failure();
+    if (failed(verifyHardwarePackageStage(analysis, policy))) return failure();
     {
       NativeSourceCheckScope native(analysis, validation, budget, nativeChecks);
       // Establish the builtin package's own ODS/trait/custom shape before any
@@ -71,9 +72,31 @@ public:
       // All children are verified; retain the package's own invariants and
       // cross-child region/dominance checks without scheduling them again.
       if (failed(mlir::verify(package, false))) return failure();
+      // Per-definition source checks record through the same scope entry
+      // the native verifyRegions call used before the r3 ACIRModuleOps
+      // severing; running them here keeps the recording mechanism,
+      // budget and validation identical.
+      for (Operation &operation : package.getBody()->getOperations())
+        if (auto module = dyn_cast<ModuleOp>(operation))
+          if (failed(analysis.verifyDefinitionSourceChecks(module)))
+            return failure();
+      // Package-level declaration families whose semantic checks moved to
+      // the staged side (r3 ACIRPacketOps row): the native verifiers are
+      // grammar-only, so the plan owns their bound checks with the same
+      // empty-binding shape the native bodies used.
+      for (Operation &operation : package.getBody()->getOperations())
+        if (isa<StructOp, ModuleImportOp>(operation) &&
+            failed((isa<StructOp>(operation)
+                        ? analysis.verifyStructOperation(&operation,
+                                                         HardwareBindings{},
+                                                         true)
+                        : analysis.verifyModuleDeclaration(&operation,
+                                                           HardwareBindings{},
+                                                           true))))
+          return failure();
     }
     if (failed(verifyHardwarePackageEnvelope(
-            analysis, profile, [&](uint64_t units, Operation *site) {
+            analysis, policy, [&](uint64_t units, Operation *site) {
               return budget.debit(units, site);
             }))) return failure();
     auto resetSemantics = getHardwareResetSemantics(package);
@@ -1403,6 +1426,50 @@ private:
                            definition)))
         return failure();
       auto &indices = localIndices[definition];
+      // The declaration inventory is the enumeration authority for routed
+      // states' bound checks (B1-boundary.md): resolved control widths,
+      // constraint semantics, initializer closure and same-block pairing
+      // with the update's bound intent check — once per declaration,
+      // including retained definitions outside the instance closure. This
+      // work was previously unbudgeted native-verifier work; catalog keeps
+      // it without new debits.
+      for (auto &op : definition.getBody().front()) {
+        if (auto logical = dyn_cast<acir::LogicalStateOpInterface>(&op)) {
+          if (failed(verifyLogicalStateDeclarationBinding(logical, &analysis,
+                                                           &local, &budget)))
+            return failure();
+        } else if (auto source = dyn_cast<acir::ac::SourceStateOp>(&op)) {
+          // Source ac.state declarations do not implement the routed
+          // logical-state interface; their source binding (the identical
+          // declarationBoundChecks plus closed-initializer set the native
+          // verify ran) is this catalog's declaration row since the B2
+          // step-2 transaction family moved it off the native verifier.
+          if (failed(verifyLogicalStateSourceBinding(source)))
+            return failure();
+        }
+      }
+      // Retained definitions keep their lexically-definite semantic checks
+      // independent of instance bindings (r8 review fix): the tolerant
+      // family entries re-run over every retained definition, so an
+      // uninstantiated module cannot bypass the original rejection boundary.
+      auto lexical = definition.walk([&](Operation *op) {
+        LogicalResult result = success();
+        if (isa<EnumCreateOp, EnumToBitsOp, EnumFromBitsOp>(op))
+          result = analysis.verifyEnumValueOperation(op, local);
+        else if (isa<CollectionOp, TableCreateOp, TableSplatOp, TableMapOp,
+                    TableViewOp, TableIndexOp, TableReadOp, TableGetOp,
+                    TableMatchOp, TableChooseOp, TableFoldOp, ValueMergeOp>(op))
+          result = analysis.verifyCollectionOperation(op, local);
+        else if (isa<StructCreateOp, StructGetOp>(op))
+          result = analysis.verifyStructOperation(op, local);
+        else if (isa<BitsUnaryOp, BitsBinaryOp, BitsCompareOp, BitsSelectOp>(op))
+          result = analysis.verifyBitsSymbolicWidths(op);
+        if (failed(result))
+          return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+      if (lexical.wasInterrupted())
+        return failure();
       auto sampling = catalogSampling(definition, local, bindings);
       if (failed(sampling))
         return failure();
@@ -1513,7 +1580,8 @@ private:
     }
     SmallVector<Operation *> allocations;
     for (Operation &op : definition.getBody().front()) {
-      if (!isa<InstanceOp, CollectionOp, SourceStateOp>(op))
+      if (!isa<InstanceOp, CollectionOp>(op) &&
+          !isa<acir::LogicalStateOpInterface>(op))
         continue;
       if (failed(budget.debit(Budget::bytes(sizeof(Allocation)), &op)) ||
           failed(
@@ -1539,8 +1607,20 @@ private:
                << "duplicate allocation occurrence identity";
     for (Operation *allocation : allocations) {
       Allocation edge{allocation, {}, {}, {}};
-      if (isa<SourceStateOp>(allocation)) {
+      if (auto logical = dyn_cast<acir::LogicalStateOpInterface>(allocation)) {
         edge.form = HardwareCheckCommitEndpointForm::Logical;
+        // Actual-binding verification: this visit resolves every instance
+        // binding of the definition, and controls, intent width, constraint
+        // semantics and initializer closure are re-checked under the actual
+        // resolved bindings (B1-boundary's once-per-required-binding rule).
+        // The catalog pass separately covers every declaration under its
+        // lexical owner scope, including retained unreachable definitions.
+        // Both charge the pairing scan and initializer traversal to the
+        // plan budget; visit reuses results for repeated identical
+        // definition bindings, so each unique scope pays once.
+        if (failed(verifyLogicalStateDeclarationBinding(logical, &analysis,
+                                                         &scope, &budget)))
+          return failure();
       } else if (auto queue = dyn_cast<InstanceOp>(allocation);
           queue && isQueueInstance(queue)) {
         if (failed(analysis.resolveQueue(queue, scope)))
@@ -1587,7 +1667,7 @@ private:
         } else {
           auto childDefinition = dyn_cast<ModuleOp>(child->owner);
           if (!childDefinition) {
-            if (profile != PackageVerificationProfile::Routed ||
+            if (!policy.combinationalExternalAdmission ||
                 !child->owner->hasAttr("ac.external_contract"))
               return allocation->emitOpError()
                      << "source check plan requires explicit provider body";
@@ -1767,7 +1847,7 @@ private:
     return success();
   }
   const HardwareAnalysis &analysis;
-  PackageVerificationProfile profile;
+  PackageStagePolicy policy;
   SourceCheckBudget budget;
   SampledAdmissionValidation validation;
   HardwareSourceCheckPlan plan;
@@ -1784,7 +1864,7 @@ private:
 FailureOr<HardwareSourceCheckPlan>
 buildSourceCheckPlan(const HardwareAnalysis &analysis,
                      HardwareSourceCheckLimits limits,
-                     PackageVerificationProfile profile) {
-  return Builder(analysis, limits, profile).build();
+                     const PackageStagePolicy &policy) {
+  return Builder(analysis, limits, policy).build();
 }
 } // namespace acir::ac::detail

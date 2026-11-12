@@ -315,15 +315,28 @@ TEST_F(TableDependencySummaryTest,
       cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(*unit, "unit.Parent"));
   auto instance = *module.getBody().front().getOps<ac::InstanceOp>().begin();
   instance->setOperand(0, module.getBody().front().getArgument(1));
-  EXPECT_TRUE(failed(mlir::verify(*unit)));
+  ac::HardwareAnalysis analysis(*unit);
+  ac::HardwareBindings bindings;
+  bindings.owner = module;
+  EXPECT_TRUE(failed(analysis.verifyInstance(instance, bindings)));
+  // The view payload agreement moved to the staged collection entry (r3
+  // rows); the native verification is grammar-only, so the malformed shape
+  // is rejected there instead of at parse-time verification.
   auto malformed = parse(R"mlir(
     "ac.module"() ({
     ^bb0(%input: !t3):
       %out = "ac.table.view"(%input) {kind = "reshape", parameters = {shape = [#w2]}} : (!t3) -> !t2
       "ac.yield"(%out) : (!t2) -> ()
     }) {sym_name = "unit.BadView", source_owner = {package = "", path = "unit.py"}, parameters = [], type_parameters = [], function_type = (!t3) -> !t2, input_names = ["input"], output_names = ["out"]} : () -> ()
-  )mlir");
-  EXPECT_FALSE(malformed);
+  )mlir", /*verify=*/false);
+  ASSERT_TRUE(malformed);
+  ac::HardwareAnalysis malformedAnalysis(*malformed);
+  ac::TableViewOp badView;
+  malformed->walk(
+      [&](ac::TableViewOp view) { badView = view; return mlir::WalkResult::interrupt(); });
+  ASSERT_TRUE(badView);
+  EXPECT_TRUE(failed(malformedAnalysis.verifyCollectionOperation(
+      badView.getOperation(), {}, /*requireResolved=*/true)));
 }
 
 TEST_F(TableDependencySummaryTest,
@@ -406,7 +419,8 @@ TEST_F(TableDependencySummaryTest,
       return success();
     });
     ac::HardwareAnalysis analysis(*unit);
-    EXPECT_TRUE(failed(mlir::verify(*unit)));
+    EXPECT_TRUE(failed(analysis.verifyDefinitionSourceChecks(
+        cast<ac::ModuleOp>(*unit->getBody()->getOperations().begin()))));
     EXPECT_TRUE(failed(analysis.getPackedWidth(
         record("types.Cycle"), {}, *unit)));
     EXPECT_TRUE(failed(analysis.getLeaves(
@@ -450,8 +464,12 @@ TEST_F(TableDependencySummaryTest,
       d.print(out);
       return success();
     });
-    EXPECT_TRUE(failed(mlir::verify(*unit)));
+    // The struct declaration's native verify is grammar-only (r3
+    // ACIRPacketOps row); the bound extent checks live in the staged
+    // struct entry and fire below.
+    EXPECT_TRUE(succeeded(mlir::verify(*unit)));
     ac::HardwareAnalysis analysis(*unit);
+    EXPECT_TRUE(failed(analysis.verifyStructOperation(declaration, {}, true)));
     EXPECT_TRUE(failed(analysis.getPackedWidth(record("types.Pair"), {}, *unit)));
     EXPECT_TRUE(failed(analysis.getLeaves(record("types.Pair"), {}, *unit)));
     EXPECT_TRUE(diagnostics.find("positive") != std::string::npos ||

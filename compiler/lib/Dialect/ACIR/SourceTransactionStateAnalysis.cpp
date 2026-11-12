@@ -1009,9 +1009,12 @@ private:
     if (bindings.integers.empty() && bindings.types.empty() &&
         logicalBindings.integers.empty() && logicalBindings.types.empty()) {
       auto closed = closedLayout(original, site);
-      if (failed(closed))
-        return failure();
-      share = *closed;
+      // The share probe is a memoization fast path, not an admission
+      // authority. When it cannot decide (depth or budget guard), the
+      // authoritative metadata admission below still runs and owns the
+      // rejection diagnostics; only a decided closed layout may skip it.
+      if (succeeded(closed))
+        share = *closed;
     }
     if (share) {
       auto cached = closedBranchTypes.find(original);

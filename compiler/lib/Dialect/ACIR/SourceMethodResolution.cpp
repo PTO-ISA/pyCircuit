@@ -9,50 +9,6 @@
 
 using namespace mlir;
 namespace acir::ac {
-LogicalResult verifySourceReferenceParameters(Operation *module) {
-  Attribute raw = module->getAttr("ac.reference_parameters");
-  if (!raw) return success();
-  auto refs = dyn_cast<ArrayAttr>(raw);
-  if (!refs || refs.empty())
-    return module->emitOpError() << "ac.reference_parameters requires a nonempty formal array";
-  if (module->hasAttr("ac.root_kind"))
-    return module->emitOpError() << "closed System cannot declare Module reference formals";
-  if (isa<ModuleImportOp>(module)) {
-    auto semantic = module->getAttrOfType<StringAttr>("semantic_kind");
-    if (!semantic || semantic.getValue() != "transactions")
-      return module->emitOpError() << "Module reference imports require transaction schema authority";
-  }
-  auto data = module->getAttrOfType<ArrayAttr>("ac.parameters");
-  if (!data) return module->emitOpError() << "Module reference formals require a complete source call contract";
-  unsigned count = refs.size() + (data ? data.size() : 0);
-  llvm::StringSet<> names;
-  for (StringRef field : {"input_names", "output_names", "type_parameters"})
-    if (auto values = module->getAttrOfType<ArrayAttr>(field))
-      for (Attribute value : values) if (auto name = dyn_cast<StringAttr>(value)) names.insert(name.getValue());
-  if (auto values = module->getAttrOfType<ArrayAttr>("parameters"))
-    for (Attribute value : values) {
-      auto row = dyn_cast<DictionaryAttr>(value);
-      auto name = row ? row.getAs<StringAttr>("name") : StringAttr();
-      if (!name) return module->emitOpError() << "invalid static parameter inventory";
-      names.insert(name.getValue());
-    }
-  llvm::DenseSet<int64_t> positions;
-  int64_t previous = -1;
-  for (Attribute item : refs) {
-    auto row = dyn_cast<DictionaryAttr>(item);
-    auto name = row ? row.getAs<StringAttr>("name") : StringAttr();
-    auto callee = row ? row.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
-    auto position = row ? row.getAs<IntegerAttr>("position") : IntegerAttr();
-    if (!row || row.size() != 3 || !name || !callee || callee.getValue().empty() ||
-        !position || !position.getType().isSignlessInteger(64) || position.getInt() < 0 ||
-        static_cast<uint64_t>(position.getInt()) >= count || position.getInt() <= previous ||
-        !positions.insert(position.getInt()).second || !names.insert(name.getValue()).second ||
-        failed(detail::verifyPythonAstIdentifier(name.getValue(), true, [&] { return module->emitOpError(); })))
-      return module->emitOpError() << "invalid, duplicate or unordered Module reference formal";
-    previous = position.getInt();
-  }
-  return success();
-}
 namespace {
 FailureOr<Operation *> resolveReferenceReceiver(
     Operation *module, DictionaryAttr receiver, SourceModuleLookup lookup,
@@ -492,123 +448,6 @@ FailureOr<SourceQueueView> lookupSourceQueue(Operation *module, StringRef name,
     return site->emitOpError() << "queue effect must identify an actual lexical allocation";
   return result;
 }
-FunctionType SourceMethodView::getFunctionType() const {
-  if (isNativeMemoryTerminal()) {
-    auto signature = cast<FunctionType>(module->getAttrOfType<TypeAttr>("function_type").getValue());
-    auto kind = module->getAttrOfType<StringAttr>("primitive_kind").getValue();
-    unsigned address = kind == "byte_mem" ? 2 : 3 + 2 * nativeMemoryPort;
-    unsigned write = kind == "byte_mem" ? 3 : kind == "sync_mem_dp" ? 6 : 4;
-    SmallVector<Type> inputs, results;
-    if (nativeMemoryAction == NativeMemoryAction::Request ||
-        nativeMemoryAction == NativeMemoryAction::Read)
-      inputs.push_back(signature.getInput(address));
-    else if (nativeMemoryAction == NativeMemoryAction::Write)
-      for (unsigned ordinal : {write + 1, write + 2, write + 3})
-        inputs.push_back(signature.getInput(ordinal));
-    if (nativeMemoryAction == NativeMemoryAction::Result ||
-        nativeMemoryAction == NativeMemoryAction::Read)
-      results.push_back(signature.getResult(nativeMemoryPort));
-    return FunctionType::get(module->getContext(), inputs, results);
-  }
-  if (isNativeQueueTerminal()) {
-    auto moduleType = cast<FunctionType>(
-        module->getAttrOfType<TypeAttr>("function_type").getValue());
-    Type formalPayload = moduleType.getInput(3);
-    SmallVector<Type> inputs, results;
-    (nativeQueueAction == NativeQueueAction::Push ? inputs : results)
-        .push_back(formalPayload);
-    return FunctionType::get(module->getContext(), inputs, results);
-  }
-  return definition ? cast<FunctionType>(
-                          definition->getAttrOfType<TypeAttr>("function_type")
-                              .getValue())
-                    : cast<FunctionType>(
-                          row.getAs<TypeAttr>("function_type").getValue());
-}
-ArrayAttr SourceMethodView::getArgumentNames() const {
-  if (isNativeMemoryTerminal()) {
-    Builder builder(module->getContext());
-    if (nativeMemoryAction == NativeMemoryAction::Result) return builder.getArrayAttr({});
-    if (nativeMemoryAction == NativeMemoryAction::Write)
-      return builder.getStrArrayAttr({"address", "value", "mask"});
-    return builder.getStrArrayAttr({"address"});
-  }
-  if (isNativeQueueTerminal()) {
-    Builder builder(module->getContext());
-    return nativeQueueAction == NativeQueueAction::Push
-               ? builder.getArrayAttr({builder.getStringAttr("value")})
-               : builder.getArrayAttr({});
-  }
-  return definition ? definition->getAttrOfType<ArrayAttr>("argument_names")
-                    : row.getAs<ArrayAttr>("argument_names");
-}
-ArrayAttr SourceMethodView::getParameters() const {
-  if (isNativeMemoryTerminal()) {
-    Builder builder(module->getContext());
-    auto signature = getFunctionType();
-    auto names = getArgumentNames();
-    SmallVector<Attribute> parameters;
-    for (auto [ordinal, type] : llvm::enumerate(signature.getInputs())) {
-      Attribute constraint = nativeMemoryAction == NativeMemoryAction::Write && ordinal == 1
-          ? nativeMemoryPayloadConstraint
-          : builder.getDictionaryAttr({
-              builder.getNamedAttr("kind", builder.getStringAttr("hardware")),
-              builder.getNamedAttr("type", TypeAttr::get(type)),
-              builder.getNamedAttr("source_kind", builder.getStringAttr("fixed_bits"))});
-      parameters.push_back(builder.getDictionaryAttr({
-          builder.getNamedAttr("name", names[ordinal]),
-          builder.getNamedAttr("binding", builder.getStringAttr("positional_or_keyword")),
-          builder.getNamedAttr("constraint", constraint),
-          builder.getNamedAttr("default", builder.getDictionaryAttr({
-              builder.getNamedAttr("present", builder.getBoolAttr(false))}))}));
-    }
-    return builder.getArrayAttr(parameters);
-  }
-  if (isNativeQueueTerminal()) {
-    Builder builder(module->getContext());
-    if (nativeQueueAction != NativeQueueAction::Push)
-      return builder.getArrayAttr({});
-    return builder.getArrayAttr({builder.getDictionaryAttr({
-        builder.getNamedAttr("name", builder.getStringAttr("value")),
-        builder.getNamedAttr("binding",
-                             builder.getStringAttr("positional_or_keyword")),
-        builder.getNamedAttr("constraint", nativeQueuePayloadConstraint),
-        builder.getNamedAttr(
-            "default",
-            builder.getDictionaryAttr({builder.getNamedAttr(
-                "present", builder.getBoolAttr(false))}))})});
-  }
-  return definition ? definition->getAttrOfType<ArrayAttr>("ac.parameters")
-                    : row.getAs<ArrayAttr>("ac.parameters");
-}
-ArrayAttr SourceMethodView::getResultConstraints() const {
-  if (isNativeMemoryTerminal()) {
-    Builder builder(module->getContext());
-    return getFunctionType().getNumResults()
-        ? builder.getArrayAttr({nativeMemoryPayloadConstraint}) : builder.getArrayAttr({});
-  }
-  if (isNativeQueueTerminal()) {
-    Builder builder(module->getContext());
-    return nativeQueueAction == NativeQueueAction::Push
-               ? builder.getArrayAttr({})
-               : builder.getArrayAttr({nativeQueuePayloadConstraint});
-  }
-  return definition
-             ? definition->getAttrOfType<ArrayAttr>("ac.result_constraints")
-             : row.getAs<ArrayAttr>("ac.result_constraints");
-}
-ArrayAttr SourceMethodView::getFormalProposals() const {
-  if (isNativeTerminal())
-    return {};
-  return definition
-             ? definition->getAttrOfType<ArrayAttr>("ac.formal_proposals")
-             : row.getAs<ArrayAttr>("ac.formal_proposals");
-}
-unsigned SourceMethodView::getNumPublicResults() const {
-  auto proposals = getFormalProposals();
-  return getFunctionType().getNumResults() -
-         2 * (proposals ? proposals.size() : 0);
-}
 LogicalResult
 verifySourceMethodFormalProposals(const SourceMethodView &method,
                                   Operation *site) {
@@ -729,69 +568,6 @@ LogicalResult verifySourceFormalOwnerBindings(
              << "formal owner binding requires state or caller_formal";
   }
   return success();
-}
-StringAttr SourceMethodView::getReturnForm() const {
-  if (isNativeMemoryTerminal())
-    return StringAttr::get(module->getContext(), getFunctionType().getNumResults() ? "single" : "none");
-  if (isNativeQueueTerminal())
-    return StringAttr::get(module->getContext(),
-                           nativeQueueAction == NativeQueueAction::Push
-                               ? "none"
-                               : "single");
-  return definition ? definition->getAttrOfType<StringAttr>("ac.return_form")
-                    : row.getAs<StringAttr>("ac.return_form");
-}
-StringAttr SourceMethodView::getVisibility() const {
-  if (isNativeTerminal())
-    return StringAttr::get(module->getContext(), "public");
-  return definition ? definition->getAttrOfType<StringAttr>("sym_visibility")
-                    : row.getAs<StringAttr>("visibility");
-}
-DictionaryAttr SourceMethodView::getDeclaration() const {
-  if (isNativeMemoryTerminal())
-    return nativeMemoryInstance ? nativeMemoryInstance->getAttrOfType<DictionaryAttr>("occurrence")
-        : nativeMemoryOwnerRow.getAs<DictionaryAttr>("occurrence");
-  if (isNativeQueueTerminal())
-    return nativeQueueInstance
-               ? nativeQueueInstance->getAttrOfType<DictionaryAttr>(
-                     "occurrence")
-                               : nativeQueueOwnerRow.getAs<DictionaryAttr>(
-                                     "occurrence");
-  return definition ? definition->getAttrOfType<DictionaryAttr>("occurrence")
-                    : row.getAs<DictionaryAttr>("declaration");
-}
-DictionaryAttr SourceMethodView::getGuardLocation() const {
-  if (isNativeTerminal())
-    return {};
-  return definition
-             ? definition->getAttrOfType<DictionaryAttr>("ac.guard_location")
-             : row.getAs<DictionaryAttr>("guard_location");
-}
-SymbolRefAttr SourceMethodView::getSymbol() const {
-  if (isNativeMemoryTerminal()) {
-    std::string name = nativeMemoryAction == NativeMemoryAction::Request ? "request" :
-        nativeMemoryAction == NativeMemoryAction::Result ? "result" :
-        nativeMemoryAction == NativeMemoryAction::Read ? "read" : "write";
-    if (nativeMemoryAction == NativeMemoryAction::Request || nativeMemoryAction == NativeMemoryAction::Result)
-      name += std::to_string(nativeMemoryPort);
-    return SymbolRefAttr::get(module->getContext(), SymbolTable::getSymbolName(module).getValue(),
-        {FlatSymbolRefAttr::get(module->getContext(), name)});
-  }
-  if (isNativeQueueTerminal()) {
-    StringRef name = nativeQueueAction == NativeQueueAction::Push
-                         ? "push"
-                         : nativeQueueAction == NativeQueueAction::Pop ? "pop"
-                                                                       : "peek";
-    return SymbolRefAttr::get(module->getContext(),
-                              SymbolTable::getSymbolName(module).getValue(),
-                              {FlatSymbolRefAttr::get(module->getContext(),
-                                                     name)});
-  }
-  auto name = definition ? definition->getAttrOfType<StringAttr>("sym_name")
-                         : row.getAs<StringAttr>("name");
-  return SymbolRefAttr::get(module->getContext(),
-                            SymbolTable::getSymbolName(module).getValue(),
-                            {FlatSymbolRefAttr::get(name)});
 }
 FailureOr<SourceMethodView>
 lookupSourceMethod(Operation *module, StringRef name, Operation *site) {
@@ -1266,32 +1042,6 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   return ResolvedSourceMethod{method, bindings, receiver};
 }
 } // namespace
-LogicalResult verifySourceRelativeReceiver(DictionaryAttr receiver,
-                                          Operation *site,
-                                          const SourceReceiverProofFees *fees) {
-  auto kind = receiver ? receiver.getAs<StringAttr>("receiver_kind") : StringAttr();
-  auto depth = receiver ? receiver.getAs<IntegerAttr>("ancestor_depth") : IntegerAttr();
-  auto path = receiver ? receiver.getAs<ArrayAttr>("instance_path") : ArrayAttr();
-  if (!receiver || receiver.size() != 3 || !kind ||
-      kind.getValue() != "reference" || !depth ||
-      !depth.getType().isSignlessInteger(64) || depth.getInt() < 0 ||
-      depth.getInt() > 128 || !path || path.size() > 128 ||
-      path.size() + static_cast<uint64_t>(depth.getInt()) > 128)
-    return site->emitOpError() << "relative receiver requires exactly receiver_kind = reference, nonnegative i64 ancestor_depth and a bounded child-name instance_path";
-  if (depth.getInt() != 0 || path.size() > 1)
-    return site->emitOpError() << "static instance reference cannot bypass lexical scope through ancestors, siblings or descendants";
-  if (fees && failed(fees->workStorage(site, 3 + path.size(), 0))) return failure();
-  for (Attribute raw : path) {
-    auto name = dyn_cast<StringAttr>(raw);
-    if (!name)
-      return site->emitOpError() << "relative receiver child path requires Python identifiers";
-    if (fees && failed(fees->workStorage(site, name.getValue().size(), 0))) return failure();
-    if (failed(detail::verifyPythonAstIdentifier(
-            name.getValue(), true, [&] { return site->emitOpError(); })))
-      return failure();
-  }
-  return success();
-}
 FailureOr<ResolvedSourceMethod> resolveSourceRelativeMethodContract(
     Operation *caller, SymbolRefAttr callee, DictionaryAttr receiver,
     SourceModuleLookup lookup, Operation *site,

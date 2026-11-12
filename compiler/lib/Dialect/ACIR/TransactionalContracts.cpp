@@ -1,6 +1,6 @@
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "ACIRSourceContracts.h"
-#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "IR/StateDeclarationContracts.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
@@ -386,7 +386,12 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     if (!name || name.getValue().empty() || !symbols.insert(name.getValue()).second)
       return op.emitOpError("package symbols must be nonempty and unique");
   }
-  HardwareAnalysis analysis(package);
+  // The native hook keeps the separable TypeID-free subset (B2 step-2 design
+  // r3 row): version/shape/stage pairing above, the analysis-free
+  // linked-primitive rejection, the module-reference declaration lookup, the
+  // concrete-payload grammar and the literal-Bits carrier width. The
+  // enum/struct/table and symbolic-Bits payload widths run from the shared
+  // packed-width core (this target) at the tail of this walk.
   std::function<LogicalResult(Type, Operation *)> checkType = [&](Type type, Operation *site) -> LogicalResult {
     if (linked && isa<PrimitiveType>(type))
       return site->emitOpError("linked package cannot retain primitive resources");
@@ -398,10 +403,9 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     type = payload(type);
     if (!isa<BitsType, EnumType, StructType, TableType>(type))
       return site->emitOpError("transactional resource contract requires concrete hardware payloads");
-    HardwareBindings bindings;
-    bindings.owner = isa<ModuleOp, ModuleImportOp>(site) ? site : site->getParentOfType<ModuleOp>().getOperation();
-    if (bindings.owner && failed(detail::verifyHardwareTypeScope(type, bindings.owner))) return failure();
-    return success(succeeded(analysis.getPackedWidth(type, bindings, site)));
+    if (auto bits = dyn_cast<BitsType>(type))
+      return verifyLiteralWidthResolves(site, bits);
+    return success();
   };
   fail = package.walk([&](Operation *op) {
     bool root = op == package.getOperation();
@@ -519,6 +523,10 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
   };
   for (Operation &declaration : *package.getBody())
     if (isa<ModuleOp, ModuleImportOp>(declaration) && failed(summarize(&declaration))) return failure();
-  return success();
+
+  // The payload-closure half is dialect-owned (r8 review): the staged
+  // width-closure TU joins this target, so the supported structural
+  // verification entry runs the complete closure directly.
+  return verifyTransactionalLinkedPackage(package);
 }
 } // namespace acir::ac

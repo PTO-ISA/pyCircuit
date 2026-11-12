@@ -16,7 +16,9 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Analysis/LogicalStateValidation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
@@ -55,6 +57,7 @@ protected:
 
   void SetUp() override {
     context.loadDialect<ac::ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
     ASSERT_FALSE(llvm::sys::fs::createUniqueDirectory(
         "source-transaction-capture", directory));
     handler = std::make_unique<ScopedDiagnosticHandler>(
@@ -3844,8 +3847,8 @@ TEST_F(SourceTransactionCaptureTest,
       OwningOpRef<ModuleOp> headerCopy(
           cast<ModuleOp>((*compiled->interface)->clone()));
       StringRef methodName = mutation == 2 ? "singleton" : "split";
+      ac::ModuleImportOp provider;
       if (summary) {
-        ac::ModuleImportOp provider;
         for (auto declaration : headerCopy->getOps<ac::ModuleImportOp>())
           if (declaration.getSymName().ends_with("Owner")) provider = declaration;
         ASSERT_TRUE(provider);
@@ -3868,7 +3871,17 @@ TEST_F(SourceTransactionCaptureTest,
       }
       diagnostics.clear();
       if (mutation != 2) {
-        EXPECT_TRUE(failed(mlir::verify(summary ? *headerCopy : *bodyCopy)));
+        // The published summary schema is owned by the staged module
+        // declaration entry (r3 ACIRModuleOps row); the body-side method
+        // contract stays a native check. The staged checks keep the native
+        // message texts.
+        if (summary) {
+          ac::HardwareAnalysis analysis(*headerCopy);
+          EXPECT_TRUE(failed(
+              analysis.verifyModuleDeclaration(provider, {}, true)));
+        } else {
+          EXPECT_TRUE(failed(mlir::verify(*bodyCopy)));
+        }
       } else {
         // A singleton scalar form is structurally valid, but it is a different
         // authored callable contract from the tuple in the unchanged peer.
@@ -4544,8 +4557,8 @@ TEST_F(SourceTransactionCaptureTest,
     OwningOpRef<ModuleOp> body(cast<ModuleOp>((*compiled->body)->clone()));
     OwningOpRef<ModuleOp> header(
         cast<ModuleOp>((*compiled->interface)->clone()));
+    ac::ModuleImportOp client;
     if (mutateHeader) {
-      ac::ModuleImportOp client;
       for (auto declaration : header->getOps<ac::ModuleImportOp>())
         if (declaration.getSymName().ends_with("Client"))
           client = declaration;
@@ -4575,8 +4588,16 @@ TEST_F(SourceTransactionCaptureTest,
       ASSERT_TRUE(changedCall);
     }
     diagnostics.clear();
-    EXPECT_TRUE(failed(mlir::verify(mutateHeader ? *header : *body)))
-        << diagnostics;
+    // The published summary schema is owned by the staged module declaration
+    // entry (r3 ACIRModuleOps row); the body-side receiver forging stays a
+    // native call-op check. The staged checks keep the native message texts.
+    if (mutateHeader) {
+      ac::HardwareAnalysis analysis(*header);
+      EXPECT_TRUE(failed(analysis.verifyModuleDeclaration(client, {}, true)))
+          << diagnostics;
+    } else {
+      EXPECT_TRUE(failed(mlir::verify(*body))) << diagnostics;
+    }
     EXPECT_TRUE(failed(
         compiler::verifyIntrinsicSourceUnitPair(*body, *header, error())));
     EXPECT_FALSE(diagnostics.empty());
@@ -4871,7 +4892,11 @@ def Owner() -> ac.u8:
   body.getOperations().insert(body.getTerminator()->getIterator(), copied);
   body.getTerminator()->setOperands(copied->getResults());
   diagnostics.clear();
-  EXPECT_TRUE(failed(mlir::verify(*file)));
+  // The receiver resolution and its private autonomous authority check are
+  // the staged transaction entry (B2.3-preC-6 row).
+  ac::HardwareAnalysis analysis(*file);
+  EXPECT_TRUE(
+      failed(analysis.verifyTransactionSurfaceOperation(copied, {}, true)));
   EXPECT_NE(diagnostics.find("autonomous"), std::string::npos) << diagnostics;
 }
 
@@ -5048,7 +5073,12 @@ def Owner() -> ac.u8:
         ASSERT_NE(forged, summary);
         provider->setAttr("transaction_summary", forged);
         diagnostics.clear();
-        EXPECT_TRUE(failed(mlir::verify(*header)));
+        // The published transaction summary schema is owned by the staged
+        // module declaration entry (r3 ACIRModuleOps row); the staged checks
+        // keep the native message texts.
+        ac::HardwareAnalysis analysis(*header);
+        EXPECT_TRUE(
+            failed(analysis.verifyModuleDeclaration(provider, {}, true)));
         // callable_after was never an autonomous-row field. Its closed schema
         // rejects that extra key before the retired-ordering semantic check.
         StringRef category = section == "autonomous" && field == "callable_after"
@@ -5117,6 +5147,7 @@ def Read(values: ac.table[N, ac.u8], index: ac.u2, *, N: int = 4) -> ac.u8:
   file->print(stream);
   MLIRContext fresh;
   fresh.loadDialect<ac::ACIRDialect>();
+  fresh.loadDialect<acir::gfir::GFIRDialect>();
   auto reloaded = parseSourceString<ModuleOp>(text, &fresh);
   ASSERT_TRUE(reloaded);
   auto reads = operations<ac::TableReadOp>(*reloaded);
@@ -5385,12 +5416,14 @@ def Selected() -> ac.u8:
           extractLow ? "low" : "value",
           ac::StaticExprAttr::get(&context, fields.getDictionary(&context)));
       diagnostics.clear();
-      EXPECT_TRUE(failed(mlir::verify(*file)))
+      // The closed-initializer binding is the staged source-state catalog
+      // row (B2.3-preC-6 row); the native verifier keeps the declaration
+      // grammar. The publication pass previously rejected through the
+      // native verifier riding in its pass manager, so the binding tier
+      // owns this rejection and publication proceeds to the retained body
+      // artifacts, which the routing preparation still checks.
+      EXPECT_TRUE(failed(ac::verifyLogicalStateSourceBinding(states.front())))
           << "closed invalid initializer was deferred";
-      PassManager publication(&context);
-      publication.addPass(acir::createExtractSourceInterfacePass());
-      EXPECT_TRUE(failed(publication.run(*file)))
-          << "invalid unused state was published";
     }
   }
 }
@@ -5436,11 +5469,12 @@ def Fixed(enable: ac.u1) -> ac.table[3, ac.u8]:
   ac::HardwareBindings bindings;
   bindings.owner = write->getParentOfType<ac::ModuleOp>();
   diagnostics.clear();
+  // The checked Table index obligation lives in the resolved dispatch (the
+  // native verifier keeps placement grammar only, B2.3-preC-6 row); the
+  // publication pass previously rejected through the native verifier riding
+  // in its pass manager, so the resolved dispatch owns this expectation and
+  // the routing preparation still checks the retained body.
   EXPECT_TRUE(failed(hardware.verifyResolvedOperation(write, bindings)));
-  EXPECT_TRUE(failed(mlir::verify(*file)));
-  PassManager publication(&context);
-  publication.addPass(acir::createExtractSourceInterfacePass());
-  EXPECT_TRUE(failed(publication.run(*file)));
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -5644,7 +5678,9 @@ TEST_F(SourceTransactionCaptureTest,
       if (mutation == "metadata")
         system->removeAttr("ac.entry_boundary");
       else if (mutation == "contract")
-        (*package)->setAttr("ac.routed_contract", b.getI64IntegerAttr(2));
+        // Downgrade the boundary package to the non-boundary contract
+        // version, exercising the pairing rule rather than version validity.
+        (*package)->setAttr("ac.routed_contract", b.getI64IntegerAttr(4));
       else if (mutation == "extra-key") {
         auto boundary =
             system->getAttrOfType<DictionaryAttr>("ac.entry_boundary");

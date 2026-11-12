@@ -186,12 +186,12 @@ def _validate_manifest(value: object) -> None:
         manifest["kind"] != "pycircuit-anchor"
         or type(manifest["schema"]) is not int
         or type(manifest["routed_contract"]) is not int
-        or (manifest["schema"], manifest["routed_contract"]) not in ((1, 2), (2, 3))
+        or (manifest["schema"], manifest["routed_contract"]) not in ((3, 4), (4, 5))
     ):
         raise _PublicationError(
             "unsupported anchor format/contract; regenerate from source units"
         )
-    entry_boundary = manifest["schema"] == 2
+    entry_boundary = manifest["schema"] == 4
     owner = _validate_owner(manifest["owner"])
     if owner["kind"] != "anchor" or _symbol(manifest["root"]) != owner["definition"]:
         raise _PublicationError("anchor root and owner disagree")
