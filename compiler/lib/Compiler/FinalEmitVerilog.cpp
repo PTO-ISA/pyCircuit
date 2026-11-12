@@ -5,6 +5,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace mlir;
 namespace acir::compiler {
@@ -22,22 +23,7 @@ LogicalResult emitEnum(HardwareEmitContext &context, ac::EnumOp declaration,
   return success();
 }
 LogicalResult emitRecord(HardwareEmitContext &context, ac::StructOp record,
-                         raw_ostream &out, llvm::DenseSet<Operation *> &done) {
-  if (done.contains(record))
-    return success();
-  for (auto raw : record.getFields()) {
-    auto field = cast<DictionaryAttr>(raw);
-    auto fieldType = field.getAs<TypeAttr>("type").getValue();
-    // Follow nominal dependencies through packed Table elements as well.
-    while (auto table = dyn_cast<ac::TableType>(fieldType))
-      fieldType = table.getElementType();
-    if (auto nested = dyn_cast<ac::StructType>(fieldType)) {
-      auto declaration = context.analysis.lookupStruct(nested);
-      if (!declaration || failed(emitRecord(context, declaration, out, done)))
-        return failure();
-    }
-  }
-  done.insert(record);
+                         raw_ostream &out) {
   auto name = context.rtlType(
       ac::StructType::get(record.getContext(), record.getSymNameAttr()),
       record);
@@ -60,6 +46,59 @@ LogicalResult emitRecord(HardwareEmitContext &context, ac::StructOp record,
     out << "  " << spelling << " " << *member << ";\n";
   }
   out << "} " << StringRef(*name).rsplit("::").second << ";\n";
+  return success();
+}
+LogicalResult emitTypedef(HardwareEmitContext &context, Operation *declaration,
+                          llvm::DenseSet<Operation *> &emitted,
+                          RtlPackageDependencies &package, raw_ostream &out) {
+  if (!emitted.insert(declaration).second)
+    return success();
+  RtlPackageDependencies dependencies;
+  std::string text;
+  {
+    // Collect dependencies of the rendered fields before writing this typedef.
+    llvm::SaveAndRestore recording(context.rtlPackage, &dependencies);
+    llvm::raw_string_ostream body(text);
+    auto enumeration = dyn_cast<ac::EnumOp>(declaration);
+    if (failed(enumeration
+                   ? emitEnum(context, enumeration, body)
+                   : emitRecord(context, cast<ac::StructOp>(declaration), body)))
+      return failure();
+  }
+  package.floorDiv |= dependencies.floorDiv;
+  package.mod |= dependencies.mod;
+  for (auto *type : dependencies.types)
+    if (failed(emitTypedef(context, type, emitted, package, out)))
+      return failure();
+  out << text;
+  return success();
+}
+LogicalResult emitTypePackage(HardwareEmitContext &context,
+                              RtlPackageDependencies &dependencies,
+                              raw_ostream &out) {
+  if (dependencies.types.empty() && !dependencies.floorDiv && !dependencies.mod)
+    return success();
+  std::string typedefs;
+  llvm::raw_string_ostream types(typedefs);
+  llvm::DenseSet<Operation *> emitted;
+  for (auto *type : dependencies.types)
+    if (failed(emitTypedef(context, type, emitted, dependencies, types)))
+      return failure();
+  out << "package pycircuit_types;\n";
+  if (dependencies.floorDiv)
+    out << "  function automatic logic signed [63:0] pyc_floordiv(input logic "
+           "signed [63:0] a, b);\n"
+           "    pyc_floordiv = a/b - ((a%b != 0 && (a<0)!=(b<0)) ? 64'sd1 : "
+           "64'sd0);\n"
+           "  endfunction\n";
+  if (dependencies.mod)
+    out << "  function automatic logic signed [63:0] pyc_mod(input logic "
+           "signed [63:0] a, b);\n"
+           "    logic signed [63:0] r;\n"
+           "    r = a%b;\n"
+           "    pyc_mod = r != 0 && (r<0)!=(b<0) ? r+b : r;\n"
+           "  endfunction\n";
+  out << typedefs << "endpackage\n";
   return success();
 }
 FailureOr<ac::ModuleOp> rootModule(HardwareEmitContext &context) {
@@ -787,29 +826,8 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis,
     if (standard.insert(path).second)
       parts.standardSources.push_back(path);
   }
-  std::string typedefs;
-  {
-    llvm::raw_string_ostream out(typedefs);
-    out << "package pycircuit_types;\n"
-           "  function automatic logic signed [63:0] pyc_floordiv(input logic "
-           "signed [63:0] a, b);\n"
-           "    return a/b - ((a%b != 0 && (a<0)!=(b<0)) ? 64'sd1 : 64'sd0);\n"
-           "  endfunction\n"
-           "  function automatic logic signed [63:0] pyc_mod(input logic "
-           "signed [63:0] a, b);\n"
-           "    logic signed [63:0] r; r=a%b; return r != 0 && (r<0)!=(b<0) ? "
-           "r+b : r;\n"
-           "  endfunction\n";
-    for (auto declaration : package.getOps<ac::EnumOp>())
-      if (failed(emitEnum(context, declaration, out)))
-        return failure();
-    llvm::DenseSet<Operation *> done;
-    for (auto record : analysis.getStructs())
-      if (failed(emitRecord(context, record, out, done)))
-        return failure();
-    out << "endpackage\n";
-    out.flush();
-  }
+  RtlPackageDependencies dependencies;
+  context.rtlPackage = &dependencies;
   auto emitError = [&] { return package.emitOpError(); };
   auto units = ac::collectFinalSourceUnits(package, emitError);
   if (failed(units))
@@ -836,7 +854,6 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis,
       return emitError() << "source owner Verilog path collision";
     parts.sourceGroups.push_back(std::move(group));
   }
-  parts.core = typedefs;
   {
     llvm::raw_string_ostream out(parts.core);
     if (failed(emitWrapper(context, *root, parts.rootRtlName,
@@ -850,6 +867,11 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis,
       return failure();
     parts.simulationTop = std::move(*simulation);
   }
+  std::string typePackage;
+  llvm::raw_string_ostream out(typePackage);
+  if (failed(emitTypePackage(context, dependencies, out)))
+    return failure();
+  parts.core.insert(0, typePackage);
   return parts;
 }
 LogicalResult emitVerilog(ModuleOp package, ac::HardwareAnalysis &analysis,

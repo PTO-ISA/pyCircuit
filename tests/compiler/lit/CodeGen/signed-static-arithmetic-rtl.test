@@ -1,0 +1,16 @@
+# REQUIRES: verilator, iverilog
+# RUN: %pycircuit_emit %inputs/signed-static-arithmetic.mlir --target verilog --format source > %t.sv
+# RUN: %FileCheck %s --implicit-check-not="signed(64'(pycircuit_types" < %t.sv
+# RUN: %verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.dir %t.sv %inputs/signed_static_arithmetic.sv > %t.build.log 2>&1
+# RUN: %t.dir/Vtb
+# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %inputs/signed_static_arithmetic.sv > %t.iverilog.log 2>&1
+# RUN: %vvp %t.vvp > %t.run.log
+
+# The helpers return `logic signed [63:0]`, so their calls carry no size cast.
+# A size cast whose base is a call stops some consumers from elaborating the
+# parameterized port width that contains it.
+# CHECK: package pycircuit_types;
+# CHECK: function automatic {{.*}} pyc_floordiv(
+# CHECK: pyc_floordiv = a/b - (
+# CHECK: function automatic {{.*}} pyc_mod(
+# CHECK: pyc_mod = r != 0

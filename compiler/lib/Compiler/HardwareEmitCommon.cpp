@@ -154,6 +154,25 @@ bool closedStatic(Attribute attribute, const ac::HardwareBindings &bindings,
         return false;
   return true;
 }
+StringRef arithmeticHelper(const HardwareEmitContext &context, StringRef opcode,
+                           bool rtl) {
+  bool floorDiv = opcode == "floordiv";
+  if (!rtl)
+    return floorDiv ? "pyc_floordiv" : "pyc_mod";
+  if (auto *package = context.rtlPackage)
+    (floorDiv ? package->floorDiv : package->mod) = true;
+  return floorDiv ? "pycircuit_types::pyc_floordiv" : "pycircuit_types::pyc_mod";
+}
+// True when this node renders as a signed arithmetic helper call, whose result
+// is already `logic signed [63:0]`.
+bool arithmeticCall(DictionaryAttr tree) {
+  auto kind = tree ? tree.getAs<StringAttr>("kind") : StringAttr();
+  if (!kind || kind.getValue() != "binary")
+    return false;
+  auto opcode = tree.getAs<StringAttr>("operator");
+  return opcode && (opcode.getValue() == "floordiv" ||
+                    opcode.getValue() == "mod");
+}
 FailureOr<std::string>
 staticTree(HardwareEmitContext const &context, DictionaryAttr tree,
            Operation *site, bool rtl,
@@ -266,41 +285,54 @@ staticTree(HardwareEmitContext const &context, DictionaryAttr tree,
   if (symbol.empty())
     return site->emitOpError() << "unsupported static operator";
   if (tag == "unary") {
-    auto a =
-        staticTree(context, tree.getAs<ac::StaticExprAttr>("operand").getTree(),
-                   site, rtl, bindings);
+    auto operandTree = tree.getAs<ac::StaticExprAttr>("operand").getTree();
+    auto a = staticTree(context, operandTree, site, rtl, bindings);
     if (failed(a))
       return failure();
     if (opcode.getValue() == "to_int")
       return *a;
     auto operand =
-        rtl ? "$signed(64'( " + *a + " ))" : "std::int64_t(" + *a + ")";
+        rtl ? (arithmeticCall(operandTree)
+                   ? *a
+                   : "$signed(64'( " + *a + " ))")
+            : "std::int64_t(" + *a + ")";
     return "(" + symbol.str() + "(" + operand + "))";
   }
   if (tag != "binary")
     return site->emitOpError() << "unsupported static expression";
-  auto a = staticTree(context, tree.getAs<ac::StaticExprAttr>("lhs").getTree(),
-                      site, rtl, bindings);
-  auto b = staticTree(context, tree.getAs<ac::StaticExprAttr>("rhs").getTree(),
-                      site, rtl, bindings);
+  auto lhsTree = tree.getAs<ac::StaticExprAttr>("lhs").getTree();
+  auto rhsTree = tree.getAs<ac::StaticExprAttr>("rhs").getTree();
+  auto a = staticTree(context, lhsTree, site, rtl, bindings);
+  auto b = staticTree(context, rhsTree, site, rtl, bindings);
   if (failed(a) || failed(b))
     return failure();
-  auto signedValue = [&](const std::string &value) {
-    return rtl ? "$signed(64'(" + value + "))" : "std::int64_t(" + value + ")";
+  auto signedValue = [&](const std::string &value, DictionaryAttr node) {
+    if (!rtl)
+      return "std::int64_t(" + value + ")";
+    // The helpers already return `logic signed [63:0]`, so the cast is
+    // redundant for them. Wrapping the call in a size cast would make that
+    // cast's base a function call, which some consumers reject while
+    // elaborating the enclosing width.
+    if (arithmeticCall(node))
+      return value;
+    return "$signed(64'(" + value + "))";
   };
   if (opcode.getValue() == "floordiv" || opcode.getValue() == "mod")
-    return (rtl ? "pycircuit_types::pyc_" : "pyc_") + opcode.getValue().str() +
-           "(" + signedValue(*a) + ", " + signedValue(*b) + ")";
+    return arithmeticHelper(context, opcode.getValue(), rtl).str() + "(" +
+           signedValue(*a, lhsTree) + ", " + signedValue(*b, rhsTree) + ")";
   if (opcode.getValue() == "shl")
-    return rtl ? "(" + signedValue(*a) + " <<< " + signedValue(*b) + ")"
-               : "(" + signedValue(*a) + " * (std::int64_t{1} << " +
-                     signedValue(*b) + "))";
+    return rtl ? "(" + signedValue(*a, lhsTree) + " <<< " +
+                     signedValue(*b, rhsTree) + ")"
+               : "(" + signedValue(*a, lhsTree) + " * (std::int64_t{1} << " +
+                     signedValue(*b, rhsTree) + "))";
   if (opcode.getValue() == "shr")
-    return (rtl ? "(" + signedValue(*a) + " >>> " + signedValue(*b) + ")"
-                : "pyc_floordiv(" + signedValue(*a) + ", (std::int64_t{1} << " +
-                      signedValue(*b) + "))");
-  return "(" + signedValue(*a) + " " + symbol.str() + " " + signedValue(*b) +
-         ")";
+    return (rtl ? "(" + signedValue(*a, lhsTree) + " >>> " +
+                      signedValue(*b, rhsTree) + ")"
+                : "pyc_floordiv(" + signedValue(*a, lhsTree) +
+                      ", (std::int64_t{1} << " + signedValue(*b, rhsTree) +
+                      "))");
+  return "(" + signedValue(*a, lhsTree) + " " + symbol.str() + " " +
+         signedValue(*b, rhsTree) + ")";
 }
 
 // ---------------------------------------------------------------------------
@@ -980,8 +1012,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
       return site->emitOpError() << "emitted hardware name collision";
     return success();
   };
-  // Every nominal declaration is emitted, even when no executable wire uses
-  // it. Check the same target capacity and spelling rules for that closure.
+  // Validate the complete nominal declaration closure shared by both targets.
   for (Operation &op : package.getBody()->getOperations()) {
     Type type;
     if (auto enumeration = dyn_cast<ac::EnumOp>(op))
@@ -1187,21 +1218,25 @@ FailureOr<std::string> HardwareEmitContext::rtlType(Type type,
   }
   if (auto param = dyn_cast<ac::TypeParamType>(type))
     return rtlFormalName(param.getName().getValue(), site);
+  Operation *declaration;
   if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
     if (failed(analysis.resolveEnum(enumeration, site)))
       return failure();
-    auto q = qualified(enumeration.getName().getValue(), site, "_");
-    if (failed(q))
-      return failure();
-    return "pycircuit_types::ac_" + *q + "_t";
+    declaration = analysis.lookupEnum(enumeration);
+  } else if (auto record = dyn_cast<ac::StructType>(type)) {
+    declaration = analysis.lookupStruct(record);
+  } else {
+    return site->emitOpError() << "unsupported RTL hardware type";
   }
-  if (auto record = dyn_cast<ac::StructType>(type)) {
-    auto q = qualified(record.getName().getValue(), site, "_");
-    if (failed(q))
-      return failure();
-    return "pycircuit_types::ac_" + *q + "_t";
-  }
-  return site->emitOpError() << "unsupported RTL hardware type";
+  if (!declaration)
+    return site->emitOpError() << "unresolved RTL nominal type";
+  auto q = qualified(SymbolTable::getSymbolName(declaration).getValue(), site,
+                     "_");
+  if (failed(q))
+    return failure();
+  if (rtlPackage)
+    rtlPackage->types.insert(declaration);
+  return "pycircuit_types::ac_" + *q + "_t";
 }
 FailureOr<std::string>
 HardwareEmitContext::cppInstanceType(ac::InstanceOp instance) const {
@@ -1697,7 +1732,7 @@ HardwareEmitContext::viewIndex(ac::TableViewOp view, StringRef ordinal,
                     (*inShape)[axis] + ")";
           }
         } else
-          shift = (rtl ? "pycircuit_types::pyc_mod(" : "pyc_mod(") + *offset +
+          shift = arithmeticHelper(*this, "mod", rtl).str() + "(" + *offset +
                   ", " + (*inShape)[axis] + ")";
       }
       auto rotated = "((" + coordinates[axis] + " + (" + shift + ")) % (" +

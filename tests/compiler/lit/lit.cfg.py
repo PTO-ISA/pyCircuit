@@ -35,7 +35,7 @@ config.environment["PATH"] = (
     os.path.dirname(config.filecheck) + os.pathsep + os.environ.get("PATH", "")
 )
 config.environment["PYTHONDONTWRITEBYTECODE"] = "1"
-for name in ("verilator", "iverilog", "vvp"):
+for name in ("verilator", "iverilog", "vvp", "yosys"):
     path = shutil.which(name)
     if path:
         config.available_features.add(name)
