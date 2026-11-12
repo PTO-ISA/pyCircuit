@@ -23,7 +23,6 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
   }
   SourceWalkSummary sourceWork;
   SmallVector<SmallVector<StringRef, 2>, 2> callbackParameters;
-  unsigned loopDepth = 0;
   auto scan = [&](auto &&self, const AstNode &site, bool statement,
                   bool topLevel, bool target = false) -> LogicalResult {
     if (!site)
@@ -71,15 +70,11 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
         return success();
       }
       if (kind == "For") {
-        if (loopDepth)
-          return diagnostic(site) << "nested bounded for is unsupported";
         auto syntax = readLiteralForSyntax(site, [&] { return diagnostic(site); });
         if (failed(syntax)) return failure();
         locals.insert(syntax->target.string("id"));
         if (failed(self(self, syntax->target, false, false, true)) ||
             failed(self(self, syntax->bound, false, false))) return failure();
-        ++loopDepth;
-        auto leaveLoop = llvm::scope_exit([&] { --loopDepth; });
         for (size_t i = 0; i < site.array("body").size(); ++i)
           if (failed(self(self, site.item("body", i), true, false))) return failure();
         return success();

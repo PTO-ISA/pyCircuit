@@ -13,8 +13,9 @@ def LoopElseFailure():
     def update() -> None:
         before = total
         for index in range(3):
-            total = total + 1
-            ac.log("info", "loop body", before, total)
+            for inner in range(1):
+                total = total + 1
+                ac.log("info", "loop body", before, total)
             if stop:
                 break
         else:

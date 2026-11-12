@@ -82,6 +82,93 @@ def test_break_continue_and_loop_else_preserve_same_cycle_state(tmp_path):
     assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
 
 
+@pytest.mark.parametrize(
+    "filename,system,event,expected",
+    [
+        (
+            "scf_nested_rule",
+            "ExerciseNestedRule",
+            "nested rule",
+            [(240, 246), (246, 12), (12, 50), (50, 118)],
+        ),
+        (
+            "scf_nested_method",
+            "ExerciseNestedMethod",
+            "nested method",
+            [(55,), (117,), (179,), (9,)],
+        ),
+        (
+            "scf_nested_for_bench",
+            "ExerciseNestedValues",
+            "nested values",
+            [
+                (14, 15, 50, 25, 16),
+                (15, 16, 51, 25, 18),
+                (16, 17, 52, 25, 18),
+                (17, 18, 53, 25, 18),
+            ],
+        ),
+    ],
+)
+def test_nested_for_values_bindings_and_nearest_control_from_one_final(
+    tmp_path, filename, system, event, expected
+):
+    source = tmp_path / "nested sources"
+    source.mkdir()
+    provider_name = "scf_nested_for_provider.py"
+    bench_name = filename + ".py"
+    for fixture in (provider_name, bench_name):
+        shutil.copy2(FIXTURE / fixture, source)
+    provider, bench = tmp_path / "provider", tmp_path / "bench"
+    providers = []
+    if system != "ExerciseNestedRule":
+        _ok(_compile(source, provider_name, provider))
+        providers.append(provider)
+    _ok(_compile(source, bench_name, bench, providers))
+    final = tmp_path / "nested-for.ac"
+    _ok(
+        _cli(
+            "link",
+            *(str(unit) for unit in providers),
+            str(bench),
+            "--top",
+            f"checks.{filename}.{system}",
+            "-o",
+            str(final),
+        )
+    )
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    # Rule increments are 6/22/38/68; Method increments are 50/62/62/86.
+    # Pure helper/module sums are 20/21. Binding adds 16+10+5+10+15=56:
+    # zero-trip old binders, nonzero final binders/new local, reused binder.
+    # Inner else control targets the outer loop and contributes 13.
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        root = tmp_path / target
+        root.mkdir()
+        binary = _bundle(final, root, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "4", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            records = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            events = [
+                row
+                for row in records
+                if row["kind"] == "log" and row["spec"]["event"] == event
+            ]
+            assert [
+                tuple(int(v["value"]) for v in row["values"]) for row in events
+            ] == [values for values in expected for _ in range(2)]
+            assert [int(row["evaluation_epoch"]) for row in events] == list(range(8))
+            _assert_closed_observation_identities(records)
+            transcripts.append([row for row in records if row["kind"] != "result"])
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+
+
 def test_loop_else_boundary_values_and_snapshots_from_one_final(tmp_path):
     source = tmp_path / "else source"
     source.mkdir()
@@ -160,19 +247,12 @@ def test_loop_else_boundary_values_and_snapshots_from_one_final(tmp_path):
             "    else:\n        value = value + 1\n    return value\n",
             "progress",
         ),
-        (
-            "    for index in range(0):\n        for nested in range(1):\n"
-            "            pass\n    else:\n        value = value + 1\n"
-            "    return value\n",
-            "nested",
-        ),
     ],
     ids=[
         "zero-new-binder",
         "conditional-else-local",
         "conditional-else-return",
         "while-continue-no-progress",
-        "zero-nested-loop",
     ],
 )
 def test_loop_else_rejections_preserve_published_unit(tmp_path, body, diagnostic):
@@ -379,32 +459,6 @@ def test_inferred_loop_else_returns_reload_and_execute(tmp_path):
     "body,diagnostic",
     [
         (
-            "    for outer in range(0):\n        pass\n"
-            "    else:\n        for inner in range(0):\n            pass\n"
-            "    return value\n",
-            "nested source for",
-        ),
-        (
-            "    for outer in range(1):\n        pass\n"
-            "    else:\n        for inner in range(1):\n            pass\n"
-            "    return value\n",
-            "nested source for",
-        ),
-        (
-            "    for outer in range(0):\n        pass\n"
-            "    else:\n        if value == 0:\n            for inner in range(1):\n"
-            "                pass\n    return value\n",
-            "nested source for",
-        ),
-        (
-            "    for outer in range(0):\n        pass\n"
-            "    else:\n        for middle in range(0):\n            pass\n"
-            "        else:\n            for inner in range(0):\n                pass\n"
-            "            else:\n                value = value + 1\n"
-            "    return value\n",
-            "nested source for",
-        ),
-        (
             "    for index in range(1):\n        if value == 0:\n            break\n"
             "    else:\n        return value\n",
             "return in a Method/Rule branch",
@@ -431,27 +485,19 @@ def test_inferred_loop_else_returns_reload_and_execute(tmp_path):
             "    cursor: ac.u2 = 0\n    for outer in range(0):\n        pass\n"
             "    else:\n        while cursor < 2:\n            cursor = cursor + 1\n"
             "    return value\n",
-            "nested source loop in for else",
+            "while",
         ),
         (
             "    cursor: ac.u2 = 0\n    for outer in range(1):\n        pass\n"
             "    else:\n        while cursor < 2:\n            cursor = cursor + 1\n"
             "    return value\n",
-            "nested source loop in for else",
+            "while",
         ),
         (
             "    cursor: ac.u2 = 0\n    for outer in range(0):\n        pass\n"
             "    else:\n        if value == 0:\n            while cursor < 2:\n"
             "                cursor = cursor + 1\n    return value\n",
-            "nested source loop in for else",
-        ),
-        (
-            "    for outer in range(0):\n        pass\n"
-            "    else:\n        match value:\n            case 0:\n"
-            "                for inner in range(1):\n                    value = value + 1\n"
-            "            case _:\n                value = value + 2\n"
-            "    return value\n",
-            "nested source loop in for else",
+            "while",
         ),
         (
             "    cursor: ac.u2 = 0\n    for outer in range(1):\n        pass\n"
@@ -459,14 +505,10 @@ def test_inferred_loop_else_returns_reload_and_execute(tmp_path):
             "                while cursor < 2:\n                    cursor = cursor + 1\n"
             "            case _:\n                value = value + 2\n"
             "    return value\n",
-            "nested source loop in for else",
+            "while",
         ),
     ],
     ids=[
-        "nested-zero-else",
-        "nested-nonzero-else",
-        "nested-if-else",
-        "nested-else-chain",
         "inferred-conditional-else-return",
         "inferred-ordinary-branch-return",
         "after-else-return",
@@ -475,7 +517,6 @@ def test_inferred_loop_else_returns_reload_and_execute(tmp_path):
         "while-in-zero-else",
         "while-in-nonzero-else",
         "while-under-if-in-else",
-        "for-under-match-in-else",
         "while-under-match-in-else",
     ],
 )
