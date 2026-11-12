@@ -12,11 +12,9 @@ function(add_acir_api_test target)
   add_executable(${target} ${API_TEST_UNPARSED_ARGUMENTS})
   target_include_directories(${target} PRIVATE "${PYCIRCUIT_SOURCE_DIR}/lib")
   # API tests exercise staged behavior; the dedicated layer-containment
-  # probes (ACIRCore/ACIROps/ACIRAnalysis/GFIRStandalone) own the link-line
-  # checks. component-split: superseded by pr/validation (GFIRValidation/
-  # HWIRValidation join the shared link line with the package-verification
-  # component).
-  target_link_libraries(${target} PRIVATE ACIRDialect ACIRAnalysis MLIRParser MLIRFuncDialect GTest::gtest_main)
+  # probes (ACIRCore/ACIROps/ACIRAnalysis/GFIRStandalone/GFIRValidation/
+  # HWIRValidation) own the link-line checks.
+  target_link_libraries(${target} PRIVATE ACIRDialect ACIRAnalysis GFIRValidation HWIRValidation MLIRParser MLIRFuncDialect GTest::gtest_main)
   if(NOT API_TEST_FILTER)
     set(API_TEST_FILTER "*")
   endif()
@@ -102,6 +100,22 @@ target_link_libraries(ACIRAnalysisStandaloneTests PRIVATE
 add_test(NAME ACIRAnalysisStandaloneTests COMMAND ACIRAnalysisStandaloneTests)
 set_tests_properties(ACIRAnalysisStandaloneTests PROPERTIES LABELS "api;gate;nightly")
 
+add_executable(GFIRValidationStandaloneTests LayerProbesTest.cpp)
+target_compile_definitions(GFIRValidationStandaloneTests PRIVATE
+  PYCIRCUIT_GFIR_VALIDATION_PROBE=1)
+target_link_libraries(GFIRValidationStandaloneTests PRIVATE
+  GFIRValidation GTest::gtest_main)
+add_test(NAME GFIRValidationStandaloneTests COMMAND GFIRValidationStandaloneTests)
+set_tests_properties(GFIRValidationStandaloneTests PROPERTIES LABELS "api;gate;nightly")
+
+add_executable(HWIRValidationStandaloneTests LayerProbesTest.cpp)
+target_compile_definitions(HWIRValidationStandaloneTests PRIVATE
+  PYCIRCUIT_HWIR_VALIDATION_PROBE=1)
+target_link_libraries(HWIRValidationStandaloneTests PRIVATE
+  HWIRValidation GTest::gtest_main)
+add_test(NAME HWIRValidationStandaloneTests COMMAND HWIRValidationStandaloneTests)
+set_tests_properties(HWIRValidationStandaloneTests PROPERTIES LABELS "api;gate;nightly")
+
 add_executable(ACIRCoreStandaloneTests LayerProbesTest.cpp)
 target_compile_definitions(ACIRCoreStandaloneTests PRIVATE
   PYCIRCUIT_CORE_PROBE=1)
@@ -183,6 +197,7 @@ add_custom_target(check-pycircuit
     ACIRWorkExecutorTests
     ACIRWorkPartitionTests
     ACIRGFIRStandaloneTests ACIROpsStandaloneTests ACIRAnalysisStandaloneTests ACIRCoreStandaloneTests
+    GFIRValidationStandaloneTests HWIRValidationStandaloneTests
   USES_TERMINAL VERBATIM)
 if(TARGET pyc6_runtime)
   # Source gates link generated DUTs against the Runtime archive from this build.

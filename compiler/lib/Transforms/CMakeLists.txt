@@ -1,10 +1,8 @@
 # component-split: interim source-transform layer. The package-verification
-# entrypoints still resolve through ACIRAnalysis until pr/validation splits
-# GFIRValidation/HWIRValidation out of ACIRAnalysis, and the transaction
-# routing/refinement TUs stay here until pr/conversion moves them to the
-# Conversion/ACIRToGFIR and Conversion/GFIRToHWIR targets.
+# entrypoints resolve through GFIRValidation/HWIRValidation (pr/validation),
+# and the transaction routing/refinement TUs stay here until pr/conversion
+# moves them to the Conversion/ACIRToGFIR and Conversion/GFIRToHWIR targets.
 add_acir_library(ACIRTransforms SOURCES
-  VerifyHardware.cpp
   PassRegistration.cpp
   NormalizeSourceControlFlow.cpp
   ExtractSourceInterface.cpp
@@ -16,6 +14,8 @@ add_acir_library(ACIRTransforms SOURCES
   LINK_LIBRARIES
     ACIRDialect
     ACIRAnalysis
+    GFIRValidation
+    HWIRValidation
     GFIRDialect
     PycircuitStateInterfaces
     MLIRPass
