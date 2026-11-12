@@ -26,7 +26,8 @@ add_acir_library(ACIRSourceCompiler SOURCES
     ACIRAnalysis
     GFIRValidation
     HWIRValidation
-    # component-split: ACIRToGFIR/GFIRToHWIR join with pr/conversion.
+    ACIRToGFIR
+    GFIRToHWIR
     ACIRTransforms
     MLIRArithDialect
     MLIRFuncDialect

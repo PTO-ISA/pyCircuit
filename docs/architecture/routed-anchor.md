@@ -16,11 +16,11 @@ general extern implementation bindings remain separate work.
 | Hardware final | `ac-lower-transactions`, `verifyHardwarePackage` | Physical storage and verified pins; no logical state/update or unresolved source effects. |
 
 A routed top-level package has `ac.stage = "routed"` and
-`ac.routed_contract = 2 : i64`, or contract 3 when it has a verified
-[selected Module entry boundary](entry-boundary.md). Contract 3 requires that
-boundary; contract 2 forbids it. Version 1 and unknown or malformed markers
-require rebuilding from source. The marker cannot appear in a source unit or on
-a nested operation.
+`ac.routed_contract = 4 : i64`, or contract 5 when it has a verified
+[selected Module entry boundary](entry-boundary.md). Contract 5 requires that
+boundary; contract 4 forbids it. Versions 2 and 3, version 1 and unknown or
+malformed markers require rebuilding from source. The marker cannot appear in a
+source unit or on a nested operation.
 Hardware refinement preserves the marker while changing the stage to `final`.
 Independently authored final hardware may omit routed provenance; a present
 marker must still be valid. The local attribute hook validates its shape, while
@@ -44,12 +44,14 @@ inventory and independent loader over this native boundary.
 
 ## Logical state and candidate updates
 
-`ac.state(clock, reset, initial) -> T` retains the exact payload, declaration
+Routing constructs `gfir.state(clock, reset, initial) -> T` as the authenticated
+replacement of each source `ac.state` declaration; the routed package never
+carries the source class. The replacement retains the exact payload, declaration
 occurrence and committed value Q. One direct same-module operation binds its
 candidate and intent:
 
 ```text
-ac.state.update(Q, candidate, intent) : (T, T, Bits1) -> ()
+gfir.state.update(Q, candidate, intent) : (T, T, Bits1) -> ()
 ```
 
 The update has no results, regions or independent owner attributes. Q must be the

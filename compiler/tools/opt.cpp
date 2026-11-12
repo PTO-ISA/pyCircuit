@@ -3,6 +3,8 @@
 #include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Conversion/ACIRToGFIR.h"
+#include "pycircuit/Conversion/GFIRToHWIR.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "Compiler/SourceRuleWrites.h"
 #include "Compiler/SourceMemoryBindings.h"
@@ -21,6 +23,8 @@ int main(int argc, char **argv) {
   acir::registerGFIRValidationPasses();
   acir::registerHWIRValidationPasses();
   acir::registerACIRPasses();
+  acir::registerACIRToGFIRPasses();
+  acir::registerGFIRToHWIRPasses();
   acir::compiler::detail::registerSourceCompilerPasses();
   acir::compiler::detail::registerSourceBindingsPass();
   mlir::registerCanonicalizerPass();
