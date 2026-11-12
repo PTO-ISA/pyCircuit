@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="550" viewBox="0 0 1600 550">
+<rect width="100%" height="100%" fill="#f8fafc"/>
+<text x="36" y="38" font-family="sans-serif" font-size="22" font-weight="bold" fill="#0f172a">2048 Index entries · generated C++ swimlane · startup-detail</text>
+<text x="36" y="65" font-family="sans-serif" font-size="14" fill="#334155">pyCircuit source → verified final → C++ System; H=64, D=64, Index slots=2, KV slots=2</text>
+<text x="36" y="86" font-family="sans-serif" font-size="13" fill="#475569">Completion: 2 KV slot(s) 24,837 cycles; comparison 38,901 cycles. Abstract resource schedule, no numeric attention.</text>
+<line x1="190.0" x2="190.0" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="190.0" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">0</text>
+<line x1="280.7" x2="280.7" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="280.7" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">200</text>
+<line x1="371.3" x2="371.3" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="371.3" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">400</text>
+<line x1="462.0" x2="462.0" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="462.0" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">600</text>
+<line x1="552.7" x2="552.7" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="552.7" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">800</text>
+<line x1="643.3" x2="643.3" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="643.3" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">1,000</text>
+<line x1="734.0" x2="734.0" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="734.0" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">1,200</text>
+<line x1="824.7" x2="824.7" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="824.7" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">1,400</text>
+<line x1="915.3" x2="915.3" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="915.3" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">1,600</text>
+<line x1="1006.0" x2="1006.0" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1006.0" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">1,800</text>
+<line x1="1096.7" x2="1096.7" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1096.7" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">2,000</text>
+<line x1="1187.3" x2="1187.3" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1187.3" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">2,200</text>
+<line x1="1278.0" x2="1278.0" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1278.0" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">2,400</text>
+<line x1="1368.7" x2="1368.7" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1368.7" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">2,600</text>
+<line x1="1459.3" x2="1459.3" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1459.3" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">2,800</text>
+<line x1="1550.0" x2="1550.0" y1="119" y2="459" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1550.0" y="112" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">3,000</text>
+<text x="178" y="155" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">Count + Q</text>
+<line x1="190" x2="1550" y1="164" y2="164" stroke="#e2e8f0"/>
+<text x="178" y="191" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">Index slot 0</text>
+<line x1="190" x2="1550" y1="200" y2="200" stroke="#e2e8f0"/>
+<text x="178" y="227" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">Index slot 1</text>
+<line x1="190" x2="1550" y1="236" y2="236" stroke="#e2e8f0"/>
+<text x="178" y="263" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">KV slot 0</text>
+<line x1="190" x2="1550" y1="272" y2="272" stroke="#e2e8f0"/>
+<text x="178" y="299" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">KV slot 1</text>
+<line x1="190" x2="1550" y1="308" y2="308" stroke="#e2e8f0"/>
+<text x="178" y="335" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">QK</text>
+<line x1="190" x2="1550" y1="344" y2="344" stroke="#e2e8f0"/>
+<text x="178" y="371" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">Softmax</text>
+<line x1="190" x2="1550" y1="380" y2="380" stroke="#e2e8f0"/>
+<text x="178" y="407" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">PV</text>
+<line x1="190" x2="1550" y1="416" y2="416" stroke="#e2e8f0"/>
+<text x="178" y="443" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">O write</text>
+<line x1="190" x2="1550" y1="452" y2="452" stroke="#e2e8f0"/>
+<rect x="190.0" y="139" width="130.1" height="22" rx="3" fill="#64748b"/>
+<text x="194.0" y="154" font-family="sans-serif" font-size="10" fill="#0f172a">Count + Q</text>
+<rect x="320.1" y="175" width="219.9" height="22" rx="3" fill="#a78bfa"/>
+<text x="324.1" y="190" font-family="sans-serif" font-size="10" fill="#0f172a">I0</text>
+<rect x="358.6" y="247" width="205.4" height="22" rx="3" fill="#06b6d4"/>
+<text x="362.6" y="262" font-family="sans-serif" font-size="10" fill="#0f172a">KV0</text>
+<rect x="564.0" y="247" width="336.4" height="22" rx="3" fill="#a5f3fc"/>
+<rect x="358.6" y="211" width="387.1" height="22" rx="3" fill="#a78bfa"/>
+<text x="362.6" y="226" font-family="sans-serif" font-size="10" fill="#0f172a">I1</text>
+<rect x="564.5" y="283" width="205.4" height="22" rx="3" fill="#06b6d4"/>
+<text x="568.5" y="298" font-family="sans-serif" font-size="10" fill="#0f172a">KV1</text>
+<rect x="769.8" y="283" width="466.9" height="22" rx="3" fill="#a5f3fc"/>
+<rect x="540.4" y="175" width="541.7" height="22" rx="3" fill="#a78bfa"/>
+<text x="544.4" y="190" font-family="sans-serif" font-size="10" fill="#0f172a">I2</text>
+<rect x="900.8" y="247" width="205.4" height="22" rx="3" fill="#06b6d4"/>
+<text x="904.8" y="262" font-family="sans-serif" font-size="10" fill="#0f172a">KV2</text>
+<rect x="1106.2" y="247" width="443.8" height="22" rx="3" fill="#a5f3fc"/>
+<rect x="746.2" y="211" width="672.3" height="22" rx="3" fill="#a78bfa"/>
+<text x="750.2" y="226" font-family="sans-serif" font-size="10" fill="#0f172a">I3</text>
+<rect x="1237.2" y="283" width="205.4" height="22" rx="3" fill="#06b6d4"/>
+<text x="1241.2" y="298" font-family="sans-serif" font-size="10" fill="#0f172a">KV3</text>
+<rect x="1442.6" y="283" width="107.4" height="22" rx="3" fill="#a5f3fc"/>
+<rect x="1082.6" y="175" width="467.4" height="22" rx="3" fill="#a78bfa"/>
+<text x="1086.6" y="190" font-family="sans-serif" font-size="10" fill="#0f172a">I4</text>
+<rect x="1419.0" y="211" width="131.0" height="22" rx="3" fill="#a78bfa"/>
+<text x="1423.0" y="226" font-family="sans-serif" font-size="10" fill="#0f172a">I5</text>
+<rect x="564.5" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="584.4" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="628.4" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="648.3" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="668.3" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="712.2" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="732.2" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="752.1" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="796.1" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="816.1" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="836.0" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="880.0" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="900.8" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="920.8" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="964.7" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="984.7" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1004.6" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="1048.6" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="1068.6" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1088.5" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="1132.5" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="1152.4" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1172.4" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="1216.3" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="1237.2" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1257.1" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="1301.1" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="1321.1" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1341.0" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="1385.0" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="1404.9" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1424.9" y="355" width="44.0" height="22" rx="3" fill="#ec4899"/>
+<rect x="1468.9" y="391" width="19.9" height="22" rx="3" fill="#22c55e"/>
+<rect x="1488.8" y="319" width="19.9" height="22" rx="3" fill="#f59e0b"/>
+<rect x="1508.7" y="355" width="41.3" height="22" rx="3" fill="#ec4899"/>
+<text x="1550" y="484" text-anchor="end" font-family="sans-serif" font-size="12" fill="#475569">Cycle (generated System event counter) →</text>
+<text x="190" y="525" font-family="sans-serif" font-size="12" fill="#475569">KV cyan: dispatch → fill; pale cyan: filled slot held until compute retires. Index purple: reserved until last row request.</text>
+</svg>

@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2460" height="1900" viewBox="0 0 2460 1900" role="img" aria-label="FlashAttention2 P0S 数据流泳道图">
+<defs>
+<marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0 L10 4 L0 8 Z" fill="#34445e"/></marker>
+<marker id="arrow-muted" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0 0 L10 4 L0 8 Z" fill="#8593a9"/></marker>
+</defs>
+<rect width="2460" height="1900" fill="#f7f9fc"/>
+<text x="78" y="67" font-size="39" font-weight="700" fill="#152338">FlashAttention2 · P0S 数据流泳道图</text>
+<text x="80" y="106" font-size="21" fill="#516276">时间向下 · 当前串行行引擎 · indexed 路径示例</text>
+<rect x="48" y="137" width="274" height="1612" rx="15" fill="#eaf3ff" stroke="#315f98" stroke-opacity=".34"/>
+<rect x="48" y="137" width="274" height="86" rx="15" fill="#315f98"/>
+<text x="185" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">外部 / Host</text>
+<text x="185" y="204" text-anchor="middle" font-size="16" fill="white">预生成的 Index 与张量</text>
+<line x1="185" y1="230" x2="185" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="348" y="137" width="274" height="1612" rx="15" fill="#fff4d6" stroke="#9b6b12" stroke-opacity=".34"/>
+<rect x="348" y="137" width="274" height="86" rx="15" fill="#9b6b12"/>
+<text x="485" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">调度 / 控制</text>
+<text x="485" y="204" text-anchor="middle" font-size="16" fill="white">一个 query；阶段 FSM</text>
+<line x1="485" y1="230" x2="485" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="648" y="137" width="274" height="1612" rx="15" fill="#e7f7ed" stroke="#32845e" stroke-opacity=".34"/>
+<rect x="648" y="137" width="274" height="86" rx="15" fill="#32845e"/>
+<text x="785" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">Index / Sparse</text>
+<text x="785" y="204" text-anchor="middle" font-size="16" fill="white">校验完整前缀；保序</text>
+<line x1="785" y1="230" x2="785" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="948" y="137" width="274" height="1612" rx="15" fill="#f0eaff" stroke="#7052a5" stroke-opacity=".34"/>
+<rect x="948" y="137" width="274" height="86" rx="15" fill="#7052a5"/>
+<text x="1085" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">外部访存</text>
+<text x="1085" y="204" text-anchor="middle" font-size="16" fill="white">单 outstanding 请求</text>
+<line x1="1085" y1="230" x2="1085" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="1248" y="137" width="274" height="1612" rx="15" fill="#ffece4" stroke="#af633d" stroke-opacity=".34"/>
+<rect x="1248" y="137" width="274" height="86" rx="15" fill="#af633d"/>
+<text x="1385" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">QK / Score</text>
+<text x="1385" y="204" text-anchor="middle" font-size="16" fill="white">逐维乘加；D ≤ 64</text>
+<line x1="1385" y1="230" x2="1385" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="1548" y="137" width="274" height="1612" rx="15" fill="#fce7f1" stroke="#ae4e7c" stroke-opacity=".34"/>
+<rect x="1548" y="137" width="274" height="86" rx="15" fill="#ae4e7c"/>
+<text x="1685" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">Online Softmax</text>
+<text x="1685" y="204" text-anchor="middle" font-size="16" fill="white">m、l、α、β 标量状态</text>
+<line x1="1685" y1="230" x2="1685" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="1848" y="137" width="274" height="1612" rx="15" fill="#e5f6f5" stroke="#23827d" stroke-opacity=".34"/>
+<rect x="1848" y="137" width="274" height="86" rx="15" fill="#23827d"/>
+<text x="1985" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">PV 累加</text>
+<text x="1985" y="204" text-anchor="middle" font-size="16" fill="white">逐维写 shadow bank</text>
+<line x1="1985" y1="230" x2="1985" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="2148" y="137" width="274" height="1612" rx="15" fill="#eaf2ff" stroke="#416cab" stroke-opacity=".34"/>
+<rect x="2148" y="137" width="274" height="86" rx="15" fill="#416cab"/>
+<text x="2285" y="174" text-anchor="middle" font-size="23" font-weight="700" fill="white">归一化 / 写回</text>
+<text x="2285" y="204" text-anchor="middle" font-size="16" fill="white">逐维输出；等写确认</text>
+<line x1="2285" y1="230" x2="2285" y2="1735" stroke="#9ba9bc" stroke-width="2" stroke-dasharray="7 9"/>
+<rect x="61" y="246" width="248" height="72" rx="13" fill="#ffffff" stroke="#315f98" stroke-width="2.4"/>
+<text x="185" y="277.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">TensorCommand</text>
+<text x="185" y="301.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">Index/Count 已由上游生成</text>
+<line x1="311" y1="282" x2="351" y2="282" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="331.0" y="272" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">提交</text>
+<rect x="361" y="246" width="248" height="72" rx="13" fill="#ffffff" stroke="#9b6b12" stroke-width="2.4"/>
+<text x="485" y="277.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">捕获描述符</text>
+<text x="485" y="301.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">检查布局与维度</text>
+<line x1="50" y1="353" x2="2410" y2="353" stroke="#d8e0ea" stroke-width="2"/>
+<rect x="66" y="335" width="352" height="36" rx="18" fill="#34445e"/>
+<text x="86" y="360" font-size="18" font-weight="700" fill="white">① 先验证完整 Index 前缀</text>
+<rect x="361" y="392" width="248" height="72" rx="13" fill="#ffffff" stroke="#9b6b12" stroke-width="2.4"/>
+<text x="485" y="423.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">选择 b / h / query</text>
+<text x="485" y="447.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">indexed: 先读 count</text>
+<line x1="611" y1="428" x2="951" y2="428" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="781.0" y="418" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">Count 读</text>
+<rect x="961" y="392" width="248" height="72" rx="13" fill="#ffffff" stroke="#7052a5" stroke-width="2.4"/>
+<text x="1085" y="423.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">REQ → WAIT</text>
+<text x="1085" y="447.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">外部内存响应</text>
+<line x1="959" y1="500" x2="919" y2="500" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="939.0" y="490" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">count</text>
+<rect x="661" y="464" width="248" height="72" rx="13" fill="#ffffff" stroke="#32845e" stroke-width="2.4"/>
+<text x="785" y="495.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">count ≤ 2048</text>
+<text x="785" y="519.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">准备读有效前缀</text>
+<rect x="61" y="537" width="248" height="72" rx="13" fill="#ffffff" stroke="#315f98" stroke-width="2.4"/>
+<text x="185" y="568.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">Index[p]</text>
+<text x="185" y="592.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">原 token ID</text>
+<line x1="311" y1="573" x2="951" y2="573" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="631.0" y="563" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">内存输入</text>
+<rect x="961" y="537" width="248" height="72" rx="13" fill="#ffffff" stroke="#7052a5" stroke-width="2.4"/>
+<text x="1085" y="568.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">逐项读 Index[p]</text>
+<text x="1085" y="592.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">每次只挂起 1 请求</text>
+<line x1="959" y1="645" x2="919" y2="645" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="939.0" y="635" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">index</text>
+<rect x="661" y="609" width="248" height="72" rx="13" fill="#ffffff" stroke="#32845e" stroke-width="2.4"/>
+<text x="785" y="640.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">范围 + 重复校验</text>
+<text x="785" y="664.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">Patricia 树；保留顺序</text>
+<text x="785" y="711" text-anchor="middle" font-size="18" fill="#39624f">循环至完整前缀通过 · dense 模式跳过此段</text>
+<line x1="50" y1="753" x2="2410" y2="753" stroke="#d8e0ea" stroke-width="2"/>
+<rect x="66" y="735" width="462" height="36" rx="18" fill="#34445e"/>
+<text x="86" y="760" font-size="18" font-weight="700" fill="white">② 选 token，计算 QK score</text>
+<rect x="361" y="790" width="248" height="72" rx="13" fill="#ffffff" stroke="#9b6b12" stroke-width="2.4"/>
+<text x="485" y="821.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">装载当前 Q[d]</text>
+<text x="485" y="845.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">逐维 D = 1..64</text>
+<line x1="611" y1="826" x2="951" y2="826" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="781.0" y="816" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">Q 读</text>
+<line x1="1211" y1="899" x2="1251" y2="899" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1231.0" y="889" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">Q[d]</text>
+<rect x="661" y="863" width="248" height="72" rx="13" fill="#ffffff" stroke="#32845e" stroke-width="2.4"/>
+<text x="785" y="894.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">取 Index[p]</text>
+<text x="785" y="918.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">causal 用原 token ID</text>
+<line x1="911" y1="947" x2="1251" y2="947" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1081.0" y="937" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">有效 token</text>
+<rect x="1261" y="964" width="248" height="72" rx="13" fill="#ffffff" stroke="#af633d" stroke-width="2.4"/>
+<text x="1385" y="995.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">逐维 K 读取</text>
+<text x="1385" y="1019.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">dot += Q[d] × K[j,d]</text>
+<line x1="1259" y1="1000" x2="1219" y2="1000" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1239.0" y="990" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">K[j,d]</text>
+<line x1="1211" y1="1051" x2="1251" y2="1051" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1231.0" y="1041" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">K 响应</text>
+<rect x="1261" y="1068" width="248" height="72" rx="13" fill="#ffffff" stroke="#af633d" stroke-width="2.4"/>
+<text x="1385" y="1099.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">score = dot × scale</text>
+<text x="1385" y="1123.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">完成 D 个维度后</text>
+<line x1="1511" y1="1104" x2="1551" y2="1104" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1531.0" y="1094" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">score</text>
+<line x1="50" y1="1177" x2="2410" y2="1177" stroke="#d8e0ea" stroke-width="2"/>
+<rect x="66" y="1159" width="616" height="36" rx="18" fill="#34445e"/>
+<text x="86" y="1184" font-size="18" font-weight="700" fill="white">③ 在线 softmax + PV，逐 token 更新</text>
+<rect x="1561" y="1211" width="248" height="72" rx="13" fill="#ffffff" stroke="#ae4e7c" stroke-width="2.4"/>
+<text x="1685" y="1242.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">m′ = max(m, score)</text>
+<text x="1685" y="1266.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">α、β：两次 exp</text>
+<rect x="1561" y="1294" width="248" height="72" rx="13" fill="#ffffff" stroke="#ae4e7c" stroke-width="2.4"/>
+<text x="1685" y="1325.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">l′ = l×α + β</text>
+<text x="1685" y="1349.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">保留候选行状态</text>
+<line x1="1811" y1="1330" x2="1851" y2="1330" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1831.0" y="1320" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">α / β</text>
+<rect x="1861" y="1294" width="248" height="72" rx="13" fill="#ffffff" stroke="#23827d" stroke-width="2.4"/>
+<text x="1985" y="1325.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">逐维 V 读取</text>
+<text x="1985" y="1349.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">active / shadow 双 bank</text>
+<line x1="1859" y1="1401" x2="1219" y2="1401" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1539.0" y="1391" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">V[j,d]</text>
+<line x1="1211" y1="1452" x2="1851" y2="1452" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1531.0" y="1442" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">V 响应</text>
+<rect x="1861" y="1470" width="248" height="72" rx="13" fill="#ffffff" stroke="#23827d" stroke-width="2.4"/>
+<text x="1985" y="1501.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">shadow[d] =</text>
+<text x="1985" y="1525.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">active[d]×α + β×V[d]</text>
+<rect x="1861" y="1566" width="248" height="72" rx="13" fill="#ffffff" stroke="#23827d" stroke-width="2.4"/>
+<text x="1985" y="1597.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">最后一个 d：</text>
+<text x="1985" y="1621.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">切换 bank，提交 m′/l′</text>
+<text x="1985" y="1655" text-anchor="middle" font-size="17" font-weight="700" fill="#23827d">还有 token：返回 ②，重做 QK → softmax → PV</text>
+<line x1="50" y1="1671" x2="2410" y2="1671" stroke="#d8e0ea" stroke-width="2"/>
+<rect x="66" y="1653" width="440" height="36" rx="18" fill="#34445e"/>
+<text x="86" y="1678" font-size="18" font-weight="700" fill="white">④ 全部 token 完成后归一化、写回</text>
+<line x1="2111" y1="1722" x2="2151" y2="1722" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="2131.0" y="1712" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">acc[d] / l</text>
+<rect x="2161" y="1725" width="248" height="82" rx="13" fill="#ffffff" stroke="#416cab" stroke-width="2.4"/>
+<text x="2285" y="1761.0" text-anchor="middle" font-size="19" font-weight="650" fill="#253248">FP16 / BF16 编码</text>
+<text x="2285" y="1785.0" text-anchor="middle" font-size="19" font-weight="450" fill="#253248">O[d] 写入并等待 ack</text>
+<line x1="2159" y1="1823" x2="1219" y2="1823" stroke="#34445e" stroke-width="3.1" marker-end="url(#arrow)"/>
+<text x="1689.0" y="1813" text-anchor="middle" font-size="17" font-weight="600" fill="#34445e">O 写 / ack</text>
+<text x="1220" y="1874" text-anchor="middle" font-size="20" font-weight="700" fill="#354861">最后一个写确认后发布 completion</text>
+</svg>
