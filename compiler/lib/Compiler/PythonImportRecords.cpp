@@ -464,6 +464,7 @@ struct LoopLoweringContext {
   uint64_t iteration = 0;
   llvm::DenseSet<Operation *> helperOwned;
   Value induction;
+  LoopLoweringContext *parent = nullptr;
 };
 
 class Importer final : public SourceDeclarationContext::Implementation {
@@ -3461,16 +3462,25 @@ FailureOr<Value> Importer::expression(
   };
   auto provenStatic =
       [&](const AstNode &candidate) -> std::optional<llvm::APSInt> {
-    // Only this iteration's live binder is a compile-time ordinal. Rebinding
-    // it, or copying it to another name, must not create static-count authority.
-    if (activeLoop && candidate.kind() == "Name" &&
-        candidate.string("id") == activeLoop->statement.child("target").string("id")) {
+    // Any still-visible enclosing induction binder retains its ordinal
+    // authority across staging captures. Name and SSA origin must both match:
+    // copying or rebinding the binder does not grant static-count permission.
+    if (candidate.kind() == "Name") {
       auto found = values.find(candidate.string("id"));
-      if (found != values.end() && found->second == activeLoop->induction) {
-        auto integer = dyn_cast_or_null<ac::MathIntAttr>(
-            valueInfo(found->second).closedSourceConstant);
-        if (integer)
-          return llvm::APSInt(integer.getCanonicalValue());
+      auto origin = [&](Value value) {
+        Value captured = originalCaptures.lookup(value);
+        return captured ? captured : value;
+      };
+      for (auto *loop = activeLoop; loop; loop = loop->parent) {
+        if (candidate.string("id") != loop->statement.child("target").string("id"))
+          continue;
+        if (found != values.end() && origin(found->second) == origin(loop->induction)) {
+          auto integer = dyn_cast_or_null<ac::MathIntAttr>(
+              valueInfo(found->second).closedSourceConstant);
+          if (integer)
+            return llvm::APSInt(integer.getCanonicalValue());
+        }
+        break;
       }
     }
     if (!staticOnly(staticOnly, candidate))

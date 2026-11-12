@@ -702,7 +702,8 @@ Both compute within one Work evaluation; neither introduces a clock cycle.
 
 ### Pure helper loops
 
-The pure expansion path, used by ordinary typed pure helpers, supports `for`
+The pure expansion path, used by ordinary typed pure helpers and ordinary Module
+computations, supports nested `for` loops
 with a single local name and an unshadowed builtin `range` call whose sole
 argument is an integer literal:
 
@@ -722,7 +723,8 @@ This initial profile admits only `range(N)` with a non-Boolean captured Integer
 Constant. Bound names, aliases, arithmetic expressions, negative spellings such
 as `range(-1)`, keyword arguments, and start/stop/step forms are unsupported.
 A local, formal, module binding or loop target that shadows `range` cannot gain
-builtin authority. Nested loops, `while`, loop `else`, `break`, `continue` and
+builtin authority. Each nested loop retains this literal-bound profile.
+`while`, loop `else`, `break`, `continue` and
 returns from loop bodies are unsupported.
 
 The hidden induction ordinal is an Integer. Assignment to the visible binder
@@ -731,6 +733,11 @@ an existing typed binding keeps its declared kind and width. Reassigning the
 binder in the body does not change the next induction ordinal. Its final body
 value remains visible after the loop. `range(0)` leaves incoming bindings intact
 and does not bind names introduced only inside the body.
+Nested loops share the surrounding local bindings. An inner loop using the same
+target name replaces its visible value, without changing the outer loop's next
+hidden ordinal. A still-visible outer induction binder retains its existing
+arithmetic permissions inside an inner loop; aliases and reassigned values do
+not acquire induction-binder permissions.
 
 A zero-trip body still undergoes syntax, callee, effect and writer validation,
 but its expressions are not evaluated or lowered. It emits no body operations,
@@ -766,8 +773,10 @@ defaults, explicitly bound constant arguments, aliases and closed arithmetic
 retain those facts. A runtime value or interval alone, fixed Bits, Boolean and
 negative bounds do not qualify. Pure-helper loops retain their literal-only
 profile. Existing finite while comparison/progress proofs remain required.
-General nesting, dynamic range bounds and `while True` with a
-conditional break are not enabled by loop-else support.
+Finite `for` loops can nest in loop bodies, conditional branches and `for`
+`else` suites. Every level retains the same closed-bound requirements and local
+binding rules. This does not broaden `while` admission, dynamic range bounds or
+`while True` with a conditional break.
 
 A loop's `else` suite executes exactly once on natural completion, including
 zero iterations. A reached `break` targeting that loop suppresses its else;
@@ -799,6 +808,12 @@ checks preserve the existing failure/discard behavior; they cannot publish else
 state changes or observations. An otherwise admitted finite while loop uses the
 same natural-completion/break distinction; a continue path that defeats its
 progress proof remains rejected.
+
+`break` and `continue` target the nearest enclosing loop body. Completing an
+inner loop restores the enclosing loop's control; an inner loop's `else` suite
+runs outside that inner body, so control statements there target the enclosing
+loop. Nested state writes, calls and checks stay in the surrounding transaction
+and introduce no additional clock cycles.
 
 Expansion uses the existing source-wide resource limits. The compiler checks
 trip counts, work, operations, storage and constant sizes before expanding paid
@@ -1312,7 +1327,8 @@ are allowed. Loops follow the [bounded source loop contract](#bounded-source-loo
 iterations carry local SSA values within the same Work evaluation, and zero-trip
 bodies still undergo capability validation. Updating a Table parameter or ordinary
 captured aggregate constructs a new local value; it does not change the caller's
-saved value or create persistent state. Directly nested loops, `while`, early
+saved value or create persistent state. Nested loops retain the literal-range
+and pure-computation restrictions. `while`, early
 returns, nested declarations inside helpers,
 allocation, Rule/Method calls, assertions and I/O are rejected even in dead
 paths. A helper cannot read a persistent owner implicitly; pass its ordinary

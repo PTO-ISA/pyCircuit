@@ -455,6 +455,21 @@ Importer::preflightForCapabilities(const AstNode &statement,
         return diagnostic() << "bounded for assignment requires a value";
       return child("value");
     }
+    if (kind == "For") {
+      auto syntax = readLiteralForSyntax(node, diagnostic);
+      if (failed(syntax)) return failure();
+      auto function = node.child("iter").child("func");
+      if (lexicallyShadowed(function, "range") || names.contains("range") ||
+          structs.contains("range") || behavioralRules.contains("range"))
+        return diagnostic() << "bounded for range builtin is shadowed";
+      if (failed(chargeSourceWalk(node.child("iter"), inspected)) ||
+          failed(chargeSourceWalk(function, inspected)) ||
+          !pureCheckedAdd(summary.nodes, 2) ||
+          failed(self(self, syntax->target, true)) ||
+          failed(self(self, syntax->bound)))
+        return failure();
+      return list("body");
+    }
     if (kind == "If") {
       if (failed(child("test")) || failed(list("body")))
         return failure();
@@ -1596,6 +1611,12 @@ LogicalResult Importer::loopStatements(const AstNode &parent, StringRef field,
       environment = std::move(*joined);
       continue;
     }
+    if (statement.kind() == "For") {
+      // Each recursive loop reserves and audits its own finite expansion.
+      if (failed(lowerLiteralFor(statement, at, symbol, environment, owners)))
+        return failure();
+      continue;
+    }
     auto envelope =
         reserveLoopStatement(statement, environment, symbol, "assignment");
     if (failed(envelope))
@@ -1652,8 +1673,6 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   auto diagnostic = [&] {
     return mlir::emitError(statement.location(b.getContext(), source.path));
   };
-  if (activeLoop)
-    return diagnostic() << "nested bounded for is unsupported";
   if ((!activeValueHelper && !activeRule && !activeModuleStatements) ||
       (activeRule && activeRule->structural) || !owners.empty())
     return diagnostic()
@@ -1894,7 +1913,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     entry.second = capture(entry.second);
   staged.ambient = capture(staged.ambient);
   staged.continuation = capture(staged.continuation);
-  LoopLoweringContext context{statement, &admission, 0, {}};
+  LoopLoweringContext context{statement, &admission, 0, {}, {}, activeLoop};
   auto previousLoop = std::exchange(activeLoop, &context);
   bool committed = false;
   auto cleanup = llvm::scope_exit([&] {

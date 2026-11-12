@@ -669,6 +669,8 @@ design.write_text(original)
 # Compile and link each positive case so Rule-path coverage cannot mask helper
 # preflight or common-IR failures.
 plain_helper_controls = {
+    "nested-for": plain_helper("    for index in range(3):\n        for peer in range(1):\n            value = value + 1\n    return value"),
+    "zero-nested-for": plain_helper("    for index in range(0):\n        for peer in range(1):\n            value = value + 1\n    return value"),
     "shift-divrem": plain_helper(
         "    for index in range(3):\n"
         "        value = (value << 1) // 3\n"
@@ -748,8 +750,6 @@ def Top(value: ac.u8) -> Out:
     "branch-kind-conflict": minimal("    for index in range(1):\n        if value == 0:\n            joined = True\n        else:\n            joined = index\n    return joined"),
     "branch-fixed-logical-conflict": minimal("    logical = 1 if value == 0 else 2\n    for index in range(1):\n        if value == 0:\n            joined = logical\n        else:\n            joined = value\n    return joined"),
     "zero-unbound-name": minimal("    for created in range(0):\n        created = value\n    return created"),
-    "nested-for": minimal("    for index in range(3):\n        for peer in range(1):\n            pass\n    return value"),
-    "zero-nested-for": minimal("    for index in range(0):\n        for peer in range(1):\n            pass\n    return value"),
     "while-body": minimal("    for index in range(3):\n        while False:\n            pass\n    return value"),
     "break-body": minimal("    for index in range(3):\n        break\n    return value"),
     "continue-body": minimal("    for index in range(3):\n        continue\n    return value"),
@@ -778,7 +778,7 @@ def Top(value: ac.u8) -> Out:
         "    return value"
     ),
     "later-oob": minimal("    entries: ac.table[2, ac.u8] = (1, 2)\n    for index in range(3):\n        value = entries[index]\n    return value"),
-    "resource-bound": minimal("    for index in range(1000000):\n        value = value + 1\n    return value"),
+    "resource-bound": plain_helper("    for outer in range(300):\n        for inner in range(300):\n            value = value + 1\n    return value"),
     "bookkeeping-resource": minimal(bookkeeping_body),
     "literal-overflow": minimal("    for index in range(999999999999999999999999999999999999999999999999999999999999999999):\n        pass\n    return value"),
     "persistent-write": """import pycircuit as ac

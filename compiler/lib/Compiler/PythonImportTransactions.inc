@@ -1100,7 +1100,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         control.first |= node.kind() == "Break";
         control.second |= node.kind() == "Continue";
         bool nestedLoop = node.kind() == "For" || node.kind() == "While";
-        for (StringRef childField : {"body", "orelse"}) {
+        for (StringRef childField : {"body", "orelse", "cases"}) {
           if (nestedLoop && childField == "body") continue;
           auto statements = node.array(childField);
           for (size_t k = 0; statements && k < statements.size(); ++k)
@@ -1269,29 +1269,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               return statementError(node) << "typed for range exceeds signed index representation";
             return number.isUnsigned() ? static_cast<int64_t>(number.getZExtValue()) : number.getSExtValue();
           };
-          auto hasNestedFor = [&](auto &&self, const AstNode &node) -> bool {
+          // Nested For retains its existing finite profile. Keep While
+          // placement in a For else outside this admission change.
+          auto hasElseWhile = [&](auto &&self, const AstNode &node) -> bool {
             if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
               return false;
-            if (node.kind() == "For")
-              return true;
-            for (StringRef field : {"body", "orelse"}) {
-              auto statements = node.array(field);
-              for (size_t k = 0; statements && k < statements.size(); ++k)
-                if (self(self, node.item(field, k)))
-                  return true;
-            }
-            return false;
-          };
-          for (StringRef field : {"body", "orelse"})
-            for (size_t k = 0; k < statement.array(field).size(); ++k)
-              if (hasNestedFor(hasNestedFor, statement.item(field, k)))
-                return statementError(statement) << "nested source for loops are unsupported";
-          // The newly admitted else suite retains the bounded For profile;
-          // existing finite While in a For body or after the For is unchanged.
-          auto hasElseLoop = [&](auto &&self, const AstNode &node) -> bool {
-            if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
-              return false;
-            if (node.kind() == "For" || node.kind() == "While")
+            if (node.kind() == "While")
               return true;
             for (NamedAttribute field : node.fields()) {
               if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
@@ -1308,8 +1291,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             return false;
           };
           for (size_t k = 0; k < statement.array("orelse").size(); ++k)
-            if (hasElseLoop(hasElseLoop, statement.item("orelse", k)))
-              return statementError(statement) << "nested source loop in for else is unsupported";
+            if (hasElseWhile(hasElseWhile, statement.item("orelse", k)))
+              return statementError(statement) << "source while in for else is unsupported";
           size_t arity = range.array("args").size();
           if (arity != 1)
             return statementError(range) << "typed for range requires a single closed Integer bound";
@@ -1386,7 +1369,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 mark(node.item("targets", k));
             else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
               mark(node.child("target"));
-            for (StringRef field : {"body", "orelse"}) {
+            for (StringRef field : {"body", "orelse", "cases"}) {
               auto statements = node.array(field);
               for (size_t k = 0; statements && k < statements.size(); ++k)
                 self(self, node.item(field, k));
@@ -1504,11 +1487,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           }
           if (control) {
             iteration.values[control->continuing] = iteration.values.lookup(control->live);
-            loopControls.push_back(*control);
           }
+          // Even a body without control statements owns the nearest loop scope.
+          // Its else is emitted after popping, so controls there target the parent.
+          loopControls.push_back(control.value_or(LoopControl{}));
           auto emitted = emitBody(statement, "body", loopAt, iteration, true);
+          loopControls.pop_back();
           if (control) {
-            loopControls.pop_back();
             iteration.values.erase(control->continuing);
             iteration.boundaries.erase(control->continuing);
           }
@@ -1608,7 +1593,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 mark(node.item("targets", k));
             else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
               mark(node.child("target"));
-            for (StringRef childField : {"body", "orelse"}) {
+            for (StringRef childField : {"body", "orelse", "cases"}) {
               auto statements = node.array(childField);
               for (size_t k = 0; statements && k < statements.size(); ++k)
                 self(self, node.item(childField, k));
@@ -1699,11 +1684,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             remember(*continuing, ac::detail::ValueKind::Boolean, std::nullopt,
                      loopAt.getBoolAttr(true));
             iteration.values[control->continuing] = *continuing;
-            loopControls.push_back(*control);
           }
+          // Even a body without control statements owns the nearest loop scope.
+          // Its else is emitted after popping, so controls there target the parent.
+          loopControls.push_back(control.value_or(LoopControl{}));
           auto emitted = emitBody(statement, "body", loopAt, iteration, true);
+          loopControls.pop_back();
           if (control) {
-            loopControls.pop_back();
             iteration.values.erase(control->continuing);
             iteration.boundaries.erase(control->continuing);
           }
