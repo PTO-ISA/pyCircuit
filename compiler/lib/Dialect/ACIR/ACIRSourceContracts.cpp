@@ -194,7 +194,7 @@ LogicalResult verifySourceEffectMetadata(DictionaryAttr occurrence,
                                          DictionaryAttr location,
                                          Operation *lexicalModule,
                                          EmitError emitError) {
-  if (!lexicalModule || !isa<ModuleOp, ModuleImportOp>(lexicalModule))
+  if (!lexicalModule || !isa<ModuleOp, ModuleImportOp, SourceTemplateOp>(lexicalModule))
     return emitError()
            << "source effect requires a lexical module declaration";
   auto symbol = lexicalModule->getAttrOfType<StringAttr>("sym_name");

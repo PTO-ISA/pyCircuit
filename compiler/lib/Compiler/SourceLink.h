@@ -25,6 +25,15 @@ struct SourceLinkParameterBinding {
   std::string value; // Canonical signed decimal, never a host-width integer.
 };
 
+namespace detail {
+// Return declaration-ordered Integer overrides or the original default
+// StaticExprAttr. Consumers retain their own provenance and evaluation stage.
+mlir::FailureOr<llvm::SmallVector<mlir::Attribute>> bindSourceRootParameters(
+    mlir::Operation *declaration,
+    llvm::ArrayRef<SourceLinkParameterBinding> parameters,
+    ac::detail::EmitError emitError);
+} // namespace detail
+
 mlir::FailureOr<SourceHeaderRegistry>
 admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
                      ac::detail::EmitError emitError);

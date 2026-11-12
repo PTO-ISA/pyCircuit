@@ -1,8 +1,8 @@
 #include "SourceUnit.h"
 
 #include "PythonImportRecords.h"
-#include "SourceRuleWrites.h"
 #include "SourceMemoryBindings.h"
+#include "SourceRuleWrites.h"
 #include "pycircuit/Transforms/Passes.h"
 
 #include "mlir/Pass/Pass.h"
@@ -52,18 +52,28 @@ compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
                         bool retainSourceImport) {
   if (failed(ac::detail::verifySourceOwner(sourceOwner, emitError)))
     return failure();
-  OwningOpRef<ModuleOp> body(cast<ModuleOp>(transport->clone()));
+  auto deferred = detail::compileSourceTemplates(transport, sourceOwner,
+                                                 headers, emitError);
+  if (failed(deferred))
+    return failure();
+  bool templates = static_cast<bool>(*deferred);
+  OwningOpRef<ModuleOp> body =
+      templates ? std::move(*deferred)
+                : OwningOpRef<ModuleOp>(cast<ModuleOp>(transport->clone()));
   // Capture state outlives both the run and the manager's instrumentation.
   SourceImportCapture capture;
-  PassManager lowering(transport.getContext());
-  lowering.addPass(detail::createAnalyzeRuleWritesPass());
-  lowering.addPass(detail::createInferSourceBindingsPass(sourceOwner, headers));
-  lowering.addPass(detail::createLowerPythonSourcePass(sourceOwner, headers));
-  lowering.addPass(acir::createNormalizeSourceControlFlowPass());
-  lowering.addPass(acir::createAnalyzeSourceMethodSummariesPass());
-  if (failed(lowering.run(*body)))
-    return failure();
-  bool transactions = false;
+  if (!templates) {
+    PassManager lowering(transport.getContext());
+    lowering.addPass(detail::createAnalyzeRuleWritesPass());
+    lowering.addPass(
+        detail::createInferSourceBindingsPass(sourceOwner, headers));
+    lowering.addPass(detail::createLowerPythonSourcePass(sourceOwner, headers));
+    lowering.addPass(acir::createNormalizeSourceControlFlowPass());
+    lowering.addPass(acir::createAnalyzeSourceMethodSummariesPass());
+    if (failed(lowering.run(*body)))
+      return failure();
+  }
+  bool transactions = templates;
   body->walk([&](Operation *operation) {
     if (isa<ac::SourceStateOp, ac::SourceStateReadOp, ac::SourceStateWriteOp,
             ac::SourceMethodOp, ac::SourceMethodCallOp,
@@ -73,9 +83,8 @@ compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
       transactions |= imported.getSemanticKind() == "transactions";
   });
   if (transactions && retainSourceImport)
-    return emitError()
-           << "source-import diagnostic requires lowered hardware; "
-              "source transaction effects are retained until link";
+    return emitError() << "source-import diagnostic requires lowered hardware; "
+                          "source transaction effects are retained until link";
   if (!transactions) {
     PassManager hardware(transport.getContext());
     auto simplify = acir::createSimplifyRecordWiresPass();

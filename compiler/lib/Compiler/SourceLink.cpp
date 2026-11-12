@@ -1,4 +1,5 @@
 #include "SourceLink.h"
+#include "SourceTemplateSpecialization.h"
 #include "ExecutionProjection.h"
 #include "SourceEntryBoundary.h"
 #include "LiteralPayloadWires.h"
@@ -318,6 +319,43 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
   return std::move(*registry);
 }
 
+FailureOr<SmallVector<Attribute>> detail::bindSourceRootParameters(
+    Operation *declaration, ArrayRef<SourceLinkParameterBinding> parameters,
+    ac::detail::EmitError emitError) {
+  auto formals = declaration->getAttrOfType<ArrayAttr>("parameters");
+  llvm::StringMap<ac::MathIntAttr> overrides;
+  for (const SourceLinkParameterBinding &binding : parameters) {
+    if (binding.name.empty() || overrides.contains(binding.name))
+      return declaration->emitOpError(
+          "root parameter binding names must be nonempty and unique");
+    if (!llvm::any_of(formals, [&](Attribute raw) {
+          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
+                 binding.name;
+        }))
+      return declaration->emitOpError() << "unknown root integer parameter: "
+                                        << binding.name;
+    auto value = ac::detail::parseMathIntAttr(declaration->getContext(),
+                                            binding.value, emitError);
+    if (failed(value))
+      return failure();
+    overrides[binding.name] = *value;
+  }
+  SmallVector<Attribute> arguments;
+  for (Attribute raw : formals) {
+    auto parameter = cast<DictionaryAttr>(raw);
+    StringRef name = parameter.getAs<StringAttr>("name").getValue();
+    Attribute value = parameter.getAs<ac::StaticExprAttr>("default");
+    if (auto found = overrides.find(name); found != overrides.end())
+      value = found->second;
+    if (!value)
+      return declaration->emitOpError()
+             << "source link root integer parameter requires a value or default: "
+             << name;
+    arguments.push_back(value);
+  }
+  return arguments;
+}
+
 FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     ArrayRef<SourceLinkUnit> units, StringRef top,
     ac::detail::EmitError emitError, SourceLinkTarget target,
@@ -347,6 +385,11 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     return ac::detail::compareClosedSourceStructure(left, right) < 0;
   });
   (*linked)->setAttr("ac.source_units", builder.getArrayAttr(owners));
+  SmallVector<Attribute> templateCaptures;
+  for (SourceLinkUnit unit : units)
+    if (auto payloads = unit.body->getAttrOfType<ArrayAttr>("ac.source_templates"))
+      llvm::append_range(templateCaptures, payloads);
+  if (!templateCaptures.empty()) (*linked)->setAttr("ac.source_templates", builder.getArrayAttr(templateCaptures));
   llvm::StringMap<Operation *> symbols;
   for (SourceLinkUnit unit : units) {
     for (Operation &operation : unit.body.getBody()->getOperations()) {
@@ -356,8 +399,8 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
             "source-unit top-level operation must be a declaration");
       auto prior = symbols.find(name.getValue());
       if (prior != symbols.end()) {
-        bool oldDefinition = isa<ac::ModuleOp>(prior->second);
-        bool newDefinition = isa<ac::ModuleOp>(operation);
+        bool oldDefinition = isa<ac::ModuleOp, ac::SourceTemplateOp>(prior->second);
+        bool newDefinition = isa<ac::ModuleOp, ac::SourceTemplateOp>(operation);
         if (oldDefinition && isa<ac::ModuleImportOp>(operation))
           continue;
         if (newDefinition && isa<ac::ModuleImportOp>(prior->second)) {
@@ -390,6 +433,13 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
       symbols[name.getValue()] = copy;
     }
   }
+  bool selectedTemplate = isa_and_nonnull<ac::SourceTemplateOp>(symbols.lookup(top));
+  auto specializedTop = specializeSourceTemplates(*linked, *admitted, top, parameters, emitError);
+  if (failed(specializedTop)) return failure();
+  symbols.clear();
+  for (Operation &operation : linked->getBody()->getOperations())
+    if (auto name = SymbolTable::getSymbolName(&operation)) symbols[name.getValue()] = &operation;
+  top = *specializedTop;
   auto selected = symbols.find(top);
   auto root = selected == symbols.end()
                   ? ac::ModuleOp()
@@ -397,6 +447,7 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   if (!root)
     return emitError() << "link top is not a supplied module definition: @"
                        << top;
+  if (selectedTemplate && root.getParameters().empty()) parameters = {};
   if (target == SourceLinkTarget::Routed && llvm::any_of(linked->getOps<ac::ModuleOp>(),
         [](ac::ModuleOp module) { return module->hasAttr("ac.execution_model"); }))
     return root.emitOpError("execution-model selection currently requires final linking");
@@ -409,24 +460,12 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   if (!root.getTypeParameters().empty())
     return root.emitOpError(
         "source link requires concrete root type arguments");
-  llvm::StringMap<ac::MathIntAttr> overrides;
-  for (const SourceLinkParameterBinding &binding : parameters) {
-    if (binding.name.empty() || overrides.contains(binding.name))
-      return root.emitOpError(
-          "root parameter binding names must be nonempty and unique");
-    if (!llvm::any_of(root.getParameters(), [&](Attribute raw) {
-          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
-                 binding.name;
-        }))
-      return root.emitOpError() << "unknown root integer parameter: "
-                                << binding.name;
-    auto value = ac::detail::parseMathIntAttr(context, binding.value, emitError);
-    if (failed(value))
-      return failure();
-    overrides[binding.name] = *value;
-  }
+  auto boundParameters =
+      detail::bindSourceRootParameters(root, parameters, emitError);
+  if (failed(boundParameters))
+    return failure();
   DictionaryAttr origin, span;
-  if (!overrides.empty()) {
+  if (!parameters.empty()) {
     origin = root->getAttrOfType<DictionaryAttr>("ac.origin");
     auto location = dyn_cast<FileLineColLoc>(root.getLoc());
     if (!origin || !location)
@@ -442,22 +481,17 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
         builder.getNamedAttr("end_column", builder.getI64IntegerAttr(location.getColumn()))});
   }
   SmallVector<Attribute> arguments;
-  for (Attribute raw : root.getParameters()) {
-    auto parameter = cast<DictionaryAttr>(raw);
-    StringRef name = parameter.getAs<StringAttr>("name").getValue();
-    auto value = parameter.getAs<ac::StaticExprAttr>("default");
-    if (auto found = overrides.find(name); found != overrides.end())
+  for (Attribute bound : *boundParameters) {
+    auto value = dyn_cast<ac::StaticExprAttr>(bound);
+    if (auto integer = dyn_cast<ac::MathIntAttr>(bound))
       value = ac::StaticExprAttr::get(
           context, builder.getDictionaryAttr({
               builder.getNamedAttr("kind", builder.getStringAttr("literal")),
               builder.getNamedAttr("value", builder.getDictionaryAttr({
                   builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-                  builder.getNamedAttr("value", found->second)})),
+                  builder.getNamedAttr("value", integer)})),
               builder.getNamedAttr("origin", origin),
               builder.getNamedAttr("location", span)}));
-    if (!value)
-      return root.emitOpError() << "source link root integer parameter requires "
-                                  "a value or default: " << name;
     arguments.push_back(value);
   }
   OperationState state(root.getLoc(), ac::SystemOp::getOperationName());

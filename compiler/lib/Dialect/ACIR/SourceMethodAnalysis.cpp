@@ -2,6 +2,7 @@
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "SourceTransactionSummary.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
@@ -1051,6 +1052,38 @@ FailureOr<bool> SourceMethodSummariesAnalysis::requiresTransactionPublication(
   };
   return visit(definition, 0);
 }
+FailureOr<DictionaryAttr> SourceMethodSummariesAnalysis::getInterfaceAttributes(
+    ModuleOp definition, HardwareAnalysis &hardware) {
+  auto transactions = requiresTransactionPublication(definition);
+  if (failed(transactions))
+    return failure();
+  Attribute summary;
+  if (*transactions) {
+    auto facts = getPublicationSummary(definition);
+    if (failed(facts))
+      return failure();
+    summary = *facts;
+  } else {
+    HardwareBindings bindings;
+    bindings.owner = definition;
+    auto facts = hardware.analyzeModule(definition, bindings);
+    if (failed(facts))
+      return failure();
+    summary = serializeOutputDependencies(definition.getContext(),
+                                           facts->dependencies);
+  }
+  Builder builder(definition.getContext());
+  NamedAttrList attributes(definition->getAttrs());
+  attributes.erase("dependency_summary");
+  attributes.erase("transaction_summary");
+  attributes.set("semantic_kind",
+                 builder.getStringAttr(*transactions ? "transactions"
+                                                      : "hardware"));
+  attributes.set(*transactions ? "transaction_summary" : "dependency_summary",
+                 summary);
+  return attributes.getDictionary(definition.getContext());
+}
+
 LogicalResult
 verifyPublishedTransactionSummary(ModuleOp definition, DictionaryAttr published,
                                   SourceMethodSummariesAnalysis &analysis) {

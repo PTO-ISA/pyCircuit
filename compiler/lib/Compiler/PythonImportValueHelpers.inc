@@ -293,6 +293,10 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
   function->setAttr("ac.result_constraints", b.getArrayAttr(constraints));
   function->setAttr("ac.return_form", b.getStringAttr(none ? "none" : "single"));
   function->setAttr("ac.capture_types", b.getArrayAttr(captureTypes));
+  // Declaration-only preparation does not lower helper bodies. MLIR requires
+  // a bodyless function to be private; publication restores the original
+  // top-level visibility after the existing helper lowerer supplies its body.
+  if (declarationsOnly) function.setPrivate();
   if (lexicalOwner) {
     function.setPrivate();
     function->setAttr("ac.lexical_owner", lexicalOwner);
@@ -499,6 +503,8 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
     results.push_back(*exact);
   }
   inside.create<func::ReturnOp>(helper.function.getLoc(), results);
+  if (declarationsOnly && !helper.lexicalOwner)
+    helper.function->removeAttr("sym_visibility");
   auto verifyHelper = [&] {
     return ac::verifySourceValueHelper(helper.function, [&](FlatSymbolRefAttr symbol) {
       return dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, symbol));

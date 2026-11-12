@@ -201,6 +201,23 @@ def ACIR_BitsResizeOp : ACIR_Op<"bits.resize", [Pure]> {
   let hasVerifier = 1;
 }
 
+def ACIR_SourceTemplateOp : ACIR_Op<"source_template", [Symbol]> {
+  let summary = "Retain a source Module until its static bindings are known";
+  let description = [{
+    A source-only definition with declaration authority, not executable hardware
+    or a transaction summary. capture_owner selects its immutable package capture;
+    target and ast_path identify the original declaration. Native source-unit
+    admission rederives template_contract from that capture before specialization.
+  }];
+  let arguments = (ins StrAttr:$sym_name, DictionaryAttr:$source_owner,
+      DictArrayAttr:$parameters, StrArrayAttr:$type_parameters,
+      TypeAttrOf<FunctionType>:$function_type, StrArrayAttr:$input_names,
+      StrArrayAttr:$output_names, DictionaryAttr:$capture_owner,
+      FlatSymbolRefAttr:$target, ArrayAttr:$ast_path,
+      DictionaryAttr:$template_contract);
+  let hasVerifier = 1;
+}
+
 def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let summary = "Declare a source-owned hardware module or standard leaf";
   let description = [{
@@ -216,6 +233,9 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
     semantic_kind is mandatory: hardware requires dependency_summary and
     forbids transaction_summary; transactions requires transaction_summary and
     forbids dependency_summary and primitive_kind. There is no default kind.
+    source_template requires template_contract, forbids both summaries and is
+    admitted only in source packages. Its declaration awaits binding-time native
+    lowering; it cannot establish executable dependency or effect facts.
     Transaction summaries are conservative source contracts, not executable
     wire dependencies. Hardware analysis must reject transaction imports.
 

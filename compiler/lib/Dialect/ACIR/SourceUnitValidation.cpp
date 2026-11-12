@@ -104,7 +104,7 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   if (role.getValue() == "definition") {
     if (declarationOwner != owner)
       return emitError() << "source definition has a foreign SourceOwner";
-    if (body ? !isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation)
+    if (body ? !isa<ModuleOp, SourceTemplateOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation)
              : !retainedDeclaration(operation))
       return emitError() << "unsupported source definition category";
   } else if (role.getValue() == "import_snapshot") {
@@ -138,7 +138,7 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
       return WalkResult::interrupt();
     }
     for (auto [name, allowed] : {
-        std::pair<StringRef, bool>{"ac.reference_parameters", isa<ModuleOp, ModuleImportOp>(operation)},
+        std::pair<StringRef, bool>{"ac.reference_parameters", isa<ModuleOp, SourceTemplateOp, ModuleImportOp>(operation)},
         {"ac.reference_bindings", isa<InstanceOp>(operation)},
         {"ac.reference", isa<SourceMethodCallOp>(operation)},
         {"receiver_kind", isa<SourceMethodCallOp>(operation)},
@@ -155,7 +155,8 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
           "ac.routed_output_validity", "ac.sampled_admission",
           "ac.execution_policy", "ac.transaction_wiring", "ac.queue_wiring",
           "ac.routed_contract", "ac.registration_path", "ac.lexical_registration",
-          "ac.registration_owner", "ac.transaction_returns", "ac.entry_boundary"}) {
+          "ac.registration_owner", "ac.transaction_returns", "ac.entry_boundary",
+          "ac.template_specialization", "ac.template_origin"}) {
       if (!operation->hasAttr(name))
         continue;
       operation->emitOpError()
@@ -179,16 +180,43 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
   if (failed(owner) ||
       failed(detail::verifyNamespaceRecordShapes(unit, emitError)))
     return failure();
+  llvm::DenseSet<Attribute> captureOwners;
+  if (Attribute raw = unit->getAttr("ac.source_templates")) {
+    auto capsules = dyn_cast<ArrayAttr>(raw);
+    if (!body || !implementation || !capsules || capsules.empty())
+      return emitError() << "source captures belong only to template implementation bodies";
+    for (Attribute item : capsules) {
+      auto capsule = dyn_cast<DictionaryAttr>(item);
+      auto captureOwner = capsule ? capsule.getAs<DictionaryAttr>("owner") : DictionaryAttr();
+      auto capture = capsule ? capsule.getAs<ArrayAttr>("capture") : ArrayAttr();
+      if (!capsule || capsule.size() != 2 || captureOwner != *owner ||
+          !captureOwners.insert(captureOwner).second || !capture || capture.size() != 1)
+        return emitError() << "template capture requires one unique owning source snapshot";
+      auto file = dyn_cast<DictionaryAttr>(capture[0]);
+      auto roots = file ? file.getAs<ArrayAttr>("body") : ArrayAttr();
+      auto root = roots && roots.size() == 1 ? dyn_cast<DictionaryAttr>(roots[0]) : DictionaryAttr();
+      auto rootKind = root ? root.getAs<StringAttr>("kind") : StringAttr();
+      if (!file || file.size() != 2 || file.get("path") != captureOwner.get("path") ||
+          !rootKind || rootKind.getValue() != "Module")
+        return emitError() << "template capture path must match its SourceOwner";
+    }
+  }
   SourceUnitStructure result;
   result.owner = *owner;
   auto interfaces = unit->getAttrOfType<ArrayAttr>("ac.interfaces");
   unsigned modules = 0;
+  unsigned templates = 0;
   for (Operation &operation : unit.getBody()->getOperations()) {
     if (failed(
             verifyDeclaration(&operation, *owner, interfaces, body, emitError)))
       return failure();
-    if (isa<ModuleOp>(operation))
+    if (isa<ModuleOp, SourceTemplateOp>(operation))
       ++modules;
+    if (auto source = dyn_cast<SourceTemplateOp>(operation)) {
+      ++templates;
+      if (!captureOwners.contains(source.getCaptureOwner()))
+        return emitError() << "source template has no owning capture";
+    }
     auto name =
         operation.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     if (!result.declarations.try_emplace(name.getValue(), &operation).second)
@@ -199,6 +227,8 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
     return emitError() << "implementation body must own at least one module";
   if (body && !implementation && modules != 0)
     return emitError() << "declarations body cannot own ac.module";
+  if (!captureOwners.empty() && !templates)
+    return emitError() << "source capture must own a template definition";
   SmallVector<func::FuncOp> valueHelpers;
   for (Operation &operation : unit.getBody()->getOperations())
     if (auto helper = dyn_cast<func::FuncOp>(operation)) {
@@ -225,6 +255,8 @@ DictionaryAttr declarationSourceOwner(Operation *operation) {
     return module.getSourceOwner();
   if (auto imported = dyn_cast_or_null<ModuleImportOp>(operation))
     return imported.getSourceOwner();
+  if (auto source = dyn_cast_or_null<SourceTemplateOp>(operation))
+    return source.getSourceOwner();
   return operation ? operation->getAttrOfType<DictionaryAttr>("ac.source_owner")
                    : DictionaryAttr();
 }
@@ -241,7 +273,7 @@ bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
     return false;
   StringRef local =
       module.empty() ? symbol : symbol.drop_front(module.size() + 1);
-  if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp>(
+  if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp, SourceTemplateOp>(
           operation))
     return !local.empty() && !local.contains('.');
   if (auto helper = dyn_cast<func::FuncOp>(operation)) {

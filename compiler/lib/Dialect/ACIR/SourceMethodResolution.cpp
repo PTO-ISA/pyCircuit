@@ -19,7 +19,8 @@ LogicalResult verifySourceReferenceParameters(Operation *module) {
     return module->emitOpError() << "closed System cannot declare Module reference formals";
   if (isa<ModuleImportOp>(module)) {
     auto semantic = module->getAttrOfType<StringAttr>("semantic_kind");
-    if (!semantic || semantic.getValue() != "transactions")
+    if (!semantic || (semantic.getValue() != "transactions" &&
+                      semantic.getValue() != "source_template"))
       return module->emitOpError() << "Module reference imports require transaction schema authority";
   }
   auto data = module->getAttrOfType<ArrayAttr>("ac.parameters");

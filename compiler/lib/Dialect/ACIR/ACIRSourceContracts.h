@@ -51,6 +51,7 @@ mlir::LogicalResult verifyClosedStateInitializer(
 mlir::LogicalResult verifyModuleSourceCallContract(mlir::Operation *owner);
 mlir::LogicalResult verifyModuleSignature(mlir::Operation *declaration);
 mlir::LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported);
+mlir::LogicalResult verifySourceTemplateContract(mlir::Operation *declaration);
 
 // Callable constraints resolve hardware in the lexical module; diagnostics
 // belong to the module or Method whose source contract is being checked.

@@ -139,7 +139,7 @@ FailureOr<CallableDecl> Importer::callable(const AstNode &function) {
         domain = cast<DictionaryAttr>(attr.getValue());
     }
   } else {
-    auto view = headers.lookupModule(binding->symbol);
+    auto view = lookupModule(binding->symbol);
     if (!view || !view.hasSourceCallContract())
       return error() << "direct module call requires complete validated "
                         "source-call metadata";
@@ -253,7 +253,7 @@ bool Importer::methodOwner(const AstNode &function) const {
   auto binding = lookupBinding(function);
   if (!binding || binding->category != BindingCategory::Module)
     return false;
-  auto view = headers.lookupModule(binding->symbol);
+  auto view = lookupModule(binding->symbol);
   auto methods = view && view.transactionSummary
                      ? view.transactionSummary.getAs<ArrayAttr>("methods")
                      : ArrayAttr();

@@ -444,9 +444,9 @@ LogicalResult Importer::scanSourceCallables() {
           edges[moduleName].push_back(function.string("id").str());
         auto binding = lookupBinding(function);
         if (binding && binding->category == BindingCategory::Module) {
-          auto view = headers.lookupModule(binding->symbol);
+          auto view = lookupModule(binding->symbol);
           if (view && view.semanticKind &&
-              view.semanticKind.getValue() == "transactions")
+              (view.semanticKind.getValue() == "transactions" || view.semanticKind.getValue() == "source_template"))
             transactionModuleNames.insert(moduleName);
         }
       }
@@ -630,7 +630,9 @@ LogicalResult Importer::scanSourceCallables() {
       auto value = statement.child("value");
       if (value.kind() == "Call") {
         auto function = value.child("func");
-        if (intrinsic(function, "instance_ref") && !value.array("args").empty()) {
+        if (auto concrete = templateCalls.find(function.value); concrete != templateCalls.end()) {
+          receivers[name] = concrete->second.symbol;
+        } else if (intrinsic(function, "instance_ref") && !value.array("args").empty()) {
           auto provider = value.item("args", 0);
           if (provider.kind() == "Name" && sourceModuleSymbols.contains(provider.string("id")) &&
               !lexicallyShadowed(provider, provider.string("id")))
@@ -648,10 +650,11 @@ LogicalResult Importer::scanSourceCallables() {
         receivers[name] = receivers.lookup(value.string("id"));
     }
   }
-  do {
+  if (!declarationsOnly) do {
     changed = false;
     for (auto &module : sourceRules)
       for (auto &entry : module.second) {
+        if (boundTarget && qualify(module.first()) != boundTarget.getValue()) continue;
         SourceCallableDecl &caller = entry.second;
         auto visit = [&](auto &&self, const AstNode &node) -> LogicalResult {
           if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return success();
@@ -678,7 +681,7 @@ LogicalResult Importer::scanSourceCallables() {
                     break;
                   }
                 if (!target) {
-                  auto view = headers.lookupModule(receiver);
+                  auto view = lookupModule(receiver);
                   if (view) {
                     auto method = ac::lookupSourceMethod(view.declaration, calleeName, body->getOperation());
                     if (failed(method)) return failure();
@@ -2979,7 +2982,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           callee = modules[target->second].symbol;
         } else {
           auto binding = lookupBinding(function);
-          auto view = headers.lookupModule(binding->symbol);
+          auto view = lookupModule(binding->symbol);
           if (view.declaration->hasAttr("ac.root_kind"))
             return error() << "@system is root-only and cannot be called as a child";
           callee = view.symbol;
@@ -3237,7 +3240,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
           break;
         }
       if (!localReceiver && !nativeQueue) {
-        auto view = headers.lookupModule(receiver->callee);
+        auto view = lookupModule(receiver->callee);
         if (!view)
           return error() << "Method receiver lacks a validated module contract";
         auto method = ac::lookupSourceMethod(view.declaration, methodName,
@@ -3274,7 +3277,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
             break;
           }
         if (!localProvider) {
-          auto provider = headers.lookupModule(moduleSymbol);
+          auto provider = lookupModule(moduleSymbol);
           if (!provider)
             return error() << "reference Method requires its authenticated provider interface";
           auto method = ac::lookupSourceMethod(provider.declaration, methodName, body->getOperation());
