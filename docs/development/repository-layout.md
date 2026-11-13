@@ -9,8 +9,11 @@ verification; similar names do not imply duplicate implementations.
 | Change | Start here |
 | --- | --- |
 | Python syntax capture, CLI or publication | `python/pycircuit/` |
-| Types, hardware semantics or source lowering | `compiler/lib/Compiler/` and `compiler/lib/Dialect/ACIR/` |
-| Common IR transformations | `compiler/lib/Transforms/` |
+| Source lowering and link | `compiler/lib/Compiler/` |
+| Shared types/operations and GFIR logical state | `compiler/lib/Dialect/ACIR/` and `compiler/lib/Dialect/GFIR/` |
+| Shared analysis and stage verification | `compiler/lib/Dialect/ACIR/` and `compiler/lib/Analysis/` |
+| ACIR → GFIR routing and GFIR → HWIR refinement | `compiler/lib/Conversion/` |
+| Source and graph transformations | `compiler/lib/Transforms/` |
 | Generated C++ or Verilog | Existing emitters in `compiler/lib/Compiler/` |
 | Runtime lifecycle, scheduling or observations | `include/gfsim/` and `runtime/` |
 | Standard RTL storage leaves | `include/verilog/` |
@@ -50,8 +53,13 @@ python/pycircuit/                syntax capture and public driver
 compiler/
   include/pycircuit/             public compiler headers and TableGen definitions
   lib/Compiler/                 source resolution, lowering, link and emit
-  lib/Dialect/ACIR/              common hardware types, operations and verification
-  lib/Transforms/               MLIR transformations
+  lib/Dialect/ACIR/              shared core/operations, analysis and stage verifiers
+  lib/Dialect/GFIR/              routed logical-state operations (gfir.state)
+  lib/Analysis/                  logical-state validation shared by the verifiers
+  lib/Interfaces/                logical-state and child-declaration interfaces
+  lib/IR/                        shared state-declaration contracts
+  lib/Conversion/                ACIR→GFIR and GFIR→HWIR conversion targets
+  lib/Transforms/               source/graph MLIR transformations
   tools/                        source-unit.cpp, link.cpp, emit.cpp, opt.cpp
   cmake/AddACIR.cmake            compiler-private library helper
 include/
@@ -59,6 +67,14 @@ include/
   verilog/                      installed managed storage leaves
 runtime/                        compiled Runtime implementation
 ```
+
+Library targets define the dependency boundaries even when they share a
+directory. In particular, `lib/Dialect/ACIR/` contains separate `ACIRCore`,
+`ACIRDialect`, `ACIRAnalysis`, `GFIRValidation` and `HWIRValidation` targets.
+`GFIRPackageValidation.cpp` and `HWIRPackageValidation.cpp` own the two package
+entrypoints and their passes. See the
+[IR stage map](../architecture/compiler-pipeline.md#ir-stages-and-library-boundaries)
+and [installed compiler targets](../getting-started/installation.md#compiler-developer-component).
 
 `python/pycircuit/` is the importable Python package. Package discovery starts
 at `python/`; redundant project and `src` wrapper layers are removed.

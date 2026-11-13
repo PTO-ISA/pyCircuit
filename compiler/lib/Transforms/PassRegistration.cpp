@@ -6,19 +6,15 @@
 using namespace mlir;
 
 namespace acir {
-// The source-stage transforms and the package-verification passes register
-// here. The verification pass factories stay registered at this stack state:
-// their GFIRValidation/HWIRValidation target split and the conversion passes
-// arrive with pr/validation and pr/conversion.
+// Integration entry for the five source-stage transforms. The conversion
+// passes register through their own targets: registerACIRToGFIRPasses and
+// registerGFIRToHWIRPasses (Conversion/ACIRToGFIR.h, Conversion/GFIRToHWIR.h),
+// assembled by each tool.
 void registerACIRPasses() {
-  registerPass([] { return createRouteTransactionsPass(); });
   registerPass([] { return createNormalizeSourceControlFlowPass(); });
   registerPass([] { return createExtractSourceInterfacePass(); });
   registerPass([] { return createSimplifyRecordWiresPass(); });
   registerPass([] { return createAnalyzeSourceMethodSummariesPass(); });
   registerPass([] { return createAnalyzeTransactionStateSSAPass(); });
-  registerPass([] { return createLowerTransactionsPass(); });
-  registerPass([] { return createVerifyRoutedPass(); });
-  registerPass([] { return createVerifyHardwarePass(); });
 }
 } // namespace acir

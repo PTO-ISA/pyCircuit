@@ -1335,7 +1335,7 @@ def _entry_export_contract(final, logical, width, *, boundary=True):
     ]
     assert ("ac.entry_boundary" in final.read_text()) == boundary
     if boundary:
-        assert "ac.routed_contract = 3 : i64" in final.read_text()
+        assert "ac.routed_contract = 5 : i64" in final.read_text()
         assert "pycircuit.__link_entry__" in final.read_text()
     return ports
 
@@ -1381,7 +1381,7 @@ def _entry_counter_anchor(tmp_path):
         )
     )
     manifest = json.loads((anchor / "anchor.json").read_text())
-    assert (manifest["schema"], manifest["routed_contract"]) == (2, 3)
+    assert (manifest["schema"], manifest["routed_contract"]) == (4, 5)
     assert manifest["root"] == '@"checks.provider.Counter"'
     config = manifest["configuration"]
     assert config["root"]["definition"] == manifest["root"]
@@ -1865,7 +1865,7 @@ def test_fixed_wrapper_schema2_empty_actuals_reload_without_closed_caller(tmp_pa
         )
     )
     manifest = json.loads((anchor / "anchor.json").read_text())
-    assert (manifest["schema"], manifest["routed_contract"]) == (2, 3)
+    assert (manifest["schema"], manifest["routed_contract"]) == (4, 5)
     assert manifest["root"] == '@"checks.provider.Wrapper"'
     assert manifest["configuration"]["integer_arguments"] == []
     assert manifest["configuration"]["type_arguments"] == []

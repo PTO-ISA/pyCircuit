@@ -45,17 +45,21 @@ existing publication, link, saved-anchor and emit boundaries reject them.
 | Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
-| Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
+| Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRAnalysis; the pass lives in ACIRTransforms. |
 | Normalize reused entries with parameterized state | `SourceEntryBoundary`, `EntryBoundary` | Establish one stateless bound root instance and independently prove its public interface, actuals and provenance before transaction planning. Preserve ordinary retained-definition checks and logical top identity. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar and admitted nominal local joins, invocation snapshots, source-path availability and ordered guard/selection controls. Link uses this before lowering packages containing source transaction operations. |
-| Route transactions | `ac-route-transactions` | Normalize source calls/candidates into typed hierarchy routes, logical state/update pairs and sampled/effect metadata. Authenticate against original source, then independently verify the routed anchor before atomic replacement. |
-| Refine storage | `ac-lower-transactions` | Convert verified logical state to physical storage; independently check SSA/pin correspondence and strict hardware final legality before atomic replacement. Hardware-only graphs retain their normal verification limits. |
+| Route transactions | `ACIRToGFIR`, `ac-route-transactions` | Normalize source calls/candidates into typed hierarchy routes, logical state/update pairs and sampled/effect metadata. Authenticate against original source, then independently verify the GFIR routed anchor before atomic replacement. |
+| Refine storage | `GFIRToHWIR`, `ac-lower-transactions` | Convert verified logical state to physical storage; independently check SSA/pin correspondence and strict HWIR final legality before atomic replacement. Hardware-only graphs retain their normal verification limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
-| Common analysis | `HardwareAnalysis` and its dependency, source-check and Work-partition owners | Share packed widths, nominal field layouts, dependency/effect checks and scheduling facts between targets. |
+| Common analysis | `ACIRAnalysis`, including `HardwareAnalysis` and its dependency, source-check and Work-partition owners | Share packed widths, nominal field layouts, dependency/effect checks and scheduling facts between targets. GFIRValidation and HWIRValidation own the stage-specific package entrypoints. |
 | Emit | `_emit.py`, `compiler/tools/emit.cpp`, existing target definition emitters | Consume the same verified final snapshot and realize C++ field planes or packed Verilog values. Retain source-owned output inventories and generated CMake metadata. |
 | Execute | `pyc6_runtime`, `SystemRunner`, `SimSystem` | Work observes old state. Complete whole-system Precheck/Precommit before any root Xfer; failure discards proposals. |
+
+The [compiler pipeline](../architecture/compiler-pipeline.md#ir-stages-and-library-boundaries)
+maps source ACIR, routed GFIR and final HWIR to their library boundaries.
+Public `anchor` and `final` targets select GFIR and HWIR respectively.
 
 The C++ and Verilog representations differ, but element order, field identity,
 four-state value/known/Z information and clock/commit behavior must agree. For

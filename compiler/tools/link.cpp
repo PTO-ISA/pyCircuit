@@ -3,6 +3,8 @@
 #include "Compiler/AnchorArtifact.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/GFIRPackageValidation.h"
+#include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 

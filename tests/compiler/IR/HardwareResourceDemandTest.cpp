@@ -2,7 +2,7 @@
 // source. Serialized admission rows never supply the expected demand graph.
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
-#include "Transforms/LowerTransactions.h"
+#include "pycircuit/Conversion/ACIRToGFIR.h"
 #include "Dialect/ACIR/HardwareSampledAdmission.h"
 #include "Dialect/ACIR/HardwareQueueResources.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
@@ -11,6 +11,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 #include "pycircuit/Transforms/Passes.h"
@@ -43,6 +44,7 @@ protected:
   std::unique_ptr<ScopedDiagnosticHandler> handler;
   void SetUp() override {
     context.loadDialect<ac::ACIRDialect>();
+    context.loadDialect<acir::gfir::GFIRDialect>();
     ASSERT_FALSE(
         llvm::sys::fs::createUniqueDirectory("resource-demand-proof", directory));
     handler =

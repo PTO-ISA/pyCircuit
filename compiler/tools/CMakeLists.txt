@@ -1,6 +1,3 @@
-# component-split: interim tool link lines. GFIRValidation/HWIRValidation
-# (link, emit, opt) and the conversion targets (opt) join with pr/validation
-# and pr/conversion.
 add_executable(pycircuit-source-unit source-unit.cpp)
 target_link_libraries(pycircuit-source-unit PRIVATE
   pycircuit_project_options
@@ -18,6 +15,8 @@ target_link_libraries(pycircuit-link PRIVATE
   pycircuit_project_options
   ACIRDialect
   ACIRAnalysis
+  GFIRValidation
+  HWIRValidation
   GFIRDialect
   ACIRSourceCompiler
   MLIRArithDialect
@@ -32,6 +31,7 @@ target_link_libraries(pycircuit-emit PRIVATE
   pycircuit_project_options
   ACIRDialect
   ACIRAnalysis
+  HWIRValidation
   GFIRDialect
   ACIRCodegen
   MLIRArithDialect
@@ -45,7 +45,11 @@ target_link_libraries(pycircuit-opt PRIVATE
   pycircuit_project_options
   ACIRDialect
   ACIRAnalysis
+  GFIRValidation
+  HWIRValidation
   GFIRDialect
+  ACIRToGFIR
+  GFIRToHWIR
   ACIRSourceCompiler
   ACIRTransforms
   MLIRArithDialect

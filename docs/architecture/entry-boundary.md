@@ -81,10 +81,10 @@ loads independently validate the scaffold, provenance, actuals, public prefix
 and logical/physical relationship. Applicability is checked at normalization;
 loads do not require the unrelated caller that triggered it to remain present.
 
-Boundary packages require `ac.routed_contract = 3 : i64`; ordinary packages keep
-contract 2. Removing metadata, downgrading the contract or supplying contract 3
+Boundary packages require `ac.routed_contract = 5 : i64`; ordinary packages keep
+contract 4. Removing metadata, downgrading the contract or supplying contract 5
 without a valid boundary rejects. Saved boundaries use
-[anchor schema 2](saved-anchor.md#identity-and-format), with separate logical and
+[anchor schema 4](saved-anchor.md#identity-and-format), with separate logical and
 implementation root rows. Standalone legality does not prove equivalence to an
 unavailable historical source after a consistent rewrite of the whole artifact.
 
