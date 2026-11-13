@@ -2,6 +2,7 @@
 #define PYCIRCUIT_HARDWARE_EMIT_COMMON_H
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Support/raw_ostream.h"
 #include <array>
 #include <cstdint>
@@ -25,6 +26,11 @@ struct EmitNames {
 struct PhysicalVerilogLayout {
   llvm::DenseMap<mlir::Value, std::string> nets;
   llvm::DenseMap<mlir::Operation *, std::string> checkErrors;
+};
+struct RtlPackageDependencies {
+  llvm::SetVector<mlir::Operation *> types;
+  bool floorDiv = false;
+  bool mod = false;
 };
 class HardwareEmitContext {
 public:
@@ -101,6 +107,7 @@ public:
   mlir::ModuleOp package;
   ac::HardwareAnalysis &analysis;
   PhysicalVerilogLayout physicalLayout;
+  RtlPackageDependencies *rtlPackage = nullptr;
 
 private:
   mlir::LogicalResult prepareImpl(bool allowSourceChecks);

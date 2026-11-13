@@ -73,6 +73,22 @@ of guessing it from source function names. This metadata does not rename the
 root or change internal identifier encoding. Older receipts remain readable for
 managed replacement.
 
+The Verilog target emits SystemVerilog. The RTL bundle includes the shared
+`pycircuit_types` package only when emitted RTL references one of its typedefs
+or signed static arithmetic functions. Packed types retain their transitive
+typedef dependencies. The arithmetic functions assign their results to the
+function name.
+
+Yosys 0.33 and 0.70 can read and elaborate the scalar and signed static
+arithmetic CodeGen fixtures with `read_verilog -sv`. When `yosys` is available
+on `PATH`, `rtl-package-yosys.test` checks the generated outputs with `sat -verify`.
+When reading a split RTL bundle, read `design_top.sv` before its module files
+so any shared package is available. The arithmetic helper calls carry no size
+cast because the helpers already return `logic signed [63:0]`; a sized cast
+whose base is a call prevents some consumers from elaborating the enclosing
+parameterized width. Icarus Verilog 12.0 elaborates both fixtures under that
+form, and `signed-static-arithmetic-rtl.test` runs it.
+
 Both targets emit `ports.json` from the same verified root bindings and layout.
 Schema version 1 records `target` and lists exported `inputs` and source `outputs` with logical name,
 legalized `wire`, signature `ordinal`, resolved packed `width`, and packed leaf

@@ -4,6 +4,7 @@
 #value = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<165>}}>
 !result = !ac.bits<#width>
 module {
+  ac.struct "Unused" fields [{name = "data", type = !result}]
   "ac.module"() ({
     %value = "ac.bits.constant"() {value = #value} : () -> !result
     "ac.yield"(%value) : (!result) -> ()

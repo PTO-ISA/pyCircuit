@@ -1,0 +1,6 @@
+# REQUIRES: yosys
+# RUN: %pycircuit_emit %inputs/closed-static-width.mlir --target verilog --format source > %t.closed.sv
+# RUN: %yosys -Q -p 'read_verilog -sv "%t.closed.sv"; prep -top pyc_root -flatten; sat -verify -prove q 165'
+# RUN: %pycircuit_emit %inputs/signed-static-arithmetic.mlir --target verilog --format source > %t.signed.sv
+# RUN: %yosys -Q -p 'read_verilog -sv "%t.signed.sv"; prep -top pyc_root; write_json "%t.signed.json"; flatten; sat -verify -prove q q_in -prove r r_in pyc_root'
+# RUN: %python %inputs/rtl_package_yosys.py %t.signed.json

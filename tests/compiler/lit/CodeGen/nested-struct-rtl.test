@@ -1,4 +1,10 @@
 # REQUIRES: verilator
 # RUN: %pycircuit_emit %inputs/nested-struct.mlir --target verilog --format source > %t.sv
+# RUN: %FileCheck %s --implicit-check-not=pyc_floordiv --implicit-check-not=pyc_mod < %t.sv
 # RUN: %verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.dir -I%include/verilog %t.sv %include/verilog/dff.v %inputs/nested_struct.sv > %t.build.log 2>&1
 # RUN: %t.dir/Vtb
+
+# CHECK: package pycircuit_types;
+# CHECK: } ac_Body_t;
+# CHECK: ac_Body_t data;
+# CHECK: } ac_Packet_t;
