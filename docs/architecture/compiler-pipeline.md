@@ -22,16 +22,43 @@ Runtime-only CMake exports `pycircuit::pyc6_runtime` without LLVM discovery.
 CompilerDev includes native compiler development targets and requires exact
 LLVM/MLIR 22.1.8.
 
-Verification is owned per stage: `GFIRValidation` verifies routed anchors
-(`pycircuit-opt --ac-verify-routed`, `verifyRoutedPackage`), and
-`HWIRValidation` verifies final hardware (`pycircuit-opt --ac-verify-hardware`,
-`verifyHardwarePackage`); both consume the shared staged analysis in
-`ACIRAnalysis` and are enforced independent by the configure-time layering
-walk. The ACIR→GFIR and GFIR→HWIR conversions live in
-`lib/Conversion/ACIRToGFIR/` and `lib/Conversion/GFIRToHWIR/` with their own
-pass registration.
+## IR stages and library boundaries
 
-The common source and final hardware representation is ACIR. Its `ac` dialect
-name is an IR identifier, not another Python frontend. Unsupported source or
-backend capabilities fail before output publication; see
+The compiler separates its existing source, routed and final stages into
+ACIR → GFIR (General Flow IR) → HWIR:
+
+| Layer | Artifact stage | Information and consumers |
+| --- | --- | --- |
+| ACIR | Source unit | Declarations, typed hierarchy, state accesses, Methods and transactions for source analysis and routing. |
+| GFIR | Routed anchor | Resolved hierarchy and SSA, normalized Rules, logical state/candidate updates, and checked routing, availability and effect records. Saved anchors can be reloaded and verified independently. |
+| HWIR | Final hardware | Physical storage instances and verified pins after logical-state refinement; the common input to the current C++ and Verilog backends. |
+
+Layer names do not require distinct spellings for every operation. Shared
+structure, values and types retain `ac.*` / `!ac.*`. Source `ac.state`
+declarations become `gfir.state` / `gfir.state.update` in GFIR. HWIR names the
+final stage using the existing hardware operations; it does not introduce a
+complete `hwir.*` dialect.
+
+`ACIRCore` owns shared types, attributes and grammar contracts. `ACIRDialect`
+owns source/shared operations and local verification; `GFIRDialect` owns the
+routed logical-state operations and depends on the core and
+`PycircuitStateInterfaces`. Shared binding analysis, budgets and proofs remain
+in `ACIRAnalysis`, which consumes logical states through those interfaces.
+
+`GFIRValidation` owns routed package verification (`verifyRoutedPackage`,
+`pycircuit-opt --ac-verify-routed`); `HWIRValidation` owns final verification
+(`verifyHardwarePackage`, `pycircuit-opt --ac-verify-hardware`). Both reuse
+`ACIRAnalysis` and have no dependency on each other. Configure-time dependency
+checks and standalone consumers enforce these library boundaries.
+
+`ACIRToGFIR` owns `ac-route-transactions` and source-to-routed authentication;
+`GFIRToHWIR` owns `ac-lower-transactions` and logical-to-physical correspondence.
+Their implementations live in `lib/Conversion/ACIRToGFIR/` and
+`lib/Conversion/GFIRToHWIR/`, sharing facilities through `ACIRConversionCommon`.
+The conversion targets have no dependency on each other or on the emitters;
+tools assemble the required pass registrations explicitly.
+
+GFIR-to-high-level-C++ and GFIR-to-DOT consumers remain future work. The current
+C++ and Verilog backends continue to consume the same verified HWIR artifact.
+Unsupported source or backend capabilities fail before output publication; see
 [known limitations](../development/known-limitations.md).

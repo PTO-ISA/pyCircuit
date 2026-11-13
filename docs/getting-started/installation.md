@@ -82,6 +82,32 @@ This component requires LLVM and MLIR `22.1.8` exactly. The Runtime and
 CompilerDev components are independently selectable; no retired PYC package,
 forwarding target, or fallback compiler is provided.
 
+CompilerDev exports the following stage libraries in the `pycircuit::` namespace:
+
+| Target | Responsibility |
+| --- | --- |
+| `ACIRCore`, `PycircuitStateInterfaces` | Shared types, attributes, grammar contracts and logical-state/child-declaration interfaces. |
+| `ACIRDialect`, `GFIRDialect` | Source/shared operations and routed logical-state operations respectively. |
+| `ACIRAnalysis` | Shared binding analysis and proof implementation. |
+| `GFIRValidation`, `HWIRValidation` | Routed and final package verification respectively. |
+| `ACIRToGFIR`, `GFIRToHWIR` | Transaction routing and logical-state refinement; shared facilities are exported as `ACIRConversionCommon`. |
+
+A consumer of GFIR-specific operations can link the dialect on its own:
+
+```cmake
+find_package(pycircuit CONFIG REQUIRED COMPONENTS CompilerDev)
+add_executable(gfir_tool main.cpp)
+target_compile_features(gfir_tool PRIVATE cxx_std_20)
+target_link_libraries(gfir_tool PRIVATE pycircuit::GFIRDialect)
+```
+
+Consumers of complete routed packages also load the shared ACIR operations;
+package validation uses `pycircuit::GFIRValidation`. The dialect-only target
+does not supply package verification. Libraries carry their declared transitive
+link dependencies through the installed targets. See the
+[IR stage map](../architecture/compiler-pipeline.md#ir-stages-and-library-boundaries)
+for stage ownership; Runtime-only consumers continue to use `pyc6_runtime`.
+
 ## Python package
 
 From a checkout, `python -m pip install -e .` installs the `pycircuit` package

@@ -72,7 +72,8 @@ complete content identity, file inventory, definition index, retained sources
 and producer provenance. Duplicate fields, definitions, source owners, paths and
 identities are rejected.
 
-Schema 2 adds exactly `implementation_root` to the configuration object. Its
+Boundary schema 4 adds exactly `implementation_root` to the configuration object
+relative to ordinary schema 3. Its
 `{source, definition, variant_id}` row identifies the canonical entry adapter;
 the existing manifest root, owner and configuration root identify the logical
 Module selected by the user. Both rows must match indexed definitions and source
