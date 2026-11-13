@@ -1,0 +1,29 @@
+{
+  "platform": "macOS-arm64",
+  "artifacts": [
+    {
+      "component": "LLVM-MLIR", "version": "22.1.8",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-ARM64.tar.xz",
+      "sha256": "f260f4f7c0d430828a81ae8a3826a1d63fc0963ec2459489308cc23b1f7eab4f"
+    },
+    {
+      "component": "CMake", "version": "4.4.4",
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-macos-universal.tar.gz",
+      "sha256": "4b7b73704b1db9b374e5c9ab8e17ac6148b817b6396ee75cd94a852cbac9d305"
+    },
+    {
+      "component": "Verilator", "version": "5.054", "distribution": "Homebrew arm64_tahoe",
+      "sha256": "5b18598ea779983c69b09f65ff7d5cf7385470337b380d782ff82910ecb4f383"
+    },
+    {
+      "component": "Icarus Verilog", "version": "13.0", "distribution": "Homebrew arm64_tahoe",
+      "sha256": "0c26b4d54f2a1264a7b9105345192f303ffaa79e7e164cf705baa3c2df275871"
+    },
+    {
+      "component": "Rust", "version": "1.94.0",
+      "url": "https://static.rust-lang.org/dist/rust-1.94.0-aarch64-apple-darwin.tar.xz",
+      "mirror": "https://rsproxy.cn/dist/rust-1.94.0-aarch64-apple-darwin.tar.xz",
+      "sha256": "9e55893e014e6aa76924b4cc244a289ad56de4d89d3721fbd5c7f497b31ea33c"
+    }
+  ]
+}

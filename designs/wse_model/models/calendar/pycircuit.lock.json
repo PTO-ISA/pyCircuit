@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/PTO-ISA/pyCircuit.git",
+  "revision": "505edbc7dc2429640a41a31385ce3ff951c02aad",
+  "llvm_mlir": "22.1.8",
+  "legacy_reference_revision": "0c1008364bf91d9e874f4206334870dd0c238f9c"
+}
