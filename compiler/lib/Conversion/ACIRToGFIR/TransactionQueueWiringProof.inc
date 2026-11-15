@@ -22,11 +22,11 @@
         auto queue = cast<ac::InstanceOp>(
             candidate.packageMap.lookup(original.operator->()));
         if (original->hasAttr("ac.source_unbound_push")) {
-          pending.push_back(queue.getInputs()[2]);
-          pending.push_back(queue.getInputs()[3]);
+          pending.push_back(ac::getQueuePrimitiveLayout(queue).push());
+          pending.push_back(ac::getQueuePrimitiveLayout(queue).payload());
         }
         if (original->hasAttr("ac.source_unbound_pop"))
-          pending.push_back(queue.getInputs()[4]);
+          pending.push_back(ac::getQueuePrimitiveLayout(queue).pop());
       }
       if (queueIndex != definition.queueIndices.size()) return reject("original queue allocation inventory differs");
       uint64_t input = definition.sourceInputs + 2 * definition.downward.size();

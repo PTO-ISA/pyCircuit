@@ -389,12 +389,39 @@ def ACIR_SourceStateOp : ACIR_Op<"state", [
     routed package and does not implement the routed logical-state
     interface (B1-boundary.md).
   }];
-  let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
-      ACIR_HardwareType:$initial, StrAttr:$instance_name,
+  let arguments = (ins Variadic<ACIR_HardwareType>:$values, StrAttr:$instance_name,
       DictionaryAttr:$occurrence);
   let results = (outs ACIR_HardwareType:$q);
   let hasVerifier = 1;
   let extraClassDeclaration = [{
+    ::mlir::Value getStateOperand(unsigned segment) {
+      auto sizes = (*this)->getAttrOfType<::mlir::DenseI32ArrayAttr>("operandSegmentSizes");
+      if (!sizes) return segment < getNumOperands() ? getOperand(segment) : ::mlir::Value();
+      if (sizes.size() != 4 || segment >= 4 || sizes[segment] != 1) return {};
+      unsigned index = 0;
+      for (unsigned i = 0; i < segment; ++i) {
+        if (sizes[i] < 0 || sizes[i] > 1) return {};
+        index += sizes[i];
+      }
+      return index < getNumOperands() ? getOperand(index) : ::mlir::Value();
+    }
+    ::mlir::Value getClk() { return getStateOperand(0); }
+    ::mlir::Value getRst() { return getStateOperand(1); }
+    ::mlir::Value getInitial() { return getStateOperand(2); }
+    ::mlir::Value getResetValue() {
+      return (*this)->hasAttr("operandSegmentSizes") ? getStateOperand(3) : ::mlir::Value();
+    }
+    // Storage reset policy is independent of the owner's transaction controls.
+    ::mlir::Value getTransactionReset() {
+      if (!(*this)->hasAttr("operandSegmentSizes")) return getRst();
+      auto *owner = (*this)->getParentOp();
+      auto domain = owner->getAttrOfType<::mlir::DictionaryAttr>("ac.domain_inputs");
+      auto ordinal = domain ? domain.getAs<::mlir::IntegerAttr>("reset") : ::mlir::IntegerAttr();
+      if (!ordinal || owner->getNumRegions() != 1 || owner->getRegion(0).empty()) return {};
+      auto &block = owner->getRegion(0).front();
+      return ordinal.getInt() >= 0 && uint64_t(ordinal.getInt()) < block.getNumArguments()
+          ? block.getArgument(ordinal.getInt()) : ::mlir::Value();
+    }
     ::mlir::DictionaryAttr getPayloadConstraint() {
       return (*this)->getAttrOfType<::mlir::DictionaryAttr>("ac.payload_constraint");
     }

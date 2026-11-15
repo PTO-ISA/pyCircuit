@@ -444,6 +444,17 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
   HardwareAnalysis analysis(package);
   HardwareBindings bindings;
   bindings.owner = owner;
+  if (auto references = owner->getAttrOfType<ArrayAttr>("ac.reference_parameters"))
+    for (Attribute raw : references) {
+      auto reference = cast<DictionaryAttr>(raw);
+      if (auto arguments = reference.getAs<ArrayAttr>("type_arguments")) {
+        if (failed(verifySourceCallHardwareConstraint(
+                reference.get("payload_constraint"), cast<TypeAttr>(arguments[0]).getValue(),
+                analysis, owner, owner, "AsyncFIFO reference payload",
+                SourceCallWidthMode::SymbolicFixedBits)))
+          return failure();
+      }
+    }
   auto sampleInputs = getSystemSampleInputs(owner);
   if (failed(sampleInputs))
     return failure();
@@ -470,6 +481,8 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
     return success();
   }
   auto verifyDomain = [&](size_t count) -> LogicalResult {
+    auto extra = owner->getAttrOfType<DictionaryAttr>("ac.domain_parameter_paths");
+    size_t extraCount = extra ? extra.size() : 0;
     auto clock = domain.getAs<IntegerAttr>("clock");
     auto reset = domain.getAs<IntegerAttr>("reset");
     if (domain.size() != 2 || !clock || !reset ||
@@ -478,7 +491,7 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
         clock.getValue().isNegative() || reset.getValue().isNegative() ||
         clock.getValue().getZExtValue() != count ||
         reset.getValue().getZExtValue() != count + 1 ||
-        layout->sourceInputCount != count + 2)
+        layout->sourceInputCount != count + 2 + extraCount)
       return error() << "source module call domain must explicitly map clock "
                         "and reset after the data inputs";
     StringRef domainNames[] = {"pyc_clk", "pyc_rst"};
@@ -497,6 +510,22 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
       if (*width != 1)
         return error() << "source module call domain inputs must be one bit";
     }
+    if (extra) {
+      auto clocks = owner->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+      auto domains = owner->getAttrOfType<ArrayAttr>("ac.domain_params");
+      if (!clocks || !domains) return error() << "domain paths require published clock inputs";
+      for (auto [index, field] : llvm::enumerate(extra)) {
+        auto expression = dyn_cast<StaticExprAttr>(field.getValue());
+        auto ordinal = clocks.getAs<IntegerAttr>(field.getName().getValue());
+        if (!expression || !ordinal || ordinal.getInt() != int64_t(count + 2 + index) ||
+            !llvm::is_contained(domains, field.getName()) ||
+            failed(StaticExprAttr::verify(error, expression.getTree())) ||
+            failed(verifyHardwareAttributeScope(expression, owner)))
+          return error() << "domain paths disagree with the published clock interface";
+        auto width = analysis.getPackedWidth(signature.getInput(count + 2 + index), bindings, owner);
+        if (failed(width) || *width != 1) return error() << "domain clock inputs must be one bit";
+      }
+    }
     return success();
   };
 
@@ -504,7 +533,10 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
     if (domain.empty() || layout->sourceInputCount < 2)
       return error() << "inferred module domain metadata requires clock and "
                         "reset inputs";
-    size_t count = layout->sourceInputCount - 2;
+    auto extra = owner->getAttrOfType<DictionaryAttr>("ac.domain_parameter_paths");
+    size_t extraCount = extra ? extra.size() : 0;
+    if (layout->sourceInputCount < 2 + extraCount) return error() << "invalid domain input count";
+    size_t count = layout->sourceInputCount - 2 - extraCount;
     if (failed(verifyDomain(count)))
       return failure();
     if (system && (!integers.empty() || !types.empty() || count != 0 ||

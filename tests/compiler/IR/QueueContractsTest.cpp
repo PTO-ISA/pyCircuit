@@ -845,11 +845,13 @@ TEST_F(QueueContractsTest,
   }
   for (bool value : {false, true}) {
     setQueueLatency(queue, boolean(value));
+    // Boolean actuals must reject at the owning instance; the shared static
+    // binder's diagnostic wording is not part of the Queue contract.
     rejects(
         [&] { return analysis.verifyQueueOperation(queue, bindings, false); },
-        "integer formal requires mathematical integer");
+        "'ac.instance' op");
     rejects([&] { return analysis.resolveQueue(queue, bindings); },
-            "integer formal requires mathematical integer");
+            "'ac.instance' op");
   }
 }
 
@@ -2003,7 +2005,7 @@ TEST_F(QueueContractsTest,
     bound.owner = module;
     const StringRef guards[] = {"Occurrence must contain exactly 2 fields",
                                 "cannot duplicate retired",
-                                "integer formal requires mathematical integer",
+                                "'ac.instance' op",
                                 "formal of its owning module",
                                 "formal of its owning module"};
     rejects([&] { return analysis.verifyQueueOperation(queue, bound); },

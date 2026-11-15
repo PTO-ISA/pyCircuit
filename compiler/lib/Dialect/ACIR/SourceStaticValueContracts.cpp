@@ -179,6 +179,13 @@ LogicalResult verifyStaticTypeStructureImpl(DictionaryAttr value,
     return failure();
   if (*kind == "bool")
     return requireExactFields(value, 1, "StaticType bool", emitError);
+  if (*kind == "domain")
+    return requireExactFields(value, 1, "StaticType Domain", emitError);
+  if (*kind == "domain_list" || *kind == "domain_dict") {
+    if (failed(requireExactFields(value, 2, "StaticType Domain container", emitError)))
+      return failure();
+    return verifyStaticTypeStructureImpl(value.getAs<DictionaryAttr>("element"), emitError);
+  }
   if (*kind == "integer") {
     if (value.size() == 1)
       return success();
@@ -222,6 +229,22 @@ LogicalResult verifyStaticValueStructureImpl(DictionaryAttr value,
   auto kind = recordKind(value, "StaticValue", emitError);
   if (failed(kind))
     return failure();
+  if (*kind == "domain") {
+    if (value.size() != 2 || !value.getAs<StringAttr>("clock") ||
+        value.getAs<StringAttr>("clock").getValue().empty())
+      return emitError() << "static Domain requires a nonempty clock identity";
+    return success();
+  }
+  if (*kind == "dict") {
+    auto fields = value.getAs<DictionaryAttr>("values");
+    if (value.size() != 2 || !fields)
+      return emitError() << "static domain dict requires named values";
+    for (NamedAttribute field : fields)
+      if (failed(verifyStaticValueStructureImpl(
+              dyn_cast<DictionaryAttr>(field.getValue()), emitError)))
+        return failure();
+    return success();
+  }
   if (*kind == "bool") {
     if (failed(requireExactFields(value, 2, "StaticValue bool", emitError)))
       return failure();
@@ -389,6 +412,20 @@ struct MatchState {
       return failure();
     StringRef valueKind = value.getAs<StringAttr>("kind").getValue();
     StringRef typeKind = type.getAs<StringAttr>("kind").getValue();
+    if (typeKind == "domain_list" || typeKind == "domain_dict") {
+      if (valueKind != (typeKind == "domain_list" ? "list" : "dict"))
+        return resolution.emitError() << "static Domain container kind does not match its formal";
+      auto element = type.getAs<DictionaryAttr>("element");
+      if (typeKind == "domain_list") {
+        for (Attribute raw : value.getAs<ArrayAttr>("values"))
+          if (failed(match(cast<DictionaryAttr>(raw), element, kind))) return failure();
+      } else {
+        for (NamedAttribute field : value.getAs<DictionaryAttr>("values"))
+          if (failed(match(cast<DictionaryAttr>(field.getValue()), element, kind))) return failure();
+      }
+      return success();
+    }
+    if (typeKind == "domain" && valueKind == "domain") return success();
     if (valueKind != typeKind)
       return resolution.emitError()
              << "StaticValue kind '" << valueKind

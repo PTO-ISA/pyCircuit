@@ -173,9 +173,15 @@ FailureOr<HardwareBindings> HardwareAnalysis::bindCallee(
           evaluateStatic(substituted, supplied ? parent : result, site);
       if (failed(evaluated))
         return failure();
-      if (!isa<MathIntAttr>(*evaluated))
-        return site->emitOpError()
-               << "integer formal requires mathematical integer";
+      bool domainFormal = bool(parameter.getAs<DictionaryAttr>("type"));
+      if ((!domainFormal && !isa<MathIntAttr>(*evaluated)) ||
+          (domainFormal && !isa<DictionaryAttr>(*evaluated)))
+        return site->emitOpError() << "static actual does not match its formal kind";
+      if (domainFormal && failed(detail::verifyStaticValueMatchesType(
+              cast<DictionaryAttr>(*evaluated), parameter.getAs<DictionaryAttr>("type"),
+              detail::ExpectedTypeKind::Static, {},
+              [&] { return site->emitOpError(); })))
+        return failure();
       value = *evaluated;
     }
     result.integers[parameter.getAs<StringAttr>("name").getValue()] = value;

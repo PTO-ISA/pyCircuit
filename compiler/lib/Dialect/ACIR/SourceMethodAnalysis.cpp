@@ -52,7 +52,10 @@ public:
           auto envelope = module->getParentOfType<mlir::ModuleOp>();
           auto interfaces = envelope->getAttrOfType<ArrayAttr>("ac.interfaces");
           auto owner = target->getAttrOfType<DictionaryAttr>("source_owner");
-          if (interfaces && owner && !llvm::is_contained(interfaces, owner))
+          // Primitive snapshots have already been authenticated against the
+          // builtin catalog by source admission, as for ordinary Method calls.
+          bool primitive = isa<ModuleImportOp>(target) && target->hasAttr("primitive_kind");
+          if (interfaces && owner && !primitive && !llvm::is_contained(interfaces, owner))
             return module->emitOpError() << "Module reference provider is absent from caller source ac.interfaces closure";
         }
       HardwareBindings bindings;

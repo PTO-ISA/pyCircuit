@@ -1131,9 +1131,13 @@ FailureOr<HardwareBindings> resolveHardwareEntryBindings(
     auto value = analysis.evaluateStatic(expr, bindings, system);
     if (failed(value))
       return failure();
-    if (!isa<MathIntAttr>(*value))
-      return system.emitOpError()
-             << "root integer parameter requires math integer";
+    if (auto type = formal.getAs<DictionaryAttr>("type")) {
+      auto configuration = dyn_cast<DictionaryAttr>(*value);
+      if (!configuration || failed(verifyStaticValueMatchesType(configuration, type,
+              ExpectedTypeKind::Static, {}, [&] { return system.emitOpError(); })))
+        return failure();
+    } else if (!isa<MathIntAttr>(*value))
+      return system.emitOpError() << "root integer parameter requires math integer";
     bindings.integers[formal.getAs<StringAttr>("name").getValue()] = *value;
   }
   return bindings;

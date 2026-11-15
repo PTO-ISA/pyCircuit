@@ -9,6 +9,7 @@ class Operation;
 
 namespace acir {
 
+mlir::LogicalResult verifyStateDeclarationStructure(mlir::Operation *, bool current);
 mlir::LogicalResult verifyLogicalStateStructure(mlir::Operation *);
 mlir::LogicalResult verifyLogicalStateUpdateStructure(mlir::Operation *);
 

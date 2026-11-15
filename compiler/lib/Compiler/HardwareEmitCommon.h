@@ -11,6 +11,9 @@
 #include <string>
 #include <utility>
 namespace acir::compiler {
+// Domain configuration remains in verified static bindings and clock wiring;
+// generated integer parameter lists contain only hardware arithmetic formals.
+bool isDomainStaticParameter(mlir::DictionaryAttr parameter);
 struct EmitNames {
   std::string cppQualified;
   std::string cppClass;

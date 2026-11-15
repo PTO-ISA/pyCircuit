@@ -57,7 +57,7 @@ public:
         const auto &owner = plan.queueOwners[access.owner];
         auto queue = owner.allocation;
         QueueRoutingKey key{{routePath(prepared.original->getContext(), anchorPath(plan, owner.anchor)),
-                              queue.getOutputs()[1]},
+                              ac::getQueuePrimitiveLayout(queue).valid()},
                              access.kind == ac::TransactionQueueAccessKind::Push};
         if (!charge(budget, access.operation, 16)) return failure();
         local[plan.routingModule][key].push_back({rule->getResult(proposal.pathResult),
@@ -119,16 +119,17 @@ public:
         auto original = prepared.queues[index];
         auto queue = cast<ac::InstanceOp>(candidate.packageMap.lookup(original.operator->()));
         OpBuilder builder(queue);
+        auto layout = ac::getQueuePrimitiveLayout(queue);
         if (original->hasAttr("ac.source_unbound_push")) {
           auto pins = pinsFor(parent.module, {}, original, true, builder);
           if (failed(pins)) return failure();
-          queue->setOperand(2, pins->first);
-          queue->setOperand(3, pins->second);
+          queue->setOperand(layout.pushOperand(), pins->first);
+          queue->setOperand(layout.dataOperand(), pins->second);
         }
         if (original->hasAttr("ac.source_unbound_pop")) {
           auto pins = pinsFor(parent.module, {}, original, false, builder);
           if (failed(pins)) return failure();
-          queue->setOperand(4, pins->first);
+          queue->setOperand(layout.popOperand(), pins->first);
         }
         queue->removeAttr("ac.source_unbound_push");
         queue->removeAttr("ac.source_unbound_pop");
@@ -149,12 +150,12 @@ private:
   QueueRoutingKey popKey(ArrayRef<ac::InstanceOp> path,
                          ac::InstanceOp queue) {
     return {{routePath(prepared.original->getContext(), path),
-             queue.getOutputs()[1]}, false};
+             ac::getQueuePrimitiveLayout(queue).valid()}, false};
   }
   FailureOr<Value> popUnion(ac::ModuleOp module, ArrayRef<ac::InstanceOp> path,
       ac::InstanceOp queue, ArrayRef<Value> values, OpBuilder &builder) {
     if (values.empty()) {
-      auto bit = routes.value(module, path, queue.getOutputs()[1]);
+      auto bit = routes.value(module, path, ac::getQueuePrimitiveLayout(queue).valid());
       if (failed(bit) || !charge(budget, queue, 16) ||
           !prepayAppend(budget, queue, candidate.queueDisabled)) return failure();
       Value zero = bitsLiteral(bit->getType(), queue.getOccurrence(), queue.getLoc(), false, builder);
@@ -200,13 +201,13 @@ private:
     if (path.empty()) {
       if (queue->hasAttr("ac.source_unbound_pop")) return Value();
       // The original authored out_ready is the authority for raw-bound pop.
-      return routes.value(module, {}, queue.getInputs()[4]);
+      return routes.value(module, {}, ac::getQueuePrimitiveLayout(queue).pop());
     }
     auto child = dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(path.front()));
     if (!child) return failure();
     const auto &definition = prepared.definitions[prepared.definitionIndex.lookup(child)];
     RoutingKey key{routePath(prepared.original->getContext(), path.drop_front()),
-                   queue.getOutputs()[1]};
+                   ac::getQueuePrimitiveLayout(queue).valid()};
     auto found = definition.queuePopSummaryIndex.find(key);
     auto allocation = cast<ac::InstanceOp>(candidate.packageMap.lookup(path.front().operator->()));
     if (found == definition.queuePopSummaryIndex.end())
@@ -244,7 +245,7 @@ private:
       ArrayRef<ac::InstanceOp> path, ac::InstanceOp queue, bool push,
       OpBuilder &builder) {
     QueueRoutingKey key{{routePath(prepared.original->getContext(), path),
-                         queue.getOutputs()[1]}, push};
+                         ac::getQueuePrimitiveLayout(queue).valid()}, push};
     if (auto found = materialized[module].find(key); found != materialized[module].end())
       return found->second;
     std::pair<Value, Value> pins;
@@ -287,13 +288,13 @@ private:
       auto route = definition.queueIncomingIndex.find(key);
       if (route != definition.queueIncomingIndex.end()) pins = incoming[module][route->second];
       else {
-        auto bit = routes.value(module, path, queue.getOutputs()[1]);
+        auto bit = routes.value(module, path, ac::getQueuePrimitiveLayout(queue).valid());
         if (failed(bit)) return failure();
         if (!charge(budget, queue, 16)) return failure();
         pins.first = bitsLiteral(bit->getType(), queue.getOccurrence(), queue.getLoc(), false, builder);
         candidate.queueDisabled.push_back(pins.first);
         if (push) {
-          auto data = routes.value(module, path, queue.getInputs()[3]);
+          auto data = routes.value(module, path, ac::getQueuePrimitiveLayout(queue).payload());
           if (failed(data)) return failure();
           pins.second = *data;
         }

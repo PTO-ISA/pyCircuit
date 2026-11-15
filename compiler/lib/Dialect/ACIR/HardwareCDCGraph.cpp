@@ -349,14 +349,14 @@ Value resolve(Ref ref, const SmallVector<Operation *, 0> &nodes,
 } // namespace detail::cdc
 
 namespace {
-LogicalResult verifyFinalHardwareCDCComponent(Operation *witness) {
+LogicalResult verifyFinalHardwareCDCComponent(Operation *witness, bool authenticateIntents = true) {
   auto reject = [&]() {
     return witness->emitOpError("invalid CDC component refinement witness");
   };
   if (failed(verifyCDCRefinementContract(witness)))
     return failure();
   auto package = witness->getParentOfType<mlir::ModuleOp>();
-  if (failed(verifyCDCRefinementIntents(
+  if (authenticateIntents && failed(verifyCDCRefinementIntents(
           HardwareAnalysis(package), cast<CDCRefinementOp>(witness), {})))
     return failure();
   auto imported = dyn_cast_or_null<ModuleImportOp>(
@@ -427,13 +427,13 @@ LogicalResult verifyHardwareCDCComponent(Operation *witness) {
   return verifyFinalHardwareCDCComponent(witness);
 }
 FailureOr<DenseMap<Operation *, Operation *>>
-getVerifiedCDCComponentOwners(mlir::ModuleOp package) {
+getCDCComponentOwners(mlir::ModuleOp package, bool authenticateIntents) {
   LogicalResult valid = success();
   DenseMap<Operation *, Operation *> covered;
   package.walk([&](Operation *op) {
     if (op->getName().getStringRef() != "ac.cdc.refinement" || failed(valid))
       return;
-    if (failed(verifyFinalHardwareCDCComponent(op))) {
+    if (failed(verifyFinalHardwareCDCComponent(op, authenticateIntents))) {
       valid = failure();
       return;
     }
@@ -462,6 +462,14 @@ getVerifiedCDCComponentOwners(mlir::ModuleOp package) {
   if (failed(valid))
     return failure();
   return covered;
+}
+FailureOr<DenseMap<Operation *, Operation *>>
+getVerifiedCDCComponentOwners(mlir::ModuleOp package) {
+  return getCDCComponentOwners(package, true);
+}
+FailureOr<DenseMap<Operation *, Operation *>>
+detail::cdc::getCDCComponentRoutingOwners(mlir::ModuleOp package) {
+  return getCDCComponentOwners(package, false);
 }
 LogicalResult verifyFinalHardwareCDCComponents(mlir::ModuleOp package) {
   return success(succeeded(getVerifiedCDCComponentOwners(package)));

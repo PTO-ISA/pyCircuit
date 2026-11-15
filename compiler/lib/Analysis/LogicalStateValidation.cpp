@@ -21,7 +21,8 @@ mlir::FailureOr<StateLayout> getStateLayout(Operation *state) {
   int64_t version = contract ? contract.getInt() : 4;
   auto policy = getRegisterPolicy(state);
   if (failed(policy)) return failure();
-  bool current = version == 7 && isa<LogicalStateOpInterface>(state);
+  bool current = (version == 7 && isa<LogicalStateOpInterface>(state)) ||
+                 (isa<SourceStateOp>(state) && state->hasAttr("operandSegmentSizes"));
   auto operand = [&](unsigned segment) -> Value {
     if (current) {
       auto sizes = state->getAttrOfType<DenseI32ArrayAttr>("operandSegmentSizes");
@@ -102,6 +103,9 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
       if (auto expression = dyn_cast<StaticExprAttr>(attribute)) {
         if (analysis.isStaticEvaluable(expression, bindings))
           return success(succeeded(analysis.evaluateStatic(expression, bindings, operation)));
+        // Unbound static parameters remain closed template expressions. Their
+        // range/value obligations are checked with the actual instance binding.
+        concrete = false;
         return checkAttribute(expression.getTree(), depth + 1);
       }
       if (auto array = dyn_cast<ArrayAttr>(attribute))
@@ -319,9 +323,16 @@ LogicalResult verifyLogicalStateSourceBinding(SourceStateOp state) {
                                     state.getInitial(), state.getQ(), owner,
                                     owned, ownedBindings)))
     return failure();
-  return detail::verifyClosedStateInitializer(owned, state.getInitial(),
-                                               ownedBindings, operation,
-                                               /*budget=*/nullptr);
+  auto layout = getStateLayout(operation);
+  if (failed(layout)) return failure();
+  if (layout->resetValue && layout->resetValue != layout->initial &&
+      (!areEquivalentHardwareTypes(layout->resetValue.getType(), state.getQ().getType()) ||
+       failed(detail::verifyClosedStateInitializer(owned, layout->resetValue,
+                                                  ownedBindings, operation, nullptr))))
+    return operation->emitOpError("reset value must be a closed initializer of the state payload type");
+  return state.getInitial()
+      ? detail::verifyClosedStateInitializer(owned, state.getInitial(), ownedBindings, operation, nullptr)
+      : success();
 }
 
 LogicalResult verifyLogicalStateUpdateBinding(

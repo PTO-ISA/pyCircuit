@@ -31,16 +31,17 @@
       definition = dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(*instance));
       if (!definition || !definition.getBody().hasOneBlock()) return failure();
     }
-    InstanceOp allocation;
-    for (auto queue : definition.getBody().front().getOps<InstanceOp>()) {
+    Operation *allocation = nullptr;
+    for (Operation &operation : definition.getBody().front()) {
+      auto *queue = &operation;
       if (failed(step(queue))) return failure();
-      if (!isQueueInstance(queue) ||
-          queue.getOccurrence() != id.get("declaration")) continue;
+      if (!isQueueResource(queue) ||
+          queue->getAttr("occurrence") != id.get("declaration")) continue;
       if (allocation) return module->emitOpError() << "ambiguous physical Queue declaration";
       allocation = queue;
     }
     if (!allocation) return module->emitOpError() << "prospective Queue has no actual allocation";
-    return normal(allocation.getOutputs()[1], at);
+    return normal(getQueuePrimitiveLayout(allocation).valid(), at);
   }
   LogicalResult disjointProposals() {
     struct Proposal {
@@ -146,7 +147,7 @@
                                         : FailureOr<uint64_t>(failure());
       auto payloadType = analysis.resolveType(payload.getType(), bindings, instance);
       auto expectedType = analysis.resolveType(
-          target->queue.getInputs()[3].getType(), target->bindings, instance);
+          getQueuePrimitiveLayout(target->queue).payload().getType(), target->bindings, instance);
       auto zero = literal(enable, scope, false);
       if (failed(enableType) || !isa<BitsType>(*enableType) || failed(width) || *width != 1 ||
           failed(payloadType) || failed(expectedType) ||
@@ -188,7 +189,7 @@
     if (path.empty()) {
       auto target = resolve(id);
       if (failed(target)) return failure();
-      return target->unboundPop ? Value() : target->queue.getInputs()[4];
+      return target->unboundPop ? Value() : getQueuePrimitiveLayout(target->queue).pop();
     }
     auto instance = childFor(module, path[0]);
     if (failed(instance)) return failure();
@@ -436,8 +437,9 @@
         Builder b(module.getContext());
         auto id = b.getDictionaryAttr({b.getNamedAttr("owner", row.get("owner")), b.getNamedAttr("declaration", row.get("declaration"))});
         if (failed(capture) || *capture >= rule.getNumOperands()) return failure();
-        auto clock = ordinal(sampled, "clock_capture", rule), reset = ordinal(sampled, "reset_capture", rule);
-        if (failed(clock) || failed(reset) || *capture == *clock || *capture == *reset)
+        SampledAdmissionView context;
+        if (failed(readSampledEventContext(rule, context, budget))) return failure();
+        if (*capture == context.clockCapture || llvm::is_contained(context.resetCaptures, *capture))
           return rule->emitOpError() << "external-pop capture cannot reuse a domain capture";
         auto prior = llvm::find_if(expected, [&](const External &item) { return item.rule == rule && item.id == id; });
         if (prior != expected.end()) {
@@ -464,10 +466,11 @@
         return module->emitOpError() << "external Queue route differs from actual registration/owner/capture";
       auto target = resolve(item.id);
       auto child = subtree(item.id);
-      auto config = succeeded(target)
-                        ? analysis.resolveQueue(target->queue, target->bindings)
-                        : FailureOr<ResolvedQueueConfig>(failure());
-      if (failed(target) || failed(child) || failed(config) ||
+      if (failed(target) || failed(child)) return failure();
+      if (getQueuePrimitiveLayout(target->queue).asynchronous)
+        return module->emitOpError() << "async Queue endpoints cannot receive remote pop credit";
+      auto config = analysis.resolveQueue(cast<InstanceOp>(target->queue), target->bindings);
+      if (failed(config) ||
           config->readyPolicy != QueueReadyPolicy::DownstreamPop)
         return failure();
       SmallVector<Value> values;

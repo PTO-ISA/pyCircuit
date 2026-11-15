@@ -93,6 +93,38 @@ LogicalResult Importer::serializeSourceCall(ModuleDecl &decl) {
     }
   decl.sourceCallAttrs = {
       b.getNamedAttr("ac.domain_inputs", b.getDictionaryAttr(domain)), policy};
+  bool statePolicy = false;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto value = decl.node.item("body", i).child("value");
+    statePolicy |= value.kind() == "Call" && intrinsic(value.child("func"), "state");
+  }
+  if ((statePolicy || clockConfigurationActive) && decl.needsDomain) {
+    decl.sourceCallAttrs.push_back(b.getNamedAttr("ac.domain_params",
+        b.getArrayAttr({b.getStringAttr("D")})));
+    decl.sourceCallAttrs.push_back(b.getNamedAttr("ac.default_domain", b.getStringAttr("D")));
+    decl.sourceCallAttrs.push_back(b.getNamedAttr("ac.domain_clock_inputs",
+        b.getDictionaryAttr({b.getNamedAttr("D", b.getI32IntegerAttr(decl.sourceInputCount))})));
+  }
+  if (decl.domainExpressions && !decl.domainExpressions.empty()) {
+    SmallVector<Attribute> names{b.getStringAttr("D")};
+    SmallVector<NamedAttribute> clocks{
+        b.getNamedAttr("D", b.getI32IntegerAttr(decl.sourceInputCount))};
+    for (auto [index, field] : llvm::enumerate(decl.domainExpressions)) {
+      names.push_back(field.getName());
+      clocks.push_back(b.getNamedAttr(field.getName().getValue(),
+          b.getI32IntegerAttr(decl.sourceInputCount + 2 + index)));
+    }
+    auto replace = [&](StringRef key, Attribute value) {
+      llvm::erase_if(decl.sourceCallAttrs, [&](NamedAttribute attr) { return attr.getName() == key; });
+      decl.sourceCallAttrs.push_back(b.getNamedAttr(key, value));
+    };
+    replace("ac.domain_params", b.getArrayAttr(names));
+    replace("ac.default_domain", b.getStringAttr("D"));
+    replace("ac.domain_clock_inputs", b.getDictionaryAttr(clocks));
+    replace("ac.domain_parameter_paths", decl.domainExpressions);
+  }
+  if (decl.needsDomain)
+    decl.sourceCallAttrs.push_back(b.getNamedAttr("ac.uses_default_reset", b.getBoolAttr(decl.needsDefaultReset)));
   if (callable) {
     decl.sourceCallAttrs.insert(
         decl.sourceCallAttrs.begin(),
@@ -299,7 +331,7 @@ FailureOr<SmallVector<AstNode>> Importer::moduleActuals(
     if (!name) return error() << "module calls do not admit **kwargs";
     auto found = llvm::find(names, name.getValue());
     if (found == names.end()) {
-      bool staticFormal = false;
+      bool staticFormal = name.getValue() == "domain";
       for (Attribute raw : signature.getAs<ArrayAttr>("parameters"))
         staticFormal |= cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
       for (Attribute raw : signature.getAs<ArrayAttr>("type_parameters"))

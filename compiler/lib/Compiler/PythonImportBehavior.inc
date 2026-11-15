@@ -2671,8 +2671,9 @@ LogicalResult Importer::predeclareStructuralInstances(
   size_t capacity = decl.references ? decl.references.size() : 0;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto stmt = decl.node.item("body", i);
-    if (stmt.kind() == "Assign" && stmt.array("targets").size() == 1 &&
-        stmt.child("value").kind() == "Call")
+    if ((stmt.kind() == "Assign" && stmt.array("targets").size() == 1 &&
+         stmt.child("value").kind() == "Call") ||
+        (stmt.kind() == "AnnAssign" && !cdcKind(stmt.child("annotation")).empty()))
       ++capacity;
   }
   structuralStorage.reserve(capacity);
@@ -2950,6 +2951,14 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     auto stmt = decl.node.item("body", i);
     if (docstring(stmt))
       continue;
+    if (stmt.kind() == "Assign" && stmt.array("targets").size() == 1 &&
+        stmt.item("targets", 0).kind() == "Name" &&
+        configurationAliases[decl.symbol].contains(stmt.item("targets", 0).string("id")))
+      continue;
+    auto cdc = bindCDCStatement(stmt, at, decl.symbol, values,
+                                structuralInstances, structuralStorage);
+    if (failed(cdc)) return failure();
+    if (*cdc) continue;
     AstNode statementCall = llvm::is_contained(
         ArrayRef<StringRef>{"Assign", "AnnAssign", "Expr", "Return"}, stmt.kind())
         ? stmt.child("value") : AstNode();
@@ -3388,6 +3397,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
   }
   if (failed(bindProposals(states, at, values, decl.symbol)))
     return failure();
+  if (failed(finishCDCResources(at, decl.symbol, values))) return failure();
   ownerProposals.clear();
   activeBehavioralDecl = nullptr;
   activeStates = nullptr;

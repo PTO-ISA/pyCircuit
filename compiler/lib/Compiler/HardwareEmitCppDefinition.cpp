@@ -1874,6 +1874,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   };
   SmallVector<std::string> formals, actuals;
   for (auto raw : definition.getParameters()) {
+    if (isDomainStaticParameter(cast<DictionaryAttr>(raw))) continue;
     auto name = ctx.cppFormalName(
         cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue(),
         definition);

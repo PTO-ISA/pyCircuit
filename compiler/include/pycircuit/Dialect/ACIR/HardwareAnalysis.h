@@ -64,6 +64,34 @@ enum class QueueReadyPolicy { LocalOccupancy, DownstreamPop };
 /// Recognize the canonical FIFO allocation; schema and bindings are verified
 /// by the same instance and primitive checks used for other native leaves.
 bool isQueueInstance(InstanceOp instance);
+bool isAsyncQueueInstance(InstanceOp instance);
+/// Pin roles shared by source admission, physical routing and its proof.
+struct QueuePrimitiveLayout {
+  mlir::Operation *allocation;
+  bool asynchronous;
+  bool physical = false;
+  unsigned dataResult() const { return asynchronous ? 0 : 2; }
+  unsigned validResult() const { return asynchronous ? 2 : 1; }
+  unsigned readyResult() const { return asynchronous ? 1 : 0; }
+  unsigned capacityResult() const { return asynchronous ? 1 : 3; }
+  unsigned pushOperand() const { return asynchronous ? 4 : 2; }
+  unsigned dataOperand() const { return 3; }
+  unsigned popOperand() const { return asynchronous ? 5 : 4; }
+  unsigned clockOperand(bool push) const { return asynchronous && !push ? 1 : 0; }
+  unsigned resetOperand() const { return asynchronous ? 2 : 1; }
+  mlir::Value data() const { return physical ? allocation->getOperand(6) : allocation->getResult(dataResult()); }
+  mlir::Value valid() const { return physical ? allocation->getOperand(8) : allocation->getResult(validResult()); }
+  mlir::Value ready() const { return physical ? allocation->getOperand(7) : allocation->getResult(readyResult()); }
+  mlir::Value capacity() const { return physical ? allocation->getOperand(7) : allocation->getResult(capacityResult()); }
+  mlir::Value push() const { return allocation->getOperand(pushOperand()); }
+  mlir::Value payload() const { return allocation->getOperand(dataOperand()); }
+  mlir::Value pop() const { return allocation->getOperand(popOperand()); }
+  mlir::Value clock(bool push) const { return allocation->getOperand(clockOperand(push)); }
+  mlir::Value reset() const { return allocation->getOperand(resetOperand()); }
+};
+QueuePrimitiveLayout getQueuePrimitiveLayout(mlir::Operation *resource);
+bool isQueueResource(mlir::Operation *resource);
+
 /// Derive the existing FIFO configuration from its canonical callee and
 /// ordinary static arguments. No duplicated configuration is stored on the IR.
 mlir::FailureOr<mlir::DictionaryAttr>

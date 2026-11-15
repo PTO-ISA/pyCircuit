@@ -20,6 +20,11 @@
 #include <tuple>
 using namespace mlir;
 namespace acir::compiler {
+bool isDomainStaticParameter(DictionaryAttr parameter) {
+  auto type = parameter.getAs<DictionaryAttr>("type");
+  auto kind = type ? type.getAs<StringAttr>("kind") : StringAttr();
+  return kind && llvm::is_contained(ArrayRef<StringRef>{"domain", "domain_list", "domain_dict"}, kind.getValue());
+}
 std::string jsonString(StringRef value) {
   std::string text;
   llvm::raw_string_ostream out(text);
@@ -1295,6 +1300,7 @@ HardwareEmitContext::cppInstanceType(ac::InstanceOp instance) const {
   if (failed(bindings))
     return failure();
   for (auto raw : callee->getAttrOfType<ArrayAttr>("parameters")) {
+    if (isDomainStaticParameter(cast<DictionaryAttr>(raw))) continue;
     auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
     auto value = bindings->integers.lookup(name.getValue());
     if (auto integer = dyn_cast<ac::MathIntAttr>(value))
@@ -1343,6 +1349,7 @@ rtlOccurrenceParameters(const HardwareEmitContext &context,
     if (failed(bindings))
       return failure();
     for (auto raw : formals) {
+      if (isDomainStaticParameter(cast<DictionaryAttr>(raw))) continue;
       auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
       auto value = bindings->integers.lookup(name.getValue());
       if (auto integer = dyn_cast<ac::MathIntAttr>(value)) {
@@ -1822,13 +1829,15 @@ FailureOr<std::string> HardwareEmitContext::rootCppType() const {
     return failure();
   auto *root = bindings->owner;
   SmallVector<std::string> arguments;
-  for (auto raw : root->getAttrOfType<ArrayAttr>("parameters"))
+  for (auto raw : root->getAttrOfType<ArrayAttr>("parameters")) {
+    if (isDomainStaticParameter(cast<DictionaryAttr>(raw))) continue;
     arguments.push_back(
         cast<ac::MathIntAttr>(
             bindings->integers.lookup(
                 cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue()))
             .getCanonicalValue()
             .str());
+  }
   for (auto raw : root->getAttrOfType<ArrayAttr>("type_parameters")) {
     auto type =
         cppType(bindings->types.lookup(cast<StringAttr>(raw).getValue()),
@@ -1850,6 +1859,7 @@ FailureOr<std::string> HardwareEmitContext::rootRtlParameters() const {
   SmallVector<std::string> arguments;
   for (auto raw : root->getAttrOfType<ArrayAttr>("parameters")) {
     auto formal = cast<DictionaryAttr>(raw);
+    if (isDomainStaticParameter(formal)) continue;
     auto name = formal.getAs<StringAttr>("name");
     auto id = rtlFormalName(name.getValue(), root);
     if (failed(id))
@@ -1943,6 +1953,7 @@ HardwareEmitContext::cppBoundModuleType(Operation *definition,
   if (!kind.empty() && failed(types()))
     return failure();
   for (auto raw : definition->getAttrOfType<ArrayAttr>("parameters")) {
+    if (isDomainStaticParameter(cast<DictionaryAttr>(raw))) continue;
     auto attr = bindings.integers.lookup(
         cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue());
     if (auto integer = dyn_cast<ac::MathIntAttr>(attr))

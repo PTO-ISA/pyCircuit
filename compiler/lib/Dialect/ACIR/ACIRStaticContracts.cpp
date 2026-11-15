@@ -177,6 +177,15 @@ LogicalResult verifyTreeContents(DictionaryAttr tree, detail::EmitError error,
         return failure();
     return success();
   }
+  if (tag == "dict") {
+    auto fields = tree.getAs<DictionaryAttr>("fields");
+    if (tree.size() != 4 || !fields)
+      return error() << "dict StaticExpr requires named fields";
+    for (NamedAttribute field : fields)
+      if (failed(verifyChild(field.getValue(), error, verification)))
+        return failure();
+    return success();
+  }
   if (tag == "list") {
     auto elements = tree.getAs<ArrayAttr>("elements");
     if (tree.size() != 4 || !elements)

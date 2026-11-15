@@ -41,10 +41,11 @@ Attribute substitute(Attribute attr, const HardwareBindings &bindings) {
           NamedAttrList literal(tree);
           literal.set("kind", b.getStringAttr("literal"));
           literal.erase("ref");
-          literal.set("value",
-                      b.getDictionaryAttr(
-                          {b.getNamedAttr("kind", b.getStringAttr("integer")),
-                           b.getNamedAttr("value", found->second)}));
+          literal.set("value", isa<DictionaryAttr>(found->second)
+              ? found->second
+              : b.getDictionaryAttr({
+                    b.getNamedAttr("kind", b.getStringAttr("integer")),
+                    b.getNamedAttr("value", found->second)}));
           return StaticExprAttr::get(attr.getContext(),
                                      literal.getDictionary(attr.getContext()));
         }
@@ -60,6 +61,10 @@ Attribute substitute(Attribute attr, const HardwareBindings &bindings) {
     if (kind.getValue() == "unary") children.push_back("operand");
     else if (kind.getValue() == "binary") children.append({"lhs", "rhs"});
     else if (kind.getValue() == "select") children.append({"condition", "yes", "no"});
+    else if (kind.getValue() == "list") children.push_back("elements");
+    else if (kind.getValue() == "dict") children.push_back("fields");
+    else if (kind.getValue() == "field") children.push_back("base");
+    else if (kind.getValue() == "element") children.append({"base", "index"});
     else return expr; // Existing grammar/evaluation checks reject unknown kinds.
     SmallVector<std::pair<StringRef, Attribute>, 3> changed;
     for (StringRef name : children) {
@@ -324,8 +329,62 @@ evaluateHardwareStatic(const PackedWidthResolver &resolver,
     auto result = value ? value.get("value") : Attribute();
     if (isa_and_nonnull<MathIntAttr, BoolAttr>(result))
       return result;
+    if (value && value.getAs<StringAttr>("kind") &&
+        llvm::is_contained(ArrayRef<StringRef>{"domain", "list", "dict"},
+                          value.getAs<StringAttr>("kind").getValue()))
+      return Attribute(value);
     return site->emitOpError()
            << "hardware static literal requires integer or bool";
+  }
+  if (tag == "list" || tag == "dict") {
+    Builder builder(site->getContext());
+    SmallVector<Attribute> values;
+    SmallVector<NamedAttribute> fields;
+    auto append = [&](StaticExprAttr child, StringAttr name) -> LogicalResult {
+      auto evaluated = evaluateHardwareStatic(resolver, child, bindings, site);
+      if (failed(evaluated)) return failure();
+      auto value = dyn_cast<DictionaryAttr>(*evaluated);
+      if (!value)
+        return site->emitOpError() << "domain containers require static Domain values";
+      if (name) fields.push_back(builder.getNamedAttr(name.getValue(), value));
+      else values.push_back(value);
+      return success();
+    };
+    if (tag == "list") {
+      for (Attribute child : tree.getAs<ArrayAttr>("elements"))
+        if (failed(append(cast<StaticExprAttr>(child), {}))) return failure();
+    } else {
+      for (NamedAttribute child : tree.getAs<DictionaryAttr>("fields"))
+        if (failed(append(cast<StaticExprAttr>(child.getValue()),
+                          child.getName()))) return failure();
+    }
+    return Attribute(builder.getDictionaryAttr({
+        builder.getNamedAttr("kind", builder.getStringAttr(tag)),
+        builder.getNamedAttr("values", tag == "list"
+            ? Attribute(builder.getArrayAttr(values))
+            : Attribute(builder.getDictionaryAttr(fields)))}));
+  }
+  if (tag == "field" || tag == "element") {
+    auto evaluated = evaluateHardwareStatic(resolver,
+        tree.getAs<StaticExprAttr>("base"), bindings, site);
+    if (failed(evaluated)) return failure();
+    auto base = dyn_cast<DictionaryAttr>(*evaluated);
+    if (!base) return site->emitOpError() << "static domain selection requires a container";
+    if (tag == "field") {
+      auto fields = base.getAs<DictionaryAttr>("values");
+      Attribute value = fields ? fields.get(tree.getAs<StringAttr>("name").getValue()) : Attribute();
+      if (!value) return site->emitOpError() << "static domain key is absent";
+      return value;
+    }
+    auto index = evaluateHardwareStatic(resolver,
+        tree.getAs<StaticExprAttr>("index"), bindings, site);
+    if (failed(index)) return failure();
+    auto ordinal = naturalHardwareStatic(*index, site, false);
+    auto values = base.getAs<ArrayAttr>("values");
+    if (failed(ordinal)) return failure();
+    if (!values || *ordinal >= values.size())
+      return site->emitOpError() << "static domain index is outside the container";
+    return values[*ordinal];
   }
   if (tag == "type_width") {
     auto type = tree.getAs<TypeAttr>("type");

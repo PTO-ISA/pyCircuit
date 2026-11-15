@@ -5,9 +5,11 @@
 #define PYCIRCUIT_HARDWARE_CDC_GRAPH_H
 
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringRef.h"
 #include <cstdint>
 #include <optional>
@@ -40,6 +42,11 @@ struct Circuit {
   llvm::SmallVector<Node, 0> nodes;
   llvm::SmallVector<Ref> outputs;
 };
+
+/// Exact component equations and ownership without endpoint admission parsing.
+/// Queue route closure uses this to avoid recursive intent authentication.
+mlir::FailureOr<llvm::DenseMap<mlir::Operation *, mlir::Operation *>>
+getCDCComponentRoutingOwners(mlir::ModuleOp package);
 
 mlir::FailureOr<Circuit> getCircuit(mlir::Operation *source,
                                    SourceCheckBudget &budget);

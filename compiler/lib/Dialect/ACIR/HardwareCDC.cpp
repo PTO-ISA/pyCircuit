@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "HardwareCDCLocalVerification.h"
+#include "HardwareQueueResources.h"
 #include "ACIRSourceContracts.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
@@ -8,7 +9,16 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 LogicalResult verifyFIFOIntents(const HardwareAnalysis &analysis, Operation *resource, ArrayRef<Value> intents, const HardwareBindings &bindings) {
-  for (auto intent : intents) {
+  std::optional<llvm::DenseSet<OpOperand *>> queueRoutes;
+  if (auto module = resource->getParentOfType<ModuleOp>();
+      module && module->hasAttr("ac.queue_wiring")) {
+    auto routes = detail::getVerifiedQueueResourceUses(analysis);
+    if (failed(routes)) return failure();
+    queueRoutes = std::move(*routes);
+  }
+  for (auto [ordinal, intent] : llvm::enumerate(intents)) {
+    if (queueRoutes && queueRoutes->contains(&resource->getOpOperand(4 + ordinal)))
+      continue;
     if (auto constant = intent.getDefiningOp<BitsConstantOp>()) {
       auto value = analysis.evaluateStatic(constant.getValue(), bindings, constant);
       if (succeeded(value))
@@ -125,8 +135,14 @@ FailureOr<CDCPrimitiveLayout> getCDCPrimitiveLayout(
   auto package = instance->getParentOfType<mlir::ModuleOp>();
   auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
   auto contract = package ? package->getAttrOfType<IntegerAttr>("ac.routed_contract") : IntegerAttr();
-  if (!owner || !stage || stage.getValue() != "routed" || !contract || contract.getInt() != 7)
-    return instance.emitOpError("logical CDC requires a contract-7 routed module graph");
+  bool source = stage && stage.getValue() == "source" && !contract;
+  bool routed = stage && stage.getValue() == "routed" && contract &&
+                contract.getInt() == 7;
+  if (!owner || ((stage || contract) && !source && !routed))
+    return instance.emitOpError("logical CDC requires a source or contract-7 routed module graph");
+  if (routed && (instance->hasAttr("source_infer_source") ||
+                 instance->hasAttr("source_infer_target")))
+    return instance.emitOpError("routed CDC retains an unresolved source endpoint");
   HardwareAnalysis analysis(package);
   auto bindings = analysis.bindInstance(instance, parent);
   if (failed(bindings)) return failure();
@@ -284,6 +300,19 @@ getAsyncFIFOEndpointEffects(RuleOp rule) {
         if (!checked->isFIFO()) return rule.emitOpError("invalid CDC endpoint resource");
         layout = *checked;
       } else if (failed(verifyCDCRefinementContract(witness))) return failure();
+      // Source Queue proposals have their own authenticated path, resource
+      // admission and physical-route proof. They are not the native direct-fire
+      // protocol below; verifyFIFOIntents checks that exact terminal closure.
+      bool queueProposal = false;
+      if (auto proposals = row ? row.getAs<ArrayAttr>("queue_proposals") : ArrayAttr())
+        for (auto raw : proposals) {
+          auto proposal = dyn_cast<DictionaryAttr>(raw);
+          auto path = proposal ? proposal.getAs<IntegerAttr>("path") : IntegerAttr();
+          if (path && path.getInt() >= 0 && uint64_t(path.getInt()) < rule.getNumResults() &&
+              result == rule.getResult(path.getInt()))
+            queueProposal = true;
+        }
+      if (queueProposal) continue;
       if (!fire || fire.getInt() < 0 ||
           uint64_t(fire.getInt()) >= rule.getNumResults() ||
           result != rule.getResult(fire.getInt()) || !clockCapture ||

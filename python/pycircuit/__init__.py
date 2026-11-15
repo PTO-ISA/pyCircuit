@@ -13,6 +13,11 @@ __all__ = [
     "bits",
     "table",
     "queue",
+    "state",
+    "Domain",
+    "domain",
+    "AsyncReg",
+    "AsyncFIFO",
     "encoding",
     "enum_to_bits",
     "enum_from_bits",
@@ -44,6 +49,24 @@ def module(declaration=None, *, execution=None):
     Its single-worker topology is checked by the native linker before a
     functional projection can discard transport waiting.
     """
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def state(
+    *,
+    init=None,
+    reset=None,
+    reset_kind="sync",
+    reset_polarity=None,
+    reset_value=None,
+    edge="posedge",
+):
+    """Declare Module storage and its initialization, edge and reset policy."""
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def domain(*, clock):
+    """Name a statically bound clock domain; never execute configuration."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 
@@ -120,6 +143,9 @@ class _SourceType:
 bits = _SourceType()
 table = _SourceType()
 queue = _SourceType()
+Domain = _SourceType()
+AsyncReg = _SourceType()
+AsyncFIFO = _SourceType()
 enum_from_bits = _SourceType()
 for _width in range(1, 65):
     _name = f"u{_width}"

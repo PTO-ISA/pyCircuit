@@ -73,7 +73,7 @@
     if (!charge(budget, module, 16 + path.size())) return failure();
     auto &definition = routing(module);
     QueueRoutingKey key{{routePath(package.getContext(), path),
-                         queue.getOutputs()[1]}, push};
+                         ac::getQueuePrimitiveLayout(queue).valid()}, push};
     if (definition.queueIncomingIndex.contains(key)) return success();
     ac::HardwareBindings bindings;
     bindings.owner = module;
@@ -82,9 +82,9 @@
       if (failed(child)) return failure();
       bindings = *child;
     }
-    auto payload = hardware.resolveType(queue.getOutputs()[2].getType(),
+    auto payload = hardware.resolveType(ac::getQueuePrimitiveLayout(queue).data().getType(),
                                         bindings, module);
-    auto predicate = hardware.resolveType(queue.getOutputs()[1].getType(),
+    auto predicate = hardware.resolveType(ac::getQueuePrimitiveLayout(queue).valid().getType(),
                                           bindings, module);
     if (failed(payload) || failed(predicate)) return failure();
     definition.queueIncomingIndex.try_emplace(key, definition.queueIncoming.size());
@@ -97,7 +97,7 @@
       ArrayRef<ac::InstanceOp> path, ac::InstanceOp queue) {
     if (!charge(budget, module, 16 + path.size())) return failure();
     auto &definition = routing(module);
-    RoutingKey key{routePath(package.getContext(), path), queue.getOutputs()[1]};
+    RoutingKey key{routePath(package.getContext(), path), ac::getQueuePrimitiveLayout(queue).valid()};
     if (definition.queuePopSummaryIndex.contains(key)) return success();
     ac::HardwareBindings bindings;
     bindings.owner = module;
@@ -106,7 +106,7 @@
       if (failed(child)) return failure();
       bindings = *child;
     }
-    auto type = hardware.resolveType(queue.getOutputs()[1].getType(), bindings,
+    auto type = hardware.resolveType(ac::getQueuePrimitiveLayout(queue).valid().getType(), bindings,
                                      module);
     if (failed(type)) return failure();
     definition.queuePopSummaryIndex.try_emplace(key, definition.queuePopSummaries.size());

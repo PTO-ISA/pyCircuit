@@ -507,6 +507,10 @@ struct TransactionStatePlan {
 };
 
 namespace detail {
+mlir::FailureOr<std::pair<LexicalInstanceId, InstanceOp>>
+resolveTransactionQueueReceiver(const TransactionStatePlan &plan,
+    LexicalInstanceId anchor, mlir::DictionaryAttr receiver, mlir::Operation *site,
+    llvm::function_ref<mlir::LogicalResult(uint64_t)> pay);
 /// Caller adapters supply independently reconstructed invocation-relative SSA
 /// identities. These queries never accept a serialized equality/reuse flag.
 mlir::FailureOr<bool> memoryAddressesEqual(

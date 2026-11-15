@@ -373,6 +373,62 @@ LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
 }
 } // namespace
 
+LogicalResult readSampledEventContext(RuleOp rule, SampledAdmissionView &view,
+                                      SourceCheckBudget &budget) {
+  auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  auto clock = index(row, "clock_capture", rule);
+  if (failed(clock) || uint64_t(*clock) >= rule.getNumOperands()) return failure();
+  bool event = row && row.get("resets");
+  auto package = rule->getParentOfType<mlir::ModuleOp>();
+  auto contract = package ? package->getAttrOfType<IntegerAttr>("ac.routed_contract") : IntegerAttr();
+  if (event != bool(contract && contract.getInt() == 7))
+    return rule.emitOpError("sampled event schema must match routed contract");
+  view.clockCapture = *clock;
+  view.clock = rule.getOperand(*clock);
+  view.resetCapture = *clock;
+  view.reset = view.clock;
+  view.resets.clear();
+  view.resetCaptures.clear();
+  view.edge = RegisterEdge::Posedge;
+  if (!event) {
+    auto reset = index(row, "reset_capture", rule);
+    if (failed(reset) || uint64_t(*reset) >= rule.getNumOperands()) return failure();
+    view.resetCapture = *reset;
+    view.reset = rule.getOperand(*reset);
+    if (failed(budget.debit(SourceCheckBudget::bytes(sizeof(HardwareSamplingReset) + sizeof(uint64_t)) + 1, rule))) return failure();
+    view.resets.push_back({view.reset, RegisterResetKind::Sync, RegisterResetPolarity::High});
+    view.resetCaptures.push_back(*reset);
+    return success();
+  }
+  if (row.get("reset_capture")) return rule.emitOpError("event policy forbids legacy reset_capture");
+  auto edge = row.getAs<StringAttr>("edge");
+  auto resets = row.getAs<ArrayAttr>("resets");
+  if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") || !resets)
+    return rule.emitOpError("sampled event requires edge and reset set");
+  view.edge = edge.getValue() == "posedge" ? RegisterEdge::Posedge : RegisterEdge::Negedge;
+  for (Attribute raw : resets) {
+    if (failed(budget.debit(SourceCheckBudget::bytes(sizeof(HardwareSamplingReset) + sizeof(uint64_t)) + 1, rule))) return failure();
+    auto resetRow = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(resetRow, {"capture", "kind", "polarity"}, rule, "sampled reset"))) return failure();
+    auto capture = index(resetRow, "capture", rule);
+    auto kind = resetRow.getAs<StringAttr>("kind"), polarity = resetRow.getAs<StringAttr>("polarity");
+    if (failed(capture) || uint64_t(*capture) >= rule.getNumOperands() || !kind ||
+        (kind.getValue() != "sync" && kind.getValue() != "async") || !polarity ||
+        (polarity.getValue() != "high" && polarity.getValue() != "low"))
+      return rule.emitOpError("invalid sampled reset binding");
+    HardwareSamplingReset reset{rule.getOperand(*capture),
+        kind.getValue() == "sync" ? RegisterResetKind::Sync : RegisterResetKind::Async,
+        polarity.getValue() == "high" ? RegisterResetPolarity::High : RegisterResetPolarity::Low};
+    for (const auto &prior : view.resets)
+      if (prior.value == reset.value && prior.kind == reset.kind && prior.polarity == reset.polarity)
+        return rule.emitOpError("duplicate sampled reset binding");
+    view.resets.push_back(reset);
+    view.resetCaptures.push_back(*capture);
+  }
+  if (!view.resets.empty()) view.reset = view.resets.front().value;
+  return success();
+}
+
 FailureOr<SampledAdmissionView>
 parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
                       const HardwareBindings &bindings,
@@ -524,34 +580,9 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.fireResult = *fire;
   result.checkBase = checkBase;
   result.totalResults = total;
-  result.clock = rule->getOperand(*clock);
-  result.reset = rule->getOperand(*reset);
-  if (eventPolicy) {
-    auto edge = row.getAs<StringAttr>("edge");
-    auto resets = row.getAs<ArrayAttr>("resets");
-    if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") || !resets)
-      return rule.emitOpError("sampled event requires edge and reset set");
-    result.edge = edge.getValue() == "posedge" ? RegisterEdge::Posedge : RegisterEdge::Negedge;
-    for (Attribute raw : resets) {
-      auto resetRow = dyn_cast<DictionaryAttr>(raw);
-      if (failed(exact(resetRow, {"capture", "kind", "polarity"}, rule, "sampled reset"))) return failure();
-      auto capture = index(resetRow, "capture", rule);
-      auto kind = resetRow.getAs<StringAttr>("kind"), polarity = resetRow.getAs<StringAttr>("polarity");
-      if (failed(capture) || *capture >= rule->getNumOperands() || !kind ||
-          (kind.getValue() != "sync" && kind.getValue() != "async") || !polarity ||
-          (polarity.getValue() != "high" && polarity.getValue() != "low"))
-        return rule.emitOpError("invalid sampled reset binding");
-      Value value = rule->getOperand(*capture);
-      if (failed(bitOne(value, analysis, bindings, rule, budget))) return failure();
-      HardwareSamplingReset reset{value, kind.getValue() == "sync" ? RegisterResetKind::Sync : RegisterResetKind::Async,
-          polarity.getValue() == "high" ? RegisterResetPolarity::High : RegisterResetPolarity::Low};
-      for (const auto &prior : result.resets)
-        if (prior.value == reset.value && prior.kind == reset.kind && prior.polarity == reset.polarity)
-          return rule.emitOpError("duplicate sampled reset binding");
-      result.resets.push_back(reset);
-    }
-    if (!result.resets.empty()) result.reset = result.resets.front().value;
-  } else result.resets.push_back({result.reset, RegisterResetKind::Sync, RegisterResetPolarity::High});
+  if (failed(readSampledEventContext(rule, result, budget))) return failure();
+  for (const auto &reset : result.resets)
+    if (failed(bitOne(reset.value, analysis, bindings, rule, budget))) return failure();
   auto packageStage = analysis.getPackage()->getAttrOfType<StringAttr>("ac.stage");
   if ((masked && result.resets.empty()) ||
       (packageStage && packageStage.getValue() == "final" && eventPolicy && !result.resets.empty() && !masked))
@@ -3646,7 +3677,27 @@ private:
         if (!ownerFound) return terminal->emitOpError("sampled effect owner occurrence is outside the resolved domain tree");
         matched = true;
       }
-      if (!matched) return terminal->emitOpError("sampled effect template has no selected actual domain binding");
+      if (!matched) {
+        // Retained definitions are checked even outside the selected root.
+        // Their declared clock inputs still provide a definition-relative SSA
+        // proof; there is no actual occurrence whose clock aliases to assume.
+        auto clocks = logical.terminal->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+        auto rootKind = logical.terminal->getAttrOfType<StringAttr>("ac.root_kind");
+        bool anyDomain = resourceEndpointContext || (rootKind && rootKind.getValue() == "system");
+        if (clocks)
+          for (NamedAttribute binding : clocks) {
+            if (failed(budget.debit(1, terminal))) return failure();
+            if (!anyDomain && binding.getName() != defaultName) continue;
+            auto ordinal = dyn_cast<IntegerAttr>(binding.getValue());
+            auto &block = logical.terminal->getRegion(0).front();
+            if (!ordinal || ordinal.getInt() < 0 || uint64_t(ordinal.getInt()) >= block.getNumArguments())
+              return terminal->emitOpError("invalid template domain clock input");
+            auto declared = normal(block.getArgument(ordinal.getInt()), *receiver);
+            if (failed(declared)) return failure();
+            matched |= sameEndpoint(*declared, clock);
+          }
+        if (!matched) return terminal->emitOpError("sampled effect template has no matching declared domain clock");
+      }
       return success();
     }
     auto domain =
@@ -4232,28 +4283,37 @@ private:
               if (!owner) return writer.rule->emitOpError("invalid resource owner path");
               resourceScope->path.push_back(child);
             }
-            InstanceOp allocation;
-            for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
+            Operation *allocation = nullptr;
+            for (Operation &candidate : owner.getBody().front()) {
               if (failed(budget.debit(1, writer.rule))) return failure();
-              if (instance.getOccurrence() == resource.declaration) {
+              if (candidate.getAttr("occurrence") == resource.declaration) {
                 if (allocation) return writer.rule->emitOpError("ambiguous resource allocation");
-                allocation = instance;
+                allocation = &candidate;
               }
             }
-            auto kind = allocation ? analysis.getPrimitiveKind(analysis.resolveCallee(allocation)) : StringRef();
-            if (!allocation || allocation->getNumOperands() < 2 ||
-                (kind != "fifo_local" && kind != "fifo_downstream_pop" && kind != "sync_mem" && kind != "sync_mem_dp" && kind != "byte_mem"))
+            auto instance = dyn_cast_or_null<InstanceOp>(allocation);
+            auto kind = instance ? analysis.getPrimitiveKind(analysis.resolveCallee(instance)) : StringRef();
+            bool queue = isQueueResource(allocation);
+            if (!allocation || (!queue && kind != "sync_mem" && kind != "sync_mem_dp" && kind != "byte_mem"))
               return writer.rule->emitOpError("resource effect must resolve an actual Queue or Memory");
-            auto resourceClock = normal(allocation->getOperand(0), *resourceScope);
-            auto resourceReset = normal(allocation->getOperand(1), *resourceScope);
+            auto layout = getQueuePrimitiveLayout(allocation);
+            bool asynchronous = queue && layout.asynchronous;
+            bool push = resource.kind.getValue() == "queue_ready";
+            auto resourceClock = normal(queue ? layout.clock(push) : allocation->getOperand(0), *resourceScope);
+            auto resourceReset = normal(queue ? layout.reset() : allocation->getOperand(1), *resourceScope);
             if (failed(resourceClock) || failed(resourceReset)) return failure();
-            if (failed(equalClocks(*resourceClock, *clock)) || sampled->edge != RegisterEdge::Posedge)
+            auto edge = asynchronous ? allocation->getAttrOfType<StringAttr>(push ? "write_edge" : "read_edge") : StringAttr();
+            auto expectedEdge = edge && edge.getValue() == "negedge" ? RegisterEdge::Negedge : RegisterEdge::Posedge;
+            if (failed(equalClocks(*resourceClock, *clock)) || sampled->edge != expectedEdge)
               return writer.rule->emitOpError("resource effect clock or edge differs from transaction");
+            auto resetKind = asynchronous ? RegisterResetKind::Async : RegisterResetKind::Sync;
+            auto polarity = asynchronous ? allocation->getAttrOfType<StringAttr>("reset_polarity") : StringAttr();
+            auto resetPolarity = polarity && polarity.getValue() == "low" ? RegisterResetPolarity::Low : RegisterResetPolarity::High;
             bool present = false;
             for (const auto &prior : expectedResets)
-              present |= sameEndpoint(prior.endpoint, *resourceReset) && prior.kind == RegisterResetKind::Sync &&
-                         prior.polarity == RegisterResetPolarity::High;
-            if (!present) expectedResets.push_back({*resourceReset, RegisterResetKind::Sync, RegisterResetPolarity::High});
+              present |= sameEndpoint(prior.endpoint, *resourceReset) && prior.kind == resetKind &&
+                         prior.polarity == resetPolarity;
+            if (!present) expectedResets.push_back({*resourceReset, resetKind, resetPolarity});
           }
           for (const auto &effect : *cdcEffects) {
             auto actualClock = normal(effect.clock, entry.scope);

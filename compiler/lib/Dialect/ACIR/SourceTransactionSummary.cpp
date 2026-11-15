@@ -219,7 +219,7 @@ public:
                          operation.getNumResults()))
         return failure();
       if (auto state = dyn_cast<SourceStateOp>(operation)) {
-        auto domain = getDomain(state.getClk(), state.getRst());
+        auto domain = getDomain(state.getClk(), state.getTransactionReset());
         if (failed(domain))
           return failure();
         auto row = dict({{"kind", str("state")},
@@ -783,6 +783,7 @@ private:
         StringRef receiverSymbol =
             call.getCalleeAttr().getRootReference().getValue();
         bool nativeQueue =
+            receiverSymbol == "pycircuit.__builtins__.async_fifo" ||
             receiverSymbol == "pycircuit.__builtins__.fifo_local" ||
             receiverSymbol == "pycircuit.__builtins__.fifo_downstream_pop" ||
             receiverSymbol == "pycircuit.__builtins__.sync_mem" ||
@@ -1145,7 +1146,8 @@ public:
         for (Attribute raw : inputs)
           if (failed(type(raw)))
             return failure();
-        bool queue = callee.getValue() == "pycircuit.__builtins__.fifo_local" ||
+        bool asynchronous = callee.getValue() == "pycircuit.__builtins__.async_fifo";
+        bool queue = asynchronous || callee.getValue() == "pycircuit.__builtins__.fifo_local" ||
                      callee.getValue() ==
                          "pycircuit.__builtins__.fifo_downstream_pop";
         bool memoryKind = callee.getValue() == "pycircuit.__builtins__.sync_mem" ||
@@ -1189,10 +1191,10 @@ public:
           if ((unboundPush && !unboundPush.getValue()) ||
               (unboundPop && !unboundPop.getValue()))
             return error("queue unbound-direction facts must be true when present");
-          if (inputs.size() != 5 || results.size() != 4 ||
-              typeArguments.size() != 1 || parameters.size() != 2)
+          if (inputs.size() != (asynchronous ? 6u : 5u) || results.size() != (asynchronous ? 3u : 4u) ||
+              typeArguments.size() != 1 || parameters.size() != (asynchronous ? 1u : 2u))
             return error("canonical FIFO instance summary shape is invalid");
-          auto payload = cast<TypeAttr>(results[2]).getValue();
+          auto payload = cast<TypeAttr>(results[asynchronous ? 0 : 2]).getValue();
           auto config =
               getQueueConfiguration(callee, parameters, declaration);
           if (failed(config) ||
@@ -1207,8 +1209,8 @@ public:
           if ((unboundPush || unboundPop) && !payloadConstraint)
             return error("source Queue methods require a checked payload constraint");
           for (auto [index, unbound] :
-               {std::pair<unsigned, bool>{2, unboundPush && unboundPush.getValue()},
-                {4, unboundPop && unboundPop.getValue()}}) {
+               {std::pair<unsigned, bool>{asynchronous ? 4u : 2u, unboundPush && unboundPush.getValue()},
+                {asynchronous ? 5u : 4u, unboundPop && unboundPop.getValue()}}) {
             auto binding = dyn_cast<DictionaryAttr>(actuals[index]);
             auto fact = binding
                             ? binding.getAs<DictionaryAttr>("fact")
@@ -1807,7 +1809,8 @@ private:
     auto callee = row.getAs<SymbolRefAttr>("callee");
     bool nativeQueue =
         callee &&
-        (callee.getRootReference().getValue() ==
+        (callee.getRootReference().getValue() == "pycircuit.__builtins__.async_fifo" ||
+         callee.getRootReference().getValue() ==
              "pycircuit.__builtins__.fifo_local" ||
          callee.getRootReference().getValue() ==
              "pycircuit.__builtins__.fifo_downstream_pop" ||

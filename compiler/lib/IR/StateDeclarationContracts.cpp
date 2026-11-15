@@ -299,6 +299,8 @@ mlir::FailureOr<RegisterPolicy> getRegisterPolicy(Operation *operation) {
     auto package = state->getParentOfType<mlir::ModuleOp>();
     auto contract = package ? package->getAttrOfType<IntegerAttr>("ac.routed_contract") : IntegerAttr();
     explicitPolicy = contract && contract.getInt() == 7;
+  } else if (operation->getName().getStringRef() == "ac.state") {
+    explicitPolicy = operation->hasAttr("operandSegmentSizes");
   } else if (isa<ModuleChildOpInterface>(operation)) {
     auto callee = operation->getAttrOfType<FlatSymbolRefAttr>("callee");
     auto package = operation->getParentOfType<mlir::ModuleOp>();

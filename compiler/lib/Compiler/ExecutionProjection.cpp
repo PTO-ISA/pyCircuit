@@ -180,7 +180,7 @@ bool totalScalarOperation(Operation *op, ac::HardwareAnalysis &analysis) {
 
 bool closedKnown(Value value, ac::HardwareAnalysis &analysis,
                  unsigned depth = 0) {
-  if (depth > 128)
+  if (!value || depth > 128)
     return false;
   auto operation = value.getDefiningOp();
   if (!operation || !totalScalarOperation(operation, analysis) ||
@@ -1001,7 +1001,7 @@ ac::ModuleOp deriveView(mlir::ModuleOp package, ac::ModuleOp model,
 // behavior.
 bool knownAggregate(Value value, ac::HardwareAnalysis &analysis,
                     unsigned depth = 0) {
-  if (depth > 128 || !value.getDefiningOp())
+  if (!value || depth > 128 || !value.getDefiningOp())
     return false;
   Operation *op = value.getDefiningOp();
   if (!isa<ac::TableCreateOp, ac::TableSplatOp>(op) &&

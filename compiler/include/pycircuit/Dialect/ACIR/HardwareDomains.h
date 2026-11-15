@@ -15,6 +15,8 @@ struct HardwareDomainPlan {
   llvm::SmallVector<unsigned> clockInputs;
   llvm::SmallVector<HardwareDomainOccurrence, 0> occurrences;
 };
+mlir::LogicalResult inferSourceCDCEndpoints(mlir::ModuleOp package,
+    HardwareSourceCheckLimits limits = {});
 mlir::FailureOr<HardwareDomainPlan>
 getHardwareDomainPlan(mlir::ModuleOp package,
                       HardwareSourceCheckLimits limits = {});

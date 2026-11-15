@@ -11,16 +11,8 @@ namespace acir {
 
 namespace acir {
 
-mlir::LogicalResult verifyLogicalStateStructure(mlir::Operation *operation) {
-  auto state = llvm::dyn_cast<LogicalStateOpInterface>(operation);
-  if (!state)
-    return operation->emitOpError()
-           << "is not a routed logical state operation";
-  auto package = operation->getParentOfType<mlir::ModuleOp>();
-  auto contract = package ? package->getAttrOfType<mlir::IntegerAttr>("ac.routed_contract") : mlir::IntegerAttr();
-  bool current = contract && contract.getInt() == 7;
+mlir::LogicalResult verifyStateDeclarationStructure(mlir::Operation *operation, bool current) {
   unsigned expected = 3;
-  mlir::Value operands[3];
   if (current) {
     auto sizes = operation->getAttrOfType<mlir::DenseI32ArrayAttr>("operandSegmentSizes");
     auto str = [&](llvm::StringRef key) { return operation->getAttrOfType<mlir::StringAttr>(key); };
@@ -35,19 +27,34 @@ mlir::LogicalResult verifyLogicalStateStructure(mlir::Operation *operation) {
       return operation->emitOpError() << "contract 7 state requires explicit policy, domain and exact operand segments";
     expected = 1 + 2 * unsigned(hasReset) + unsigned(hasInitial);
     if (operation->getNumOperands() != expected) return operation->emitOpError() << "state operand segments disagree with operands";
-    unsigned cursor = 0;
-    for (unsigned i = 0; i < 3; ++i) {
-      operands[i] = sizes[i] ? operation->getOperand(cursor) : mlir::Value();
-      cursor += sizes[i];
-    }
   } else {
     for (llvm::StringRef key : {"operandSegmentSizes", "edge", "reset_kind", "reset_polarity", "init_kind", "domain"})
       if (operation->hasAttr(key)) return operation->emitOpError() << "legacy state forbids explicit policy";
     if (operation->getNumOperands() != expected) return operation->emitOpError() << "legacy state requires three operands";
-    for (unsigned i = 0; i < 3; ++i) operands[i] = operation->getOperand(i);
   }
   if (operation->getNumResults() != 1 || operation->getNumRegions() || operation->getNumSuccessors())
     return operation->emitOpError() << "logical state requires one result and no regions or successors";
+  return mlir::success();
+}
+
+mlir::LogicalResult verifyLogicalStateStructure(mlir::Operation *operation) {
+  auto state = llvm::dyn_cast<LogicalStateOpInterface>(operation);
+  if (!state)
+    return operation->emitOpError()
+           << "is not a routed logical state operation";
+  auto package = operation->getParentOfType<mlir::ModuleOp>();
+  auto contract = package ? package->getAttrOfType<mlir::IntegerAttr>("ac.routed_contract") : mlir::IntegerAttr();
+  bool current = contract && contract.getInt() == 7;
+  if (mlir::failed(verifyStateDeclarationStructure(operation, current)))
+    return mlir::failure();
+  mlir::Value operands[3];
+  auto sizes = operation->getAttrOfType<mlir::DenseI32ArrayAttr>("operandSegmentSizes");
+  unsigned cursor = 0;
+  for (unsigned i = 0; i < 3; ++i) {
+    unsigned count = current ? sizes[i] : 1;
+    operands[i] = count ? operation->getOperand(cursor) : mlir::Value();
+    cursor += count;
+  }
   if (state.getStateClock() != operands[0] || state.getStateReset() != operands[1] ||
       state.getStateInitial() != operands[2] || state.getStateQ() != operation->getResult(0))
     return operation->emitOpError() << "logical state getters must alias declared operand segments";

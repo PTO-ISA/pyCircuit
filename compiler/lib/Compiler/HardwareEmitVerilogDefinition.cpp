@@ -122,6 +122,14 @@ public:
       auto clock = net(binding.clock);
       if (failed(clock))
         return failure();
+      SmallVector<std::string> resetValues;
+      for (const auto &reset : binding.resets) {
+        auto raw = net(reset.value);
+        if (failed(raw)) return failure();
+        resetValues.push_back(context.rtlReset(
+            reset.polarity == ac::RegisterResetPolarity::Low
+                ? "~(" + *raw + ")" : *raw));
+      }
       auto name = "pyc_sampling_" + std::to_string(binding.localOrdinal);
       samplingNames.try_emplace(index, name);
       localCompletions.push_back(name + "_complete");
@@ -155,18 +163,12 @@ public:
           << ") && (" << name << "_sampled_clock === "
           << (binding.edge == ac::RegisterEdge::Negedge ? "1'b0" : "1'b1")
           << ");\n";
-      for (const auto &reset : binding.resets) {
-        auto raw = net(reset.value);
-        if (failed(raw))
-          return failure();
-        std::string normalized =
-            reset.polarity == ac::RegisterResetPolarity::Low ? "~(" + *raw + ")"
-                                                             : *raw;
+      for (auto [resetIndex, reset] : llvm::enumerate(binding.resets)) {
         std::string due = reset.kind == ac::RegisterResetKind::Async
                               ? "1'b1"
                               : name + "_rising";
         out << "          " << name
-            << "_sampled_reset = " << context.rtlReset(normalized) << ";\n"
+            << "_sampled_reset = " << resetValues[resetIndex] << ";\n"
             << "          if (" << due << ") begin\n"
             << "            if ($isunknown(" << name << "_sampled_reset)) "
             << name << "_fault = 2'd2;\n"
@@ -1303,6 +1305,7 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
   SmallVector<std::string> parameters;
   for (auto raw : definition.getParameters()) {
     auto formal = cast<DictionaryAttr>(raw);
+    if (isDomainStaticParameter(formal)) continue;
     auto name = formal.getAs<StringAttr>("name");
     auto id = context.rtlFormalName(name.getValue(), definition);
     if (failed(id))

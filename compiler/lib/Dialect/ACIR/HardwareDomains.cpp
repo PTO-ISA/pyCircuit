@@ -1,13 +1,16 @@
 #include "pycircuit/Dialect/ACIR/HardwareDomains.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "HardwareSourceChecks.h"
+#include "HardwareSampledAdmission.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include <map>
 #include <memory>
 #include <set>
+#include <tuple>
 #include <vector>
 using namespace mlir;
 namespace acir::ac {
@@ -17,6 +20,11 @@ class Resolver {
   HardwareAnalysis analysis;
   detail::SourceCheckBudget budget;
   HardwareDomainPlan plan;
+  bool sourceInference = false;
+  unsigned nextInference = ~0u;
+  struct Inference { Operation *resource; unsigned occurrence; bool source; Domains constraints; };
+  std::map<unsigned, Inference> inferences;
+  std::map<std::tuple<Operation *, unsigned, bool>, unsigned> inferenceIds;
   DenseSet<Operation *> active;
   struct Scope {
     unsigned occurrence;
@@ -155,6 +163,17 @@ class Resolver {
                   "clock must forward an actual root clock argument");
   }
   FailureOr<unsigned> domain(Operation *op, StringRef field, Scope &scope) {
+    bool source = field == "source_domain" || field == "write_domain";
+    if (sourceInference && isCDCInstance(dyn_cast<InstanceOp>(op)) &&
+        op->hasAttr(source ? "source_infer_source" : "source_infer_target")) {
+      auto key = std::make_tuple(op, scope.occurrence, source);
+      auto found = inferenceIds.find(key);
+      if (found != inferenceIds.end()) return found->second;
+      unsigned token = nextInference--;
+      inferenceIds[key] = token;
+      inferences.try_emplace(token, Inference{op, scope.occurrence, source, {}});
+      return token;
+    }
     auto name = op->getAttrOfType<StringAttr>(field);
     auto &clocks = plan.occurrences[scope.occurrence].clocks;
     auto found = name ? clocks.find(name.getValue()) : clocks.end();
@@ -203,8 +222,8 @@ class Resolver {
       return reject(value.getParentBlock()->getParentOp(),
                     "combinational dependency cycle");
     Domains result;
-    auto merge = [&](Value input) -> LogicalResult {
-      auto found = dependencies(input, scope, control);
+    auto merge = [&](Value input, bool guard = false) -> LogicalResult {
+      auto found = dependencies(input, scope, control || guard);
       if (failed(found))
         return failure();
       result.insert(found->begin(), found->end());
@@ -223,12 +242,31 @@ class Resolver {
           return reject(arg.getOwner()->getParentOp(),
                         "ordinary root input has no domain owner");
       } else if (auto rule = dyn_cast<RuleOp>(arg.getOwner()->getParentOp())) {
-        if (failed(merge(rule.getCaptures()[arg.getArgNumber()])))
-          return failure();
+        if (failed(merge(rule.getCaptures()[arg.getArgNumber()]))) return failure();
+      } else if (auto transaction = dyn_cast<SourceTransactionOp>(arg.getOwner()->getParentOp())) {
+        if (failed(merge(transaction.getCaptures()[arg.getArgNumber()]))) return failure();
+      } else if (auto method = dyn_cast<SourceMethodOp>(arg.getOwner()->getParentOp())) {
+        unsigned parameters = method.getFunctionType().getNumInputs();
+        if (arg.getArgNumber() >= parameters) {
+          if (failed(merge(method.getCaptures()[arg.getArgNumber() - parameters]))) return failure();
+        } else {
+          auto module = plan.occurrences[scope.occurrence].definition;
+          auto actual = domain(module, "ac.default_domain", scope);
+          if (failed(actual)) return failure();
+          result.insert(*actual);
+        }
       }
     } else {
       Operation *op = value.getDefiningOp();
-      if (auto state = dyn_cast<acir::LogicalStateOpInterface>(op)) {
+      if (auto state = dyn_cast<SourceStateOp>(op)) {
+        auto actual = clock(state.getClk(), scope);
+        if (failed(actual)) return failure();
+        result.insert(*actual);
+      } else if (auto transaction = dyn_cast<SourceTransactionOp>(op)) {
+        auto actual = clock(transaction.getClk(), scope);
+        if (failed(actual)) return failure();
+        result.insert(*actual);
+      } else if (auto state = dyn_cast<acir::LogicalStateOpInterface>(op)) {
         auto d = domain(state, "domain", scope);
         if (failed(d))
           return failure();
@@ -252,6 +290,21 @@ class Resolver {
         if (failed(found))
           return failure();
         result = *found;
+      } else if (auto instance = dyn_cast<InstanceOp>(op);
+                 instance && isa_and_nonnull<ModuleImportOp>(analysis.resolveCallee(instance)) &&
+                 !analysis.resolveCallee(instance)->hasAttr("ac.default_domain")) {
+        // Stateless interfaces retain their published output dependencies;
+        // an unused input cannot impose a clock domain on an output.
+        auto imported = cast<ModuleImportOp>(analysis.resolveCallee(instance));
+        auto bound = analysis.bindInstance(instance, scope.bindings);
+        if (failed(bound)) return failure();
+        auto summary = analysis.getImportDependencies(imported, *bound);
+        if (failed(summary)) return failure();
+        unsigned output = cast<OpResult>(value).getResultNumber();
+        for (const auto &dependency : *summary)
+          if (dependency.output.port == output)
+            for (const auto &input : dependency.inputs)
+              if (failed(merge(instance.getInputs()[input.port]))) return failure();
       } else if (auto rule = dyn_cast<RuleOp>(op)) {
         auto yield = cast<YieldOp>(rule.getBody().front().back());
         unsigned ordinal = cast<OpResult>(value).getResultNumber();
@@ -261,6 +314,16 @@ class Resolver {
         if (failed(found))
           return failure();
         result = *found;
+      } else if (auto select = dyn_cast<BitsSelectOp>(op)) {
+        if (failed(merge(select.getCondition(), true)) ||
+            failed(merge(select.getTrueValue())) || failed(merge(select.getFalseValue())))
+          return failure();
+      } else if (auto selected = dyn_cast<ValueMergeOp>(op)) {
+        if (failed(merge(selected.getBase()))) return failure();
+        for (Value guard : selected.getGuards())
+          if (failed(merge(guard, true))) return failure();
+        for (Value candidate : selected.getValues())
+          if (failed(merge(candidate))) return failure();
       } else if (!isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp,
                       ValueZeroOp>(op)) {
         for (auto input : op->getOperands())
@@ -277,9 +340,16 @@ class Resolver {
     auto found = dependencies(value, scope, control);
     if (failed(found))
       return failure();
+    if (sourceInference) {
+      for (unsigned d : *found) {
+        if (inferences.count(expected)) inferences[expected].constraints.insert(d);
+        else if (inferences.count(d)) inferences[d].constraints.insert(expected);
+        else if (d != expected) return reject(site, "ordinary data/control connection crosses actual clock domains; use an explicit CDC resource");
+      }
+      return success();
+    }
     if (llvm::any_of(*found, [&](unsigned d) { return d != expected; }))
-      return reject(site, "ordinary data/control connection crosses actual "
-                          "clock domains; use an explicit CDC resource");
+      return reject(site, "ordinary data/control connection crosses actual clock domains; use an explicit CDC resource");
     return success();
   }
   LogicalResult visit(ModuleOp module, HardwareBindings bindings,
@@ -333,11 +403,23 @@ class Resolver {
     }
     for (auto &entry : scope.clockValues)
       scope.controls.insert(entry.first);
+    // The compiler-owned transaction reset remains a dedicated control even
+    // when storage uses a different reset, or the scope has no local state.
+    if (auto inputs = module->getAttrOfType<DictionaryAttr>("ac.domain_inputs"))
+      if (auto reset = inputs.getAs<IntegerAttr>("reset")) {
+        if (reset.getInt() < 0 || uint64_t(reset.getInt()) >= module.getBody().front().getNumArguments())
+          return reject(module, "transaction reset input ordinal is invalid");
+        scope.controls.insert(module.getBody().front().getArgument(reset.getInt()));
+      }
     // Resets are dedicated logical controls and never ordinary payload inputs.
     for (auto &op : module.getBody().front()) {
       if (auto state = dyn_cast<acir::LogicalStateOpInterface>(op)) {
         if (state.getStateReset())
           scope.controls.insert(state.getStateReset());
+      } else if (auto state = dyn_cast<SourceStateOp>(op)) {
+        // Source declarations intentionally do not implement the routed state
+        // interface. Their reset operand has the same dedicated control role.
+        if (state.getRst()) scope.controls.insert(state.getRst());
       }
       if (isCDCInstance(dyn_cast<InstanceOp>(op)) || isa<CDCRefinementOp>(op))
         scope.controls.insert(op.getOperand(2));
@@ -345,6 +427,16 @@ class Resolver {
     for (auto arg : module.getBody().front().getArguments())
       if (!scope.parent && defaultDomain)
         scope.values[arg] = {*defaultDomain};
+    if (!scope.parent) {
+      // Named System samples drive external one-bit controls, not data produced
+      // by the synthetic default clock. Actual clock columns keep their clock
+      // identities through the override below. Ordinary Module inputs retain
+      // their declared domain provenance.
+      auto sampled = getSystemSampleInputs(module);
+      if (failed(sampled)) return failure();
+      for (unsigned input : *sampled)
+        scope.values[module.getBody().front().getArgument(input)] = {};
+    }
     for (auto &entry : scope.clockValues)
       if (!scope.parent)
         scope.values[entry.first] = {entry.second};
@@ -383,7 +475,16 @@ class Resolver {
         scope.controls.insert(layout->reset());
       } else if (callee) {
         auto kind = analysis.getPrimitiveKind(callee);
-        if (!kind.empty()) {
+        if (sourceInference && kind.empty() && isa<ModuleImportOp>(callee)) {
+          auto defaultName = callee->getAttrOfType<StringAttr>("ac.default_domain");
+          auto bindings = op.getAttrOfType<DictionaryAttr>("ac.domain_bindings");
+          auto actualName = defaultName && bindings ? bindings.getAs<StringAttr>(defaultName.getValue()) : StringAttr();
+          auto &names = plan.occurrences[index].clocks;
+          if (defaultName) {
+            if (!actualName || !names.count(actualName.getValue())) return reject(&op, "imported output requires its actual declared default domain");
+            for (Value output : op.getResults()) scope.values[output] = {names.lookup(actualName.getValue())};
+          }
+        } else if (!kind.empty()) {
           auto actual = clock(op.getOperand(0), scope);
           if (failed(actual))
             return failure();
@@ -472,10 +573,21 @@ class Resolver {
                   identity->second;
           }
         }
-        scope.children[instance] = scopes.size();
+        unsigned childIndex = scopes.size();
+        scope.children[instance] = childIndex;
         if (failed(visit(child, *childBindings, std::move(next),
                          std::move(childClocks), depth + 1)))
           return failure();
+        // A reset/control forwarded through a stateless parent is still a
+        // dedicated child pin. Propagate only that boundary role; ordinary
+        // data uses retain their actual dependency in scope.values.
+        for (auto argument : child.getBody().front().getArguments()) {
+          if (failed(budget.debit(1, instance))) return failure();
+          if (!scopes[childIndex]->controls.contains(argument)) continue;
+          auto forwarded = dyn_cast<BlockArgument>(instance->getOperand(argument.getArgNumber()));
+          if (forwarded && forwarded.getOwner() == &module.getBody().front())
+            scope.controls.insert(forwarded);
+        }
       }
     }
     active.erase(module);
@@ -500,9 +612,21 @@ class Resolver {
       auto expected = domain(definition, "ac.default_domain", child);
       if (failed(expected))
         return failure();
+      llvm::DenseSet<uint64_t> incoming;
+      if (definition->hasAttr("ac.transaction_wiring")) {
+        auto wiring = detail::parseTransactionWiring(definition, analysis, child.bindings, budget);
+        if (failed(wiring)) return failure();
+        for (const auto &route : wiring->incoming) {
+          incoming.insert(route.dataInput);
+          incoming.insert(route.enableInput);
+        }
+      }
       for (auto [i, input] : llvm::enumerate(entry.first->getOperands())) {
         auto argument = definition.getBody().front().getArgument(i);
-        if (!child.controls.contains(argument) &&
+        // Verified transaction inputs carry candidates for their actual state
+        // owners, which may be below a different default-domain boundary. Keep
+        // their SSA dependencies intact for the state/update checks below.
+        if (!child.controls.contains(argument) && !incoming.contains(i) &&
             failed(check(input, *expected, scope, entry.first)))
           return failure();
       }
@@ -559,6 +683,11 @@ class Resolver {
                           : op.getAttrOfType<StringAttr>("logical_kind").getValue() == "async_reg";
         auto a = domain(&op, reg ? "source_domain" : "write_domain", scope),
              b = domain(&op, reg ? "target_domain" : "read_domain", scope);
+        if (sourceInference) {
+          if (failed(a) || failed(b)) return failure();
+          if (reg && failed(check(op.getOperand(3), *a, scope, &op))) return failure();
+          continue;
+        }
         auto ac = clock(op.getOperand(0), scope),
              bc = clock(op.getOperand(1), scope);
         if (failed(a) || failed(b) || failed(ac) || failed(bc) || *a != *ac ||
@@ -579,11 +708,124 @@ class Resolver {
         }
       }
     }
+    if (sourceInference) {
+      auto transactions = module.walk([&](SourceTransactionOp transaction) {
+        auto actual = clock(transaction.getClk(), scope);
+        if (failed(actual)) return WalkResult::interrupt();
+        for (Value capture : transaction.getCaptures())
+          if (!scope.controls.contains(capture) && failed(check(capture, *actual, scope, transaction)))
+            return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+      if (transactions.wasInterrupted()) return failure();
+    }
     if (defaultDomain) {
       auto yield = cast<YieldOp>(module.getBody().front().back());
-      for (auto output : yield.getOperands())
+      auto ports = getModulePortLayout(module);
+      if (failed(ports)) return failure();
+      // Only authored outputs belong to this Module's default-domain
+      // interface. Private transaction exports retain their owners' domains.
+      for (auto output : yield.getOperands().take_front(ports->sourceOutputCount))
         if (failed(check(output, *defaultDomain, scope, yield)))
           return failure();
+    }
+    return success();
+  }
+
+  FailureOr<std::pair<Scope *, InstanceOp>> sourceQueueActual(
+      Scope &initial, DictionaryAttr receiver, InstanceOp imported = {}) {
+    Scope *scope = &initial;
+    for (unsigned depth = 0; depth < 128; ++depth) {
+      if (failed(budget.debit(8, plan.root)) || !receiver) return failure();
+      if (auto reference = receiver.getAs<StringAttr>("reference")) {
+        auto enclosing = imported ? imported : dyn_cast_or_null<InstanceOp>(plan.occurrences[scope->occurrence].allocation);
+        if (!enclosing || (!imported && !scope->parent)) return reject(plan.root, "Queue reference lacks its actual allocation context");
+        auto actuals = enclosing->getAttrOfType<ArrayAttr>("ac.reference_bindings");
+        DictionaryAttr actual;
+        for (Attribute raw : actuals ? actuals : ArrayAttr::get(plan.root.getContext(), {})) {
+          if (failed(budget.debit(1, enclosing))) return failure();
+          auto row = cast<DictionaryAttr>(raw);
+          if (row.getAs<StringAttr>("name") == reference) actual = row.getAs<DictionaryAttr>("receiver");
+        }
+        if (!actual) return reject(enclosing, "Queue reference binding is absent");
+        if (!imported) scope = scope->parent;
+        imported = {};
+        receiver = actual;
+        continue;
+      }
+      auto path = receiver.getAs<ArrayAttr>("instance_path");
+      if (!path || path.size() != 1 || imported) return std::make_pair(scope, InstanceOp());
+      auto definition = plan.occurrences[scope->occurrence].definition;
+      for (auto allocation : definition.getBody().front().getOps<InstanceOp>()) {
+        if (failed(budget.debit(1, allocation))) return failure();
+        if ((path[0] == allocation.getOccurrence() || path[0] == allocation.getInstanceNameAttr()) && isAsyncQueueInstance(allocation))
+          return std::make_pair(scope, allocation);
+      }
+      return std::make_pair(scope, InstanceOp());
+    }
+    return reject(plan.root, "Queue reference binding depth exceeded");
+  }
+  LogicalResult inferQueueEffects() {
+    Builder builder(plan.root.getContext());
+    auto constrain = [&](Scope &scope, SymbolRefAttr callee, DictionaryAttr receiver,
+                         unsigned samplingClock, InstanceOp imported = {}) -> LogicalResult {
+      if (!callee || callee.getRootReference().getValue() != "pycircuit.__builtins__.async_fifo" || callee.getNestedReferences().size() != 1) return success();
+      auto actual = sourceQueueActual(scope, receiver, imported);
+      if (failed(actual)) return failure();
+      if (!actual->second) return success();
+      bool push = callee.getNestedReferences()[0].getValue() == "push";
+      auto endpoint = domain(actual->second, push ? "write_domain" : "read_domain", *actual->first);
+      if (failed(endpoint)) return failure();
+      if (inferences.count(*endpoint)) inferences[*endpoint].constraints.insert(samplingClock);
+      else if (*endpoint != samplingClock) return reject(actual->second, "Queue Method crosses its endpoint clock domain");
+      return success();
+    };
+    for (auto &owned : scopes) {
+      auto &scope = *owned;
+      auto module = plan.occurrences[scope.occurrence].definition;
+      auto calls = module.walk([&](SourceMethodCallOp call) {
+        auto sampling = call->getParentOfType<SourceTransactionOp>();
+        auto actualClock = sampling ? clock(sampling.getClk(), scope) : domain(module, "ac.default_domain", scope);
+        if (failed(actualClock)) return WalkResult::interrupt();
+        NamedAttrList receiver;
+        receiver.set("instance_path", call.getInstancePathAttr());
+        if (auto reference = call->getAttr("ac.reference")) receiver.set("reference", reference);
+        return failed(constrain(scope, call.getCalleeAttr(), receiver.getDictionary(builder.getContext()), *actualClock))
+            ? WalkResult::interrupt() : WalkResult::advance();
+      });
+      if (calls.wasInterrupted()) return failure();
+      for (auto instance : module.getBody().front().getOps<InstanceOp>()) {
+        auto imported = dyn_cast_or_null<ModuleImportOp>(analysis.resolveCallee(instance));
+        auto summary = imported ? imported->getAttrOfType<DictionaryAttr>("transaction_summary") : DictionaryAttr();
+        if (!summary || !instance->hasAttr("ac.reference_bindings")) continue;
+        auto defaultName = imported->getAttrOfType<StringAttr>("ac.default_domain");
+        auto bindings = instance->getAttrOfType<DictionaryAttr>("ac.domain_bindings");
+        auto actualName = bindings && defaultName ? bindings.getAs<StringAttr>(defaultName.getValue()) : StringAttr();
+        auto &clocks = plan.occurrences[scope.occurrence].clocks;
+        if (!actualName || !clocks.count(actualName.getValue())) return reject(instance, "Queue consumer requires its actual default clock binding");
+        unsigned samplingClock = clocks.lookup(actualName.getValue());
+        auto effects = [&](auto &&self, ArrayAttr rows, unsigned depth) -> LogicalResult {
+          if (depth > 128 || !rows || failed(budget.debit(rows.size() + 1, instance))) return failure();
+          for (Attribute raw : rows) {
+            auto row = dyn_cast<DictionaryAttr>(raw);
+            auto kind = row ? row.getAs<StringAttr>("kind") : StringAttr();
+            if (!kind) return reject(instance, "published effect requires its closed kind");
+            if (kind.getValue() == "call") {
+              if (failed(constrain(scope, row.getAs<SymbolRefAttr>("callee"), row.getAs<DictionaryAttr>("receiver"), samplingClock, instance))) return failure();
+            } else if (kind.getValue() == "branch") {
+              if (failed(self(self, row.getAs<ArrayAttr>("then_effects"), depth + 1)) ||
+                  failed(self(self, row.getAs<ArrayAttr>("else_effects"), depth + 1))) return failure();
+            }
+          }
+          return success();
+        };
+        for (StringRef inventory : {"methods", "autonomous"})
+          for (Attribute raw : summary.getAs<ArrayAttr>(inventory)) {
+            auto callable = cast<DictionaryAttr>(raw);
+            if (failed(effects(effects, callable.getAs<ArrayAttr>("guard_effects"), 0)) ||
+                failed(effects(effects, callable.getAs<ArrayAttr>("body_effects"), 0))) return failure();
+          }
+      }
     }
     return success();
   }
@@ -592,6 +834,72 @@ public:
   Resolver(mlir::ModuleOp package, HardwareSourceCheckLimits limits)
       : analysis(package), budget(limits) {
     budget.setPhase("logical domain resolution");
+  }
+  LogicalResult infer(ModuleOp rootModule) {
+    sourceInference = true;
+    plan.root = rootModule;
+    HardwareBindings bindings; bindings.owner = rootModule;
+    HardwareDomainOccurrence root; root.definition = rootModule;
+    DenseMap<Value, unsigned> values;
+    auto clocks = rootModule->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+    if (!clocks) return reject(rootModule, "CDC inference requires declared owner clock inputs");
+    for (NamedAttribute row : clocks) {
+      auto ordinal = dyn_cast<IntegerAttr>(row.getValue());
+      if (!ordinal || ordinal.getInt() < 0 || uint64_t(ordinal.getInt()) >= rootModule.getBody().front().getNumArguments())
+        return reject(rootModule, "source clock input ordinal is invalid");
+      unsigned index = ordinal.getInt();
+      root.clocks[row.getName().getValue()] = index;
+      values[rootModule.getBody().front().getArgument(index)] = index;
+    }
+    if (failed(visit(rootModule, bindings, std::move(root), std::move(values), 0))) return failure();
+    for (auto &scope : scopes) if (failed(validate(*scope))) return failure();
+    if (failed(inferQueueEffects())) return failure();
+    for (size_t round = 0; round <= inferences.size(); ++round) {
+      bool changed = false;
+      for (auto &[token, item] : inferences) {
+        Domains expanded;
+        for (unsigned constraint : item.constraints) {
+          auto other = inferences.find(constraint);
+          if (other == inferences.end()) expanded.insert(constraint);
+          else expanded.insert(other->second.constraints.begin(), other->second.constraints.end());
+        }
+        expanded.erase(token);
+        if (expanded != item.constraints) { item.constraints = std::move(expanded); changed = true; }
+      }
+      if (!changed) break;
+      if (failed(budget.debit(inferences.size(), rootModule))) return failure();
+    }
+    std::map<std::pair<Operation *, bool>, std::pair<StringAttr, Value>> bindingsToApply;
+    for (const auto &[token, item] : inferences) {
+      if (item.constraints.size() != 1 || inferences.count(*item.constraints.begin()))
+        return reject(item.resource, "CDC endpoint is ambiguous; specify its Domain explicitly");
+      unsigned actual = *item.constraints.begin();
+      auto &occurrence = plan.occurrences[item.occurrence];
+      StringAttr selected;
+      auto prior = item.resource->getAttrOfType<StringAttr>(item.source
+          ? (isAsyncQueueInstance(cast<InstanceOp>(item.resource)) ? "write_domain" : "source_domain")
+          : (isAsyncQueueInstance(cast<InstanceOp>(item.resource)) ? "read_domain" : "target_domain"));
+      if (prior && occurrence.clocks.lookup(prior.getValue()) == actual && occurrence.clocks.count(prior.getValue())) selected = prior;
+      if (!selected) for (auto &entry : occurrence.clocks)
+        if (entry.second == actual) { selected = StringAttr::get(item.resource->getContext(), entry.first()); break; }
+      auto owner = occurrence.definition;
+      auto inputs = owner->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+      auto ordinal = selected && inputs ? inputs.getAs<IntegerAttr>(selected.getValue()) : IntegerAttr();
+      if (!ordinal) return reject(item.resource, "inferred endpoint has no owner clock input");
+      Value clockValue = owner.getBody().front().getArgument(ordinal.getInt());
+      auto key = std::make_pair(item.resource, item.source);
+      auto [it, inserted] = bindingsToApply.try_emplace(key, std::make_pair(selected, clockValue));
+      if (!inserted && it->second.first != selected)
+        return reject(item.resource, "shared definition requires explicit endpoint formals");
+    }
+    for (auto &[key, binding] : bindingsToApply) {
+      auto *resource = key.first; bool source = key.second;
+      bool fifo = isAsyncQueueInstance(cast<InstanceOp>(resource));
+      resource->setAttr(fifo ? (source ? "write_domain" : "read_domain") : (source ? "source_domain" : "target_domain"), binding.first);
+      resource->setOperand(source ? 0 : 1, binding.second);
+      resource->removeAttr(source ? "source_infer_source" : "source_infer_target");
+    }
+    return success();
   }
   FailureOr<HardwareDomainPlan> run() {
     auto contract =
@@ -638,6 +946,20 @@ public:
   }
 };
 } // namespace
+LogicalResult inferSourceCDCEndpoints(mlir::ModuleOp package,
+                                      HardwareSourceCheckLimits limits) {
+  for (auto module : package.getBody()->getOps<ModuleOp>()) {
+    bool requested = false;
+    for (auto instance : module.getBody().front().getOps<InstanceOp>())
+      requested |= instance->hasAttr("source_infer_source") || instance->hasAttr("source_infer_target");
+    if (requested && failed(Resolver(package, limits).infer(module))) return failure();
+    if (requested)
+      for (auto instance : module.getBody().front().getOps<InstanceOp>())
+        if (instance->hasAttr("source_infer_source") || instance->hasAttr("source_infer_target"))
+          return instance.emitOpError() << "CDC endpoint inference did not resolve the resource request";
+  }
+  return success();
+}
 FailureOr<HardwareDomainPlan>
 getHardwareDomainPlan(mlir::ModuleOp package,
                       HardwareSourceCheckLimits limits) {
