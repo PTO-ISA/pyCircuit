@@ -49,7 +49,10 @@ struct ObservationLocalKey {
 };
 /// Statement Method/transaction bodies own source-effect placement; every
 /// other region owner (including guards and pure helpers) never acquires it.
-mlir::Operation *sourceEffectCallable(mlir::Operation *operation);
+bool isSourceControlRegion(mlir::Region &region);
+bool isSourceControlComputation(mlir::Operation *operation);
+mlir::Operation *sourceEffectCallable(mlir::Operation *operation,
+                                      bool allowReads = false);
 mlir::LogicalResult verifySourceObservationStructure(SourceObserveOp observe);
 mlir::LogicalResult verifySourceObservationSpec(mlir::StringAttr kind,
                                                 mlir::DictionaryAttr spec,

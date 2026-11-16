@@ -1,3 +1,6 @@
+#include "mlir/Pass/Pass.h"
+#include "pycircuit/Transforms/Passes.h"
+#include "mlir/Pass/PassManager.h"
 #include "pycircuit/Transforms/SourceControlFlow.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -46,9 +49,7 @@ protected:
               std::to_string(value) + ">}, origin = #o0, location = #span}>\n";
     text += "!b1 = !ac.bits<#w1>\n!b2 = !ac.bits<#w2>\n!b8 = !ac.bits<#w8>\n";
     text += body.str();
-    // Transient SCF effect placement is intentionally normalized before the
-    // complete source verifier; no production/global verifier is disabled.
-    return parseSourceString<ModuleOp>(text, ParserConfig(&context, false));
+    return parseSourceString<ModuleOp>(text, &context);
   }
   std::string print(ModuleOp module) {
     std::string text;
@@ -250,8 +251,18 @@ static std::string runtimeWhileFixture() {
 
 TEST_F(SourceControlFlowTest,
        RuntimeWhileKeepsReachedControlExitCheckAndEffectIterationIdentity) {
+  MLIRContext fresh;
   auto file = parse(runtimeWhileFixture(), "Owner");
   ASSERT_TRUE(file) << diagnostics;
+  // Re-read in a fresh context using the ordinary parser and verifier.
+  fresh.loadDialect<ac::ACIRDialect, arith::ArithDialect, scf::SCFDialect,
+                    func::FuncDialect>();
+  auto reread = parseSourceString<ModuleOp>(print(*file), &fresh);
+  ASSERT_TRUE(reread);
+  PassManager pipeline(&fresh);
+  pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
+  ASSERT_TRUE(succeeded(pipeline.run(*reread)));
+  file = std::move(reread);
   ASSERT_NO_FATAL_FAILURE(normalized(*file));
   unsigned branches = 0, calls = 0, assertions = 0;
   file->walk([&](ac::SourceBranchOp branch) {
@@ -282,6 +293,16 @@ TEST_F(SourceControlFlowTest,
   EXPECT_EQ(calls, 3u);
   EXPECT_EQ(assertions, 3u);
   EXPECT_EQ(print(*file).find("case_eq"), std::string::npos);
+}
+
+TEST_F(SourceControlFlowTest, WhileConditionCannotCallMethods) {
+  auto text = runtimeWhileFixture();
+  auto start = text.find("        \"ac.method.call\"");
+  auto end = text.find('\n', start);
+  auto call = text.substr(start, end - start + 1);
+  text.erase(start, end - start + 1);
+  text.insert(text.find("        %compare ="), call);
+  EXPECT_FALSE(parse(text, "Owner"));
 }
 
 TEST_F(SourceControlFlowTest, FiniteForClonesDistinctCallAndAssertionSites) {

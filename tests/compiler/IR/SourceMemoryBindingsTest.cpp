@@ -1,3 +1,4 @@
+#include "pycircuit/Transforms/SourceControlFlow.h"
 #include "Compiler/PythonImportRecords.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceMemoryBindings.h"
@@ -7,7 +8,7 @@
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
-#include "pycircuit/Transforms/SourceControlFlow.h"
+#include "pycircuit/Transforms/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Verifier.h"
@@ -1345,6 +1346,7 @@ protected:
         source::createInferSourceBindingsPass(owner(name), *headers));
     pipeline.addPass(
         source::createLowerPythonSourcePass(owner(name), *headers));
+    pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
     if (failed(pipeline.run(*captured)))
       return {};
     return captured;

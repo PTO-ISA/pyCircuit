@@ -1,3 +1,5 @@
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "Compiler/PythonImportRecords.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceEntryBoundary.h"
@@ -131,7 +133,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
   }
 
   LogicalResult lower(ModuleOp captured, StringRef filename,
-                      bool runSummaries = true) {
+                      bool runSummaries = true, bool normalize = true) {
     auto headers =
         compiler::SourceHeaderRegistry::create(&context, {}, error());
     if (failed(headers))
@@ -142,6 +144,8 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         source::createInferSourceBindingsPass(owner(filename), *headers));
     pipeline.addPass(
         source::createLowerPythonSourcePass(owner(filename), *headers));
+    if (normalize)
+      pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
     if (runSummaries)
       pipeline.addPass(acir::createAnalyzeSourceMethodSummariesPass());
     if (failed(pipeline.run(captured)))
@@ -365,6 +369,44 @@ def Owner():
     EXPECT_EQ(calls, 0u);
   }
   EXPECT_FALSE(operations<ac::BitsBinaryOp>(*file).empty());
+}
+
+TEST_F(SourceTransactionCaptureTest, ImporterLeavesVerifiableControlFlow) {
+  MLIRContext fresh;
+  auto file = capture("boundary.py", R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def increment() -> None:
+        count = count + 1
+    @ac.rule
+    def advance() -> None:
+        for index in range(2):
+            increment()
+)py");
+  ASSERT_TRUE(file);
+  ASSERT_TRUE(succeeded(lower(*file, "boundary.py", false, false)))
+      << diagnostics;
+  bool hasControlFlow = false;
+  file->walk([&](Operation *op) {
+    hasControlFlow |= op->getName().getDialectNamespace() == "scf";
+  });
+  EXPECT_TRUE(hasControlFlow);
+  EXPECT_TRUE(failed(ac::verifySourceBodyStructure(*file, error())));
+  EXPECT_NE(diagnostics.find("normalized control flow"), std::string::npos);
+  std::string printed;
+  llvm::raw_string_ostream output(printed);
+  file->print(output);
+  fresh.loadDialect<ac::ACIRDialect, arith::ArithDialect, scf::SCFDialect,
+                    func::FuncDialect>();
+  auto reread = parseSourceString<ModuleOp>(printed, &fresh);
+  ASSERT_TRUE(reread);
+  file = std::move(reread);
+  PassManager pipeline(&fresh);
+  pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
+  ASSERT_TRUE(succeeded(pipeline.run(*file))) << diagnostics;
+  EXPECT_EQ(operations<ac::SourceMethodCallOp>(*file).size(), 3u);
 }
 
 TEST_F(SourceTransactionCaptureTest, OrdinaryHelperLoopsInlineIntoRuleAndMethodBodies) {
