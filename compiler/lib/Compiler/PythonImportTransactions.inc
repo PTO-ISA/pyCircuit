@@ -1391,25 +1391,18 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (controlKinds.first && trips && !stateInduction) carriedNames.push_back(inductionName.str());
           if (formalInduction) carriedNames.push_back(intentName(inductionName));
           auto location = statement.location(b.getContext(), source.path);
-          SmallVector<Value> operands;
-          for (int64_t bound : {lower, upper, step})
-            operands.push_back(arith::ConstantIndexOp::create(inside, location, bound));
-          SmallVector<Type> resultTypes;
-          for (const auto &name : carriedNames) {
-            operands.push_back(values.lookup(name));
-            resultTypes.push_back(values.lookup(name).getType());
-          }
-          auto occurrence = sourceOccurrence(inside, decl.symbol, statement);
-          Operation *loop = createOp(inside, location, scf::ForOp::getOperationName(),
-              operands, resultTypes, {inside.getNamedAttr("occurrence", occurrence)}, 1);
-          auto *block = new Block();
-          loop->getRegion(0).push_back(block);
-          Value index = block->addArgument(inside.getIndexType(), location);
+          SmallVector<Value> initialValues;
+          for (const auto &name : carriedNames)
+            initialValues.push_back(values.lookup(name));
+          auto loop = createSourceFor(inside, location,
+              sourceOccurrence(inside, decl.symbol, statement), lower, upper,
+              step, initialValues);
+          Value index = loop.getInductionVar();
           if (failed(chargeLoopDescriptorWork(statement, "source for statement")) ||
               failed(reserveSourceEnvironmentCopies(statement, environment)))
             return failure();
           BranchEnvironment iteration = environment;
-          for (const auto &name : carriedNames) {
+          for (auto [ordinal, name] : llvm::enumerate(carriedNames)) {
             Value original = values.lookup(name);
             auto kind = valueInfo(original).sourceKind;
             if (kind == ac::detail::ValueKind::Integer && name != inductionName) {
@@ -1424,14 +1417,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 iteration.boundaries[name] = BindingBoundary{*formal, true};
               }
             }
-            Value argument = block->addArgument(original.getType(), location);
+            Value argument = loop.getRegionIterArgs()[ordinal];
             remember(argument, kind);
             if (fixedValues.contains(original)) fixedValues.insert(argument);
             iteration.values[name] = argument;
             if (!iteration.boundaries.contains(name))
               iteration.boundaries[name] = inferredBoundary(name, argument, statement, true);
           }
-          OpBuilder loopAt = OpBuilder::atBlockEnd(block);
+          OpBuilder loopAt = OpBuilder::atBlockEnd(loop.getBody());
           Value induction = createOp(loopAt, location, ac::SourceIndexOp::getOperationName(),
               {index}, {indexType},
               {loopAt.getNamedAttr("occurrence", sourceOccurrence(loopAt, decl.symbol, target)),
@@ -1514,6 +1507,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               return statementError(statement) << "typed for carried values must retain their declared hardware type";
             yielded.push_back(value);
           }
+          SmallVector<Value> exitInitials, exitYields;
           if (trips) {
             SmallVector<std::string> introduced;
             for (const auto &binding : iteration.values)
@@ -1525,18 +1519,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               Value value = iteration.values.lookup(name);
               auto seed = inactiveCarrier(value.getType(), statement, seeds, decl.symbol);
               if (failed(seed)) return failure();
-              operands.push_back(*seed);
-              resultTypes.push_back(value.getType());
-              block->addArgument(value.getType(), location);
+              exitInitials.push_back(*seed);
               carriedNames.push_back(name);
-              yielded.push_back(value);
+              exitYields.push_back(value);
             }
           }
-          createOp(loopAt, location, scf::YieldOp::getOperationName(), yielded, {}, {});
-          Operation *complete = createOp(inside, location, scf::ForOp::getOperationName(),
-              operands, resultTypes, {inside.getNamedAttr("occurrence", occurrence)}, 1);
-          complete->getRegion(0).takeBody(loop->getRegion(0));
-          loop->erase();
+          auto complete = finishSourceFor(loop, yielded, exitInitials, exitYields);
+          yielded.append(exitYields.begin(), exitYields.end());
           for (auto [ordinal, name] : llvm::enumerate(carriedNames)) {
             Value result = complete->getResult(ordinal);
             Value authority = trips ? yielded[ordinal] : values.lookup(name);

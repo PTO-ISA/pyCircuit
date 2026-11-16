@@ -497,7 +497,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   auto verifyHelper = [&] {
     return ac::verifySourceValueHelper(helper.function, [&](FlatSymbolRefAttr symbol) {
       return dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, symbol));
-    });
+    }, true);
   };
   if (failed(verifyHelper())) return failure();
   // This is a newly captured local definition, never an imported snapshot.
@@ -872,7 +872,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
   bool preserveAllFacts = forceInline || activeLoop;
   if (failed(ac::verifySourceValueHelper(helper.function, [&](FlatSymbolRefAttr callee) {
         return dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(*body, callee));
-      })) || failed(reserveValueHelper(helper.function, call, preserveAllFacts))) return failure();
+      }, true)) || failed(reserveValueHelper(helper.function, call, preserveAllFacts))) return failure();
   size_t frameDepth = activeSourceExpansion.size();
   if (failed(pushHelperFrame(call, helper.node, symbol, helper.symbol))) return failure();
   auto restoreFrame = llvm::scope_exit([&] { activeSourceExpansion.resize(frameDepth); });

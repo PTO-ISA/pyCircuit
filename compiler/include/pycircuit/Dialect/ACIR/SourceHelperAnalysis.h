@@ -11,7 +11,7 @@ using SourceHelperLookup =
     llvm::function_ref<mlir::func::FuncOp(mlir::FlatSymbolRefAttr)>;
 
 mlir::LogicalResult verifySourceValueHelper(mlir::func::FuncOp helper,
-                                           SourceHelperLookup lookup);
+                                           SourceHelperLookup lookup, bool allowSourceControlFlow = false);
 mlir::LogicalResult verifySourceValueHelperClosure(
     llvm::ArrayRef<mlir::func::FuncOp> helpers, SourceHelperLookup lookup);
 

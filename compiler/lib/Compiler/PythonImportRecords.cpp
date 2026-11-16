@@ -411,6 +411,55 @@ Operation *createOp(OpBuilder &b, Location loc, StringRef name,
   return b.create(state);
 }
 
+// SCF construction is shared; each statement owner still admits the loop,
+// binds its environment and lowers its body.
+scf::ForOp createSourceFor(OpBuilder &at, Location location,
+                          Attribute occurrence, int64_t lower, int64_t upper,
+                          int64_t step, ValueRange initialValues) {
+  SmallVector<Value> operands;
+  for (int64_t bound : {lower, upper, step})
+    operands.push_back(arith::ConstantIndexOp::create(at, location, bound));
+  operands.append(initialValues.begin(), initialValues.end());
+  SmallVector<Type> types;
+  for (Value value : initialValues) types.push_back(value.getType());
+  auto loop = cast<scf::ForOp>(createOp(
+      at, location, scf::ForOp::getOperationName(), operands, types,
+      {at.getNamedAttr("occurrence", occurrence)}, 1));
+  auto *block = new Block();
+  loop.getRegion().push_back(block);
+  block->addArgument(at.getIndexType(), location);
+  for (Type type : types) block->addArgument(type, location);
+  return loop;
+}
+
+scf::ForOp finishSourceFor(scf::ForOp loop, ValueRange yielded,
+                          ValueRange exitInitials = {},
+                          ValueRange exitYields = {}) {
+  assert(exitInitials.size() == exitYields.size());
+  auto location = loop.getLoc();
+  SmallVector<Value> allYields(yielded);
+  allYields.append(exitYields.begin(), exitYields.end());
+  for (Value value : exitInitials)
+    loop.getBody()->addArgument(value.getType(), location);
+  auto inside = OpBuilder::atBlockEnd(loop.getBody());
+  createOp(inside, location, scf::YieldOp::getOperationName(), allYields, {}, {});
+  if (exitInitials.empty()) return loop;
+
+  // Body lowering can discover new exit bindings. Extend the signature while
+  // preserving the block arguments already referenced by the staged body.
+  SmallVector<Value> operands(loop->getOperands());
+  operands.append(exitInitials.begin(), exitInitials.end());
+  SmallVector<Type> types(loop.getResultTypes());
+  for (Value value : exitInitials) types.push_back(value.getType());
+  OpBuilder at(loop);
+  auto complete = cast<scf::ForOp>(createOp(
+      at, location, scf::ForOp::getOperationName(), operands, types,
+      loop->getAttrs(), 1));
+  complete.getRegion().takeBody(loop.getRegion());
+  loop.erase();
+  return complete;
+}
+
 bool docstring(const AstNode &node) {
   AstNode value = node.kind() == "Expr" ? node.child("value") : AstNode();
   return value.kind() == "Constant" && isa<StringAttr>(value.get("value"));

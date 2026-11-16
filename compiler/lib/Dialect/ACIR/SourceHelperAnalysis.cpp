@@ -3,6 +3,8 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -48,7 +50,7 @@ LogicalResult preflightSignature(func::FuncOp helper, uint64_t &work) {
 }
 
 LogicalResult preflightBody(func::FuncOp helper, SourceHelperLookup lookup,
-                            uint64_t &work) {
+                            uint64_t &work, bool allowSourceControlFlow) {
   std::function<LogicalResult(Region &, unsigned)> visit =
       [&](Region &region, unsigned depth) -> LogicalResult {
     if (depth > maxDepth || !region.hasOneBlock() || region.front().empty())
@@ -67,11 +69,13 @@ LogicalResult preflightBody(func::FuncOp helper, SourceHelperLookup lookup,
                                            "explicit inputs and captures";
       }
       if (!isa<func::CallOp, func::ReturnOp, YieldOp>(operation) &&
-          !detail::isCombinationalHardwareOperation(&operation))
+          !detail::isCombinationalHardwareOperation(&operation) &&
+          !(allowSourceControlFlow && isa<arith::ConstantIndexOp, scf::ForOp, scf::YieldOp>(operation)))
         return operation.emitOpError() << "unsupported operation in pure value "
                                          "helper body";
       if (operation.getNumRegions() &&
-          !isa<TableMapOp, TableMatchOp>(operation))
+          !isa<TableMapOp, TableMatchOp>(operation) &&
+          !(allowSourceControlFlow && isa<scf::ForOp>(operation)))
         return operation.emitOpError() << "unsupported value helper region";
       if (isa<func::CallOp>(operation)) {
         auto callee = operation.getAttrOfType<FlatSymbolRefAttr>("callee");
@@ -175,8 +179,8 @@ LogicalResult verifySignature(func::FuncOp helper, uint64_t &work) {
 }
 
 LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
-                         uint64_t &work) {
-  if (failed(preflightBody(helper, lookup, work)) ||
+                         uint64_t &work, bool allowSourceControlFlow = false) {
+  if (failed(preflightBody(helper, lookup, work, allowSourceControlFlow)) ||
       failed(mlir::verify(helper)))
     return failure();
   auto returned = dyn_cast<func::ReturnOp>(helper.getBody().front().back());
@@ -229,6 +233,12 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
           return operation.emitOpError() << "value helper region yield is invalid";
         continue;
       }
+      if (allowSourceControlFlow &&
+          isa<arith::ConstantIndexOp, scf::ForOp, scf::YieldOp>(operation)) {
+        for (Region &nested : operation.getRegions())
+          if (failed(visit(nested, depth + 1))) return failure();
+        continue;
+      }
       bool hardware = detail::isCombinationalHardwareOperation(&operation);
       if (!hardware)
         return operation.emitOpError() << "unsupported operation in pure value "
@@ -258,11 +268,11 @@ LogicalResult verifyBody(func::FuncOp helper, SourceHelperLookup lookup,
 } // namespace
 
 LogicalResult verifySourceValueHelper(func::FuncOp helper,
-                                      SourceHelperLookup lookup) {
+                                      SourceHelperLookup lookup, bool allowSourceControlFlow) {
   uint64_t work = 0;
   if (failed(verifySignature(helper, work)))
     return failure();
-  return verifyBody(helper, lookup, work);
+  return verifyBody(helper, lookup, work, allowSourceControlFlow);
 }
 
 LogicalResult verifySourceValueHelperClosure(ArrayRef<func::FuncOp> helpers,

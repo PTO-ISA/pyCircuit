@@ -628,3 +628,22 @@ before Method summary analysis and Source unit publication. Publication rejects
 remaining SCF and source control-flow bridges. The public `source-import`
 diagnostic output retains its existing meaning; this intermediate boundary does
 not add a CLI output mode.
+
+Straight-line literal `range(N)` loops in Modules and value helpers carry
+existing fixed Bits/Boolean locals through `scf.for`. Their assignment body is
+lowered once, with sequential assignment semantics, and the normalization pass
+owns iteration expansion and occurrence identities. Initial constant and range
+facts do not propagate onto carried block arguments or loop results. A fresh,
+unused induction name remains visible as `N - 1` after a nonempty loop; zero-trip
+loops retain their existing admission and binding behavior. Calls, indexing,
+branches, nested loops and Integer locals retain the existing importer path.
+The existing resource preflight and normalization budgets still apply.
+
+These Module/helper loops and Rule/Method loops share importer helpers for SCF
+construction, induction and carried block arguments, yields and result
+finalization. The shared finalizer also extends transaction loops with exit
+bindings discovered during body lowering. Statement entry points and body
+lowering remain separate. Each caller still owns admission, name and binding
+resolution, numeric facts, resource budgets and post-loop bindings. Static
+shifts, branches, checks and the remaining per-iteration AST expansion have not
+moved to this shared interface; its use does not broaden loop admission.

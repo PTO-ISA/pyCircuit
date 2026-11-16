@@ -1873,6 +1873,101 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     return diagnostic() << "bounded for snapshot/header: "
                         << (fits ? reason : "resource counter exhausted");
 
+  // Select before emitting IR. Only existing fixed scalar locals participate;
+  // all other admitted source forms retain the existing expansion path.
+  StringRef inductionName = syntax->target.string("id");
+  auto scalarLocal = [&](StringRef name) {
+    Value value = environment.values.lookup(name);
+    return value && name != inductionName && isa<ac::BitsType>(value.getType()) &&
+           (fixedValues.contains(value) ||
+            valueInfo(value).sourceKind == ac::detail::ValueKind::Boolean) &&
+           (!activeModuleStatements ||
+            (!activeModuleStatements->protectedNames.contains(name) &&
+             !activeModuleStatements->instances.contains(name)));
+  };
+  auto simpleExpression = [&](auto &&self, const AstNode &node) -> bool {
+    StringRef kind = node.kind();
+    if (kind == "Name") return scalarLocal(node.string("id"));
+    if (kind == "Constant") return true;
+    if (kind == "BinOp")
+      return self(self, node.child("left")) && self(self, node.child("right"));
+    if (kind == "UnaryOp") return self(self, node.child("operand"));
+    StringRef field = kind == "BoolOp" ? "values" : "comparators";
+    if (kind != "BoolOp" && kind != "Compare") return false;
+    if (kind == "Compare" && !self(self, node.child("left"))) return false;
+    for (size_t i = 0; i < node.array(field).size(); ++i)
+      if (!self(self, node.item(field, i))) return false;
+    return true;
+  };
+  bool useScf = !activeRule && !activeLoop && !environment.values.contains(inductionName) &&
+                !environment.boundaries.contains(inductionName);
+  llvm::StringSet<> assigned;
+  for (size_t i = 0; useScf && i < statement.array("body").size(); ++i) {
+    auto node = statement.item("body", i);
+    if (node.kind() == "Pass") continue;
+    if (node.kind() != "Assign" ||
+        !simpleExpression(simpleExpression, node.child("value"))) {
+      useScf = false;
+      break;
+    }
+    for (size_t k = 0; k < node.array("targets").size(); ++k) {
+      auto target = node.item("targets", k);
+      if (target.kind() != "Name" || !scalarLocal(target.string("id"))) {
+        useScf = false;
+        break;
+      }
+      assigned.insert(target.string("id"));
+    }
+  }
+  if (useScf) {
+    SmallVector<std::string> carriedNames;
+    for (const auto &name : assigned) carriedNames.push_back(name.getKey().str());
+    llvm::sort(carriedNames);
+    auto location = statement.location(b.getContext(), source.path);
+    SmallVector<Value> initialValues;
+    for (const auto &name : carriedNames)
+      initialValues.push_back(environment.values.lookup(name));
+    auto loop = createSourceFor(at, location,
+        sourceOccurrence(at, symbol, statement), 0, int64_t(trips), 1,
+        initialValues);
+    BranchEnvironment iteration = environment;
+    for (auto [i, name] : llvm::enumerate(carriedNames)) {
+      Value initial = environment.values.lookup(name);
+      Value argument = loop.getRegionIterArgs()[i];
+      // Initial constants and intervals do not hold across the backedge.
+      remember(argument, valueInfo(initial).sourceKind);
+      if (fixedValues.contains(initial)) fixedValues.insert(argument);
+      iteration.values[name] = argument;
+    }
+    auto inside = OpBuilder::atBlockEnd(loop.getBody());
+    LoopLoweringContext context{statement, &admission, 0, {}, {}, activeLoop};
+    auto previousLoop = std::exchange(activeLoop, &context);
+    auto restore = llvm::scope_exit([&] { activeLoop = previousLoop; });
+    if (failed(loopStatements(statement, "body", inside, symbol, iteration, owners)))
+      return failure();
+    SmallVector<Value> yielded;
+    for (const auto &name : carriedNames) yielded.push_back(iteration.values.lookup(name));
+    loop = finishSourceFor(loop, yielded);
+    for (auto [i, name] : llvm::enumerate(carriedNames)) {
+      Value result = loop->getResult(i), initial = environment.values.lookup(name);
+      remember(result, valueInfo(initial).sourceKind);
+      if (fixedValues.contains(initial)) fixedValues.insert(result);
+      environment.values[name] = result;
+    }
+    auto integer = ac::MathIntAttr::get(b.getContext(), llvm::APSInt::getUnsigned(trips - 1));
+    auto last = materializeMatchKey({syntax->target, integer, {}},
+        bits(std::max(uint64_t(1), uint64_t(llvm::Log2_64_Ceil(trips))),
+             syntax->target, symbol), at, symbol, false);
+    if (failed(last)) return failure();
+    remember(*last, ac::detail::ValueKind::Integer,
+             IntegerInterval{llvm::APSInt::getUnsigned(trips - 1),
+                             llvm::APSInt::getUnsigned(trips)}, integer);
+    environment.values[inductionName] = *last;
+    environment.boundaries[inductionName] =
+        inferredBoundary(inductionName, *last, syntax->target);
+    return success();
+  }
+
   const auto savedNumeric = numericValues;
   const auto savedFixed = fixedValues;
   const auto savedArithmetic = arithmeticValues;

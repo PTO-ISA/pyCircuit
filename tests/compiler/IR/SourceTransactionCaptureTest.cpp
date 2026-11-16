@@ -409,6 +409,146 @@ def Owner():
   EXPECT_EQ(operations<ac::SourceMethodCallOp>(*file).size(), 3u);
 }
 
+TEST_F(SourceTransactionCaptureTest, FixedLocalLoopsRoundTripBeforeExpansion) {
+  auto file = capture("fixed_loops.py", R"py(import pycircuit as ac
+def advance(value: ac.u8) -> ac.u8:
+    for index in range(4):
+        value = value + 1
+    last: ac.u8 = index
+    return value + last
+@ac.module
+def Owner(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8]:
+    first = value
+    second = value
+    for ordinal in range(4):
+        first = first + 1
+        second = second + first
+        pass
+    last = ordinal
+    return second, advance(value), last
+)py");
+  ASSERT_TRUE(file);
+  ASSERT_TRUE(succeeded(lower(*file, "fixed_loops.py", false, false)))
+      << diagnostics;
+  auto loops = operations<scf::ForOp>(*file);
+  // The helper definition and its inlined call each retain one staged body.
+  ASSERT_EQ(loops.size(), 3u);
+  unsigned additions = 0;
+  for (auto loop : loops) {
+    EXPECT_EQ(loop.getLowerBound().getDefiningOp<arith::ConstantIndexOp>().value(), 0);
+    EXPECT_EQ(loop.getUpperBound().getDefiningOp<arith::ConstantIndexOp>().value(), 4);
+    SmallVector<ac::BitsBinaryOp> body;
+    loop.walk([&](ac::BitsBinaryOp op) { body.push_back(op); });
+    additions += body.size();
+    if (body.size() == 2) {
+      EXPECT_EQ(body[1].getRhs(), body[0].getResult());
+    }
+    EXPECT_EQ(loop.getNumResults(), body.size());
+  }
+  EXPECT_EQ(additions, 4u);
+  std::string printed;
+  llvm::raw_string_ostream output(printed);
+  file->print(output);
+  MLIRContext fresh;
+  fresh.loadDialect<ac::ACIRDialect, arith::ArithDialect, scf::SCFDialect,
+                    func::FuncDialect>();
+  auto reread = parseSourceString<ModuleOp>(printed, &fresh);
+  ASSERT_TRUE(reread);
+  PassManager pipeline(&fresh);
+  pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
+  ASSERT_TRUE(succeeded(pipeline.run(*reread)));
+  EXPECT_TRUE(succeeded(verify(*reread)));
+  reread->walk([&](Operation *op) {
+    EXPECT_NE(op->getName().getDialectNamespace(), "scf");
+    EXPECT_FALSE((isa<ac::SourceIndexOp, ac::SourcePredicateOp>(op)));
+  });
+  EXPECT_EQ(operations<ac::BitsBinaryOp>(*reread).size(), 18u);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       RuleAndMethodLoopsRoundTripWithIntroducedBindings) {
+  auto file = capture("transaction_loops.py", R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def add(value: ac.u8) -> ac.u8:
+        result = value
+        for index in range(4):
+            delta: ac.u8 = index
+            next_value = result + delta
+            result = next_value + 1
+        last: ac.u8 = index
+        return result + next_value + last
+    @ac.rule
+    def advance() -> None:
+        result = count
+        for index in range(4):
+            delta: ac.u8 = index
+            next_value = result + delta
+            result = next_value + 1
+        last: ac.u8 = index
+        count = result + next_value + last
+)py");
+  ASSERT_TRUE(file);
+  ASSERT_TRUE(succeeded(lower(*file, "transaction_loops.py", false, false)))
+      << diagnostics;
+  ASSERT_TRUE(succeeded(verify(*file)));
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(transactions.size(), 1u);
+  auto method = namedMethod(*file, "add");
+  ASSERT_TRUE(method);
+  for (auto *scope : {method.getOperation(),
+                      entryMethod(transactions.front()).getOperation()}) {
+    unsigned loops = 0;
+    scope->walk([&](scf::ForOp) { ++loops; });
+    EXPECT_EQ(loops, 1u);
+  }
+
+  std::string printed;
+  llvm::raw_string_ostream output(printed);
+  file->print(output);
+  MLIRContext fresh;
+  fresh.loadDialect<ac::ACIRDialect, arith::ArithDialect, scf::SCFDialect,
+                    func::FuncDialect>();
+  auto reread = parseSourceString<ModuleOp>(printed, &fresh);
+  ASSERT_TRUE(reread);
+  ASSERT_TRUE(succeeded(verify(*reread)));
+  PassManager pipeline(&fresh);
+  pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
+  ASSERT_TRUE(succeeded(pipeline.run(*reread)));
+  EXPECT_TRUE(succeeded(verify(*reread)));
+  reread->walk([&](Operation *op) {
+    EXPECT_NE(op->getName().getDialectNamespace(), "scf");
+    EXPECT_FALSE((isa<ac::SourceIndexOp, ac::SourcePredicateOp>(op)));
+  });
+  EXPECT_EQ(operations<ac::SourceStateWriteOp>(*reread).size(), 1u);
+}
+
+TEST_F(SourceTransactionCaptureTest, EmptyAndSingleFixedLocalLoopsKeepBindings) {
+  auto file = typed(R"py(import pycircuit as ac
+def advance(value: ac.u8) -> ac.u8:
+    for empty in range(0):
+        value = value + 1
+    for index in range(1):
+        value = value + 1
+    last: ac.u8 = index
+    return value + last
+@ac.module
+def Owner(value: ac.u8) -> tuple[ac.u8, ac.u8]:
+    result = value
+    for empty in range(0):
+        result = result + 1
+    for index in range(1):
+        result = result + 1
+    last = index
+    return advance(result), last
+)py", "small_loops.py");
+  ASSERT_TRUE(file);
+  EXPECT_TRUE(operations<scf::ForOp>(*file).empty());
+  EXPECT_EQ(operations<ac::BitsBinaryOp>(*file).size(), 5u);
+}
+
 TEST_F(SourceTransactionCaptureTest, OrdinaryHelperLoopsInlineIntoRuleAndMethodBodies) {
   auto file = typed(R"py(import pycircuit as ac
 def step(value: ac.u8) -> ac.u8:

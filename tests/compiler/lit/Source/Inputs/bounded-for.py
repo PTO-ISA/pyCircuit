@@ -131,6 +131,8 @@ def oracle(row):
         else "x"
     )
     fields = (
+        binary(row["seed"] + 4, 8),
+        binary(row["seed"] + 4, 8),
         binary(row["one_value"], 3),
         binary(prefixes[0], 8),
         binary(prefixes[2], 8),
@@ -180,12 +182,12 @@ for index, carrier in enumerate(carrier_values):
             "wide2": index * 97,
             "wide3": index * 509,
             "wide4": index * 1021,
-            "seed": (index * 29 + 7) & 0xFF,
+            "seed": 254 if index == 0 else (index * 29 + 7) & 0xFF,
             "carrier": carrier,
         }
     )
 expected = [oracle(row) for row in rows]
-result_width = 252
+result_width = 268
 assert all(len(value) == result_width for value in expected)
 
 source = build / "source"

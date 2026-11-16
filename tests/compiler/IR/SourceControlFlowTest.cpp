@@ -263,7 +263,11 @@ TEST_F(SourceControlFlowTest,
   pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
   ASSERT_TRUE(succeeded(pipeline.run(*reread)));
   file = std::move(reread);
-  ASSERT_NO_FATAL_FAILURE(normalized(*file));
+  EXPECT_TRUE(succeeded(verify(*file)));
+  file->walk([&](Operation *operation) {
+    EXPECT_NE(operation->getName().getDialectNamespace(), "scf");
+    EXPECT_FALSE((isa<ac::SourceIndexOp, ac::SourcePredicateOp>(operation)));
+  });
   unsigned branches = 0, calls = 0, assertions = 0;
   file->walk([&](ac::SourceBranchOp branch) {
     auto marker = branch->getAttrOfType<BoolAttr>("ac.loop_continuation");

@@ -75,6 +75,8 @@ class BookkeepingCase:
 
 @struct
 class Result:
+    module_accumulator: u8
+    helper_accumulator: u8
     extent_one: u3
     subtract_first: u8
     subtract_last: u8
@@ -103,6 +105,12 @@ class Result:
 
 def subtract(accumulator: u8, value: u8) -> u8:
     return accumulator - value
+
+
+def advance(value: u8) -> u8:
+    for index in range(4):
+        value = value + 1
+    return value
 
 
 @rule
@@ -299,6 +307,10 @@ def Top(
     seed: u8,
     carrier: bits[65],
 ) -> Result:
+    module_accumulator = seed
+    for ordinal in range(4):
+        module_accumulator = module_accumulator + 1
+    helper_accumulator = advance(seed)
     scan = scan_case(
         one_value, first, second, third, wide0, wide1, wide2, wide3, wide4, seed
     )
@@ -309,6 +321,8 @@ def Top(
     carrier_values = carrier_case(first, carrier)
     bookkeeping = bookkeeping_case(first, second, third, seed)
     return Result(
+        module_accumulator=module_accumulator,
+        helper_accumulator=helper_accumulator,
         extent_one=scan.extent_one,
         subtract_first=scan.subtract_first,
         subtract_last=scan.subtract_last,
