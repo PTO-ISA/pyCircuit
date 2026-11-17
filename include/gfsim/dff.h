@@ -2,9 +2,11 @@
 #pragma once
 
 #include "gfsim/SimModule.h"
+#include "gfsim/collection.h"
 #include "gfsim/sampled_clock.h"
 
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace gfsim {
@@ -108,6 +110,47 @@ template <class T = Bits<1>> struct dff_kernel {
         pending);
   }
 };
+
+namespace detail {
+// Generated scalar registers share the kernel and lifecycle with bulk storage,
+// without allocating lane arrays or tracking collection completion.
+template <class Kernel> class scalar_register_storage final {
+public:
+  explicit scalar_register_storage(std::size_t count) {
+    if (count != 1)
+      throw std::invalid_argument("scalar register storage requires one lane");
+  }
+  std::size_t size() const noexcept { return 1; }
+  const typename Kernel::Current &current(std::size_t lane) const {
+    if (lane != 0)
+      throw std::out_of_range("register lane out of range");
+    return current_;
+  }
+  void work(std::size_t lane, typename Kernel::Inputs inputs,
+            typename Kernel::Outputs outputs) {
+    if (lane != 0) {
+      discard();
+      throw std::out_of_range("register lane out of range");
+    }
+    Kernel::work(current_, inputs, pending_, outputs);
+  }
+  template <class OutputAccessor> void xfer(OutputAccessor &&outputs) noexcept {
+    Kernel::xfer(current_, pending_, outputs(0));
+  }
+  void discard() noexcept { Kernel::discard(current_, pending_); }
+  template <class InputAccessor> void reset(InputAccessor &&inputs) noexcept {
+    Kernel::reset(current_, inputs(0), pending_);
+  }
+
+private:
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
+};
+template <class Kernel, std::size_t Count>
+using register_storage =
+    std::conditional_t<Count == 1, scalar_register_storage<Kernel>,
+                       collection_storage<Kernel>>;
+} // namespace detail
 
 template <class T = Bits<1>> class dffe final : public SimModule {
 public:

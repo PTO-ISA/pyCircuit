@@ -67,7 +67,7 @@ int main() {
           const auto sibling = @SIBLING@;
           const auto counter = sibling->pyc_instance_value_state;
           const auto queue = sibling->@SIBLING_QUEUE@;
-          const auto &register_pending = counter->pending_[0];
+          const auto &register_pending = counter->pending_;
           const auto &queue_pending = queue->pending_[0];
           require(counter->current(0).q.value().value() == 0 && !counter->current(0).clock);
           require(register_pending.valid && register_pending.clock && register_pending.q.value().value() == 1);

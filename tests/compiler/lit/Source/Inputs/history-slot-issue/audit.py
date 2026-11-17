@@ -105,7 +105,7 @@ for name in ("valid_cell", "payload_cell"):
     path = cpp / (name + ".hpp")
     text = path.read_text()
     declarations = re.findall(
-        r"  std::shared_ptr<gfsim::collection_storage<::gfsim::dffe_kernel<.*>>> (\w+);",
+        r"  std::shared_ptr<gfsim::(?:collection_storage|detail::register_storage)<::gfsim::dffe_kernel<[^;]+> (\w+);",
         text,
     )
     assert declarations == ["pyc_instance_q_state"], declarations

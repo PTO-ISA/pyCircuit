@@ -37,6 +37,113 @@ template <unsigned W> auto known(uint64_t value) {
 }
 using Control = gfsim::wire<gfsim::Bits<1>>;
 using Data = gfsim::wire<gfsim::Bits<9>>;
+struct ScalarRegister {
+  using Kernel = gfsim::dffe_kernel<gfsim::Bits<9>>;
+  gfsim::detail::scalar_register_storage<Kernel> state{1};
+  Control clk = known<1>(0), rst = known<1>(0), en = known<1>(1);
+  Data d = known<9>(301), init = known<9>(17), q;
+  Kernel::Inputs inputs() const { return {clk, rst, en, d, init}; }
+  void work() { state.work(0, inputs(), {q}); }
+  void transfer() {
+    state.xfer([&](std::size_t) noexcept { return Kernel::Outputs{q}; });
+  }
+  void reset() {
+    state.reset([&](std::size_t) noexcept { return inputs(); });
+    transfer();
+  }
+  void edge(bool high) {
+    clk = known<1>(high);
+    work();
+    transfer();
+  }
+};
+TEST(CollectionRuntimeTest, ScalarRegisterResetWriteHoldAndRepeatedWork) {
+  ScalarRegister reg;
+  EXPECT_EQ(reg.state.size(), 1u);
+  reg.reset();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{17});
+  EXPECT_FALSE(reg.state.current(0).clock);
+
+  reg.clk = known<1>(1);
+  reg.work();
+  reg.d = known<9>(403);
+  reg.work();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{17});
+  EXPECT_EQ(reg.state.current(0).q.value(), gfsim::Bits<9>{17});
+  reg.transfer();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{403});
+  reg.d = known<9>(219);
+  reg.work();
+  reg.transfer();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{403});
+
+  reg.edge(false);
+  reg.en = known<1>(0);
+  reg.edge(true);
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{403});
+  reg.edge(false);
+  reg.rst = known<1>(1);
+  reg.init = known<9>(29);
+  reg.edge(true);
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{29});
+  reg.reset();
+  EXPECT_EQ(reg.state.current(0).q.value(), gfsim::Bits<9>{29});
+  EXPECT_FALSE(reg.state.current(0).clock);
+}
+TEST(CollectionRuntimeTest, ScalarRegisterDiscardAndFailedWorkCannotCommit) {
+  ScalarRegister reg;
+  reg.reset();
+  reg.clk = known<1>(1);
+  reg.work();
+  reg.state.discard();
+  reg.transfer();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{17});
+  EXPECT_FALSE(reg.state.current(0).clock);
+
+  reg.work();
+  reg.en = Control::unknown();
+  EXPECT_THROW(reg.work(), gfsim::FourStateViolation);
+  reg.transfer();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{17});
+  EXPECT_EQ(reg.state.current(0).q.value(), gfsim::Bits<9>{17});
+  EXPECT_FALSE(reg.state.current(0).clock);
+  reg.en = known<1>(1);
+  reg.work();
+  reg.transfer();
+  EXPECT_EQ(reg.q.value(), gfsim::Bits<9>{301});
+  EXPECT_TRUE(reg.state.current(0).clock);
+}
+TEST(CollectionRuntimeTest, RegisterStorageSelectionAndScalarDffLifecycle) {
+  using Dff = gfsim::dff_kernel<gfsim::Bits<9>>;
+  using Dffe = gfsim::dffe_kernel<gfsim::Bits<9>>;
+  static_assert(std::is_same_v<gfsim::detail::register_storage<Dff, 1>,
+                               gfsim::detail::scalar_register_storage<Dff>>);
+  static_assert(std::is_same_v<gfsim::detail::register_storage<Dffe, 1>,
+                               gfsim::detail::scalar_register_storage<Dffe>>);
+  static_assert(std::is_same_v<gfsim::detail::register_storage<Dff, 3>,
+                               gfsim::collection_storage<Dff>>);
+  static_assert(std::is_same_v<gfsim::detail::register_storage<Dffe, 3>,
+                               gfsim::collection_storage<Dffe>>);
+  gfsim::detail::register_storage<Dff, 1> state{1};
+  auto clk = known<1>(0), rst = known<1>(0);
+  auto data = known<9>(391), init = known<9>(23), q = known<9>(0);
+  auto transfer = [&] {
+    state.xfer([&](std::size_t) noexcept { return Dff::Outputs{q}; });
+  };
+  state.reset(
+      [&](std::size_t) noexcept { return Dff::Inputs{clk, rst, data, init}; });
+  transfer();
+  EXPECT_EQ(q.value(), gfsim::Bits<9>{23});
+  clk = known<1>(1);
+  state.work(0, {clk, rst, data, init}, {q});
+  EXPECT_EQ(q.value(), gfsim::Bits<9>{23});
+  transfer();
+  EXPECT_EQ(q.value(), gfsim::Bits<9>{391});
+  data = known<9>(87);
+  state.work(0, {clk, rst, data, init}, {q});
+  transfer();
+  EXPECT_EQ(q.value(), gfsim::Bits<9>{391});
+}
 struct RegisterFamily {
   using Kernel = gfsim::dffe_kernel<gfsim::Bits<9>>;
   gfsim::collection_storage<Kernel> state{3};
@@ -380,9 +487,8 @@ TEST(CollectionRuntimeTest, SyncMemoryKernelDataOnlyOutputsRemainCompatible) {
     p.clk = known<1>(1);
   family.work();
   using Outputs = typename MemoryFamily<1>::K::Outputs;
-  family.state.xfer([&](std::size_t i) noexcept {
-    return Outputs{{&family.q[i][0]}};
-  });
+  family.state.xfer(
+      [&](std::size_t i) noexcept { return Outputs{{&family.q[i][0]}}; });
   EXPECT_EQ(family.q[0][0].value(), gfsim::Bits<16>{0});
   EXPECT_EQ(family.q[1][0].value(), gfsim::Bits<16>{0});
 }

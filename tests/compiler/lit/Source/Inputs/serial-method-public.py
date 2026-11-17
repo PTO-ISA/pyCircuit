@@ -333,7 +333,7 @@ for mode, width, initial, first, second, bias, last in cases:
     owner_header = emitted_source_text(case / "cpp", provider_owner, "header")
     owner_rtl = emitted_source_text(case / "verilog", provider_owner, "rtl")
     native_states = set(re.findall(
-        r"(?m)^\s*std::shared_ptr<gfsim::collection_storage<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
+        r"(?m)^\s*std::shared_ptr<gfsim::(?:collection_storage|detail::register_storage)<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
         owner_header))
     rtl_states = set(re.findall(r"\b(?:dff|dffe)\b[^\n]*\s+(pyc_instance_\w+)\s*\(", owner_rtl))
     assert native_states == rtl_states and len(native_states) == len(owners)
@@ -376,7 +376,7 @@ for mode, width, initial, first, second, bias, last in cases:
     state_kinds = {
         match.group(2): match.group(1)
         for match in re.finditer(
-            r"collection_storage<::gfsim::(dff|dffe)_kernel<.*?>>\s+"
+            r"(?:collection_storage|detail::register_storage)<::gfsim::(dff|dffe)_kernel<[^;]+>\s+"
             r"(pyc_instance_\w+)_state;",
             owner_header,
         )
@@ -749,7 +749,7 @@ for mode, top_name in (("dynamic-independent", "IndependentTop"),
         header = definition_text(provider_cpp, owner_type, "cpp")
         rtl = definition_text(provider_rtl, owner_type, "verilog")
         native_states = set(re.findall(
-            r"(?m)^\s*std::shared_ptr<gfsim::collection_storage<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
+            r"(?m)^\s*std::shared_ptr<gfsim::(?:collection_storage|detail::register_storage)<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
             header))
         rtl_states = set(re.findall(r"\b(?:dff|dffe)\b[^\n]*\s+(pyc_instance_\w+)\s*\(", rtl))
         assert native_states == rtl_states and len(native_states) == len(dynamic_owners)

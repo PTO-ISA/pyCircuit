@@ -157,7 +157,7 @@ def snapshots(cpp, rtl):
     storage = sorted(
         set(
             re.findall(
-                r"std::shared_ptr<gfsim::collection_storage<[^\n]+>> (\w+);", headers
+                r"std::shared_ptr<gfsim::(?:collection_storage|detail::register_storage)<[^\n]+>> (\w+);", headers
             )
         )
     )

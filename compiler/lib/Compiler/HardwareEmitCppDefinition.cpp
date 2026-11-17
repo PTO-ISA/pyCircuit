@@ -1874,11 +1874,18 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
          "pyc_work_executor_(executor)";
   if (observes)
     out << ", pyc_sink_(pyc_sink), pyc_observation_base_(pyc_observation_base)";
+  auto storageType = [&](const ChildInfo &child) {
+    auto kind = ctx.analysis.getPrimitiveKind(child.bindings.owner);
+    if (kind == "dff" || kind == "dffe")
+      return "gfsim::detail::register_storage<" + child.type + ", " +
+             child.count + ">";
+    return "gfsim::collection_storage<" + child.type + ">";
+  };
   for (auto &child : *children) {
     out << ", ";
     if (child.leaf)
-      out << child.name << "_state(std::make_shared<gfsim::collection_storage<"
-          << child.type << ">>(" << child.count << "))";
+      out << child.name << "_state(std::make_shared<"
+          << storageType(child) << ">(" << child.count << "))";
     else {
       auto observedChild = cppObservationSubtreeWidth(
           ctx, cast<ac::ModuleOp>(child.bindings.owner));
@@ -1927,7 +1934,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
       out << "  std::shared_ptr<" << child.type << "> " << child.name << ";\n";
       continue;
     }
-    out << "  std::shared_ptr<gfsim::collection_storage<" << child.type << ">> "
+    out << "  std::shared_ptr<" << storageType(child) << "> "
         << child.name << "_state;\n";
     if (auto queue = dyn_cast<ac::InstanceOp>(child.op);
         queue && ac::isQueueInstance(queue)) {

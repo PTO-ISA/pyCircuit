@@ -194,8 +194,10 @@ conversion places element zero at the MSBs and preserves value/known/Z.
 `wire<T>::assignSlice` updates only touched words of a candidate buffer.
 
 `collection_storage<Kernel>` owns preallocated plain Current/Pending arrays;
-it contains no per-element SimModule or shared_ptr. Scalar leaf modules and
-collections call the same leaf kernels. A failed lane clears every pending
+it contains no per-element SimModule or shared_ptr. Generated single-element DFF/DFFE owners use inline Current/Pending storage
+without lane arrays or completion counters; larger families retain collection
+storage. Both forms call the same register kernels and preserve the same
+prepare, commit and discard lifecycle. A failed lane clears every pending
 candidate and clock; partial preparation cannot commit. Generated family owners
 use shared_ptr at construction and borrow data during Work. Structural instance
 names and logical indices identify state independently of source occurrence

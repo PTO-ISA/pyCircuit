@@ -94,7 +94,7 @@ def instance_names(cpp, partial=False, source_names=None, state_names=None):
     # Native storage has a declared collection_storage pointer named <base>_state;
     # RTL instantiates <base> directly. Do not infer a base from clk/d/q tokens.
     storage = set(re.findall(
-        r"^\s*std::shared_ptr<gfsim::collection_storage<[^;\n]+>\s+"
+        r"^\s*std::shared_ptr<gfsim::(?:collection_storage|detail::register_storage)<[^;\n]+>\s+"
         r"(pyc_instance_\w+)_state;\s*$", text, re.MULTILINE))
     if state_names is None:
         state_names = ({"packet", "entries", "progress", "phase", "disabled_gate"}

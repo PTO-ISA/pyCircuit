@@ -375,8 +375,10 @@ header = (
 )
 generated = header.read_text()
 storage_declarations = generated.count(
-    "std::make_shared<gfsim::collection_storage<::gfsim::dff_kernel"
-) + generated.count("std::make_shared<gfsim::collection_storage<::gfsim::dffe_kernel")
+    "std::make_shared<gfsim::detail::register_storage<::gfsim::dff_kernel"
+) + generated.count(
+    "std::make_shared<gfsim::detail::register_storage<::gfsim::dffe_kernel"
+)
 assert (
     storage_declarations == 1
 ), "the module definition must own exactly one register storage"

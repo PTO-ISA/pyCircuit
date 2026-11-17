@@ -344,6 +344,7 @@ def fault_checks():
         collection = probe / "gfsim/collection.h"
         collection.parent.mkdir()
         grant_visibility(repo / "include/gfsim/collection.h", collection)
+        grant_visibility(repo / "include/gfsim/dff.h", probe / "gfsim/dff.h")
         header = "\n".join(
             path.read_text() for path in (probe / "sources").rglob("*.hpp")
         )
@@ -362,7 +363,7 @@ def fault_checks():
                 if child:
                     visit(child[1], path + (child[2],))
                 state = re.search(
-                    r"std::shared_ptr<gfsim::collection_storage<(.*?)>> (\w+);",
+                    r"std::shared_ptr<gfsim::(?:collection_storage|detail::register_storage)<(.*?)>> (\w+);",
                     line,
                 )
                 if state:
