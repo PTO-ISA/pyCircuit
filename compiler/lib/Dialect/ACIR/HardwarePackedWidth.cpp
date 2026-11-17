@@ -393,11 +393,25 @@ resolveNominalEnum(EnumType type, Operation *site,
                                << type.getName().getValue() << "'";
   return validateEnumDeclaration(declaration, site);
 }
+// Reuse only the complete literal form produced by the reconstruction below.
+// Evaluation and positive-natural validation still run before this shortcut.
+static bool isCanonicalLiteral(StaticExprAttr expression, Attribute value) {
+  auto tree = expression.getTree();
+  auto kind = tree.getAs<StringAttr>("kind");
+  auto container = tree.getAs<DictionaryAttr>("value");
+  auto valueKind =
+      container ? container.getAs<StringAttr>("kind") : StringAttr();
+  return tree.size() == 4 && kind && kind.getValue() == "literal" &&
+         tree.get("origin") && tree.get("location") && container &&
+         container.size() == 2 && valueKind &&
+         valueKind.getValue() == "integer" && container.get("value") == value;
+}
 FailureOr<Type> resolveHardwareType(const PackedWidthResolver &resolver,
                                     Type type, const HardwareBindings &bindings,
                                     Operation *site) {
   if (auto table = dyn_cast<TableType>(type)) {
     SmallVector<Attribute> shape;
+    bool unchanged = true;
     for (auto raw : table.getShape()) {
       auto expr = dyn_cast<StaticExprAttr>(raw);
       if (!expr)
@@ -407,24 +421,31 @@ FailureOr<Type> resolveHardwareType(const PackedWidthResolver &resolver,
         auto value = resolver.evaluateStatic(expr, bindings, site);
         if (failed(value) || failed(naturalHardwareStatic(*value, site, true)))
           return failure();
-        NamedAttrList tree;
-        Builder b(type.getContext());
-        tree.append("kind", b.getStringAttr("literal"));
-        tree.append("origin", expr.getTree().get("origin"));
-        tree.append("location", expr.getTree().get("location"));
-        tree.append("value",
-                    b.getDictionaryAttr(
-                        {b.getNamedAttr("kind", b.getStringAttr("integer")),
-                         b.getNamedAttr("value", *value)}));
-        expr = StaticExprAttr::get(type.getContext(),
-                                   tree.getDictionary(type.getContext()));
+        if (!isCanonicalLiteral(expr, *value)) {
+          NamedAttrList tree;
+          Builder b(type.getContext());
+          tree.append("kind", b.getStringAttr("literal"));
+          tree.append("origin", expr.getTree().get("origin"));
+          tree.append("location", expr.getTree().get("location"));
+          tree.append("value",
+                      b.getDictionaryAttr(
+                          {b.getNamedAttr("kind", b.getStringAttr("integer")),
+                           b.getNamedAttr("value", *value)}));
+          expr = StaticExprAttr::get(type.getContext(),
+                                     tree.getDictionary(type.getContext()));
+        }
       }
+      unchanged &= expr == raw;
       shape.push_back(expr);
     }
     auto element = resolveHardwareType(resolver, table.getElementType(),
                                        bindings, site);
     if (failed(element))
       return failure();
+    // Returning the incoming type keeps pointer identity stable for the
+    // downstream DenseMap caches; resolve every element before reusing it.
+    if (unchanged && *element == table.getElementType())
+      return type;
     return Type(TableType::get(
         type.getContext(), ArrayAttr::get(type.getContext(), shape), *element));
   }
@@ -460,19 +481,23 @@ FailureOr<Type> resolveHardwareType(const PackedWidthResolver &resolver,
       auto value = resolver.evaluateStatic(width, bindings, site);
       if (failed(value) || failed(naturalHardwareStatic(*value, site, true)))
         return failure();
-      NamedAttrList tree(width.getTree());
-      Builder b(type.getContext());
-      tree.clear();
-      tree.append("kind", b.getStringAttr("literal"));
-      tree.append("origin", width.getTree().get("origin"));
-      tree.append("location", width.getTree().get("location"));
-      tree.append("value",
-                  b.getDictionaryAttr(
-                      {b.getNamedAttr("kind", b.getStringAttr("integer")),
-                       b.getNamedAttr("value", *value)}));
-      width = StaticExprAttr::get(type.getContext(),
-                                  tree.getDictionary(type.getContext()));
+      if (!isCanonicalLiteral(width, *value)) {
+        NamedAttrList tree(width.getTree());
+        Builder b(type.getContext());
+        tree.clear();
+        tree.append("kind", b.getStringAttr("literal"));
+        tree.append("origin", width.getTree().get("origin"));
+        tree.append("location", width.getTree().get("location"));
+        tree.append("value",
+                    b.getDictionaryAttr(
+                        {b.getNamedAttr("kind", b.getStringAttr("integer")),
+                         b.getNamedAttr("value", *value)}));
+        width = StaticExprAttr::get(type.getContext(),
+                                    tree.getDictionary(type.getContext()));
+      }
     }
+    if (width == bits.getWidth())
+      return type;
     return Type(BitsType::get(type.getContext(), width));
   }
   if (auto record = dyn_cast<StructType>(type)) {
