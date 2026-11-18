@@ -1105,7 +1105,13 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
   if (!yes) {
     // Branch entry shares every untouched entry with the incoming
     // environment: the pending delta is committed into one shared frame and
-    // each materialized arm adds only an ambient/continuation pair.
+    // each materialized arm adds only an ambient/continuation pair. Container
+    // work performed outside the reservation paths (frame flattening in
+    // particular) is billed here so the Work budget sees every real walk.
+    fits &= TableQueryBudget::add(
+        charge, TableQueryResource::Work,
+        incoming.values.takeUnbilledWork() + incoming.writes.takeUnbilledWork() +
+            incoming.boundaries.takeUnbilledWork());
     for (StringRef name : incoming.values.pendingEntryNames()) {
       if (failed(chargeLoopDescriptorWork(site,
                                           "environment entry measurement")))
@@ -1131,9 +1137,21 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
                                   2 * branchCopies);
   } else {
     // The join merges only the deltas the arms produced. Untouched entries
-    // stay shared through the committed frames and are not re-charged.
+    // stay shared through the committed frames and are not re-charged. Work
+    // performed inside the arms outside the reservation paths is billed here.
+    fits &= TableQueryBudget::add(
+        charge, TableQueryResource::Work,
+        incoming.values.takeUnbilledWork() + incoming.writes.takeUnbilledWork() +
+            incoming.boundaries.takeUnbilledWork() +
+            yes->values.takeUnbilledWork() + yes->writes.takeUnbilledWork() +
+            yes->boundaries.takeUnbilledWork() +
+            no->values.takeUnbilledWork() + no->writes.takeUnbilledWork() +
+            no->boundaries.takeUnbilledWork());
+    llvm::SmallVector<StringRef> boundaryDelta;
+    yes->boundaries.appendDeltaSince(no->boundaries, boundaryDelta);
+    no->boundaries.appendDeltaSince(yes->boundaries, boundaryDelta);
     for (const auto *branch : {yes, no})
-      for (StringRef name : branch->boundaries.pendingEntryNames()) {
+      for (StringRef name : boundaryDelta) {
         if (failed(
                 chargeLoopDescriptorWork(site, "join boundary measurement")))
           return failure();
@@ -1155,10 +1173,8 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
           return failure();
       }
     llvm::SmallVector<StringRef> changed;
-    for (const auto *branch : {yes, no})
-      for (StringRef name : branch->values.pendingNames())
-        if (!llvm::is_contained(changed, name))
-          changed.push_back(name);
+    yes->values.appendDeltaSince(no->values, changed);
+    no->values.appendDeltaSince(yes->values, changed);
     for (StringRef name : changed) {
       if (failed(chargeLoopDescriptorWork(site, "join output measurement")))
         return failure();
@@ -1355,10 +1371,8 @@ FailureOr<LoopStatementEnvelope> Importer::reserveLoopJoin(
   if (failed(reserveSourceEnvironmentCopies(statement, incoming, &yes, &no)))
     return failure();
   llvm::SmallVector<StringRef> joined;
-  for (const auto *branch : {&yes, &no})
-    for (StringRef pending : branch->values.pendingNames())
-      if (!llvm::is_contained(joined, pending))
-        joined.push_back(pending);
+  yes.values.appendDeltaSince(no.values, joined);
+  no.values.appendDeltaSince(yes.values, joined);
   for (StringRef name : joined) {
     const Value *yesValue = yes.values.lookupPtr(name);
     const Value *other = no.values.lookupPtr(name);
