@@ -98,6 +98,47 @@
         binary && binary.getOpcode() == "or") prospectivePrivate.insert(binary.getResult());
     return success();
   }
+  LogicalResult compactReadinessUses(const SampledAdmissionView &view,
+                                     const llvm::DenseSet<Value> &readiness) {
+    if (readiness.empty())
+      return success();
+    // Permit comparisons on the actual admission cone. A comparison of the
+    // same private readiness in an unrelated expression grants no permission.
+    SmallVector<Value, 0> pending;
+    auto push = [&](Value value) -> LogicalResult {
+      if (failed(pay(sizeof(Value))))
+        return failure();
+      pending.push_back(value);
+      return success();
+    };
+    if (failed(push(view.fire)))
+      return failure();
+    llvm::DenseSet<Value> seen;
+    while (!pending.empty()) {
+      Value current = pending.pop_back_val();
+      if (failed(step(view.rule)) || failed(pay(sizeof(Value) * 3)))
+        return failure();
+      Operation *op = current.getDefiningOp();
+      if (!op || op->getParentOp() != view.rule || !seen.insert(current).second)
+        continue;
+      if (auto compare = dyn_cast<BitsCompareOp>(op);
+          compare && compare.getPredicate() == "case_eq" &&
+          readiness.contains(compare.getLhs())) {
+        auto one = literal(compare.getRhs(), scope, true);
+        if (failed(one) || !*one || failed(prospectiveEdge(compare, 0)))
+          return failure();
+      } else if (auto andOp = dyn_cast<BitsBinaryOp>(op);
+                 andOp && andOp.getOpcode() == "and") {
+        if (failed(push(andOp.getLhs())) || failed(push(andOp.getRhs())))
+          return failure();
+      } else if (auto select = dyn_cast<BitsSelectOp>(op)) {
+        if (failed(push(select.getTrueValue())))
+          return failure();
+      }
+    }
+    return success();
+  }
+
   LogicalResult prospectiveUseClosure(const SampledAdmissionView &view) {
     llvm::DenseSet<Operation *> diagnostic;
     SmallVector<Value> pending;

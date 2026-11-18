@@ -33,12 +33,12 @@ module fault_probe;
         before_state=snapshot();
         clk=(@EDGE@ == 0); phase=1; #1;
         if (!error) $fatal(1,"effective invalid head did not fail");
-        if (@SIBLING@.pyc_instance_value.en !== 1'b1 ||
-            @SIBLING@.pyc_instance_value.d !== @EDGE@ + 1 ||
+        if (@SIBLING@.pyc_instance_value.d !== @EDGE@ + 1 ||
             @SIBLING@.pyc_instance_value.managed.clock_pending !== (@EDGE@ == 0) ||
             !@SIBLING@.pyc_instance_value.managed.pending_valid)
           $fatal(1,"sibling did not prepare its proposal and clock history");
         if (@EDGE@ == 0) begin
+          // The pending Q proves a prepared write for both DFF and DFFE.
           if (@SIBLING@.pyc_instance_value.managed.q_pending !== 1 ||
               !@SIBLING@.@SIBLING_QUEUE@.latency_delayed.managed.pending_valid ||
               !@SIBLING@.@SIBLING_QUEUE@.candidate.write_token ||

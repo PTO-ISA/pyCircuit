@@ -1104,4 +1104,37 @@ TEST_F(HardwareResourceDemandTest,
   }
 }
 
+TEST_F(HardwareResourceDemandTest,
+       CompactQueueProposalRejectsForgedRootRawPath) {
+  auto file = fixture(/*pureState=*/true);
+  ASSERT_TRUE(file) << diagnostics;
+  ASSERT_TRUE(succeeded(verifyFinal(*file))) << diagnostics;
+  bool changed = false;
+  file->walk([&](ac::RuleOp rule) {
+    if (changed) return;
+    auto admission = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+    auto proposals = admission ? admission.getAs<ArrayAttr>("queue_proposals")
+                              : ArrayAttr();
+    if (!proposals) return;
+    auto yield = cast<ac::YieldOp>(rule.getBody().front().getTerminator());
+    for (Attribute raw : proposals) {
+      auto proposal = cast<DictionaryAttr>(raw);
+      auto index = proposal.getAs<IntegerAttr>("raw_path");
+      if (!index) continue;
+      auto path = yield.getOperand(index.getInt());
+      if (!path.getDefiningOp<ac::BitsConstantOp>()) continue;
+      // The unconditional push has a retained literal-one raw path. Change
+      // only that published path slot; preserve its resource pin, functional
+      // enable, admission controls and all metadata. Schema parsing must still
+      // succeed, while the independent hardware path proof must reject it.
+      OpBuilder b(yield);
+      yield->setOperand(index.getInt(), constant(b, path.getType(), 0));
+      changed = true;
+      break;
+    }
+  });
+  ASSERT_TRUE(changed) << "fixture must publish a compact Queue proposal";
+  rejects(*file);
+}
+
 } // namespace

@@ -11,7 +11,8 @@
     auto clock = ordinal(row, "clock_capture", rule), reset = ordinal(row, "reset_capture", rule);
     auto yield = dyn_cast<YieldOp>(rule.getBody().front().getTerminator());
     if (!controls || !observations || failed(fire) || failed(clock) || failed(reset) ||
-        !yield || *clock >= rule.getNumOperands() || *reset >= rule.getNumOperands()) return failure();
+        !yield || *fire >= yield.getNumOperands() ||
+        *clock >= rule.getNumOperands() || *reset >= rule.getNumOperands()) return failure();
     uint64_t base = SourceCheckBudget::add(*fire, 1);
     for (Attribute raw : observations) {
       auto count = ordinal(dyn_cast<DictionaryAttr>(raw), "value_count", rule);
@@ -21,6 +22,7 @@
     SampledAdmissionView view;
     view.rule = rule; view.definition = module;
     view.clock = rule.getOperand(*clock); view.reset = rule.getOperand(*reset);
+    view.fire = yield.getOperand(*fire);
     for (auto [i, raw] : llvm::enumerate(controls)) {
       if (failed(pay(sizeof(SampledControlView)))) return failure();
       auto entry = dyn_cast<DictionaryAttr>(raw);
@@ -41,6 +43,7 @@
         control.executionPath = {*selected, arm.getValue()};
       }
       control.raw = yield.getOperand(output); control.reached = yield.getOperand(output + 1);
+      control.rawResult = output;
       view.controls.push_back(control);
     }
     if (auto proposals = row.getAs<ArrayAttr>("queue_proposals"))

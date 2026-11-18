@@ -127,26 +127,41 @@ static LogicalResult proveQueueProposalPrefixes(
       if (failed(next)) return failure();
       expected = std::move(*next);
     }
-    auto enable = proof.normalize(proposal.path);
     auto rawPath = proof.normalize(proposal.rawPath);
-    if (failed(enable) || failed(rawPath)) return failure();
-    auto combine = enable->value.getDefiningOp<BitsBinaryOp>();
-    if (!combine || combine.getOpcode() != "and")
-      return view.rule->emitOpError() << "queue proposal requires admission AND raw path";
-    auto selected = proof.normalize(combine.getRhs());
-    auto prefix = proof.parse(combine.getLhs());
-    if (failed(selected) || failed(prefix) || !sameEndpoint(*selected, *rawPath) ||
-        failed(proof.equal(*prefix, expected, view.rule)))
-      return view.rule->emitOpError() << "queue proposal differs from its retained admission and raw path";
-    if (proposal.resourceControl) {
-      auto raw = normalizedControl(*proposal.resourceControl);
-      auto select = succeeded(raw) ? raw->value.getDefiningOp<BitsSelectOp>() : BitsSelectOp();
-      auto predicate = select ? proof.normalize(select.getCondition())
-                              : FailureOr<HardwareIdentityEndpoint>(failure());
-      if (failed(predicate) || !sameEndpoint(*predicate, *rawPath) ||
-          llvm::is_contained(proposal.excludedControls, *proposal.resourceControl))
-        return view.rule->emitOpError() << "queue proposal must retain its exact path-selected resource";
+    if (failed(rawPath)) return failure();
+    bool compact = false;
+    if (auto index = proposal.resourceControl) {
+      if (llvm::is_contained(proposal.excludedControls, *index))
+        return view.rule->emitOpError() << "queue proposal must retain its resource control";
+      auto raw = normalizedControl(*index);
+      if (failed(raw)) return failure();
+      if (auto select = raw->value.getDefiningOp<BitsSelectOp>()) {
+        auto predicate = proof.normalize(select.getCondition());
+        if (failed(predicate) || !sameEndpoint(*predicate, *rawPath))
+          return view.rule->emitOpError() << "queue proposal must retain its exact path-selected resource";
+      } else {
+        auto path = literal(*rawPath, analysis, budget);
+        if (failed(path) || !path->value_or(false) ||
+            view.controls[*index].executionPath.selectionControl)
+          return view.rule->emitOpError() << "bare queue resource requires its known-one root path";
+        compact = true;
+      }
     }
+    Value admission = proposal.path;
+    if (!compact) {
+      auto enable = proof.normalize(proposal.path);
+      if (failed(enable)) return failure();
+      auto combine = enable->value.getDefiningOp<BitsBinaryOp>();
+      if (!combine || combine.getOpcode() != "and")
+        return view.rule->emitOpError() << "queue proposal requires admission AND raw path";
+      auto selected = proof.normalize(combine.getRhs());
+      if (failed(selected) || !sameEndpoint(*selected, *rawPath))
+        return view.rule->emitOpError() << "queue proposal differs from its raw path";
+      admission = combine.getLhs();
+    }
+    auto prefix = proof.parse(admission);
+    if (failed(prefix) || failed(proof.equal(*prefix, expected, view.rule)))
+      return view.rule->emitOpError() << "queue proposal differs from its retained admission";
 
   }
 #include "HardwareMemoryProposalProof.inc"

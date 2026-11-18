@@ -67,6 +67,8 @@ Ordinary anchors use `kind="pycircuit-anchor"`, `schema=3` and
 `routed_contract=5`. Only these two schema/contract pairs are admitted;
 the retired schema/contract pairs 1/2 and 2/3 and any unsupported or mismatched
 versions require regeneration from source units.
+Anchors containing compact Queue controls require a toolchain that verifies
+that expression form. Use the producing toolchain or a newer compatible one.
 The manifest has closed fields for owner, root, configuration and its identity,
 complete content identity, file inventory, definition index, retained sources
 and producer provenance. Duplicate fields, definitions, source owners, paths and

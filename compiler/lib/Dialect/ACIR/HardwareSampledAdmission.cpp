@@ -1928,6 +1928,17 @@ public:
     if (failed(bindings) || failed(bitOne(raw.value, analysis, *bindings, site, budget))) return failure();
     auto known = literal(raw, analysis, budget);
     if (failed(known)) return failure();
+    if (!*known)
+      if (auto require = raw.value.getDefiningOp<ValueRequireOp>()) {
+        // Availability one gives this required-use select identical known
+        // arms. Keep the raw requirement as a check witness in the graph.
+        auto available = identity.normalize(require.getAvailability(), raw.scope);
+        if (failed(available)) return failure();
+        auto bit = literal(*available, analysis, budget);
+        if (failed(bit)) return failure();
+        if (bit->value_or(false))
+          known = std::optional<bool>(true);
+      }
     if (known->has_value()) {
       result.impossible = test != KnownTest::Either && (**known != (test == KnownTest::One));
       return result;

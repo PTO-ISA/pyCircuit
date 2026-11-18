@@ -25,6 +25,7 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include <functional>
@@ -8365,6 +8366,120 @@ LogicalResult verifyTransactionMaterialization(
 
 namespace {
 
+bool isControlLiteralOne(Value value) {
+  auto op = value.getDefiningOp<ac::BitsConstantOp>();
+  if (!op)
+    return false;
+  auto tree = op.getValue().getTree();
+  if (tree.getAs<StringAttr>("kind").getValue() != "literal")
+    return false;
+  auto attribute = tree.getAs<DictionaryAttr>("value");
+  auto integer = attribute ? attribute.getAs<ac::MathIntAttr>("value")
+                           : ac::MathIntAttr();
+  return integer && llvm::APSInt(integer.getCanonicalValue()) == 1;
+}
+
+LogicalResult collectControlFolds(const PreparedTransactionLowering &prepared,
+                                  const MaterializedTransactionLowering &candidate,
+                                  SmallVectorImpl<Operation *> &folds,
+                                  SourceCheckBudget &budget) {
+  auto append = [&](Operation *op) -> LogicalResult {
+    if (!prepayAppend(budget, op, folds))
+      return failure();
+    folds.push_back(op);
+    return success();
+  };
+  for (auto [source, routed] : llvm::zip_equal(prepared.transactions,
+                                             candidate.transactions)) {
+    auto rule = routed.rule;
+    auto yield = cast<ac::YieldOp>(rule.getBody().front().getTerminator());
+    for (const auto &proposal : source.queueProposals) {
+      if (!charge(budget, rule) || !proposal.resource)
+        return failure();
+      const auto &resource = source.resources[*proposal.resource];
+      if (routed.controls[resource.control].selectedPath)
+        continue;
+      auto select = routed.resources[*proposal.resource];
+      auto path = select.getCondition().getDefiningOp<ac::BitsBinaryOp>();
+      if (!path || path.getOpcode() != "and" ||
+          !isControlLiteralOne(path.getLhs()) ||
+          !isControlLiteralOne(path.getRhs()) ||
+          path.getRhs().getType() != path.getResult().getType() ||
+          select.getTrueValue().getType() != select.getResult().getType())
+        continue;
+      // The raw-path result identifies the exact local source path. Keep its
+      // authored one (also used by the diagnostic demand graph).
+      if (failed(append(path)) || failed(append(select)) ||
+          failed(append(yield.getOperand(proposal.pathResult).getDefiningOp())))
+        return failure();
+    }
+    for (auto [i, control] : llvm::enumerate(routed.controls)) {
+      if (!charge(budget, rule))
+        return failure();
+      if (auto test = control.accepted.getDefiningOp<ac::BitsCompareOp>();
+          test && failed(append(test)))
+        return failure();
+      if (failed(append(routed.prefixes[i + 1].getDefiningOp())))
+        return failure();
+    }
+  }
+  return success();
+}
+
+FailureOr<bool> simplifyRoutedControls(ArrayRef<Operation *> folds,
+                                       SourceCheckBudget &budget) {
+  // Fold each resource path before its select and enable, then follow the
+  // ordered admission chain. Source authentication established that prefix
+  // operands are known 0/1. Raw readiness and write intents lack that fact.
+  llvm::SmallSetVector<Operation *, 8> literals;
+  bool changed = false;
+  for (Operation *op : folds) {
+    if (!charge(budget, op))
+      return failure();
+    Value replacement;
+    if (auto andOp = dyn_cast<ac::BitsBinaryOp>(op);
+        andOp && andOp.getOpcode() == "and") {
+      if (isControlLiteralOne(andOp.getLhs()))
+        replacement = andOp.getRhs();
+      else if (isControlLiteralOne(andOp.getRhs()))
+        replacement = andOp.getLhs();
+    } else if (auto select = dyn_cast<ac::BitsSelectOp>(op)) {
+      if (isControlLiteralOne(select.getCondition()))
+        replacement = select.getTrueValue();
+    } else if (auto test = dyn_cast<ac::BitsCompareOp>(op);
+               test && test.getPredicate() == "case_eq") {
+      Value raw = test.getLhs();
+      auto require = raw.getDefiningOp<ac::ValueRequireOp>();
+      // select(path, one, one) is known one for every four-state path.
+      if (isControlLiteralOne(test.getRhs()) &&
+          (isControlLiteralOne(raw) ||
+           (require && isControlLiteralOne(require.getAvailability()))))
+        replacement = test.getRhs();
+    }
+    if (!replacement || replacement.getType() != op->getResult(0).getType())
+      continue;
+    for (Value operand : op->getOperands()) {
+      if (operand == replacement)
+        continue;
+      if (auto literal = operand.getDefiningOp<ac::BitsConstantOp>()) {
+        if (!charge(budget, literal, 4))
+          return failure();
+        literals.insert(literal);
+      }
+    }
+    for (OpOperand &use : op->getResult(0).getUses())
+      if (!charge(budget, use.getOwner()))
+        return failure();
+    op->getResult(0).replaceAllUsesWith(replacement);
+    op->erase();
+    changed = true;
+  }
+  for (Operation *literal : literals)
+    if (literal->use_empty())
+      literal->erase();
+  return changed;
+}
+
 class RouteTransactionsPass
     : public PassWrapper<RouteTransactionsPass, OperationPass<mlir::ModuleOp>> {
 public:
@@ -8417,13 +8532,32 @@ public:
     SourceCheckBudget budget(limits);
     auto prepared = detail::prepareTransactionLowering(input, analysis, budget);
     if (failed(prepared)) { signalPassFailure(); return; }
-    auto candidate = detail::materializeTransactionLowering(*prepared, budget);
-    if (failed(candidate) || failed(detail::verifyTransactionMaterialization(
-                                 *prepared, *candidate, budget))) {
+    OwningOpRef<mlir::ModuleOp> routed;
+    SmallVector<Operation *, 0> folds;
+    SourceCheckBudget simplificationBudget(limits);
+    {
+      auto candidate = detail::materializeTransactionLowering(*prepared, budget);
+      if (failed(candidate) || failed(detail::verifyTransactionMaterialization(
+                                   *prepared, *candidate, budget))) {
+        signalPassFailure();
+        return;
+      }
+      simplificationBudget.setPhase("routed control simplification");
+      if (failed(collectControlFolds(*prepared, *candidate, folds,
+                                     simplificationBudget))) {
+        signalPassFailure();
+        return;
+      }
+      routed = std::move(candidate->module);
+    }
+    // End the original-source proof and release its locators before any SSA
+    // replacement. The compact graph must stand on its own at the GFIR boundary.
+    auto changed = simplifyRoutedControls(folds, simplificationBudget);
+    if (failed(changed) || (*changed && failed(ac::verifyRoutedPackage(*routed)))) {
       signalPassFailure();
       return;
     }
-    acceptTransactionCandidate(input, *candidate->module);
+    acceptTransactionCandidate(input, *routed);
   }
 };
 

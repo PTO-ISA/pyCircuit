@@ -17,12 +17,16 @@ static FailureOr<SmallVector<Value, 0>> verifyResourceDemandReach(
     if (failed(a) || failed(b)) return failure();
     return sameEndpoint(*a, *b);
   };
-  auto isLiteral = [&](Value value, bool wanted) -> LogicalResult {
+  auto matchesLiteral = [&](Value value, bool wanted) -> FailureOr<bool> {
     auto endpoint = normalized(value);
     if (failed(endpoint)) return failure();
     auto known = literal(*endpoint, analysis, budget);
     if (failed(known)) return failure();
-    return success(known->has_value() && **known == wanted);
+    return known->has_value() && **known == wanted;
+  };
+  auto isLiteral = [&](Value value, bool wanted) -> LogicalResult {
+    auto matches = matchesLiteral(value, wanted);
+    return success(succeeded(matches) && *matches);
   };
   auto binary = [&](Value value) -> FailureOr<BitsBinaryOp> {
     auto endpoint = normalized(value);
@@ -51,12 +55,19 @@ static FailureOr<SmallVector<Value, 0>> verifyResourceDemandReach(
         : error("ancestry differs from the actual raw selector");
   };
   struct ResourceLeaf { Value predicate, authored; };
-  auto leaf = [&](uint64_t ordinal) -> FailureOr<ResourceLeaf> {
-    const auto &control = view.controls[ordinal];
+  auto leaf = [&](const SampledResourceView &resource) -> FailureOr<ResourceLeaf> {
+    const auto &control = view.controls[resource.control];
     auto endpoint = normalized(control.raw);
     if (failed(endpoint)) return failure();
     auto select = endpoint->value.getDefiningOp<BitsSelectOp>();
-    if (!select || failed(isLiteral(select.getFalseValue(), true))) {
+    if (!select) {
+      auto path = proveUnconditionalQueuePath(
+          view, resource, [&](Value value) { return matchesLiteral(value, true); },
+          budget);
+      if (failed(path)) return failure();
+      return ResourceLeaf{control.raw, *path};
+    }
+    if (failed(isLiteral(select.getFalseValue(), true))) {
       (void)error("resource requires the existing path-selected predicate");
       return failure();
     }
@@ -153,7 +164,7 @@ static FailureOr<SmallVector<Value, 0>> verifyResourceDemandReach(
         // Memory snapshots admit forward execution. They do not suppress
         // already-reached diagnostics through Queue's speculative demand.
         if (metadata->kind.getValue() == "memory_live") continue;
-        auto resource = leaf(ordinal);
+        auto resource = leaf(*metadata);
         if (failed(resource)) return failure();
         auto required = append(Kind::And, resource->predicate, continuation);
         if (failed(required)) return failure();
