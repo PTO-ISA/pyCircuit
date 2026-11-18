@@ -1,7 +1,4 @@
-"""Independent WSE semantic-reference dependency closure for Calendar verification.
-
-The pyCircuit DUT is in models/calendar; this package supplies host-side oracles.
-"""
+"""WSE semantic core; current pyCircuit hardware models live in models/."""
 
 from wse_model.errors import (
     CalendarError,

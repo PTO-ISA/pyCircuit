@@ -271,6 +271,35 @@ def boundary_scenarios() -> list[dict]:
             early=3,
             seen=3,
         ),
+        # A zero identity must ignore padding in the partial second group.
+        scenario(
+            "nine-identities-with-zero",
+            [request(post, capacity=36, expected=36, compiled_expected=36)]
+            + [request(deliver, source=0, seq=i + 1) for i in range(8)]
+            + [
+                request(deliver, source=0, seq=0),
+                request(deliver, source=0, seq=0),
+                request(retire),
+            ],
+            seen=9,
+        ),
+        # One node/context, two early slots, 56 identities. These are 4-byte
+        # metadata deliveries, independent of the machine's 8-byte payload beat.
+        scenario(
+            "identity-high55-and-reuse",
+            [request(post, capacity=224, expected=224, compiled_expected=224)]
+            + [request(deliver, seq=i, address=100 + 4 * i) for i in range(56)]
+            + [
+                request(deliver, seq=55, address=320),
+                request(deliver, seq=23, address=192),
+                request(retire),
+                request(post, epoch=2, capacity=4, expected=4, compiled_expected=4),
+                request(deliver, epoch=2, seq=55),
+                request(deliver, epoch=2, seq=55),
+            ],
+            early=2,
+            seen=56,
+        ),
     ]
     cases.append(
         scenario(

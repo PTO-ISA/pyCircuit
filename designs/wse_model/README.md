@@ -1,31 +1,77 @@
-# WSE Calendar model and compiler reproducer
+# WSE Model
 
-本项目发布当前基于 pyCircuit 的 WSE Calendar 控制、路由和接收模型，供编译器维护者复现大型 System 的链接、代码生成和宿主 C++ 构建问题。导入来源为 [PTO-ISA/wse-model](https://github.com/PTO-ISA/wse-model) 的迁移工作树，原始文件摘要见 [source-origin.json](reproduction/source-origin.json)，许可证见 [LICENSE](LICENSE)。
+本项目提供 WSE（晶圆级系统）的普通 Python 语义基准，以及使用 pyCircuit
+编写的通信功能模型。它是独立的 SDK（软件开发工具包）消费项目，不注册到
+pyCircuit 示例 smoke 门禁。架构来源为 [PTO-ISA/wse-model](https://github.com/PTO-ISA/wse-model)。
 
-## 模型范围
+## 实现范围
 
-- `models/calendar/`：pyCircuit DUT（被测设计）、System 测试输入、NDF（规范定义格式）条款及依赖记录。成员结果和控制器状态的 `ac.log` 均已保留，断言与自动检查也保留。
-- `src/wse_model/`：独立普通 Python 语义参考的依赖闭包；它不参与 DUT 代码生成。旧 `agentic_circuit` 层不在本项目中。
-- `tools/`：原有参考模型与 C++/Verilog 验证入口；`tests/unit/` 检查参考结果、输入编码和宿主比较逻辑。
-- `reproduction/`：分阶段编译复现工具及历史编译器源补丁串。
-- `docs/design/`：按原始字节保留的白皮书和 Calendar 方案；`docs/decisions/` 记录有限资源及溢出语义。
+| 层次 | 职责 |
+| --- | --- |
+| 普通 Python 语义 | 拓扑、Calendar 路由与接收规则、容量、宿主约束；计算与存储的容量、时延估算 |
+| 共享 Calendar 组件 | 配置准入、轮次、路由解码、逐跳转发和有限接收账本；原组件接口保留回归适配 |
+| 通用通信功能硬件 | `WseMachine` 加载运行时程序，执行节点内存读写、多播、接收完成等待与退休 |
+| 通用通信时序模型 | `TimedWseMachine` 用实际数据和资源事件推进预测时延；参数与容量显式记录 |
+| 通信程序 | AllGather 的分组、布局、分片、地址和期望接收量；PTO 输入经语义分析后生成同一程序接口 |
+| 专项时序分析 | 显式参数下的 UB 服务、Calendar 时窗、链路和端点调度，暂定参数保留 `pending` 状态 |
 
-默认场景是 40 节点载体、32 个参与成员、8 位轮次、2 个早到槽和 56 个去重身份槽。行、列两个阶段由实际配置、接收完成和退役状态推进。基线为 523 周期；延迟例仅改变节点 31 的接收建立许可和节点 30 的片段接纳许可，预期 529 周期。容量和轮次宽度都是显式验证配置。
+AllGather（每个参与者取得全组数据）是运行在同一机器上的程序。更换程序、
+地址或数据时，加载新的输入文件；硬件不识别行列阶段、固定片号或某个组大小。
+功能版本采用 40 节点、每节点 64 KiB、最多 64 字节拍、单片段在途的显式配置。
+其执行周期描述功能实现的步数。新增时序版本按存储、链路和 Calendar 资源事件
+推进模型时间，沿用显式暂定参数；详见 [时序执行模型](docs/timed-machine.md)。矩阵、向量及完整 FFN/Attention 的数值计算尚未接入电路。
 
-这是控制与通信功能模型。Cube/Vector 数值计算、载荷存储、物理链路竞争和最终硬件性能不属于本次复现范围。
+## 目录
 
-## 开始使用
-
-纯 Python 检查不需要编译器工具链：
-
-```bash
-cd designs/wse_model
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -e '.[dev]'
-python3 -m pytest tests/unit -q
+```text
+models/machine/       通用通信功能/时序模型与宿主驱动
+models/calendar/      共享通信组件、组件测试与规范
+src/wse_model/        Python 语义、架构分析、程序表示及 PTO 映射
+src/wse_model/programs/  通用程序编码与 AllGather 程序生成
+verification/fixtures/  历史 AllGather 与最小存储事务验证源
+spec/                通用机器与程序的当前验收规范
+ndf.yaml             项目级规范与源码追溯入口
+models/pto_allgather/  独立专项时序投影及参数（analysis-only）
+tools/                构建、程序加载、PTO 处理与独立比较
+tests/                单元、契约、黄金向量及集成测试
+examples/             Python 示例与 PyPTO AllGather 输入
+docs/design/          按原始字节保留的白皮书与 Calendar 方案
 ```
 
-完整的分阶段命令、工具链前提和日志位置见 [REPRODUCE.md](REPRODUCE.md)。历史失败与本次发布候选的实际检查分别记录在 [VALIDATION.md](VALIDATION.md)。
+分层和实现边界见 [architecture.md](docs/architecture.md)，运行时程序接口见
+[program-interface.md](docs/program-interface.md)，配置见
+[profiles.md](docs/profiles.md)，构建入口见 [RUNNING.md](RUNNING.md)。
 
-本项目不注册进全仓示例 smoke 门禁；长时间编译由维护者按复现说明显式运行。
+## 普通 Python 使用
+
+从本目录执行，使用 Python 3.11 或更新版本：
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+make check
+python -m wse_model --json topology show
+python examples/ffn_allgather.py
+```
+
+普通 Python 测试与原生电路构建是独立的验证阶段。外部产物比较测试在未提供
+输入、输出路径时会跳过；PyPTO 示例需要单独设置其解释器。
+
+## 编译器与验收
+
+`models/calendar/pycircuit.lock.json` 指定 pyCircuit 集成提交
+`7942030dd623bb8db6a0a3bcb061fa11f667f43a` 和 LLVM/MLIR 22.1.8。
+原生执行需要该集成 checkout 及与其对应的 SDK；本目录不携带编译器补丁。
+
+构建与执行分别记录：`build_wse_machine.py` 完成编译、链接、后端生成和原生构建；
+`verify_wse_machine.py` 与 `verify_machine_rtl.py` 比较通用程序的实际输出；
+`run_pto_allgather.py` 验证真实 PTO 数据链在同一模拟器上运行不同规模的程序。
+组件、通用程序和 PTO 整链各自保存回执，绑定源码、运行时输入、最终 ACIR
+（电路中间表示）与模拟器的哈希。条件与命令见 [RUNNING.md](RUNNING.md)。
+生成产物、原始样本和验证回执保存在调用者选择的输出目录，不随项目源码发布。
+
+## 许可
+
+软件使用 BSD 3-Clause，见 [LICENSE](LICENSE)。设计文档权利说明见
+[NOTICE](NOTICE)。

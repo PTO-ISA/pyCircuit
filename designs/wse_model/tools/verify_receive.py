@@ -30,7 +30,7 @@ def source_digests() -> dict:
     paths = list((ROOT / "src/wse_model").rglob("*.py"))
     paths += [
         ROOT / "models/calendar" / name
-        for name in ("receive.py", "receive_checks.py", "host_checks.py")
+        for name in ("receive.py", "ledger.py", "receive_checks.py", "host_checks.py")
     ]
     paths += [
         ROOT / "tools" / name

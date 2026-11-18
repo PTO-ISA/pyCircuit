@@ -47,7 +47,7 @@ def test_one_member_delay_holds_round_and_retries_without_double_counting():
 def test_local_register_metadata_matches_core_for_all_members():
     # The existing route literal test covers the 64 route rows; independently
     # validate the new metadata constants against the complete core entries.
-    source = Path(__file__).parents[2] / "models/calendar/allgather_control.py"
+    source = Path(__file__).parents[2] / "verification/fixtures/calendar/allgather_control.py"
     tree = ast.parse(source.read_text())
     helper = next(
         n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "local_entry"

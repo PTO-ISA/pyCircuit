@@ -1,0 +1,27 @@
+# NOTICE
+
+wse-model
+Copyright (c) 2026, PTO-ISA
+
+## Design sources
+
+The files under `docs/design/` are the normative design inputs for this model:
+
+- `docs/design/wse-system-architecture-whitepaper.md` — *WSE 系统架构设计白皮书* v0.1 (2026-09-17)
+- `docs/design/wse-calendar-scheme.md` — *WSE Calendar 方案* (2026-09-17)
+
+They are reproduced in-tree so the model has a stable, citable source of truth.
+They are **not** part of the software license grant for this repository; all
+rights in the design documents remain with their authors. Where the model and a
+design document disagree, the design document is authoritative and the model is
+the defect, unless the explicit profile in `docs/profiles.md` states otherwise.
+
+Several values in the design sources are explicitly unresolved (whitepaper
+Appendix A, Calendar §6.3). The model must represent those as reported
+open items, never as invented constants.
+
+## Third-party dependencies
+
+- The current pyCircuit compiler/runtime, PyPTO and PTOAS are external
+  dependencies and are not vendored in this directory. Their respective
+  licenses apply; see `RUNNING.md` for the required versions.

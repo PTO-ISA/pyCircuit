@@ -1,0 +1,152 @@
+{
+  "schema": "wse-timed-machine/1",
+  "name": "provisional-calendar-flit-pipeline",
+  "hardware_calibrated": false,
+  "parameters": {
+    "noc_clock_hz": {
+      "value": 2000000000,
+      "status": "documented",
+      "source": "Architecture whitepaper \u00a7\u00a72.2, 5.1",
+      "unit": "Hz"
+    },
+    "core_clock_hz": {
+      "value": 1400000000,
+      "status": "documented",
+      "source": "Architecture whitepaper \u00a73",
+      "unit": "Hz"
+    },
+    "link_bytes_per_noc_cycle": {
+      "value": 64,
+      "status": "documented",
+      "source": "Architecture whitepaper \u00a75.1",
+      "unit": "B/NoC-cycle/direction"
+    },
+    "ub_read_first_beat_ns": {
+      "value": 100,
+      "status": "pending",
+      "source": "Existing provisional timing profile and user-selected UB endpoint",
+      "unit": "ns"
+    },
+    "ub_write_first_beat_ns": {
+      "value": 100,
+      "status": "pending",
+      "source": "Existing provisional timing profile and user-selected UB endpoint",
+      "unit": "ns"
+    },
+    "ub_read_bytes_per_core_cycle": {
+      "value": 128,
+      "status": "pending",
+      "source": "Existing provisional UB read port width",
+      "unit": "B/core-cycle"
+    },
+    "ub_write_bytes_per_core_cycle": {
+      "value": 128,
+      "status": "pending",
+      "source": "Existing provisional UB write port width",
+      "unit": "B/core-cycle"
+    },
+    "tx_cdc_noc_cycles": {
+      "value": 2,
+      "status": "pending",
+      "source": "Existing abstract core-to-NoC crossing budget",
+      "unit": "NoC-cycle"
+    },
+    "rx_cdc_noc_cycles": {
+      "value": 2,
+      "status": "pending",
+      "source": "Existing abstract NoC-to-core crossing budget",
+      "unit": "NoC-cycle"
+    },
+    "hop_noc_cycles": {
+      "value": 1,
+      "status": "pending",
+      "source": "Existing provisional pipelined hop including link transfer",
+      "unit": "NoC-cycle"
+    },
+    "slot_noc_cycles": {
+      "value": 1024,
+      "status": "pending",
+      "source": "Existing fixed source-window width",
+      "unit": "NoC-cycle"
+    },
+    "alignment_noc_cycles": {
+      "value": 16,
+      "status": "pending",
+      "source": "Existing fixed phase alignment budget",
+      "unit": "NoC-cycle"
+    },
+    "arm_noc_cycles": {
+      "value": 8,
+      "status": "pending",
+      "source": "Existing fixed receive preparation budget",
+      "unit": "NoC-cycle"
+    },
+    "guard_noc_cycles": {
+      "value": 1,
+      "status": "pending",
+      "source": "Existing provisional completion guard",
+      "unit": "NoC-cycle"
+    },
+    "payload_bytes_per_flit": {
+      "value": 52,
+      "status": "pending",
+      "source": "64-byte link minus nominal 12-byte per-flit header with an 8-bit epoch; C-2 and C-5 remain open",
+      "unit": "B/flit"
+    }
+  },
+  "policies": {
+    "storage": {
+      "value": "UB",
+      "status": "pending",
+      "source": "User-selected provisional endpoint; S-2 remains open"
+    },
+    "endpoint_buffering": {
+      "value": "read and write whole packet",
+      "status": "pending",
+      "source": "Provisional endpoint service model"
+    },
+    "independent_ub_ports": {
+      "value": true,
+      "status": "pending",
+      "source": "Existing provisional storage model"
+    },
+    "packet_boundary": {
+      "value": "one packet per SEND (original COPY)",
+      "status": "pending",
+      "source": "User-selected simulator packetization"
+    },
+    "flit_pipeline": {
+      "value": "one flit per permitted direction per NoC cycle; branch copies can use separate links",
+      "status": "pending",
+      "source": "User-selected simulation scope and provisional forwarding policy"
+    },
+    "injection_flits_per_noc_cycle": {
+      "value": 1,
+      "status": "pending",
+      "source": "Provisional source endpoint throughput, per node"
+    },
+    "ejection_flits_per_noc_cycle": {
+      "value": 1,
+      "status": "pending",
+      "source": "Provisional destination endpoint throughput, per node"
+    },
+    "equal_time_order": {
+      "value": "insertion order",
+      "status": "pending",
+      "source": "Deterministic event-queue policy in this model"
+    },
+    "calendar": {
+      "value": "eight slots; horizontal permission by source column, vertical permission by source row",
+      "status": "pending",
+      "source": "Existing fixed source-window ownership, applied per directed link"
+    }
+  },
+  "model_limits": {
+    "nodes": 40,
+    "active_packets_per_source": 1,
+    "source_queue_entries": 8,
+    "event_heap_entries": 1024,
+    "packet_buffer_bytes_per_source": 65536,
+    "source_injection_flits": 1
+  }
+}

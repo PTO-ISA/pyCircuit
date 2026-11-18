@@ -25,5 +25,6 @@ epoch and is transit-only in the second. Five receiver instances each use two
 early and two identity slots. Host expectations come from validated route bits,
 simulate_multicast and ReceiveAccount, outside the DUT.
 
-Execution status, toolchain identity and retained earlier failures are recorded
-separately in `docs/development/pycircuit-migration.md`.
+Build and execution entry points are documented in the project's `RUNNING.md`.
+Each new execution records its toolchain identity and results in the selected
+output directory.

@@ -21,7 +21,9 @@ def test_full_core_trace_and_frozen_route_inputs():
         assert {row[2] for row in final} == set(range(32))
         assert {row[15] for row in final} == {total}
         assert {row[12] for row in final} == {7}  # Retired after completion.
-    tree = ast.parse((Path(__file__).parents[2] / "models/calendar/allgather.py").read_text())
+    tree = ast.parse(
+        (Path(__file__).parents[2] / "verification/fixtures/calendar/allgather.py").read_text()
+    )
     function = next(
         n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "route_rows"
     )

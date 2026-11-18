@@ -1,93 +1,47 @@
-# ruff: noqa: N802, F823, F841 -- pyCircuit declarations and captured state.
-"""Persistent 8-bit epoch bank and resident CalReg installation checks.
+# ruff: noqa: N802 -- pyCircuit declarations.
+"""Original control tick interfaces over the shared node-indexed cores."""
 
-The epoch width is the accepted test profile. CalReg content stays opaque;
-this module implements installation/lookup admission, not a timeslot schedule.
-`drained` is an external precondition, not an inferred network measurement.
-An invalid request reports fault and leaves persistent state unchanged.
-"""
+# 这是旧组件测试入口的薄适配层，完整机器与它复用同一套账本算法。
+# 完整机器有 40 个节点，使用实例的 process(node,request) 方法选择节点；
+# 这里固定 node=0，使旧测试可以继续每次只提供一个 request。
+#
+# @ac.module 分配子模块实例；@ac.rule 把每次请求接到子模块的方法。
+# 方法调用在该规则的同一事务内执行；return step 输出规则计算的结果。
+# 完整机器直接导入 control_ledger.py 的 CalRegLedger/EpochLedger。
+# 理解算法请读 control_ledger.py；此文件没有另一份轮次或配置实现。
 
 import pycircuit as ac
+from wse_calendar.control_ledger import (
+    CalRegLedger,
+    CalRegRequest,
+    CalRegResult,
+    EpochLedger,
+    EpochRequest,
+    EpochResult,
+)
 
 
-@ac.struct
-class EpochRequest:
-    advance: bool
-    opcode: ac.u3
-    drained: bool
-
-
-@ac.struct
-class EpochResult:
-    value: ac.u8
-    fault: bool
-
-
-# ndf: implements=WSEMIG-EPOCH-001
+# 建立独立轮次账本实例，并把输入连接到节点 0。
+# request.advance 决定查询还是推进；状态由子模块保存。
 @ac.module
 def EpochBank(request: EpochRequest) -> EpochResult:
-    counters = ac.table[8, ac.u8](init=0)
+    epochs = EpochLedger()
 
     @ac.rule
     def step() -> EpochResult:
-        value = counters[request.opcode]
-        fault = False
-        if request.advance:
-            if request.opcode == 0 or request.opcode == 7:
-                fault = True
-            elif value == 255 and not request.drained:
-                fault = True
-            else:
-                value = 1 if value == 255 else value + 1
-                counters[request.opcode] = value
-        return EpochResult(value=value, fault=fault)
+        return epochs.process(0, request)
 
     return step
 
 
-@ac.struct
-class CalRegRequest:
-    # 0 idle, 1 clear bank, 2 install one slot, 3 lookup one slot.
-    kind: ac.u2
-    opcode: ac.u3
-    drained: bool
-
-
-@ac.struct
-class CalRegResult:
-    installed: ac.u8
-    admitted: bool
-    fault: bool
-
-
-# ndf: implements=WSEMIG-CALREG-001
+# 建立独立配置账本实例，并把输入连接到节点 0。
+# 两个模块各自有独立状态，并不是访问一个宿主 Python 全局字典。
 @ac.module
 def CalRegAdmission(request: CalRegRequest) -> CalRegResult:
-    installed: ac.u8 = 0
+    configuration = CalRegLedger()
 
     @ac.rule
     def step() -> CalRegResult:
-        bit: ac.u8 = 1
-        bit = bit << request.opcode
-        exists = (installed & bit) != 0
-        fault = False
-        if request.kind == 1:
-            if request.drained:
-                installed = 0
-            else:
-                fault = True
-        elif request.kind != 0:
-            if request.opcode == 0 or request.opcode == 7:
-                fault = True
-            elif request.kind == 2:
-                if not request.drained or exists:
-                    fault = True
-                else:
-                    installed = installed | bit
-            elif not exists:
-                fault = True
-        return CalRegResult(
-            installed=installed, admitted=request.kind != 0 and not fault, fault=fault
-        )
+        return configuration.process(0, request)
 
     return step

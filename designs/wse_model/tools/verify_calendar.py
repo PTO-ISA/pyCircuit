@@ -18,8 +18,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from models.calendar.host_checks import (  # noqa: E402
-    check_allgather,
-    check_allgather_control,
     check_multinode,
     check_node,
 )
@@ -44,24 +42,6 @@ SUITES = {
         "multinode_result",
         "40-node profile; connected five-node tree; 2 epochs; 2 early/seen slots per node; one segment at a time",
     ),
-    "allgather": (
-        516,
-        "allgather_result",
-        "40-node profile; 32 resident receivers; row/column AllGather; 8-bit epochs; "
-        "2 early/56 seen slots; serialized one-segment functional schedule",
-    ),
-    "allgather-control": (
-        523,
-        "allgather_control_result",
-        "40-node carrier; 32 configured receivers with private 8-bit epoch banks; "
-        "completion-driven row/column phases; 2 early/56 seen slots; serialized multicast",
-    ),
-    "allgather-delayed": (
-        529,
-        "allgather_control_result",
-        "same closed loop; only node 31 post and node 30 landing permits delayed "
-        "by three cycles each; identical routes, payload geometry and capacities",
-    ),
     "node": (
         13,
         "node_result",
@@ -78,16 +58,8 @@ SUITES = {
 
 def core_expectations(suite: str) -> list[list[int]] | None:
     """Test-owned oracle; never called by DUT capture, lowering or execution."""
-    if suite in ("allgather-control", "allgather-delayed"):
-        from allgather_control_reference import expectations
-
-        return expectations(delayed=suite == "allgather-delayed")[0]
     if suite == "node":
         from node_reference import expectations
-
-        return expectations()
-    if suite == "allgather":
-        from allgather_reference import expectations
 
         return expectations()
     if suite == "multinode":
@@ -225,12 +197,6 @@ def main() -> int:
         "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "multinode_reference_sha256": hashlib.sha256(
             (ROOT / "tools/multinode_reference.py").read_bytes()
-        ).hexdigest(),
-        "allgather_reference_sha256": hashlib.sha256(
-            (ROOT / "tools/allgather_reference.py").read_bytes()
-        ).hexdigest(),
-        "allgather_control_reference_sha256": hashlib.sha256(
-            (ROOT / "tools/allgather_control_reference.py").read_bytes()
         ).hexdigest(),
         "node_reference_sha256": hashlib.sha256(
             (ROOT / "tools/node_reference.py").read_bytes()
@@ -447,7 +413,6 @@ def main() -> int:
             # Every low/high sample executes the assertion-bearing checker.
             lines = (output / f"{target}.log").read_text().splitlines()
             events = []
-            state_events = []
             for line in lines:
                 if line.startswith("{"):
                     event = json.loads(line)
@@ -456,15 +421,8 @@ def main() -> int:
                         and event.get("spec", {}).get("event") == event_name
                     ):
                         events.append(event)
-                    elif (
-                        event.get("kind") == "log"
-                        and event.get("spec", {}).get("event") == "allgather_control_state"
-                    ):
-                        state_events.append(event)
             phases = [int(event["values"][0]["value"]) for event in events]
-            multiplicity = (
-                64 if args.suite.startswith("allgather") else 10 if args.suite == "multinode" else 2
-            )
+            multiplicity = 10 if args.suite == "multinode" else 2
             if phases != [phase for phase in range(cycles) for _ in range(multiplicity)]:
                 raise RuntimeError(
                     f"{target}: checker phases are incomplete or reordered: {phases}"
@@ -485,16 +443,6 @@ def main() -> int:
                 wanted = [row for row in expected for _ in range(2)]
                 if args.suite == "multinode":
                     check_multinode(events, actual, wanted, cycles, target)
-                elif args.suite == "allgather":
-                    check_allgather(events, actual, wanted, cycles, target)
-                elif args.suite in ("allgather-control", "allgather-delayed"):
-                    from allgather_control_reference import expectations
-
-                    expected_states = expectations(delayed=args.suite == "allgather-delayed")[1]
-                    check_allgather_control(
-                        events, actual, wanted, state_events, expected_states, cycles, target
-                    )
-                    run["control_observations"] = state_events
                 elif args.suite == "node":
                     check_node(events, actual, wanted, cycles, target)
                 if actual != wanted:

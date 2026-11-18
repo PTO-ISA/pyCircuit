@@ -1,5 +1,7 @@
 format_version: "0.2"
 project: wse-calendar
+# Shared-component contracts only. Project-level ndf.yaml also includes the
+# runtime-machine contract; legacy fixture clauses remain outside active roots.
 roots:
   - spec/*.md
 id_prefixes: [WSEMIG]

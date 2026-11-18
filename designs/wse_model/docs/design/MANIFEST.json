@@ -1,0 +1,19 @@
+{
+  "$comment": "Byte lengths and SHA-256 digests of the read-only design sources; compare these with the files in this directory.",
+  "sources": {
+    "wse-calendar-scheme.md": {
+      "title": "WSE Calendar 方案",
+      "version": "0917",
+      "date": "2026-09-17",
+      "bytes": 192121,
+      "sha256": "f209b7e75c5a872129b57f79c23e247757db8a5cbe071ddbfdaafcb4c75f0029"
+    },
+    "wse-system-architecture-whitepaper.md": {
+      "title": "WSE 系统架构设计白皮书",
+      "version": "v0.1",
+      "date": "2026-09-17",
+      "bytes": 53912,
+      "sha256": "1e09cad95fc198030815205bc36da484c78550d16ba79aa910190c4401622d7a"
+    }
+  }
+}

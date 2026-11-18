@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/PTO-ISA/wse-model/schemas/calendar-route-table.schema.json",
+  "title": "WSE Calendar route table",
+  "description": "A compiled kCalendarRoute table plus its metadata, as emitted by wse_model.calendar.table.CalendarRouteTable.to_dict. The schema name is part of the consumption contract: consumers must reject any other value. Enforced by tests/contracts/test_table_schema.py.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "topology",
+    "layout",
+    "versions",
+    "key_count",
+    "table_bytes",
+    "d_cache_lines_per_core",
+    "keys"
+  ],
+  "properties": {
+    "schema": {
+      "const": "wse-model/calendar-route-table/1"
+    },
+    "topology": {
+      "type": "object",
+      "required": ["name", "rows", "cols", "node_count", "route_bits_bits", "route_bits_bytes"],
+      "properties": {
+        "name": { "type": "string" },
+        "rows": { "type": "integer", "minimum": 1 },
+        "cols": { "type": "integer", "minimum": 1 },
+        "node_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "rows * cols. 40 for the Calendar baseline, 48 for the whitepaper hardware reading (open item Q1)."
+        },
+        "route_bits_bits": {
+          "type": "integer",
+          "description": "2 * node_count: the routeBits width in bits."
+        },
+        "route_bits_bytes": {
+          "type": "integer",
+          "description": "ceil(2 * node_count / 8): 10 at 40 nodes, 12 at 48."
+        }
+      }
+    },
+    "layout": {
+      "enum": ["key-major", "node-major"],
+      "description": "key-major is the design-document baseline; node-major is the C-9 variant that cuts per-core D-cache residency by 4x with identical instruction count and total bytes."
+    },
+    "versions": {
+      "type": "object",
+      "description": "The three version numbers checked together at load time. Any mismatch must fault rather than degrade (whitepaper 10.3, HW-13).",
+      "required": ["topologyVersion", "calendarVersion", "routeVersion"],
+      "properties": {
+        "topologyVersion": { "type": "integer", "minimum": 0 },
+        "calendarVersion": { "type": "integer", "minimum": 0 },
+        "routeVersion": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "key_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16,
+      "description": "Number of logical identities. Calendar 2.6 caps this at 16."
+    },
+    "table_bytes": {
+      "type": "integer",
+      "description": "key_count * node_count * 16."
+    },
+    "d_cache_lines_per_core": {
+      "type": "integer",
+      "description": "Lines a core residents with this layout: key_count under key-major, ceil(key_count/4) under node-major."
+    },
+    "keys": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/key" }
+    }
+  },
+  "$defs": {
+    "key": {
+      "type": "object",
+      "required": [
+        "key_id",
+        "route_key",
+        "node_count",
+        "member_nodes",
+        "groups",
+        "self_delivery",
+        "arm_lead_cycles",
+        "conflict_proof",
+        "geometry",
+        "entries"
+      ],
+      "properties": {
+        "key_id": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "route_key": {
+          "type": "object",
+          "description": "The logical identity: {programId, kernelId, phaseId, collective, groupRole}. It determines the opcode outright.",
+          "required": ["program_id", "kernel_id", "phase_id", "collective", "opcode", "group_role"],
+          "properties": {
+            "program_id": { "type": "string" },
+            "kernel_id": { "type": "string" },
+            "phase_id": { "type": "string" },
+            "collective": {
+              "enum": ["ALL_GATHER", "REDUCE", "ALL_REDUCE", "REDUCE_SCATTER", "SCATTER", "GATHER"]
+            },
+            "opcode": { "type": "integer", "minimum": 1, "maximum": 6 },
+            "group_role": {
+              "type": "string",
+              "description": "A role such as ROW(my_row), not a concrete group: under SPMD a kernel can only name the group it is in."
+            }
+          }
+        },
+        "node_count": { "type": "integer", "minimum": 1 },
+        "member_nodes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "Cores that participate in this collective. Non-members carry an all-zero row."
+        },
+        "groups": {
+          "type": "object",
+          "description": "Per-source resolved destination set, keyed by node id. A single set is not enough under SPMD because each source's group differs.",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "self_delivery": {
+          "type": "boolean",
+          "description": "FabricSelfDelivery. Must agree with the source's own L bit."
+        },
+        "arm_lead_cycles": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "NoC/BSP-reserved window after alignment for the receive command and every send descriptor to be enqueued."
+        },
+        "conflict_proof": {
+          "type": ["string", "null"],
+          "description": "The NoC algorithm's proof that the same-opcode no-conflict and no-concurrency guarantees hold. The model records it and never re-derives it."
+        },
+        "geometry": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["rowCount", "rowBytes", "sendRowStride", "recvRowCount", "recvRowStride", "srcGap", "dstGap", "nBurst", "capacity", "r1_aligned", "flit_aligned_rows"],
+              "properties": {
+                "rowCount": { "type": "integer", "minimum": 0 },
+                "rowBytes": { "type": "integer", "minimum": 0 },
+                "sendRowStride": { "type": "integer", "minimum": 0 },
+                "recvRowCount": { "type": "integer", "minimum": 0 },
+                "recvRowStride": { "type": "integer", "minimum": 0 },
+                "srcGap": { "type": "integer" },
+                "dstGap": { "type": "integer" },
+                "nBurst": { "type": "integer", "minimum": 0 },
+                "capacity": { "type": "integer", "minimum": 0 },
+                "r1_aligned": { "type": "boolean", "description": "R-1: the send row stride is a 32 B multiple." },
+                "flit_aligned_rows": { "type": "boolean", "description": "R-2, efficiency only." }
+              }
+            }
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "description": "One 16 B entry per node, in node order.",
+          "items": { "$ref": "#/$defs/entry" }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["node", "route_bits", "land_count", "flags", "expected_rx_bytes"],
+      "properties": {
+        "node": { "type": "integer", "minimum": 0 },
+        "route_bits": {
+          "type": "string",
+          "pattern": "^([0-9A-F]{2} )*[0-9A-F]{2}$",
+          "description": "Space-separated uppercase hex, LSB-first byte order, 2 bits per node with bit(2i+1)=P_i and bit(2i)=L_i."
+        },
+        "land_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "popcount(L). Carried for cross-checking against the bitmap."
+        },
+        "flags": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "bit0 isMember, bit1 isRoot, bit2 selfLand."
+        },
+        "expected_rx_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "The device-side expVal: sum over sources whose L bit lands here of rowCount * rowBytes."
+        }
+      }
+    }
+  }
+}

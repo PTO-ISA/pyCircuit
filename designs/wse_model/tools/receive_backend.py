@@ -175,7 +175,7 @@ def run_scenario(scenario: dict, *, pycircuit_root: Path, toolchain: Path, outpu
     receipt["input_sha256"] = hashlib.sha256((output / "input.json").read_bytes()).hexdigest()
     receipt["provider_sha256"] = {
         name: hashlib.sha256((ROOT / "models/calendar" / name).read_bytes()).hexdigest()
-        for name in ("receive_checks.py", "receive.py")
+        for name in ("receive_checks.py", "ledger.py", "receive.py")
     }
     env = dict(os.environ)
     env["PYTHONPATH"] = str(pycircuit_root / "python") + os.pathsep + env.get("PYTHONPATH", "")
@@ -218,6 +218,7 @@ def run_scenario(scenario: dict, *, pycircuit_root: Path, toolchain: Path, outpu
     units = []
     for filename, source_root in (
         ("receive_checks.py", ROOT / "models/calendar"),
+        ("ledger.py", ROOT / "models/calendar"),
         ("receive.py", ROOT / "models/calendar"),
         ("external_receive.py", source),
     ):

@@ -52,7 +52,7 @@ def check_multinode(events: list, actual: list, wanted: list, cycles: int, targe
         raise RuntimeError(f"{target}: observations differ from the Python core")
 
 
-# ndf: verifies=WSEMIG-ALLGATHER-VER-001
+# Legacy fixture reference: WSEMIG-ALLGATHER-VER-001
 def check_allgather(events: list, actual: list, wanted: list, cycles: int, target: str) -> None:
     """Check all 32 resident accounts at each low/high sampling point."""
     samples: dict[int, list] = {}
@@ -88,7 +88,7 @@ def check_node(events: list, actual: list, wanted: list, cycles: int, target: st
         raise RuntimeError(f"{target}: node integration differs from the Python core")
 
 
-# ndf: verifies=WSEMIG-CLOSEDLOOP-VER-001
+# Legacy fixture reference: WSEMIG-CLOSEDLOOP-VER-001
 def check_allgather_control(
     events: list,
     actual: list,
