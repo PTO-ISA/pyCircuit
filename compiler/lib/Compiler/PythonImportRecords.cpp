@@ -374,6 +374,8 @@ public:
   }
 
   // Visible snapshot as a plain map, oldest state first so newer entries win.
+  // Assignment (not insert) is load-bearing: StringMap::insert keeps the
+  // existing entry, which would freeze stale frame values over newer ones.
   llvm::StringMap<T> materialize() const {
     llvm::SmallVector<const Frame *> chain;
     for (const Frame *f = frame.get(); f; f = f->parent.get())
@@ -381,12 +383,12 @@ public:
     llvm::StringMap<T> flat;
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
       for (const auto &entry : (*it)->entries)
-        flat.insert({entry.first(), entry.second});
+        flat[entry.first()] = entry.second;
       for (const auto &erased : (*it)->hidden)
         flat.erase(erased.first());
     }
     for (const auto &entry : overlay)
-      flat.insert({entry.first(), entry.second});
+      flat[entry.first()] = entry.second;
     for (const auto &erased : hidden)
       flat.erase(erased.first());
     return flat;
