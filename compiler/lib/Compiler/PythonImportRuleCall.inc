@@ -55,7 +55,7 @@ Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
 
 FailureOr<SmallVector<Value>>
 Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
-                         llvm::StringMap<Value> &values,
+                         EnvironmentMap<Value> &values,
                          ArrayRef<StateOwner> states, bool statementCall, bool tupleCall) {
   llvm::StringMap<Instance *> noInstances;
   auto rule = behavioralRules[call.child("func").string("id")];
@@ -208,7 +208,7 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
   SmallVector<std::pair<std::string, Value>> lexicalValues;
   bool lexicalRule = llvm::any_of(decl.node.array("body"), [&](Attribute raw) { return raw == rule.value; });
   if (lexicalRule)
-    for (const auto &entry : values)
+    for (const auto &entry : values.materialize())
       if (!llvm::is_contained(formals, entry.first().str())) {
         lexicalValues.push_back({entry.first().str(), entry.second});
         captures.push_back(entry.second);

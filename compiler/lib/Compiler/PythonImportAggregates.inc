@@ -113,7 +113,7 @@ FailureOr<Value> Importer::enumToBits(Value value, const AstNode &node,
 }
 FailureOr<SmallVector<Value>>
 Importer::enumFromBits(const AstNode &call, OpBuilder &at,
-                       FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+                       FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
                        llvm::StringMap<Instance *> &instances,
                        llvm::StringMap<SmallVector<Value>> *captures) {
   auto function = call.child("func");
@@ -628,7 +628,7 @@ Importer::lowerFixedEncodingValue(Value input, const FixedCountShape &shape,
 }
 FailureOr<SmallVector<Value>> Importer::fixedEncodingResults(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   StringRef name = fixedResultCall(node);
   auto high = validateFixedEncodingCall(node, name);
   if (failed(high))

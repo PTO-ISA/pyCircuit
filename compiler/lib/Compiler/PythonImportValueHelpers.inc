@@ -212,7 +212,7 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
 
 LogicalResult Importer::declareValueHelper(const AstNode &node,
                                            FlatSymbolRefAttr lexicalOwner,
-                                           const llvm::StringMap<Value> &values) {
+                                           const EnvironmentMap<Value> &values) {
   std::string key = lexicalOwner ? (Twine(lexicalOwner.getValue()) + "." + node.string("name")).str()
                                 : qualify(node.string("name"));
   if (valueHelpers.contains(key))
@@ -228,9 +228,9 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
   llvm::sort(ordered);
   for (StringRef name : ordered) {
     if (failed(requireNestedRuleDataVisible(name, node))) return failure();
-    auto found = values.find(name);
-    if (found == values.end()) continue; // Unbound names fail in expression.
-    Value value = found->second;
+    const Value *found = values.lookupPtr(name);
+    if (!found) continue; // Unbound names fail in expression.
+    Value value = *found;
     Value root = originalCaptures.lookup(value);
     if (root) value = root;
     if (name == "pyc_clk" || name == "pyc_rst" || helperOwnerBindings.contains(name))
@@ -300,7 +300,7 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
 }
 
 LogicalResult Importer::scanValueHelpers() {
-  llvm::StringMap<Value> noCaptures;
+  EnvironmentMap<Value> noCaptures;
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     auto node = source.module.item("body", i);
     if (node.kind() != "FunctionDef" || !node.array("decorator_list").empty()) continue;
@@ -312,7 +312,7 @@ LogicalResult Importer::scanValueHelpers() {
 
 FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &function,
                                                          FlatSymbolRefAttr ownerSymbol,
-                                                         const llvm::StringMap<Value> *values) {
+                                                         const EnvironmentMap<Value> *values) {
   if (function.kind() == "Name") {
     if ((activeHelperFrame && activeHelperFrame->localNames.contains(function.string("id"))) ||
         (values && values->contains(function.string("id"))))
@@ -1009,7 +1009,7 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
 
 FailureOr<SmallVector<Value>> Importer::valueHelperCall(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   auto helper = resolveValueHelper(call.child("func"), symbol, &values);
   if (failed(helper) || !*helper) return error() << "call does not resolve to a pure helper";
   if (!queryArguments.empty()) return error() << "pure helper calls inside expression Lambdas are unsupported";
@@ -1065,7 +1065,7 @@ FailureOr<Value> Importer::namedHelperMap(const AstNode &call, const AstNode &na
                                          ValueRange tables, TableQueryLowering &lowering,
                                          const TableQueryHooks &hooks, OpBuilder &at,
                                          FlatSymbolRefAttr symbol,
-                                         const llvm::StringMap<Value> &values) {
+                                         const EnvironmentMap<Value> &values) {
   auto helper = resolveValueHelper(name, symbol, &values);
   if (failed(helper)) return failure();
   if (!*helper) return error() << "named Table callback must resolve to an ordinary typed helper";

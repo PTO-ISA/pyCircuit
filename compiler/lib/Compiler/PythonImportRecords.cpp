@@ -257,11 +257,208 @@ struct OwnerProposal {
   const SourceRuleCallPlan *callPlan;
   SmallVector<AddressWitness, 0> domains;
 };
+// Immutable shared history plus a small local overlay. Forking an environment
+// commits the overlay into a frame and copies only O(1) state, so branch arms
+// share the entries they never touch instead of re-copying them; joins then
+// merge only the per-arm deltas. Budget charging follows the same shape:
+// slots are reserved for entries that are actually committed or merged.
+template <typename T> class EnvironmentMap {
+public:
+  EnvironmentMap() = default;
+  EnvironmentMap(const EnvironmentMap &) = default;
+  EnvironmentMap &operator=(const EnvironmentMap &) = default;
+
+  struct Frame {
+    std::shared_ptr<const Frame> parent;
+    llvm::StringMap<T> entries;
+    llvm::StringSet<> hidden; // names erased relative to the parent frame
+  };
+
+  // Freezes the local overlay into an immutable shared frame. Later forks
+  // alias the frame instead of copying its entries.
+  void commit() {
+    if (overlay.empty() && hidden.empty())
+      return;
+    constexpr unsigned flattenDepth = 64;
+    if (frameDepth() >= flattenDepth)
+      flattenFrames();
+    auto next = std::make_shared<Frame>();
+    next->parent = frame;
+    committedWork = overlay.size() + hidden.size() + 1;
+    next->entries = std::move(overlay);
+    next->hidden = std::move(hidden);
+    frame = std::move(next);
+  }
+
+  // lookupPtr replaces StringMap::find/end pairs: a null result is a miss.
+  const T *lookupPtr(StringRef name) const {
+    auto local = overlay.find(name);
+    if (local != overlay.end())
+      return &local->second;
+    if (hidden.contains(name))
+      return nullptr;
+    for (const Frame *f = frame.get(); f; f = f->parent.get()) {
+      auto hit = f->entries.find(name);
+      if (hit != f->entries.end())
+        return &hit->second;
+      if (f->hidden.contains(name))
+        return nullptr;
+    }
+    return nullptr;
+  }
+  // StringMap-compatible by-value lookup (default-constructed on a miss).
+  T lookup(StringRef name) const {
+    const T *hit = lookupPtr(name);
+    return hit ? *hit : T();
+  }
+  bool contains(StringRef name) const { return lookupPtr(name) != nullptr; }
+
+  // Writes always land in the local overlay, shadowing the frames. Reading
+  // through operator[] first imports the shared entry, matching StringMap's
+  // "return the existing value" behavior.
+  T &operator[](StringRef name) {
+    auto existing = overlay.find(name);
+    if (existing != overlay.end())
+      return existing->second;
+    if (!hidden.contains(name)) {
+      for (const Frame *f = frame.get(); f; f = f->parent.get()) {
+        auto hit = f->entries.find(name);
+        if (hit != f->entries.end()) {
+          overlay.insert({name, hit->second});
+          return overlay.find(name)->second;
+        }
+        if (f->hidden.contains(name))
+          break;
+      }
+    }
+    return overlay[name];
+  }
+  // StringMap-compatible conditional insert.
+  template <typename... Args>
+  T &try_emplace(StringRef name, Args &&...args) {
+    auto existing = overlay.find(name);
+    if (existing != overlay.end())
+      return existing->second;
+    if (lookupPtr(name))
+      return operator[](name);
+    auto inserted = overlay.try_emplace(name, std::forward<Args>(args)...);
+    return inserted.first->second;
+  }
+  bool erase(StringRef name) {
+    if (overlay.erase(name))
+      return true;
+    if (!contains(name))
+      return false;
+    hidden.insert(name);
+    return true;
+  }
+
+  // Names added, changed or erased locally since the last commit. This is the
+  // delta a fork publishes and a join has to merge.
+  llvm::SmallVector<StringRef> pendingNames() const {
+    llvm::SmallVector<StringRef> names;
+    for (const auto &entry : overlay)
+      names.push_back(entry.first());
+    for (const auto &entry : hidden)
+      names.push_back(entry.first());
+    return names;
+  }
+
+  // Entries added or changed locally (erased names are reported by
+  // pendingNames instead because they carry no payload to charge).
+  llvm::SmallVector<StringRef> pendingEntryNames() const {
+    llvm::SmallVector<StringRef> names;
+    for (const auto &entry : overlay)
+      names.push_back(entry.first());
+    return names;
+  }
+
+  // Visible snapshot as a plain map, oldest state first so newer entries win.
+  llvm::StringMap<T> materialize() const {
+    llvm::SmallVector<const Frame *> chain;
+    for (const Frame *f = frame.get(); f; f = f->parent.get())
+      chain.push_back(f);
+    llvm::StringMap<T> flat;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+      for (const auto &entry : (*it)->entries)
+        flat.insert({entry.first(), entry.second});
+      for (const auto &erased : (*it)->hidden)
+        flat.erase(erased.first());
+    }
+    for (const auto &entry : overlay)
+      flat.insert({entry.first(), entry.second});
+    for (const auto &erased : hidden)
+      flat.erase(erased.first());
+    return flat;
+  }
+
+  size_t size() const { return materialize().size(); }
+  bool empty() const { return size() == 0; }
+
+  // Work performed by the most recent commit, for honest budget charging.
+  uint64_t committedWork = 0;
+
+  // Exchanges the whole visible state with a plain map. The importer only
+  // swaps maps into and out of freshly constructed environments.
+  void swap(llvm::StringMap<T> &other) {
+    auto flat = materialize();
+    overlay = std::move(flat);
+    frame.reset();
+    hidden.clear();
+    overlay.swap(other);
+  }
+  // Exchanges the whole state with another overlay map (frames included).
+  void swap(EnvironmentMap<T> &other) {
+    std::swap(frame, other.frame);
+    std::swap(overlay, other.overlay);
+    std::swap(hidden, other.hidden);
+  }
+
+private:
+  unsigned frameDepth() const {
+    unsigned depth = 0;
+    for (const Frame *f = frame.get(); f; f = f->parent.get())
+      ++depth;
+    return depth;
+  }
+  void flattenFrames() {
+    if (!frame || !frame->parent)
+      return;
+    llvm::SmallVector<const Frame *> chain;
+    for (const Frame *f = frame.get(); f; f = f->parent.get())
+      chain.push_back(f);
+    auto merged = std::make_shared<Frame>();
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+      for (const auto &entry : (*it)->entries)
+        merged->entries.insert({entry.first(), entry.second});
+      for (const auto &erased : (*it)->hidden)
+        merged->entries.erase(erased.first());
+    }
+    frame = std::move(merged);
+  }
+
+  std::shared_ptr<const Frame> frame;
+  llvm::StringMap<T> overlay;
+  llvm::StringSet<> hidden;
+};
+
 struct BranchEnvironment {
-  llvm::StringMap<Value> values;
-  llvm::StringMap<Value> writes;
-  llvm::StringMap<BindingBoundary> boundaries;
+  EnvironmentMap<Value> values;
+  EnvironmentMap<Value> writes;
+  EnvironmentMap<BindingBoundary> boundaries;
   Value ambient, continuation;
+
+  // Publishes the current deltas into shared frames so arms fork in O(1) and
+  // unchanged entries are shared rather than copied.
+  void commitOverlays() {
+    values.commit();
+    writes.commit();
+    boundaries.commit();
+  }
+  BranchEnvironment fork() {
+    commitOverlays();
+    return *this;
+  }
 };
 // These are existing admission policies, not interchangeable source profiles.
 // Ordinary locals retain an inferred boundary and contextualize subsequent
@@ -300,7 +497,7 @@ struct TypedAccessPath {
 // callable registration remain owned by the surrounding Module dispatcher.
 struct ModuleStatementContext {
   llvm::StringMap<Instance *> &instances;
-  const llvm::StringMap<Value> &values;
+  const EnvironmentMap<Value> &values;
   const llvm::StringSet<> &protectedNames;
   llvm::StringSet<> &assignedNames;
 };
@@ -551,7 +748,7 @@ private:
                               FlatSymbolRefAttr symbol);
   FailureOr<SmallVector<Value>>
   enumFromBits(const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-               llvm::StringMap<Value> &values,
+               EnvironmentMap<Value> &values,
                llvm::StringMap<Instance *> &instances,
                llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   LogicalResult scanModules();
@@ -568,7 +765,7 @@ private:
   bool staticInitializer(const AstNode &node) const;
   FailureOr<Value>
   constructStruct(const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-                  llvm::StringMap<Value> &values,
+                  EnvironmentMap<Value> &values,
                   llvm::StringMap<Instance *> &instances,
                   std::optional<Type> expected,
                   llvm::StringMap<SmallVector<Value>> *captures);
@@ -589,12 +786,12 @@ private:
                                    OpBuilder &at, FlatSymbolRefAttr symbol);
   FailureOr<Value> readAccessPath(
       TypedAccessPath &path, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
       llvm::StringMap<SmallVector<Value>> *captures = nullptr,
       size_t length = std::numeric_limits<size_t>::max());
   LogicalResult bindAccessIndex(
       TypedAccessPath &path, TypedAccessStep &step, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
       llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   FailureOr<ArrayAttr> accessSelectors(const TypedAccessPath &path, OpBuilder &at);
   LogicalResult validateAssignmentRoot(const AstNode &target,
@@ -605,8 +802,8 @@ private:
   LogicalResult bindLocalValues(
       ArrayRef<PreparedLocalBinding> destinations, ValueRange results,
       const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values,
-      llvm::StringMap<BindingBoundary> *boundaries = nullptr,
+      EnvironmentMap<Value> &values,
+      EnvironmentMap<BindingBoundary> *boundaries = nullptr,
       bool noteDataBindings = true);
   LogicalResult lowerLocalAssignment(
       const AstNode &statement, OpBuilder &at, FlatSymbolRefAttr symbol,
@@ -615,7 +812,7 @@ private:
   LogicalResult
   updateAssignment(TypedAccessPath &path, Value value, const AstNode &node,
                    OpBuilder &at, FlatSymbolRefAttr symbol,
-                   llvm::StringMap<Value> &values,
+                   EnvironmentMap<Value> &values,
                    SmallVectorImpl<Value> *boundIndices = nullptr,
                    bool preserveProjectionWitnesses = false);
   FailureOr<std::optional<SmallVector<StringRef, 2>>>
@@ -623,21 +820,21 @@ private:
   StringRef fixedResultCall(const AstNode &node) const;
   FailureOr<bool> bindFixedResults(const AstNode &assignment, OpBuilder &at,
                                    FlatSymbolRefAttr symbol,
-                                   llvm::StringMap<Value> &values,
+                                   EnvironmentMap<Value> &values,
                                    llvm::StringMap<Instance *> &instances,
-                                   llvm::StringMap<BindingBoundary> *boundaries,
+                                   EnvironmentMap<BindingBoundary> *boundaries,
                                    const llvm::StringSet<> &forbidden,
                                    bool immutable);
   FailureOr<SmallVector<Value>>
   tableQueryResults(const AstNode &call, OpBuilder &at,
-                    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+                    FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
                     llvm::StringMap<Instance *> &instances);
   FailureOr<Value> tableValueCall(const AstNode &call, OpBuilder &at,
                                   FlatSymbolRefAttr symbol,
-                                  llvm::StringMap<Value> &values,
+                                  EnvironmentMap<Value> &values,
                                   llvm::StringMap<Instance *> &instances);
   LogicalResult preflightQueryCallback(const AstNode &callback,
-                                       const llvm::StringMap<Value> &values,
+                                       const EnvironmentMap<Value> &values,
                                        SmallVectorImpl<StringRef> &captures,
                                        size_t arity = 1,
                                        bool mapAggregates = false,
@@ -645,11 +842,11 @@ private:
   Instance *queueInstance(Instance *instance) const;
   FailureOr<std::optional<Value>> queueRawExpression(
       const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values,
+      EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances);
   FailureOr<std::optional<Type>> queueExpressionType(
       const AstNode &node, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values,
+      EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances);
   bool queueCall(const AstNode &node) const;
   bool moduleCall(const AstNode &node) const;
@@ -660,7 +857,7 @@ private:
                              OpBuilder &at, StringRef instanceName);
   FailureOr<bool> bindQueueResults(const AstNode &assignment, OpBuilder &at,
                                    FlatSymbolRefAttr symbol,
-                                   llvm::StringMap<Value> &values,
+                                   EnvironmentMap<Value> &values,
                                    llvm::StringMap<Instance *> &instances,
                                    SmallVectorImpl<Instance> &instanceStorage);
   FailureOr<CallableDecl> callable(const AstNode &function);
@@ -684,17 +881,17 @@ private:
   LogicalResult bindMemoryInputs(const MemoryCallPlan &plan,
                                  Operation *instance, OpBuilder &at,
                                  FlatSymbolRefAttr symbol,
-                                 llvm::StringMap<Value> &values,
+                                 EnvironmentMap<Value> &values,
                                  llvm::StringMap<Instance *> &instances);
   FailureOr<bool> bindMemoryResults(const AstNode &statement, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
-                                    llvm::StringMap<Value> &values,
+                                    EnvironmentMap<Value> &values,
                                     llvm::StringMap<Instance *> &instances,
                                     SmallVectorImpl<Instance> &instanceStorage);
   Instance *memoryInstance(Instance *instance) const;
   FailureOr<SmallVector<Value>> memoryMethodCall(
       const AstNode &node, Instance &receiver, OpBuilder &at,
-      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances, std::optional<bool> tupleCall);
   llvm::StringMap<unsigned> sourceNameWrites(const AstNode &module) const;
   LogicalResult predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at);
@@ -704,24 +901,24 @@ private:
                                    bool allowScalar = false);
   FailureOr<SmallVector<Value>> bindCallableArguments(
       const AstNode &call, ArrayRef<Port> inputs, OpBuilder &at,
-      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances,
       ArrayRef<unsigned> deferredReferences = {});
   LogicalResult bindCallableResults(
       const AstNode &assignment, ValueRange results, OpBuilder &at,
-      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances,
       const llvm::StringSet<> &forbidden,
-      llvm::StringMap<BindingBoundary> *boundaries = nullptr);
+      EnvironmentMap<BindingBoundary> *boundaries = nullptr);
   FailureOr<SmallVector<StringRef>> moduleResultTargets(
       const AstNode &assignment, size_t arity);
   FailureOr<bool> bindModuleResults(
       const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
       const llvm::StringSet<> &forbidden);
   FailureOr<SmallVector<Value>> directModuleResults(
       const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances);
+      EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances);
   LogicalResult registerDirectModuleHandle(
       StringRef name, const AstNode &assignment, const CallableDecl &contract,
       OpBuilder &at, FlatSymbolRefAttr symbol,
@@ -729,11 +926,11 @@ private:
       llvm::StringMap<Instance *> &instances);
   FailureOr<Value> directModuleCall(const AstNode &call, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
-                                    llvm::StringMap<Value> &values,
+                                    EnvironmentMap<Value> &values,
                                     llvm::StringMap<Instance *> &instances);
   FailureOr<SmallVector<Value>>
   lowerReturn(const ModuleDecl &decl, const AstNode &node, OpBuilder &at,
-              llvm::StringMap<Value> &values,
+              EnvironmentMap<Value> &values,
               llvm::StringMap<Instance *> &instances);
   LogicalResult validateRuleParameters(const AstNode &rule);
   LogicalResult validateRuleFormalName(const AstNode &formal,
@@ -747,17 +944,17 @@ private:
                                 bool expressionNode = true);
   LogicalResult scanValueHelpers();
   LogicalResult declareValueHelper(const AstNode &node, FlatSymbolRefAttr lexicalOwner,
-                                  const llvm::StringMap<Value> &values);
+                                  const EnvironmentMap<Value> &values);
   FailureOr<ValueHelperDecl *> resolveValueHelper(const AstNode &function,
                                                  FlatSymbolRefAttr ownerSymbol,
-                                                 const llvm::StringMap<Value> *values = nullptr);
+                                                 const EnvironmentMap<Value> *values = nullptr);
   LogicalResult lowerValueHelper(ValueHelperDecl &helper);
   LogicalResult preflightValueHelper(const AstNode &node,
                                     llvm::StringSet<> &freeNames,
                                     llvm::StringSet<> &localNames);
   FailureOr<SmallVector<Value>> valueHelperCall(const AstNode &call, OpBuilder &at,
                                  FlatSymbolRefAttr symbol,
-                                 llvm::StringMap<Value> &values,
+                                 EnvironmentMap<Value> &values,
                                  llvm::StringMap<Instance *> &instances);
   FailureOr<SmallVector<Value>> instantiateValueHelper(ValueHelperDecl &helper,
                                       ValueRange inputs, const AstNode &call,
@@ -774,17 +971,17 @@ private:
                                  ValueRange tables, TableQueryLowering &lowering,
                                  const TableQueryHooks &hooks, OpBuilder &at,
                                  FlatSymbolRefAttr symbol,
-                                 const llvm::StringMap<Value> &values);
+                                 const EnvironmentMap<Value> &values);
   FailureOr<SmallVector<Value>>
   behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
-                 llvm::StringMap<Value> &values, ArrayRef<StateOwner> states,
+                 EnvironmentMap<Value> &values, ArrayRef<StateOwner> states,
                  bool statementCall = false, bool tupleCall = false);
   LogicalResult bindProposals(ArrayRef<StateOwner> states, OpBuilder &at,
-                              llvm::StringMap<Value> &values,
+                              EnvironmentMap<Value> &values,
                               FlatSymbolRefAttr symbol);
   LogicalResult preflightProposals(const AstNode &module);
   void bindState(const StateOwner &state, Value next, Value en, OpBuilder &at,
-                 llvm::StringMap<Value> &values);
+                 EnvironmentMap<Value> &values);
   LogicalResult predeclareStructuralInstances(
       ModuleDecl &decl, OpBuilder &at, SmallVectorImpl<Instance> &storage,
       llvm::StringMap<Instance *> &instances);
@@ -792,11 +989,11 @@ private:
   LogicalResult emitSourceTransactions(ModuleDecl &decl);
   FailureOr<std::optional<Value>> sourceEffectExpression(
       const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-      llvm::StringMap<Value> &values,
+      EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances);
   FailureOr<SmallVector<Value>> sourceMethodCall(
       const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
       std::optional<bool> tupleCall = false);
   ac::StaticExprAttr literal(uint64_t value, const AstNode &node,
                              FlatSymbolRefAttr owner);
@@ -853,7 +1050,7 @@ private:
   void rememberState(Value value, const StateOwner &state);
   FailureOr<Value> stateInitializer(
       const Port &contract, const AstNode &initializer, const AstNode &site,
-      OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      OpBuilder &at, FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances, bool allowCapturedConstants = false);
 
   bool sameBindingBoundary(const BindingBoundary &a, const BindingBoundary &c);
@@ -864,7 +1061,7 @@ private:
                                         FlatSymbolRefAttr owner);
   FailureOr<Value> lowerBoundExpression(
       const AstNode &node, const BindingBoundary &binding, OpBuilder &at,
-      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances);
   FailureOr<Value> tableUpdate(Value table, Value index, Value replacement,
                                ArrayRef<Attribute> fieldPath,
@@ -921,8 +1118,8 @@ private:
                            size_t begin = 0,
                            size_t end = std::numeric_limits<size_t>::max());
   LogicalResult moduleStatement(const ModuleDecl &decl, size_t ordinal,
-                                OpBuilder &at, llvm::StringMap<Value> &values,
-                                llvm::StringMap<BindingBoundary> &boundaries,
+                                OpBuilder &at, EnvironmentMap<Value> &values,
+                                EnvironmentMap<BindingBoundary> &boundaries,
                                 llvm::StringMap<Instance *> &instances,
                                 const llvm::StringSet<> &protectedNames);
   LogicalResult validateModuleStatement(const AstNode &statement,
@@ -972,7 +1169,7 @@ private:
                                        BranchEnvironment &environment);
   FailureOr<Value> lowerObservationValue(
       const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values,
+      EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances,
       llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   LogicalResult publishSourceChecks(Operation *rule, RuleEvaluation &evaluation,
@@ -982,7 +1179,7 @@ private:
                                   BranchEnvironment &environment);
   FailureOr<bool> moduleInstanceBinding(
       const AstNode &call, OpBuilder &at, FlatSymbolRefAttr owner,
-      const llvm::StringMap<Value> &values,
+      const EnvironmentMap<Value> &values,
       llvm::StringMap<Instance *> &instances);
 
   FailureOr<ModuleDecl> signature(const AstNode &node);
@@ -1021,7 +1218,7 @@ private:
                                              FlatSymbolRefAttr owner);
   FailureOr<SmallVector<Value>>
   fixedEncodingResults(const AstNode &node, OpBuilder &at,
-                       FlatSymbolRefAttr owner, llvm::StringMap<Value> &values,
+                       FlatSymbolRefAttr owner, EnvironmentMap<Value> &values,
                        llvm::StringMap<Instance *> &instances);
   FailureOr<Value> lowerFixedCount(Value input, const AstNode &node,
                                    OpBuilder &at, FlatSymbolRefAttr owner,
@@ -1048,12 +1245,12 @@ private:
                                          ArrayRef<Attribute> typeActuals);
   FailureOr<Value>
   expression(const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-             llvm::StringMap<Value> &values,
+             EnvironmentMap<Value> &values,
              llvm::StringMap<Instance *> &instances,
              std::optional<Type> expected = std::nullopt,
              llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   FailureOr<Type> expressionType(const AstNode &node,
-                                 llvm::StringMap<Value> &values,
+                                 EnvironmentMap<Value> &values,
                                  llvm::StringMap<Instance *> &instances,
                                  FlatSymbolRefAttr owner,
                                  DictionaryAttr *projectedField = nullptr);
@@ -1063,7 +1260,7 @@ private:
                                     const AstNode &rule,
                                     const AstNode &statement, unsigned ordinal,
                                     OpBuilder &at,
-                                    llvm::StringMap<Value> &moduleValues,
+                                    EnvironmentMap<Value> &moduleValues,
                                     llvm::StringMap<Instance *> &instances);
   DictionaryAttr namespaceSite(const AstNode &node);
   NumericLoweringSite numericSite(const AstNode &node,
@@ -1877,22 +2074,19 @@ bool Importer::hasUnchangedIncomingBinding(StringRef name,
                                            const BranchEnvironment &incoming,
                                            const BranchEnvironment &yes,
                                            const BranchEnvironment &no) {
-  auto original = incoming.values.find(name);
-  auto a = yes.values.find(name), c = no.values.find(name);
-  if (original == incoming.values.end() || a == yes.values.end() ||
-      c == no.values.end() || a->second != original->second ||
-      c->second != original->second)
+  const Value *original = incoming.values.lookupPtr(name);
+  const Value *a = yes.values.lookupPtr(name);
+  const Value *c = no.values.lookupPtr(name);
+  if (!original || !a || !c || *a != *original || *c != *original)
     return false;
-  auto originalBoundary = incoming.boundaries.find(name);
-  auto aBoundary = yes.boundaries.find(name),
-       cBoundary = no.boundaries.find(name);
-  return originalBoundary != incoming.boundaries.end() &&
-         aBoundary != yes.boundaries.end() &&
-         cBoundary != no.boundaries.end() &&
-         aBoundary->second.declared == originalBoundary->second.declared &&
-         cBoundary->second.declared == originalBoundary->second.declared &&
-         sameBindingBoundary(aBoundary->second, originalBoundary->second) &&
-         sameBindingBoundary(cBoundary->second, originalBoundary->second);
+  const BindingBoundary *originalBoundary = incoming.boundaries.lookupPtr(name);
+  const BindingBoundary *aBoundary = yes.boundaries.lookupPtr(name);
+  const BindingBoundary *cBoundary = no.boundaries.lookupPtr(name);
+  return originalBoundary && aBoundary && cBoundary &&
+         aBoundary->declared == originalBoundary->declared &&
+         cBoundary->declared == originalBoundary->declared &&
+         sameBindingBoundary(*aBoundary, *originalBoundary) &&
+         sameBindingBoundary(*cBoundary, *originalBoundary);
 }
 
 FailureOr<BranchEnvironment> Importer::joinBranches(
@@ -1901,6 +2095,10 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr ownerSymbol,
     ac::SourceBranchOp sourceBranch) {
   BranchEnvironment joined;
+  // Untouched entries stay shared with the incoming environment through the
+  // committed frames; only the arm deltas are merged below.
+  joined.values = incoming.values;
+  joined.writes = incoming.writes;
   joined.boundaries = incoming.boundaries;
   joined.ambient = incoming.ambient;
   if (incoming.continuation) {
@@ -1915,22 +2113,30 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     joined.continuation = *continued;
   }
   // Declarations constrain every retained path, including a path without a
-  // value. Inferred partial bindings do not survive the join.
+  // value. Inferred partial bindings do not survive the join; inherited
+  // declarations are already shared through the incoming frames.
   for (const auto *branch : {&yes, &no})
-    for (const auto &item : branch->boundaries) {
-      if (!item.second.declared)
+    for (StringRef name : branch->boundaries.pendingNames()) {
+      const BindingBoundary *item = branch->boundaries.lookupPtr(name);
+      if (!item || !item->declared)
         continue;
-      auto existing = joined.boundaries.find(item.first());
-      if (existing != joined.boundaries.end() && existing->second.declared) {
-        if (!sameBindingBoundary(existing->second, item.second))
+      const BindingBoundary *existing = joined.boundaries.lookupPtr(name);
+      if (existing && existing->declared) {
+        if (!sameBindingBoundary(*existing, *item))
           return mlir::emitError(node.location(b.getContext(), source.path))
                  << "branch declarations have incompatible binding boundaries";
         // Both arms usually inherit this exact declaration. Keep the existing
         // binding instead of copying its name and source path again per arm.
         continue;
       }
-      joined.boundaries[item.first()] = item.second;
+      joined.boundaries[name] = *item;
     }
+  // Names added, changed or erased by either arm since the fork.
+  llvm::SmallVector<StringRef> changed;
+  for (const auto *branch : {&yes, &no})
+    for (StringRef name : branch->values.pendingNames())
+      if (!llvm::is_contained(changed, name))
+        changed.push_back(name);
   // The rich join variant needs an explicit inline capacity with LLVM 22.
   // Keep upstream's zero-inline-storage policy; larger joins grow dynamically.
   SmallVector<PreparedBranchJoin, 0> prepared;
@@ -1941,21 +2147,20 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     elseAt.emplace(OpBuilder::atBlockEnd(&sourceBranch.getElseRegion().front()));
   }
   auto joinBinding = [&](StringRef name, Value yesValue) -> LogicalResult {
-    auto opposite = no.values.find(name);
-    if (opposite == no.values.end())
+    const Value *opposite = no.values.lookupPtr(name);
+    if (!opposite)
       return success();
     if (hasUnchangedIncomingBinding(name, incoming, yes, no)) {
       joined.values[name] = incoming.values.lookup(name);
       return success();
     }
-    Value noValue = opposite->second;
-    auto binding = joined.boundaries.find(name);
+    Value noValue = *opposite;
+    const BindingBoundary *binding = joined.boundaries.lookupPtr(name);
     if (sourceBranch && (!isa<ac::BitsType>(yesValue.getType()) ||
                          !isa<ac::BitsType>(noValue.getType()))) {
       auto nominal = prepareNominalJoin(
           yesValue, noValue,
-          binding == joined.boundaries.end()
-              ? std::nullopt : std::optional<BindingBoundary>(binding->second),
+          binding ? std::optional<BindingBoundary>(*binding) : std::nullopt,
           node, *thenAt, *elseAt, ownerSymbol);
       if (failed(nominal)) return failure();
       prepared.emplace_back(std::move(*nominal));
@@ -1970,8 +2175,7 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
         return failure();
       auto scalar = prepareScalarJoin(
           condition, *a, *c,
-          binding == joined.boundaries.end()
-              ? std::nullopt : std::optional<BindingBoundary>(binding->second),
+          binding ? std::optional<BindingBoundary>(*binding) : std::nullopt,
           node, sourceBranch ? *thenAt : at, sourceBranch ? *elseAt : at,
           ownerSymbol);
       if (failed(scalar))
@@ -1989,15 +2193,15 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
         if (failed(value))
           return failure();
         joined.values[name] = *value;
-        if (binding == joined.boundaries.end())
+        if (!binding)
           joined.boundaries[name] = inferredBoundary(name, *value, node);
       }
       return success();
     }
-    if (binding != joined.boundaries.end()) {
-      auto a = applyBindingBoundary(yesValue, binding->second, node, at,
+    if (binding) {
+      auto a = applyBindingBoundary(yesValue, *binding, node, at,
                                     ownerSymbol);
-      auto c = applyBindingBoundary(noValue, binding->second, node, at,
+      auto c = applyBindingBoundary(noValue, *binding, node, at,
                                     ownerSymbol);
       if (failed(a) || failed(c))
         return failure();
@@ -2011,8 +2215,8 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     auto value = joinSourceValues(condition, *a, *c, node, at, ownerSymbol);
     if (failed(value))
       return failure();
-    if (binding != joined.boundaries.end()) {
-      auto converted = applyBindingBoundary(*value, binding->second, node, at,
+    if (binding) {
+      auto converted = applyBindingBoundary(*value, *binding, node, at,
                                              ownerSymbol);
       if (failed(converted))
         return failure();
@@ -2029,11 +2233,11 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     TableQueryCharge charge;
     std::string reason;
     uint64_t resultCount = 0;
-    for (const auto &item : yes.values) {
+    for (StringRef name : changed) {
       if (failed(chargeLoopDescriptorWork(node, "source join binding measurement")))
         return failure();
-      if (no.values.contains(item.first()) &&
-          !hasUnchangedIncomingBinding(item.first(), incoming, yes, no))
+      if (yes.values.contains(name) && no.values.contains(name) &&
+          !hasUnchangedIncomingBinding(name, incoming, yes, no))
         ++resultCount;
     }
     constexpr uint64_t resultSlots = (sizeof(PreparedBranchJoin) + 7) / 8 + 5;
@@ -2049,19 +2253,24 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     names.reserve(resultCount);
     prepared.reserve(resultCount);
     resultNames.reserve(resultCount);
-    for (const auto &item : yes.values) {
-      if (!no.values.contains(item.first()))
+    for (StringRef name : changed) {
+      const Value *arm = yes.values.lookupPtr(name);
+      if (!arm)
         continue;
-      if (hasUnchangedIncomingBinding(item.first(), incoming, yes, no)) {
-        if (failed(joinBinding(item.first(), item.second)))
+      if (!no.values.contains(name)) {
+        joined.values.erase(name);
+        continue;
+      }
+      if (hasUnchangedIncomingBinding(name, incoming, yes, no)) {
+        if (failed(joinBinding(name, *arm)))
           return failure();
       } else {
-        names.push_back(item.first());
+        names.push_back(name);
       }
     }
     llvm::sort(names);
     for (StringRef name : names)
-      if (failed(joinBinding(name, yes.values.lookup(name))))
+      if (failed(joinBinding(name, *yes.values.lookupPtr(name))))
         return failure();
     SmallVector<Value> trueValues, falseValues;
     SmallVector<Type> resultTypes;
@@ -2099,16 +2308,26 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
         joined.boundaries[name] = inferredBoundary(name, *value, node);
     }
   } else {
-    for (const auto &item : yes.values)
-      if (failed(joinBinding(item.first(), item.second)))
+    for (StringRef name : changed) {
+      const Value *arm = yes.values.lookupPtr(name);
+      if (!arm) {
+        joined.values.erase(name);
+        continue;
+      }
+      if (!no.values.contains(name)) {
+        joined.values.erase(name);
+        continue;
+      }
+      if (failed(joinBinding(name, *arm)))
         return failure();
+    }
   }
-  for (const auto &item : incoming.writes) {
-    auto value = select(condition.value, yes.writes.lookup(item.first()),
-                        no.writes.lookup(item.first()), node, at, ownerSymbol);
+  for (const auto &entry : incoming.writes.materialize()) {
+    auto value = select(condition.value, yes.writes.lookup(entry.first()),
+                        no.writes.lookup(entry.first()), node, at, ownerSymbol);
     if (failed(value))
       return failure();
-    joined.writes[item.first()] = *value;
+    joined.writes[entry.first()] = *value;
   }
   return joined;
 }
@@ -3400,7 +3619,7 @@ LogicalResult Importer::chargeSourceWalk(const AstNode &node,
 
 FailureOr<Value> Importer::expression(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr ownerSymbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     std::optional<Type> expected,
     llvm::StringMap<SmallVector<Value>> *captures) {
   if (!captures && activeRule && activeRule->outputs)
@@ -3466,7 +3685,7 @@ FailureOr<Value> Importer::expression(
     // authority across staging captures. Name and SSA origin must both match:
     // copying or rebinding the binder does not grant static-count permission.
     if (candidate.kind() == "Name") {
-      auto found = values.find(candidate.string("id"));
+      const Value *found = values.lookupPtr(candidate.string("id"));
       auto origin = [&](Value value) {
         Value captured = originalCaptures.lookup(value);
         return captured ? captured : value;
@@ -3474,9 +3693,9 @@ FailureOr<Value> Importer::expression(
       for (auto *loop = activeLoop; loop; loop = loop->parent) {
         if (candidate.string("id") != loop->statement.child("target").string("id"))
           continue;
-        if (found != values.end() && origin(found->second) == origin(loop->induction)) {
+        if (found && origin(*found) == origin(loop->induction)) {
           auto integer = dyn_cast_or_null<ac::MathIntAttr>(
-              valueInfo(found->second).closedSourceConstant);
+              valueInfo(*found).closedSourceConstant);
           if (integer)
             return llvm::APSInt(integer.getCanonicalValue());
         }
@@ -3636,15 +3855,15 @@ FailureOr<Value> Importer::expression(
         if (decl.symbol == ownerSymbol && decl.needsDomain)
           return error() << "generated physical domain pin '"
                          << node.string("id") << "' is not a source value";
-    auto found = values.find(node.string("id"));
-    if (found == values.end() && activeBehavioralDecl &&
+    const Value *found = values.lookupPtr(node.string("id"));
+    if (!found && activeBehavioralDecl &&
         activeBehavioralDecl->symbol == ownerSymbol &&
         isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()) &&
         forwardCallBindings.contains(node.string("id")))
       return forwardModuleValue(node.string("id"), ownerSymbol);
-    if (found == values.end())
+    if (!found)
       return error() << "unknown hardware value '" << node.string("id") << "'";
-    return found->second;
+    return *found;
   }
   if (node.kind() == "Attribute" && !sourceLiteral && node.child("value").kind() == "Name") {
     StringRef name = node.child("value").string("id");
@@ -4135,7 +4354,7 @@ Importer::compareSourceValues(Value lhs, Value rhs, StringRef predicate,
   return result;
 }
 FailureOr<Type> Importer::expressionType(const AstNode &node,
-                                         llvm::StringMap<Value> &values,
+                                         EnvironmentMap<Value> &values,
                                          llvm::StringMap<Instance *> &instances,
                                          FlatSymbolRefAttr ownerSymbol,
                                          DictionaryAttr *projectedField) {
@@ -4261,8 +4480,8 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
                                              : std::max(1u, integer.getActiveBits()));
   }
   if (node.kind() == "Name") {
-    auto found = values.find(node.string("id"));
-    if (found == values.end() && activeBehavioralDecl &&
+    const Value *found = values.lookupPtr(node.string("id"));
+    if (!found && activeBehavioralDecl &&
         activeBehavioralDecl->symbol == ownerSymbol &&
         forwardCallBindings.contains(node.string("id"))) {
       auto value = forwardModuleValue(node.string("id"), ownerSymbol);
@@ -4270,9 +4489,9 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
         return failure();
       return value->getType();
     }
-    if (found == values.end())
+    if (!found)
       return error() << "unknown hardware value '" << node.string("id") << "'";
-    return found->second.getType();
+    return found->getType();
   }
   if (node.kind() == "Attribute") {
     if (node.child("value").kind() == "Name" &&
@@ -4511,7 +4730,7 @@ Importer::sourceAssertMessage(const AstNode &statement) {
 
 FailureOr<Value> Importer::lowerObservationValue(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     llvm::StringMap<SmallVector<Value>> *captures) {
   // The prequery preserves contextual literal typing and the existing
   // observation admission boundary. The actual lowering remains authoritative
@@ -4648,7 +4867,7 @@ LogicalResult Importer::publishSourceChecks(Operation *rule,
 
 FailureOr<bool> Importer::moduleInstanceBinding(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr owner,
-    const llvm::StringMap<Value> &values,
+    const EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances) {
   if (call.kind() != "Call" || call.child("func").kind() != "Name")
     return false;
@@ -4711,10 +4930,10 @@ LogicalResult Importer::structuralBinding(const AstNode &call, OpBuilder &at,
   for (auto [ordinal, input] : llvm::enumerate(target.inputs)) {
     if (target.clockInput == ordinal || target.resetInput == ordinal) {
       StringRef pin = target.clockInput == ordinal ? "pyc_clk" : "pyc_rst";
-      auto value = environment.values.find(pin);
-      if (value == environment.values.end())
+      const Value *value = environment.values.lookupPtr(pin);
+      if (!value)
         return error() << "instance binding lacks inferred physical domain";
-      evaluation.bindingValues.push_back(value->second);
+      evaluation.bindingValues.push_back(*value);
       continue;
     }
     auto found = actuals.find(input.name);
@@ -4802,7 +5021,7 @@ LogicalResult Importer::buildObservation(const AstNode &statement,
 
 LogicalResult Importer::emitInstrumentation(
     const ModuleDecl &module, const AstNode &rule, const AstNode &statement,
-    unsigned ordinal, OpBuilder &at, llvm::StringMap<Value> &moduleValues,
+    unsigned ordinal, OpBuilder &at, EnvironmentMap<Value> &moduleValues,
     llvm::StringMap<Instance *> &instances) {
   SmallVector<AstNode, 4> dynamicValues;
   DictionaryAttr spec;
@@ -4811,7 +5030,7 @@ LogicalResult Importer::emitInstrumentation(
     return failure();
 
   SmallVector<Value> captures;
-  for (const auto &entry : moduleValues)
+  for (const auto &entry : moduleValues.materialize())
     captures.push_back(entry.second);
   for (const auto &entry : instances)
     for (Value output : entry.second->op->getResults())
@@ -4834,9 +5053,9 @@ LogicalResult Importer::emitInstrumentation(
       1);
   Block *block = new Block();
   ruleOp->getRegion(0).push_back(block);
-  llvm::StringMap<Value> values;
+  EnvironmentMap<Value> values;
   unsigned captureOrdinal = 0;
-  for (const auto &entry : moduleValues)
+  for (const auto &entry : moduleValues.materialize())
     values[entry.first()] =
         captureValue(block, captures[captureOrdinal++], ruleOp->getLoc());
   llvm::StringMap<SmallVector<Value>> capturedOutputs;
@@ -5111,7 +5330,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
     return failure();
   Block *graph = new Block();
   module->getRegion(0).push_back(graph);
-  llvm::StringMap<Value> values;
+  EnvironmentMap<Value> values;
   for (const Port &input : decl.inputs) {
     Value argument = graph->addArgument(input.type, module->getLoc());
     values[input.name] = argument;
@@ -5460,7 +5679,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
     RuleEvaluation evaluation;
     if (target || checkCount) {
       SmallVector<Value> captures;
-      for (const auto &item : values)
+      for (const auto &item : values.materialize())
         captures.push_back(item.second);
       for (const Instance &item : storage)
         llvm::append_range(captures, item.op->getResults());
@@ -5484,7 +5703,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       auto captureArgument = [&]() {
         return captureValue(block, captures[ordinal++], ruleOp->getLoc());
       };
-      for (const auto &item : values)
+      for (const auto &item : values.materialize())
         environment.values[item.first()] = captureArgument();
       llvm::StringMap<SmallVector<Value>> capturedOutputs;
       for (const Instance &item : storage)
@@ -5768,7 +5987,7 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
 }
 
 LogicalResult Importer::preflightQueryCallback(
-    const AstNode &callback, const llvm::StringMap<Value> &values,
+    const AstNode &callback, const EnvironmentMap<Value> &values,
     SmallVectorImpl<StringRef> &captures, size_t arity, bool mapAggregates,
     SmallVectorImpl<AstNode> *captureSites) {
   auto diagnostic = [&] {
@@ -5892,7 +6111,7 @@ LogicalResult Importer::preflightQueryCallback(
 
 FailureOr<Value> Importer::tableValueCall(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   auto diagnostic = [&] {
     return mlir::emitError(call.location(b.getContext(), source.path));
   };
@@ -6063,7 +6282,7 @@ FailureOr<Value> Importer::tableValueCall(
   if (!fits || !queryBudget.reserve(binding, reason))
     return diagnostic() << (fits ? reason
                                  : "Table query binding budget exhausted");
-  llvm::StringMap<Value> environment;
+  EnvironmentMap<Value> environment;
   for (auto [name, captured] : llvm::zip(captures, capturedValues))
     environment.try_emplace(name, captured);
   SmallVector<Value> rows;
@@ -6117,7 +6336,7 @@ FailureOr<Value> Importer::tableValueCall(
 
 FailureOr<SmallVector<Value>> Importer::tableQueryResults(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   auto diagnostic = [&] {
     return mlir::emitError(call.location(b.getContext(), source.path));
   };
@@ -6180,7 +6399,7 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
       (key && failed(preflightQueryCallback(key, values, keyCaptures, 1,
                                             false, &keyCaptureSites))))
     return failure();
-  llvm::StringMap<Value> capturedValues;
+  EnvironmentMap<Value> capturedValues;
   auto resolveCaptures = [&](ArrayRef<StringRef> names,
                              ArrayRef<AstNode> sites) -> LogicalResult {
     for (auto [name, site] : llvm::zip(names, sites)) {
@@ -6228,7 +6447,7 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
         }
       temporary->erase();
     });
-    llvm::StringMap<Value> environment;
+    EnvironmentMap<Value> environment;
     for (StringRef name : captures)
       environment.try_emplace(name, capturedValues.lookup(name));
     environment.try_emplace(parameter.string("arg"), row);
