@@ -19,7 +19,8 @@ struct FinalVerilogSourceParts {
 };
 mlir::FailureOr<FinalVerilogSourceParts>
 emitVerilogSourceParts(mlir::ModuleOp package, ac::HardwareAnalysis &analysis,
-                       bool physical = false);
+                       bool physical = false,
+                       const ac::HardwareSourceCheckPlan *sharedPlan = nullptr);
 mlir::LogicalResult emitVerilog(mlir::ModuleOp package,
                                 ac::HardwareAnalysis &analysis,
                                 llvm::raw_ostream &out, bool physical = false);

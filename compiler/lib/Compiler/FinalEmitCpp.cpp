@@ -270,8 +270,10 @@ LogicalResult emitDefinitionOnce(HardwareEmitContext &context,
 }
 } // namespace
 FailureOr<FinalCppSourceParts>
-emitCppSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
-  HardwareEmitContext context(package, analysis);
+emitCppSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis,
+                   const ac::HardwareSourceCheckPlan *sharedPlan) {
+  HardwareEmitContext context(package, analysis, /*physical=*/false,
+                               sharedPlan);
   // Native preparation builds the shared observation and source-check plans.
   // Closed systems and checked module roots consume reachable checks through
   // their generated execution boundary. Checks belonging only to unselected
@@ -289,7 +291,12 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
   auto &analysis = context.analysis;
   // The retained view never grants authority after mutation. Both public and
   // internal native gates consume this exact verified emission implementation.
-  if (failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
+  // The first consumer after a fresh prepare() may skip the rebuild-and-
+  // compare (one-shot); every later call and externally kept context
+  // revalidates in full.
+  if (context.hasFreshSourceCheckPlan())
+    context.consumeFreshSourceCheckPlan();
+  else if (failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
     return failure();
   auto root = rootModule(context);
   if (failed(root))
