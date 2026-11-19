@@ -1584,13 +1584,20 @@ public:
       SmallVector<Attribute> names(module.getInputNames().getValue());
       Builder b(module.getContext());
       auto domain = module->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+      llvm::DenseSet<uint64_t> totalControls;
+      if (domain)
+        for (StringRef pin : {"clock", "reset"})
+          if (auto index = domain.getAs<IntegerAttr>(pin))
+            totalControls.insert(index.getInt());
+      if (auto clocks = module->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs"))
+        for (NamedAttribute entry : clocks)
+          if (auto index = dyn_cast<IntegerAttr>(entry.getValue()))
+            totalControls.insert(index.getInt());
+      auto systemControls = ac::getSystemSampleInputs(module);
+      if (failed(systemControls)) return failure();
+      totalControls.insert(systemControls->begin(), systemControls->end());
       for (uint64_t i = 0; i < layout.inputs; ++i) {
-        bool clock = false;
-        if (domain)
-          for (StringRef pin : {"clock", "reset"})
-            if (auto index = domain.getAs<IntegerAttr>(pin); index && index.getInt() == i)
-              clock = true;
-        if (clock) continue;
+        if (totalControls.contains(i)) continue;
         layout.input[i] = module.getBody().front().getNumArguments();
         auto argument = module.getBody().front().addArgument(bit, module.getLoc());
         inputAvailability[module.getBody().front().getArgument(i)] = argument;

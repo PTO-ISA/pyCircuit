@@ -90,6 +90,9 @@ struct SampledAdmissionView {
   uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
   uint64_t checkBase = 0, totalResults = 0;
   mlir::Value clock, reset, fire;
+  RegisterEdge edge = RegisterEdge::Posedge;
+  llvm::SmallVector<HardwareSamplingReset> resets;
+  llvm::SmallVector<uint64_t> resetCaptures;
   llvm::SmallVector<SampledControlView> controls;
   llvm::SmallVector<SampledBodyCheckView> bodyChecks;
   llvm::SmallVector<SampledObservationView> observations;
@@ -99,6 +102,11 @@ struct SampledAdmissionView {
   llvm::SmallVector<SampledMemoryProposalView> memoryProposals;
   llvm::SmallVector<SampledWriteDomainView> writeDomains;
 };
+/// Read only the existing sampling locators/policy. No admission, prefix or
+/// routing proof is invoked; structural resource closure shares this reader.
+mlir::LogicalResult readSampledEventContext(RuleOp rule,
+    SampledAdmissionView &view, SourceCheckBudget &budget);
+
 struct TransactionStateInventoryEntry {
   mlir::DictionaryAttr declaration;
   mlir::Operation *storage = nullptr;
@@ -252,7 +260,8 @@ struct StateEndpoint {
   acir::LogicalStateUpdateOpInterface update;
   HardwareBindings ownerBindings, storageBindings;
   mlir::Type payloadType;
-  mlir::Value clock, reset, enable, data, initial, q;
+  mlir::Value clock, reset, enable, data, initial, resetValue, q;
+  RegisterPolicy policy;
 };
 
 mlir::FailureOr<SampledAdmissionView>

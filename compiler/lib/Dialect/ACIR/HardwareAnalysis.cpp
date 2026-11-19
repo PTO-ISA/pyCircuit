@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "IR/StateDeclarationContracts.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -172,9 +173,15 @@ FailureOr<HardwareBindings> HardwareAnalysis::bindCallee(
           evaluateStatic(substituted, supplied ? parent : result, site);
       if (failed(evaluated))
         return failure();
-      if (!isa<MathIntAttr>(*evaluated))
-        return site->emitOpError()
-               << "integer formal requires mathematical integer";
+      bool domainFormal = bool(parameter.getAs<DictionaryAttr>("type"));
+      if ((!domainFormal && !isa<MathIntAttr>(*evaluated)) ||
+          (domainFormal && !isa<DictionaryAttr>(*evaluated)))
+        return site->emitOpError() << "static actual does not match its formal kind";
+      if (domainFormal && failed(detail::verifyStaticValueMatchesType(
+              cast<DictionaryAttr>(*evaluated), parameter.getAs<DictionaryAttr>("type"),
+              detail::ExpectedTypeKind::Static, {},
+              [&] { return site->emitOpError(); })))
+        return failure();
       value = *evaluated;
     }
     result.integers[parameter.getAs<StringAttr>("name").getValue()] = value;
@@ -191,6 +198,8 @@ HardwareAnalysis::verifyInstance(InstanceOp instance,
           instance->getAttr("ac.reference_bindings"),
           [&](FlatSymbolRefAttr symbol) { return lookupDefinition(symbol.getValue()); }, instance)))
     return failure();
+  if (isCDCInstance(instance))
+    return verifyBoundHardwareCDCOperation(*this, instance, parent);
   if (isQueueInstance(instance))
     return verifyQueueOperation(instance, parent);
   if (instance->hasAttr("ac.source_memory")) {
@@ -227,8 +236,13 @@ HardwareAnalysis::verifyOccurrence(Operation *instance,
   if (failed(bindings))
     return failure();
   auto primitive = getPrimitiveKind(bindings->owner);
+  if (isCDCPrimitive(bindings->owner) && !isa<InstanceOp>(instance))
+    return instance->emitOpError()
+           << "logical CDC resources require an individual instance";
+  if ((primitive == "dff" || primitive == "dffe") && failed(getRegisterPolicy(instance)))
+    return failure();
   if (!primitive.empty() && primitive != "fifo_local" &&
-      primitive != "fifo_downstream_pop" &&
+      primitive != "fifo_downstream_pop" && primitive != "async_fifo" &&
       isa_and_nonnull<TableType>(bindings->types.lookup("T")))
     return instance->emitOpError()
            << "storage and memory primitives require a scalar payload binding";
@@ -596,6 +610,9 @@ LogicalResult HardwareAnalysis::verifySourceIndex(
 
 LogicalResult HardwareAnalysis::verifyResolvedOperation(
     Operation *op, const HardwareBindings &bindings) const {
+  if (isa<CDCRefinementOp>(op) &&
+      failed(verifyBoundHardwareCDCOperation(*this, op, bindings)))
+    return failure();
   if (isa<QueueOp>(op))
     return op->emitOpError() << "ac.queue is retired; use a canonical FIFO instance";
   if (auto read = dyn_cast<TableReadOp>(op)) {

@@ -6,6 +6,9 @@
 namespace gfsim {
 
 enum class ResetSemantics { Strict, IfOne };
+enum class RegisterEdge { Posedge, Negedge };
+enum class RegisterResetKind { None, Sync, Async };
+enum class RegisterResetPolarity { High, Low };
 
 // Root-owned interpretation shared by sampled checks and primitive inputs.
 // Checking knownness first makes hidden value bits under X/Z irrelevant.
@@ -27,6 +30,8 @@ enum class SampledClockFault { None, UnknownClock, UnknownReset };
 
 struct SampledClockEvaluation {
   bool nextClock;
+  // The selected update edge; the legacy field name is retained for callers
+  // using the original positive-edge contract.
   bool rising;
   bool resetActive;
   SampledClockFault fault;
@@ -36,16 +41,29 @@ struct SampledClockEvaluation {
 // retains the previous clock; callers must not commit a failed sample.
 inline SampledClockEvaluation evaluateSampledClock(
     bool previous, const wire<Bits<1>> &clock, const wire<Bits<1>> &rawReset,
-    ResetSemantics semantics = ResetSemantics::Strict) noexcept {
+    ResetSemantics semantics = ResetSemantics::Strict,
+    RegisterEdge edge = RegisterEdge::Posedge,
+    RegisterResetKind resetKind = RegisterResetKind::Sync,
+    RegisterResetPolarity polarity = RegisterResetPolarity::High) noexcept {
   if (!clock.isFullyKnown())
     return {previous, false, false, SampledClockFault::UnknownClock};
   const bool next = clock.value().toBool();
-  if (previous || !next)
+  const bool selectedEdge =
+      edge == RegisterEdge::Posedge ? (!previous && next) : (previous && !next);
+  if (resetKind == RegisterResetKind::None)
+    return {next, selectedEdge, false, SampledClockFault::None};
+  if (!selectedEdge && resetKind != RegisterResetKind::Async)
     return {next, false, false, SampledClockFault::None};
-  const auto reset = interpretReset(rawReset, semantics);
+  // Interpret if_one after polarity normalization: an unknown active-low pin
+  // is inactive under if_one, rather than becoming an asserted reset.
+  const auto normalized =
+      polarity == RegisterResetPolarity::Low
+          ? wire<Bits<1>>::fromPacked(bit_not(rawReset.packed()))
+          : rawReset;
+  const auto reset = interpretReset(normalized, semantics);
   if (!reset.isFullyKnown())
-    return {previous, true, false, SampledClockFault::UnknownReset};
-  return {next, true, reset.value().toBool(), SampledClockFault::None};
+    return {previous, selectedEdge, false, SampledClockFault::UnknownReset};
+  return {next, selectedEdge, reset.value().toBool(), SampledClockFault::None};
 }
 
 } // namespace gfsim

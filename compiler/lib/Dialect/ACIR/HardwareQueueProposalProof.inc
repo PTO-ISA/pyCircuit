@@ -2,7 +2,7 @@
 // grammar and its four-state knownness proof.
 static LogicalResult proveQueueProposalPrefixes(
     const SampledAdmissionView &view, const PreparedSampledBoundaries &prepared,
-    const HardwareAnalysis &analysis, SourceCheckBudget &budget, OrderedPrefixProof &proof) {
+    const HardwareAnalysis &analysis, SourceCheckBudget &budget, OrderedPrefixProof &proof, Value resetMask) {
   if (view.queueProposals.empty() && view.memoryProposals.empty()) return success();
   struct Factor { HardwareIdentityEndpoint value; bool positive; bool expandedSelector = false; bool literal = false; };
   struct Factors { SmallVector<Factor> atoms; bool alwaysFalse = false; };
@@ -130,6 +130,15 @@ static LogicalResult proveQueueProposalPrefixes(
     auto enable = proof.normalize(proposal.path);
     auto rawPath = proof.normalize(proposal.rawPath);
     if (failed(enable) || failed(rawPath)) return failure();
+    if (resetMask) {
+      auto gate = enable->value.getDefiningOp<BitsBinaryOp>();
+      auto expectedMask = proof.normalize(resetMask);
+      auto actualMask = gate ? proof.normalize(gate.getRhs()) : FailureOr<HardwareIdentityEndpoint>(failure());
+      if (!gate || gate.getOpcode() != "and" || failed(expectedMask) || failed(actualMask) ||
+          !sameEndpoint(*expectedMask, *actualMask)) return view.rule->emitOpError("resource proposal omits transaction reset mask");
+      enable = proof.normalize(gate.getLhs());
+      if (failed(enable)) return failure();
+    }
     auto combine = enable->value.getDefiningOp<BitsBinaryOp>();
     if (!combine || combine.getOpcode() != "and")
       return view.rule->emitOpError() << "queue proposal requires admission AND raw path";

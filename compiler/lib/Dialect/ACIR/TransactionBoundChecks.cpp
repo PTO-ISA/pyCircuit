@@ -161,10 +161,8 @@ FailureOr<Type> selectedStateType(const HardwareAnalysis &analysis,
   if (!state)
     return operation->emitOpError()
            << "state reference must resolve to a state in the nearest module";
-  if (state->getNumOperands() != 3 || state->getNumResults() != 1 ||
-      state->getNumRegions() != 0)
-    return state.emitOpError()
-           << "state requires clock, reset, initial value and one old-Q result";
+  if (failed(verifyStateDeclarationStructure(state, state->hasAttr("operandSegmentSizes"))))
+    return failure();
   if (failed(state.verifyInvariantsImpl()))
     return failure();
   return selectedPayloadType(analysis, bindings, requireResolved, operation,

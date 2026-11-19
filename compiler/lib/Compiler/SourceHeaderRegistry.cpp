@@ -138,13 +138,15 @@ createBuiltin(OpBuilder &builder, StringRef kind,
               ArrayRef<std::pair<StringRef, Type>> inputs,
               ArrayRef<std::pair<StringRef, Type>> outputs,
               ArrayRef<SmallVector<unsigned>> dependencies,
-              ac::detail::EmitError emitError) {
+              ac::detail::EmitError emitError, bool hasPayloadType = true) {
   std::string spelling = (Twine(builtinModuleName) + "." + kind).str();
   auto symbol = FlatSymbolRefAttr::get(builder.getContext(), spelling);
   SmallVector<Attribute> parameters;
-  for (auto [name, value] : llvm::zip(parameterNames, defaults))
+  for (auto [index, name] : llvm::enumerate(parameterNames))
     parameters.push_back(ac::getStaticParameterAttr(
-        builder, name, builtinLiteral(builder, value, symbol)));
+        builder, name, index < defaults.size()
+                           ? builtinLiteral(builder, defaults[index], symbol)
+                           : ac::StaticExprAttr()));
   SmallVector<Type> inputTypes, outputTypes;
   SmallVector<Attribute> inputNames, outputNames;
   for (auto [name, type] : inputs) {
@@ -167,7 +169,9 @@ createBuiltin(OpBuilder &builder, StringRef kind,
   state.addAttribute("parameters", builder.getArrayAttr(parameters));
   state.addAttribute("function_type", TypeAttr::get(builder.getFunctionType(
                                           inputTypes, outputTypes)));
-  state.addAttribute("type_parameters", builder.getStrArrayAttr({"T"}));
+  state.addAttribute("type_parameters",
+                     hasPayloadType ? builder.getStrArrayAttr({"T"})
+                                    : builder.getStrArrayAttr({}));
   state.addAttribute("input_names", builder.getArrayAttr(inputNames));
   state.addAttribute("output_names", builder.getArrayAttr(outputNames));
   state.addAttribute("dependency_summary", builder.getArrayAttr(summary));
@@ -211,10 +215,11 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
           ArrayRef<uint64_t> defaults,
           ArrayRef<std::pair<StringRef, Type>> inputs,
           ArrayRef<std::pair<StringRef, Type>> outputs,
-          ArrayRef<SmallVector<unsigned>> dependencies) -> LogicalResult {
+          ArrayRef<SmallVector<unsigned>> dependencies,
+          bool hasPayloadType = true) -> LogicalResult {
     auto declaration =
         createBuiltin(builtinBuilder, kind, parameterNames, defaults, inputs,
-                      outputs, dependencies, emitError);
+                      outputs, dependencies, emitError, hasPayloadType);
     if (failed(declaration))
       return failure();
     auto symbol = FlatSymbolRefAttr::get(context, (*declaration).getSymName());
@@ -266,6 +271,32 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
       dependencies[0].push_back(4);
     if (failed(addCatalogEntry(kind, {"DEPTH", "AVAILABILITY_LATENCY"},
                                {2, 1}, inputs, outputs, dependencies)))
+      return failure();
+  }
+
+  {
+    StringRef kind = "async_reg";
+    SmallVector<std::pair<StringRef, Type>> inputs{
+        {"source_clock", one(kind)}, {"target_clock", one(kind)},
+        {"whole_reset", one(kind)}, {"input", one(kind)}};
+    SmallVector<std::pair<StringRef, Type>> outputs{{"output", one(kind)}};
+    SmallVector<SmallVector<unsigned>> dependencies(1);
+    if (failed(addCatalogEntry(kind, {}, {}, inputs, outputs, dependencies,
+                               false)))
+      return failure();
+  }
+  {
+    StringRef kind = "async_fifo";
+    SmallVector<std::pair<StringRef, Type>> inputs{
+        {"write_clock", one(kind)}, {"read_clock", one(kind)},
+        {"whole_reset", one(kind)}, {"push_payload", dataType(kind)},
+        {"push_intent", one(kind)}, {"pop_intent", one(kind)}};
+    SmallVector<std::pair<StringRef, Type>> outputs{
+        {"head", dataType(kind)}, {"write_available", one(kind)},
+        {"read_available", one(kind)}};
+    SmallVector<SmallVector<unsigned>> dependencies(3);
+    if (failed(addCatalogEntry(kind, {"DEPTH"}, {}, inputs, outputs,
+                               dependencies)))
       return failure();
   }
 

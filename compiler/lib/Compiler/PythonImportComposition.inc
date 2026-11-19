@@ -48,6 +48,15 @@ LogicalResult Importer::inferModuleGraph() {
       controlled |= node.kind() == "If" || node.kind() == "IfExp" ||
                     node.kind() == "BoolOp" || node.kind() == "For" ||
                     node.kind() == "While";
+      if (node.kind() == "Call" && (intrinsic(node.child("func"), "domain") ||
+                                     intrinsic(node.child("func"), "state")))
+        clockConfigurationActive = true;
+      if (!cdcKind(node).empty()) {
+        if (controlled) return error() << "CDC allocation requires static module scope";
+        decl.queueDomain = true;
+        decl.behavioral = true;
+        clockConfigurationActive = true;
+      }
       if (queueCall(node)) {
         if (controlled)
           return error()
@@ -75,6 +84,7 @@ LogicalResult Importer::inferModuleGraph() {
         if (!local.contains(name) && binding &&
             binding->category == BindingCategory::Module) {
           auto view = headers.lookupModule(binding->symbol);
+          if (view && view.declaration->hasAttr("ac.domain_params")) clockConfigurationActive = true;
           if (view && view.domainInputs)
             decl.queueDomain |= !view.domainInputs.empty();
           if (view && view.semanticKind &&
@@ -131,6 +141,7 @@ LogicalResult Importer::inferModuleGraph() {
         return failure();
   }
   SmallVector<unsigned> marks(modules.size(), 0);
+  SmallVector<size_t> domainOrder;
   auto visit = [&](auto &&self, size_t index) -> LogicalResult {
     if (marks[index] == 1)
       return error() << "recursive module instantiation is unsupported";
@@ -148,12 +159,15 @@ LogicalResult Importer::inferModuleGraph() {
     }
     modules[index].needsDomain = domain;
     marks[index] = 2;
+    domainOrder.push_back(index);
     return success();
   };
   for (size_t i = 0; i < modules.size(); ++i)
     if (failed(visit(visit, i)))
       return failure();
-  for (auto &decl : modules) {
+  for (size_t index : domainOrder) {
+    auto &decl = modules[index];
+    if (failed(prepareDomainInputs(decl))) return failure();
     if (decl.needsDomain) {
       for (StringRef pin : {StringRef("pyc_clk"), StringRef("pyc_rst")}) {
         if (llvm::any_of(decl.inputs,
@@ -168,6 +182,37 @@ LogicalResult Importer::inferModuleGraph() {
         decl.inputs.push_back(
             {pin.str(), bits(1, decl.node, decl.symbol), decl.node, {}, false});
       }
+    }
+    if (decl.domainExpressions)
+      for (NamedAttribute field : decl.domainExpressions)
+        decl.inputs.push_back({("__pyc_clock_" + field.getName().getValue()).str(),
+                               bits(1, decl.node, decl.symbol), decl.node, {}, false});
+    if (decl.system && !decl.sampleNames.empty()) {
+      SmallVector<Attribute> rows, ordinals;
+      for (size_t i = 0; i < decl.inputs.size(); ++i) ordinals.push_back(b.getI64IntegerAttr(i));
+      for (Attribute raw : decl.systemSamples.getAs<ArrayAttr>("rows")) {
+        StringRef row = cast<StringAttr>(raw).getValue();
+        std::string encoded;
+        for (const Port &input : decl.inputs) {
+          StringRef name = input.name;
+          if (name.starts_with("__pyc_clock_")) {
+            auto expression = decl.domainExpressions.getAs<ac::StaticExprAttr>(name.drop_front(12));
+            auto value = expression ? expression.getTree().getAs<DictionaryAttr>("value") : DictionaryAttr();
+            auto clock = value ? value.getAs<StringAttr>("clock") : StringAttr();
+            if (!clock) return error() << "System clock must resolve to a concrete Domain";
+            name = clock.getValue();
+          }
+          auto column = llvm::find(decl.sampleNames, b.getStringAttr(name));
+          if (column != decl.sampleNames.end()) encoded.push_back(row[std::distance(decl.sampleNames.begin(), column)]);
+          else if (name == "pyc_clk" || (name == "pyc_rst" && !decl.needsDefaultReset)) encoded.push_back('0');
+          else return error() << "System samples are missing control '" << name << "'";
+        }
+        rows.push_back(b.getStringAttr(encoded));
+      }
+      NamedAttrList samples(decl.systemSamples);
+      samples.set("rows", b.getArrayAttr(rows));
+      samples.set("inputs", b.getArrayAttr(ordinals));
+      decl.systemSamples = samples.getDictionary(b.getContext());
     }
     SmallVector<Type> inputs, outputs;
     for (auto &port : decl.inputs)
@@ -218,6 +263,11 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
   llvm::DenseMap<DictionaryAttr, AstNode> queueAssignments;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto statement = decl.node.item("body", i);
+    if (!cdcKind(statement.child("value")).empty() ||
+        (statement.kind() == "AnnAssign" && !cdcKind(statement.child("annotation")).empty())) {
+      if (failed(declareCDC(statement, decl, at))) return failure();
+      continue;
+    }
     if (!queueCall(statement.child("value")))
       continue;
     auto targets = queueTargets(statement);
@@ -351,6 +401,9 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       return failure();
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto stmt = decl.node.item("body", i);
+    if (!cdcKind(stmt.child("value")).empty() ||
+        (stmt.kind() == "AnnAssign" && !cdcKind(stmt.child("annotation")).empty()))
+      continue;
     if (queueCall(stmt.child("value"))) {
       auto targets = queueTargets(stmt);
       if (failed(targets))
@@ -613,12 +666,8 @@ FailureOr<SmallVector<Value>> Importer::directModuleResults(
     if (failed(value)) return failure();
     inputs[i] = *value;
   }
-  if (callee.needsDomain) {
-    if (!values.contains("pyc_clk") || !values.contains("pyc_rst"))
-      return error() << "direct module call lacks inferred physical domain";
-    inputs.push_back(values["pyc_clk"]);
-    inputs.push_back(values["pyc_rst"]);
-  }
+  if (failed(bindDomainInputs(callee, call, at, symbol, values, inputs,
+                              found->second.op))) return failure();
   found->second.op->setOperands(inputs);
   found->second.bound = true;
   return SmallVector<Value>(found->second.op->getResults());

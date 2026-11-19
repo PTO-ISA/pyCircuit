@@ -2,12 +2,20 @@
 // its value/domain/frame machinery; no independent analyzer or FIFO exists.
   FailureOr<QueueOwnerId> queueOwner(Operation *effect,
                                      LexicalInstanceId anchor,
-                                     InstanceOp allocation) {
+                                     InstanceOp allocation, bool push) {
     auto module = plan.instances[anchor].definition;
     if (!allocation || allocation->getParentOp() != module ||
         !isQueueInstance(allocation))
       return effect->emitOpError()
              << "transaction queue owner is not its actual canonical FIFO instance";
+    auto layout = getQueuePrimitiveLayout(allocation);
+    auto clock = useValue(layout.clock(push), anchor, plan.rootFrame, effect);
+    auto reset = useValue(layout.reset(), anchor, plan.rootFrame, effect);
+    if (failed(clock) || failed(reset)) return failure();
+    auto domain = getDomain(*clock, *reset, effect);
+    if (failed(domain)) return failure();
+    if (layout.asynchronous) domain->reset = plan.domain.reset;
+    if (failed(sameDomain(*domain, effect))) return failure();
     auto key = OwnerKey{anchor, allocation};
     auto found = queueOwnerIds.find(key);
     if (found != queueOwnerIds.end())
@@ -15,19 +23,16 @@
     auto row = getSourceQueueOwnerRow(allocation);
     if (failed(row))
       return failure();
-    auto data = useValue(allocation.getOutputs()[2], anchor, plan.rootFrame, effect);
-    auto valid = useValue(allocation.getOutputs()[1], anchor, plan.rootFrame, effect);
-    auto ready = useValue(allocation.getOutputs()[0], anchor, plan.rootFrame, effect);
-    auto localCapacity = useValue(allocation.getOutputs()[3], anchor, plan.rootFrame, effect);
-    auto inValid = useValue(allocation.getInputs()[2], anchor, plan.rootFrame, effect);
-    auto inData = useValue(allocation.getInputs()[3], anchor, plan.rootFrame, effect);
-    auto outReady = useValue(allocation.getInputs()[4], anchor, plan.rootFrame, effect);
-    auto clock = useValue(allocation.getInputs()[0], anchor, plan.rootFrame, effect);
-    auto reset = useValue(allocation.getInputs()[1], anchor, plan.rootFrame, effect);
+    auto data = useValue(layout.data(), anchor, plan.rootFrame, effect);
+    auto valid = useValue(layout.valid(), anchor, plan.rootFrame, effect);
+    auto ready = useValue(layout.ready(), anchor, plan.rootFrame, effect);
+    auto localCapacity = useValue(layout.capacity(), anchor, plan.rootFrame, effect);
+    auto inValid = useValue(layout.push(), anchor, plan.rootFrame, effect);
+    auto inData = useValue(layout.payload(), anchor, plan.rootFrame, effect);
+    auto outReady = useValue(layout.pop(), anchor, plan.rootFrame, effect);
     if (failed(data) || failed(valid) || failed(ready) || failed(inValid) ||
         failed(inData) || failed(outReady) || failed(localCapacity) || failed(clock) || failed(reset))
       return failure();
-    auto domain = getDomain(*clock, *reset, effect);
     auto type = payloadType(*data, effect);
     auto config = hardware.resolveQueue(allocation, plan.instances[anchor].bindings);
     if (failed(domain) || failed(type) || failed(config) ||
@@ -111,12 +116,13 @@
                                 TransactionQueueAccessKind kind,
                                 BoundValueId authoredPath,
                                 std::optional<BoundValueId> payloadValue,
-                                Value resultValue) {
+                                Value resultValue, LexicalInstanceId ownerAnchor) {
     auto anchor = plan.frames[frame].anchor;
     auto pathFact = predicate(authoredPath, operation);
     if (failed(pathFact))
       return failure();
-    auto owner = queueOwner(operation, anchor, allocation);
+    auto owner = queueOwner(operation, ownerAnchor, allocation,
+                            kind == TransactionQueueAccessKind::Push);
     if (failed(owner))
       return failure();
     TransactionQueueAccess record;
@@ -213,19 +219,35 @@
                     : action == NativeQueueAction::Pop
                           ? TransactionQueueAccessKind::Pop
                           : TransactionQueueAccessKind::Peek;
-    if (!resolved.method.nativeQueueInstance ||
-        (action == NativeQueueAction::Push
+    auto actual = detail::resolveTransactionQueueReceiver(plan, plan.frames[frame].anchor,
+        resolved.receiver, operation, [&](uint64_t work) { return success(budget.charge(operation, work)); });
+    if (failed(actual)) return failure();
+    if (!resolved.method.nativeQueueInstance && isAsyncQueueInstance(actual->second)) {
+      auto config = hardware.resolveQueue(actual->second, plan.instances[actual->first].bindings);
+      Attribute expectedDepth = resolved.bindings.integers.lookup("DEPTH");
+      if (auto expression = dyn_cast_or_null<StaticExprAttr>(expectedDepth)) {
+        auto evaluated = hardware.evaluateStatic(expression, resolved.bindings, operation);
+        if (failed(evaluated)) return failure();
+        expectedDepth = *evaluated;
+      }
+      auto integer = dyn_cast_or_null<MathIntAttr>(expectedDepth);
+      if (failed(config) || !integer || llvm::APSInt(integer.getCanonicalValue()).isNegative() ||
+          llvm::APSInt(integer.getCanonicalValue()).getActiveBits() > 64 ||
+          llvm::APSInt(integer.getCanonicalValue()).getZExtValue() != config->depth)
+        return operation.emitOpError() << "Queue reference actual depth differs from its instantiated contract";
+    }
+    if (action == NativeQueueAction::Push
              ? actuals.size() != 1 || operation.getNumResults() != 0
-             : !actuals.empty() || operation.getNumResults() != 1))
+             : !actuals.empty() || operation.getNumResults() != 1)
       return operation.emitOpError()
              << "native queue terminal signature differs from its checked contract";
     return queueAccessImpl(
-        operation, frame, resolved.method.nativeQueueInstance, kind,
+        operation, frame, actual->second, kind,
         authoredPath,
         action == NativeQueueAction::Push
             ? std::optional<BoundValueId>(actuals.front())
             : std::nullopt,
-        action == NativeQueueAction::Push ? Value() : operation.getResult(0));
+        action == NativeQueueAction::Push ? Value() : operation.getResult(0), actual->first);
   }
 
   LogicalResult verifyQueueRecords() {
@@ -235,6 +257,7 @@
     };
     for (const auto &queue : plan.queueOwners) {
       auto allocation = queue.allocation;
+      auto layout = getQueuePrimitiveLayout(allocation);
       if (!budget.charge(site) || queue.anchor >= plan.instances.size() ||
           !queue.allocation ||
           queue.allocation->getParentOp() != plan.instances[queue.anchor].definition ||
@@ -246,13 +269,13 @@
           queue.unboundPop != queue.allocation->hasAttr("ac.source_unbound_pop"))
         return invalid();
       for (auto [id, value] : {
-               std::pair<BoundValueId, Value>{queue.data, allocation.getOutputs()[2]},
-               {queue.valid, allocation.getOutputs()[1]},
-               {queue.ready, allocation.getOutputs()[0]},
-               {queue.localCapacity, allocation.getOutputs()[3]},
-               {queue.inValid, allocation.getInputs()[2]},
-               {queue.inData, allocation.getInputs()[3]},
-               {queue.outReady, allocation.getInputs()[4]}}) {
+               std::pair<BoundValueId, Value>{queue.data, layout.data()},
+               {queue.valid, layout.valid()},
+               {queue.ready, layout.ready()},
+               {queue.localCapacity, layout.capacity()},
+               {queue.inValid, layout.push()},
+               {queue.inData, layout.payload()},
+               {queue.outReady, layout.pop()}}) {
         if (!budget.charge(site) || id >= plan.values.size())
           return invalid();
         const auto &ref = plan.values[id];
@@ -272,7 +295,6 @@
           access.frame >= plan.frames.size() || access.owner >= plan.queueOwners.size() ||
           access.authoredPath >= plan.values.size() ||
           plan.values[access.authoredPath].value != sourcePath ||
-          plan.frames[access.frame].anchor != plan.queueOwners[access.owner].anchor ||
           access.occurrence != access.operation->getAttr("occurrence") ||
           access.location != access.operation->getAttr("ac.location") ||
           failed(requireAvailable(access.authoredPath, access.point, site)))
@@ -285,6 +307,12 @@
                    call.getNumResults() != 1)) ||
           access.payload.has_value() != push || access.result.has_value() == push)
         return invalid();
+      auto resolved = resolveCall(call, plan.frames[access.frame].anchor);
+      if (failed(resolved)) return failure();
+      auto actual = detail::resolveTransactionQueueReceiver(plan, plan.frames[access.frame].anchor,
+          resolved->receiver, call, [&](uint64_t work) { return success(budget.charge(call, work)); });
+      if (failed(actual) || actual->first != plan.queueOwners[access.owner].anchor ||
+          actual->second != plan.queueOwners[access.owner].allocation) return invalid();
       if (push) {
         Value payload = call ? call.getArguments().front()
                              : access.operation->getOperand(1);

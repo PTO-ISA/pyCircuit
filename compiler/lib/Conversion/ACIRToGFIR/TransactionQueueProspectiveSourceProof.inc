@@ -1,5 +1,5 @@
   Value originalQueueValid(ac::InstanceOp queue) {
-    return queue.getOutputs()[1];
+    return ac::getQueuePrimitiveLayout(queue).valid();
   }
 
   FailureOr<bool> originalQueueUnreachable(
@@ -81,7 +81,7 @@
                       bool summary) -> LogicalResult {
       auto *entry = inventory(module);
       if (!entry || !charge(budget, module, 8 + path.size())) return failure();
-      auto key = routingKey(path, queue.getOutputs()[1]);
+      auto key = routingKey(path, ac::getQueuePrimitiveLayout(queue).valid());
       bool present = summary
           ? llvm::any_of(entry->summaries, [&](const auto &route) {
               return routingKey(route.path, originalQueueValid(route.allocation)) == key;
@@ -97,9 +97,9 @@
         if (failed(next)) return failure();
         bindings = *next;
       }
-      auto predicate = hardware.resolveType(queue.getOutputs()[1].getType(),
+      auto predicate = hardware.resolveType(ac::getQueuePrimitiveLayout(queue).valid().getType(),
                                             bindings, module);
-      auto payload = hardware.resolveType(queue.getOutputs()[2].getType(),
+      auto payload = hardware.resolveType(ac::getQueuePrimitiveLayout(queue).data().getType(),
                                           bindings, module);
       if (failed(predicate) || failed(payload)) return failure();
       if (summary) {
@@ -269,7 +269,7 @@
       for (const auto &route : routes->incoming) {
         if (!charge(budget, queue)) return failure();
         if (!route.push && routingKey(route.path, originalQueueValid(route.allocation)) ==
-                routingKey(path, queue.getOutputs()[1])) {
+                routingKey(path, ac::getQueuePrimitiveLayout(queue).valid())) {
           if (input >= target.getBody().front().getNumArguments()) return failure();
           terms.push_back(target.getBody().front().getArgument(input));
         }
@@ -296,7 +296,7 @@
           const auto &owner = plan.queueOwners[access.owner];
           if (access.kind == ac::TransactionQueueAccessKind::Pop &&
               routingKey(anchorPath(plan, owner.anchor), originalQueueValid(owner.allocation)) ==
-                  routingKey(path, queue.getOutputs()[1])) {
+                  routingKey(path, ac::getQueuePrimitiveLayout(queue).valid())) {
             if (proposal >= transaction.queueProposals.size()) return failure();
             auto result = transaction.queueProposals[proposal].pathResult;
             if (result >= candidate.transactions[*index].rule->getNumResults()) return failure();
@@ -311,7 +311,7 @@
         ac::InstanceOp queue, SmallVectorImpl<Value> &terms) -> LogicalResult {
       if (path.empty()) {
         if (!queue->hasAttr("ac.source_unbound_pop")) {
-          auto raw = candidate.packageMap.lookupOrNull(queue.getInputs()[4]);
+          auto raw = candidate.packageMap.lookupOrNull(ac::getQueuePrimitiveLayout(queue).pop());
           if (!raw || !values.contains(raw)) return reject("original queue raw pop binding is absent");
           terms.push_back(raw);
         }
@@ -324,7 +324,7 @@
       auto actual = cast<ac::InstanceOp>(candidate.packageMap.lookup(path.front().operator->()));
       for (auto [ordinal, route] : llvm::enumerate(routes->summaries))
         if (routingKey(route.path, originalQueueValid(route.allocation)) ==
-            routingKey(path.drop_front(), queue.getOutputs()[1])) {
+            routingKey(path.drop_front(), ac::getQueuePrimitiveLayout(queue).valid())) {
           uint64_t result = preparedDefinition->sourceOutputs + preparedDefinition->upward.size() + ordinal;
           if (result >= actual->getNumResults()) return failure();
           terms.push_back(actual->getResult(result));
@@ -379,8 +379,8 @@
         auto queue = cast<ac::InstanceOp>(
             candidate.packageMap.lookup(original.operator->()));
         if (failed(originalQueueUnionProof(
-                queue.getInputs()[4], terms, routes.module, original,
-                queue.getOutputs()[1].getType())))
+                ac::getQueuePrimitiveLayout(queue).pop(), terms, routes.module, original,
+                ac::getQueuePrimitiveLayout(queue).valid().getType())))
           return failure();
       }
       for (auto allocation : routes.module->getRegion(0).front().getOps<ac::InstanceOp>()) {

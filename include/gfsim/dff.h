@@ -25,6 +25,12 @@ template <class T = Bits<1>> struct dffe_kernel {
   struct Inputs {
     const wire<Bits<1>> &clk, &rst, &en;
     const wire<T> &d, &init;
+    const wire<T> *reset_value = nullptr;
+    RegisterEdge edge = RegisterEdge::Posedge;
+    RegisterResetKind reset_kind = RegisterResetKind::Sync;
+    RegisterResetPolarity reset_polarity = RegisterResetPolarity::High;
+    ResetSemantics reset_semantics = ResetSemantics::Strict;
+    bool has_initial = true;
   };
   struct Outputs {
     wire<T> &q;
@@ -39,22 +45,24 @@ template <class T = Bits<1>> struct dffe_kernel {
                    Outputs) {
     discard(current, pending);
     try {
-      const auto clock =
-          evaluateSampledClock(current.clock, inputs.clk, inputs.rst);
+      const auto clock = evaluateSampledClock(
+          current.clock, inputs.clk, inputs.rst, inputs.reset_semantics,
+          inputs.edge, inputs.reset_kind, inputs.reset_polarity);
       if (clock.fault == SampledClockFault::UnknownClock)
         throw FourStateViolation("dffe clock must be known");
       if (clock.fault == SampledClockFault::UnknownReset)
-        throw FourStateViolation("dffe reset must be known at posedge");
+        throw FourStateViolation("dffe reset must be known at its reset event");
       pending.clock = clock.nextClock;
       pending.valid = true;
-      if (!clock.rising)
-        return;
       if (clock.resetActive) {
-        pending.q = inputs.init;
+        pending.q = inputs.reset_value ? *inputs.reset_value : inputs.init;
         return;
       }
+      if (!clock.rising)
+        return;
       if (!inputs.en.isFullyKnown())
-        throw FourStateViolation("dffe enable must be known at posedge");
+        throw FourStateViolation(
+            "dffe enable must be known at its update edge");
       if (inputs.en.value().toBool())
         pending.q = inputs.d;
     } catch (...) {
@@ -72,7 +80,7 @@ template <class T = Bits<1>> struct dffe_kernel {
     discard(current, pending);
   }
   static void reset(const Current &, Inputs inputs, Pending &pending) noexcept {
-    pending.q = inputs.init;
+    pending.q = inputs.has_initial ? inputs.init : wire<T>::unknown();
     pending.clock = false;
     pending.valid = true;
   }
@@ -84,6 +92,12 @@ template <class T = Bits<1>> struct dff_kernel {
   struct Inputs {
     const wire<Bits<1>> &clk, &rst;
     const wire<T> &d, &init;
+    const wire<T> *reset_value = nullptr;
+    RegisterEdge edge = RegisterEdge::Posedge;
+    RegisterResetKind reset_kind = RegisterResetKind::Sync;
+    RegisterResetPolarity reset_polarity = RegisterResetPolarity::High;
+    ResetSemantics reset_semantics = ResetSemantics::Strict;
+    bool has_initial = true;
   };
   using Outputs = typename dffe_kernel<T>::Outputs;
   static void discard(const Current &current, Pending &pending) noexcept {
@@ -92,9 +106,12 @@ template <class T = Bits<1>> struct dff_kernel {
   static void work(const Current &current, Inputs inputs, Pending &pending,
                    Outputs outputs) {
     const auto enabled = wire<Bits<1>>::known(Bits<1>{1});
-    dffe_kernel<T>::work(
-        current, {inputs.clk, inputs.rst, enabled, inputs.d, inputs.init},
-        pending, outputs);
+    dffe_kernel<T>::work(current,
+                         {inputs.clk, inputs.rst, enabled, inputs.d,
+                          inputs.init, inputs.reset_value, inputs.edge,
+                          inputs.reset_kind, inputs.reset_polarity,
+                          inputs.reset_semantics, inputs.has_initial},
+                         pending, outputs);
   }
   static void xfer(Current &current, Pending &pending,
                    Outputs outputs) noexcept {
@@ -103,18 +120,27 @@ template <class T = Bits<1>> struct dff_kernel {
   static void reset(const Current &current, Inputs inputs,
                     Pending &pending) noexcept {
     const auto enabled = wire<Bits<1>>::known(Bits<1>{1});
-    dffe_kernel<T>::reset(
-        current, {inputs.clk, inputs.rst, enabled, inputs.d, inputs.init},
-        pending);
+    dffe_kernel<T>::reset(current,
+                          {inputs.clk, inputs.rst, enabled, inputs.d,
+                           inputs.init, inputs.reset_value, inputs.edge,
+                           inputs.reset_kind, inputs.reset_polarity,
+                           inputs.reset_semantics, inputs.has_initial},
+                          pending);
   }
 };
 
-template <class T = Bits<1>> class dffe final : public SimModule {
+template <class T = Bits<1>, bool SeparateResetValue = false,
+          RegisterEdge Edge = RegisterEdge::Posedge,
+          RegisterResetKind ResetKind = RegisterResetKind::Sync,
+          RegisterResetPolarity ResetPolarity = RegisterResetPolarity::High,
+          ResetSemantics ResetPolicy = ResetSemantics::Strict,
+          bool HasInitial = true>
+class dffe final : public SimModule {
 public:
   using Kernel = dffe_kernel<T>;
   explicit dffe(std::string name) : SimModule(std::move(name)) {}
   wire<Bits<1>> clk, rst, en;
-  wire<T> d, init, q;
+  wire<T> d, init, q, reset_value;
   void Work() override { Kernel::work(current_, pins(), pending_, {q}); }
   void Xfer() noexcept override { Kernel::xfer(current_, pending_, {q}); }
   void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }
@@ -123,18 +149,27 @@ public:
 
 private:
   typename Kernel::Inputs pins() const noexcept {
-    return {clk, rst, en, d, init};
+    return {clk,         rst,       en,
+            d,           init,      SeparateResetValue ? &reset_value : nullptr,
+            Edge,        ResetKind, ResetPolarity,
+            ResetPolicy, HasInitial};
   }
   typename Kernel::Current current_;
   typename Kernel::Pending pending_;
 };
 
-template <class T = Bits<1>> class dff final : public SimModule {
+template <class T = Bits<1>, bool SeparateResetValue = false,
+          RegisterEdge Edge = RegisterEdge::Posedge,
+          RegisterResetKind ResetKind = RegisterResetKind::Sync,
+          RegisterResetPolarity ResetPolarity = RegisterResetPolarity::High,
+          ResetSemantics ResetPolicy = ResetSemantics::Strict,
+          bool HasInitial = true>
+class dff final : public SimModule {
 public:
   using Kernel = dff_kernel<T>;
   explicit dff(std::string name) : SimModule(std::move(name)) {}
   wire<Bits<1>> clk, rst;
-  wire<T> d, init, q;
+  wire<T> d, init, q, reset_value;
   void Work() override { Kernel::work(current_, pins(), pending_, {q}); }
   void Xfer() noexcept override { Kernel::xfer(current_, pending_, {q}); }
   void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }
@@ -142,7 +177,18 @@ public:
   bool HasWork() const noexcept override { return true; }
 
 private:
-  typename Kernel::Inputs pins() const noexcept { return {clk, rst, d, init}; }
+  typename Kernel::Inputs pins() const noexcept {
+    return {clk,
+            rst,
+            d,
+            init,
+            SeparateResetValue ? &reset_value : nullptr,
+            Edge,
+            ResetKind,
+            ResetPolarity,
+            ResetPolicy,
+            HasInitial};
+  }
   typename Kernel::Current current_;
   typename Kernel::Pending pending_;
 };

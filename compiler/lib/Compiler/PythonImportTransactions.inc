@@ -2570,6 +2570,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   bool sawStructuralReturn = false;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        configurationAliases[decl.symbol].contains(statement.item("targets", 0).string("id")))
+      continue;
     if (staticReferenceAssignments.contains(namespaceSite(statement)))
       continue;
     if (statement.kind() == "Return") {
@@ -2585,12 +2589,17 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   size_t instanceCount = 0;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        configurationAliases[decl.symbol].contains(statement.item("targets", 0).string("id")))
+      continue;
     if (staticReferenceAssignments.contains(namespaceSite(statement)))
       continue;
-    if (statement.kind() == "Assign" &&
-        statement.array("targets").size() == 1 &&
-        statement.item("targets", 0).kind() == "Name" &&
-        statement.child("value").kind() == "Call")
+    if ((statement.kind() == "Assign" &&
+         statement.array("targets").size() == 1 &&
+         statement.item("targets", 0).kind() == "Name" &&
+         statement.child("value").kind() == "Call") ||
+        (statement.kind() == "AnnAssign" && !cdcKind(statement.child("annotation")).empty()))
       ++instanceCount;
   }
   instanceStorage.reserve(instanceCount + (decl.references ? decl.references.size() : 0));
@@ -2599,12 +2608,31 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     std::string name = reference.getAs<StringAttr>("name").getValue().str();
     instanceStorage.push_back({name, decl.node, reference.getAs<FlatSymbolRefAttr>("callee")});
     instanceStorage.back().reference = name;
+    if (auto arguments = reference.getAs<ArrayAttr>("type_arguments")) {
+      auto parameters = reference.getAs<ArrayAttr>("parameters");
+      instanceStorage.back().parameters.assign(parameters.begin(), parameters.end());
+      instanceStorage.back().typeArguments.assign(arguments.begin(), arguments.end());
+      auto control = internalBits(1, decl.node, decl.symbol);
+      Port data = sourceCallPort(reference.getAs<DictionaryAttr>("payload_constraint"), name, decl.node);
+      instanceStorage.back().outputs = {{"ready", control, decl.node, {}, true},
+          {"valid", control, decl.node, {}, true}, data};
+    }
     instances[name] = &instanceStorage.back();
   }
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        configurationAliases[decl.symbol].contains(statement.item("targets", 0).string("id")))
+      continue;
     if (staticReferenceAssignments.contains(namespaceSite(statement)))
       continue;
+    auto cdc = bindCDCStatement(statement, at, decl.symbol, moduleValues, instances, instanceStorage);
+    if (failed(cdc)) return failure();
+    if (*cdc) {
+      ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
+      continue;
+    }
     if (statement.kind() == "FunctionDef") {
       StringRef name = statement.string("name");
       if (statement.array("decorator_list").empty()) {
@@ -2878,20 +2906,107 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           states.contains(initializer.string("id")))
         return error()
                << "persistent initializer must be a static complete value";
-      auto initial = stateInitializer(boundaryPort, initializer, statement,
+      bool explicitPolicy = initializer.kind() == "Call" &&
+                            intrinsic(initializer.child("func"), "state");
+      Value initialValue, resetValue, stateReset = reset;
+      StringRef edge = "posedge", resetKind = "sync", resetPolarity = "high";
+      llvm::StringMap<AstNode> policy;
+      if (explicitPolicy) {
+        if (!initializer.array("args").empty())
+          return error() << "state accepts keyword arguments only";
+        for (size_t j = 0; j < initializer.array("keywords").size(); ++j) {
+          auto keyword = initializer.item("keywords", j);
+          StringRef key = keyword.string("arg");
+          if (!llvm::is_contained(ArrayRef<StringRef>{"init", "reset", "reset_kind",
+                  "reset_polarity", "reset_value", "edge"}, key) ||
+              policy.contains(key))
+            return error() << "unknown or repeated state policy keyword";
+          policy[key] = keyword.child("value");
+        }
+        auto literalPolicy = [&](StringRef key, StringRef &value,
+                                 ArrayRef<StringRef> admitted) -> LogicalResult {
+          auto found = policy.find(key);
+          if (found == policy.end()) return success();
+          auto node = found->second;
+          auto text = node.kind() == "Constant"
+                          ? dyn_cast_or_null<StringAttr>(node.get("value"))
+                          : StringAttr();
+          if (!text || !llvm::is_contained(admitted, text.getValue()))
+            return error() << "state policy requires a supported literal " << key;
+          value = text.getValue();
+          return success();
+        };
+        if (failed(literalPolicy("edge", edge, {"posedge", "negedge"})) ||
+            failed(literalPolicy("reset_kind", resetKind, {"none", "sync", "async"})) ||
+            failed(literalPolicy("reset_polarity", resetPolarity, {"high", "low"})))
+          return failure();
+        if (resetKind == "none") {
+          if (policy.contains("reset") || policy.contains("reset_polarity") ||
+              policy.contains("reset_value"))
+            return error() << "state without reset cannot specify reset fields";
+          stateReset = Value();
+        } else if (policy.contains("reset")) {
+          auto actual = expression(policy["reset"], at, decl.symbol,
+                                   moduleValues, none, reset.getType());
+          if (failed(actual)) return failure();
+          stateReset = *actual;
+        }
+        initializer = policy.lookup("init");
+      }
+      if (initializer) {
+        auto initial = stateInitializer(boundaryPort, initializer, statement,
+                                        at, decl.symbol, moduleValues, none, true);
+        if (failed(initial)) return failure();
+        initialValue = *initial;
+      }
+      if (explicitPolicy && resetKind != "none") {
+        auto resetInitializer = policy.lookup("reset_value");
+        if (!resetInitializer) {
+          if (!initialValue) return error() << "state reset requires reset_value or init";
+          resetValue = initialValue;
+        } else {
+          auto value = stateInitializer(boundaryPort, resetInitializer, statement,
                                        at, decl.symbol, moduleValues, none, true);
-      if (failed(initial)) return failure();
+          if (failed(value)) return failure();
+          resetValue = *value;
+        }
+      }
       auto payloadConstraint = sourceConstraint(boundaryPort);
       if (failed(payloadConstraint)) return failure();
+      SmallVector<Value> operands{clock};
+      if (stateReset) operands.push_back(stateReset);
+      if (initialValue) operands.push_back(initialValue);
+      if (resetValue) operands.push_back(resetValue);
+      SmallVector<NamedAttribute> attributes{
+          at.getNamedAttr("instance_name", at.getStringAttr(name)),
+          at.getNamedAttr("ac.payload_constraint", *payloadConstraint),
+          at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol, statement))};
+      if (explicitPolicy) {
+        auto domain = module->getAttrOfType<StringAttr>("ac.default_domain");
+        if (!domain) {
+          domain = at.getStringAttr("D");
+          module->setAttr("ac.default_domain", domain);
+          module->setAttr("ac.domain_params", at.getArrayAttr({domain}));
+          module->setAttr("ac.domain_clock_inputs", at.getDictionaryAttr({
+              at.getNamedAttr("D", at.getI32IntegerAttr(
+                  cast<BlockArgument>(clock).getArgNumber()))}));
+        }
+        attributes.push_back(at.getNamedAttr("domain", domain));
+        attributes.push_back(at.getNamedAttr("operandSegmentSizes",
+            at.getDenseI32ArrayAttr({1, int32_t(bool(stateReset)),
+                                    int32_t(bool(initialValue)), int32_t(bool(resetValue))})));
+        attributes.push_back(at.getNamedAttr("init_kind",
+            at.getStringAttr(initialValue ? "explicit" : "unspecified")));
+        attributes.push_back(at.getNamedAttr("edge", at.getStringAttr(edge)));
+        attributes.push_back(at.getNamedAttr("reset_kind", at.getStringAttr(resetKind)));
+        if (stateReset)
+          attributes.push_back(at.getNamedAttr("reset_polarity", at.getStringAttr(resetPolarity)));
+      }
       Operation *state = createOp(
           at, statement.location(b.getContext(), source.path),
-          ac::SourceStateOp::getOperationName(),
-          ValueRange{clock, reset, *initial}, TypeRange{*type},
-          {at.getNamedAttr("instance_name", at.getStringAttr(name)),
-           at.getNamedAttr("ac.payload_constraint", *payloadConstraint),
-           at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol, statement))});
+          ac::SourceStateOp::getOperationName(), operands, TypeRange{*type}, attributes);
       helperOwnerBindings.insert(name);
-      states[name] = {name.str(), *type, *initial, state, statement};
+      states[name] = {name.str(), *type, initialValue, state, statement};
       rememberState(state->getResult(0), states[name]);
       continue;
     }
@@ -2974,9 +3089,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           clockInput = view.domainInputs.getAs<IntegerAttr>("clock").getInt();
           resetInput = view.domainInputs.getAs<IntegerAttr>("reset").getInt();
         }
-        SmallVector<Value> inputs(2);
-        inputs[clockInput] = clock;
-        inputs[resetInput] = reset;
+        SmallVector<Value> inputs;
         Operation *instance = createOp(
             at, statement.location(b.getContext(), source.path),
             ac::InstanceOp::getOperationName(), inputs, TypeRange{},
@@ -2986,6 +3099,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
              at.getNamedAttr("type_arguments", at.getArrayAttr(referenceContract->typeArguments)),
              at.getNamedAttr("occurrence",
                              sourceOccurrence(at, decl.symbol, statement))});
+        if (failed(bindDomainInputs(*referenceContract, value, at, decl.symbol,
+                                    moduleValues, inputs, instance))) return failure();
+        instance->setOperands(inputs);
         if (!referenceBindings->empty())
           instance->setAttr("ac.reference_bindings", *referenceBindings);
         instanceStorage.push_back({name.str(), statement, callee, declaration});
@@ -3026,6 +3142,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   bool returned = false;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        configurationAliases[decl.symbol].contains(statement.item("targets", 0).string("id")))
+      continue;
     if (staticReferenceAssignments.contains(namespaceSite(statement)))
       continue;
     AstNode call = statement.kind() == "Expr"     ? statement.child("value")
@@ -3120,6 +3240,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
 
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        configurationAliases[decl.symbol].contains(statement.item("targets", 0).string("id")))
+      continue;
     if (staticReferenceAssignments.contains(namespaceSite(statement)))
       continue;
     if (statement.kind() == "FunctionDef" || statement.kind() == "AnnAssign" ||
@@ -3155,6 +3279,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   if (moduleOutputs.size() != decl.outputs.size())
     return error()
            << "typed transaction module return does not match its interface";
+  if (failed(finishCDCResources(at, decl.symbol, moduleValues))) return failure();
   for (const auto &site : directCallSites)
     if (!site.second.bound)
       return error() << "direct module call site was not bound";

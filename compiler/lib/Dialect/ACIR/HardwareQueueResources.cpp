@@ -1,5 +1,7 @@
 #include "HardwareQueueResources.h"
 #include "HardwareGrantProof.h"
+#include "HardwareCDCGraph.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "ACIRSourceContracts.h"
 #include "SourceCheckBudget.h"
 #include "HardwareSourceChecks.h"
@@ -16,7 +18,7 @@ namespace {
 struct QueueEndpoint {
   HardwareIdentityScope scope;
   HardwareBindings bindings;
-  InstanceOp queue;
+  Operation *queue = nullptr;
   bool unboundPush = false, unboundPop = false;
 };
 struct QueuePins {
@@ -146,11 +148,12 @@ public:
       auto push = row.getAs<BoolAttr>("unbound_push");
       auto pop = row.getAs<BoolAttr>("unbound_pop");
       if (!push || !pop || failed(verifyOccurrence(declaration, error()))) return failure();
-      InstanceOp queue;
-      for (auto candidate : module.getBody().front().getOps<InstanceOp>()) {
+      Operation *queue = nullptr;
+      for (Operation &candidateOp : module.getBody().front()) {
+        auto *candidate = &candidateOp;
         if (failed(step(candidate))) return failure();
-        if (isQueueInstance(candidate) &&
-            candidate.getOccurrence() == declaration) {
+        if (isQueueResource(candidate) &&
+            candidate->getAttr("occurrence") == declaration) {
           if (queue) return module->emitOpError() << "ambiguous queue declaration";
           queue = candidate;
         }
@@ -158,8 +161,8 @@ public:
       if (!queue || !allocations.insert(queue).second)
         return module->emitOpError() << "queue inventory must name each actual allocation once";
     }
-    for (auto queue : module.getBody().front().getOps<InstanceOp>())
-      if (isQueueInstance(queue) && !allocations.contains(queue))
+    for (Operation &queueOp : module.getBody().front())
+      if (auto *queue = &queueOp; isQueueResource(queue) && !allocations.contains(queue))
         return queue->emitOpError() << "queue allocation missing from wiring inventory";
 
     uint64_t nextInput = ports->sourceInputCount;
@@ -269,11 +272,11 @@ public:
           return module->emitOpError() << "transaction drives an authored queue direction";
         if (unbound) {
           if (failed(pins(id, push,
-                  push ? target->queue.getInputs()[2]
-                       : target->queue.getInputs()[4],
-                  push ? target->queue.getInputs()[3] : Value(), *candidates)) ||
-              failed(allow(target->queue, push ? 2 : 4, true, RouteEnable)) ||
-              (push && failed(allow(target->queue, 3, true)))) return failure();
+                  push ? getQueuePrimitiveLayout(target->queue).push()
+                       : getQueuePrimitiveLayout(target->queue).pop(),
+                  push ? getQueuePrimitiveLayout(target->queue).payload() : Value(), *candidates)) ||
+              failed(allow(target->queue, push ? getQueuePrimitiveLayout(target->queue).pushOperand() : getQueuePrimitiveLayout(target->queue).popOperand(), true, RouteEnable)) ||
+              (push && failed(allow(target->queue, getQueuePrimitiveLayout(target->queue).dataOperand(), true)))) return failure();
         }
       }
     }
@@ -415,6 +418,22 @@ private:
         auto *edge = &use;
         auto found = allowed.find(edge);
         if (found == allowed.end() || !(found->second & kind)) {
+          if (!cdcComponents) {
+            auto owners = cdc::getCDCComponentRoutingOwners(analysis.getPackage());
+            if (failed(owners)) return failure();
+            cdcComponents = std::move(*owners);
+          }
+          auto component = cdcComponents->find(use.getOwner());
+          if (component != cdcComponents->end() && isQueueResource(component->second)) {
+            auto layout = getQueuePrimitiveLayout(component->second);
+            bool pin = kind == RouteData ? value == layout.payload()
+                                        : value == layout.push() || value == layout.pop();
+            if (pin) {
+              if (failed(allow(use.getOwner(), use.getOperandNumber(), true, kind))) return failure();
+              verifiedUses.insert(edge);
+              continue;
+            }
+          }
           auto extract = dyn_cast<BitsExtractOp>(use.getOwner());
           if (!extract || use.getOperandNumber() != 0)
             return use.getOwner()->emitOpError() << "private queue route escapes its canonical payload/enable transport";
@@ -531,9 +550,10 @@ private:
       result.scope.path.push_back(selected);
       current = child;
     }
-    for (auto queue : current.getBody().front().getOps<InstanceOp>()) {
+    for (Operation &queueOp : current.getBody().front()) {
+      auto *queue = &queueOp;
       if (failed(step(queue))) return failure();
-      if (isQueueInstance(queue) && queue.getOccurrence() == declaration) {
+      if (isQueueResource(queue) && queue->getAttr("occurrence") == declaration) {
         if (result.queue) return module->emitOpError() << "ambiguous queue allocation";
         result.queue = queue;
       }
@@ -577,7 +597,7 @@ private:
       if (failed(data) || *data >= count || *data != *index + 1) return failure();
       result.data = get(*data);
       auto actual = analysis.resolveType(result.data.getType(), bindings, module);
-      auto expected = analysis.resolveType(target->queue.getInputs()[3].getType(),
+      auto expected = analysis.resolveType(getQueuePrimitiveLayout(target->queue).payload().getType(),
                                            target->bindings, module);
       if (failed(actual) || failed(expected) || !areEquivalentHardwareTypes(*actual, *expected))
         return module->emitOpError() << "queue proposal payload type differs from actual allocation";
@@ -943,22 +963,38 @@ private:
                                     b.getNamedAttr("declaration", resource.declaration)});
       auto target = resolve(id);
       if (failed(target)) return failure();
+      auto layout = getQueuePrimitiveLayout(target->queue);
       const auto &control = sampled.controls[resource.control];
       auto raw = normal(control.raw, scope);
       auto select = succeeded(raw) ? raw->value.getDefiningOp<BitsSelectOp>() : BitsSelectOp();
       if (!select) return module->emitOpError() << "queue resource requires path-selected raw queue predicate";
       auto predicate = normal(select.getTrueValue(), raw->scope);
-      auto expected = normal(target->queue.getOutputs()[1], target->scope);
+      auto expected = normal(layout.valid(), target->scope);
       if (resource.kind.getValue() == "queue_ready" &&
           failed(prospectivePredicate(sampled, resource, *target, select.getTrueValue()))) return failure();
       auto bypass = literal(select.getFalseValue(), raw->scope, true);
       if (failed(resourcePath(sampled, control, select.getCondition(), scope))) return failure();
-      auto clock = normal(sampled.clock, scope), reset = normal(sampled.reset, scope);
-      auto queueClock = normal(target->queue.getInputs()[0], target->scope),
-           queueReset = normal(target->queue.getInputs()[1], target->scope);
+      auto clock = normal(sampled.clock, scope);
+      auto queueClock = normal(layout.clock(resource.kind.getValue() == "queue_ready"), target->scope),
+           queueReset = normal(layout.reset(), target->scope);
+      auto polarity = target->queue->getAttrOfType<StringAttr>("reset_polarity");
+      auto resetKind = layout.asynchronous ? RegisterResetKind::Async : RegisterResetKind::Sync;
+      auto resetPolarity = layout.asynchronous && polarity && polarity.getValue() == "low"
+          ? RegisterResetPolarity::Low : RegisterResetPolarity::High;
+      bool foundReset = false;
+      for (const auto &entry : sampled.resets) {
+        auto actual = normal(entry.value, scope);
+        if (failed(actual) || failed(queueReset)) return failure();
+        foundReset |= entry.kind == resetKind && entry.polarity == resetPolarity && same(*actual, *queueReset);
+      }
+      auto edge = layout.asynchronous ? target->queue->getAttrOfType<StringAttr>(
+          resource.kind.getValue() == "queue_ready" ? "write_edge" : "read_edge") : StringAttr();
+      auto expectedEdge = edge && edge.getValue() == "negedge" ? RegisterEdge::Negedge : RegisterEdge::Posedge;
+      if (!foundReset || sampled.edge != expectedEdge)
+        return module->emitOpError() << "queue resource requires its actual endpoint edge and reset policy";
       if (failed(predicate) || failed(expected) || failed(bypass) || !*bypass ||
-          (resource.kind.getValue() == "queue_valid" && !same(*predicate, *expected)) || failed(clock) || failed(reset) ||
-          failed(queueClock) || failed(queueReset) || !same(*clock, *queueClock) || !same(*reset, *queueReset))
+          (resource.kind.getValue() == "queue_valid" && !same(*predicate, *expected)) || failed(clock) ||
+          failed(queueClock) || failed(queueReset) || !same(*clock, *queueClock))
         return module->emitOpError() << "queue resource predicate or domain differs from actual allocation";
     }
     return llvm::any_of(sampled.resources, [](const auto &resource) {
@@ -986,6 +1022,7 @@ private:
   llvm::DenseSet<OpOperand *> &verifiedUses;
   QueueDemandInventory &demandInventory;
   bool authenticate;
+  std::optional<llvm::DenseMap<Operation *, Operation *>> cdcComponents;
 
 };
 } // namespace

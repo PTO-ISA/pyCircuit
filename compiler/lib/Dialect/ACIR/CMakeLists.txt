@@ -38,6 +38,7 @@ target_include_directories(ACIRCore PRIVATE
 )
 
 add_acir_library(ACIRDialect SOURCES
+  HardwareCDCLocalVerification.cpp
   ACIRStaticEvaluation.cpp
   SourceStaticRecordConstructors.cpp
   SourceStaticDomains.cpp
@@ -95,6 +96,10 @@ target_include_directories(ACIRDialect PRIVATE
 # (ACIRDialect referencing analysis symbols) is forbidden and enforced by
 # pycircuit_verify_layering and the two layer probes.
 add_acir_library(ACIRAnalysis SOURCES
+  HardwareCDC.cpp
+  HardwareCDCGraph.cpp
+  HardwareDomains.cpp
+  HardwarePhysicalEvents.cpp
   HardwareAnalysis.cpp
   HardwareAnalysisDependencies.cpp
   HardwareAnalysisValidation.cpp

@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "HardwarePhysicalEvents.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
 #include "SourceCheckBudget.h"
@@ -14,6 +15,9 @@ FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
     HardwareSourceCheckLimits limits) const {
   if (failed(verifySourceCheckPlan(plan, limits)))
     return failure();
+  auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  if (contract && contract.getInt() == 7)
+    return detail::getBatchedPhysicalProjection(*this, plan, limits);
   if (plan.owners.empty())
     return package.emitOpError() << "physical RTL requires a root owner";
   auto root = plan.owners.front().definition;
@@ -163,11 +167,19 @@ FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
       if (op.getNumOperands() < 2 ||
           failed(pair(op.getOperand(0), op.getOperand(1), owner, &op)))
         return failure();
+      auto version = getRegisterContract(callee);
+      if (failed(version)) return failure();
       unsigned initialIndex = primitive == "dff" ? 3 : 4;
-      if (op.getNumOperands() <= initialIndex ||
+      auto policy = getRegisterPolicy(&op);
+      if (failed(policy)) return failure();
+      if (*version == 3 && policy->resetKind != RegisterResetKind::None &&
+          (op.getNumOperands() <= initialIndex + 1 ||
+           failed(detail::verifyClosedStateInitializer(
+               *this, op.getOperand(initialIndex + 1), occurrence.bindings, &op, &budget))))
+        return failure();
+      if (policy->hasInitial && (op.getNumOperands() <= initialIndex ||
           failed(detail::verifyClosedStateInitializer(
-              *this, op.getOperand(initialIndex), occurrence.bindings, &op,
-              &budget)))
+              *this, op.getOperand(initialIndex), occurrence.bindings, &op, &budget))))
         return failure();
     }
     auto uses = definition.walk([&](Operation *op) {

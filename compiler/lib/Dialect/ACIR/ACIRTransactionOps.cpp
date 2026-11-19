@@ -164,6 +164,8 @@ LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
 } // namespace
 
 LogicalResult SourceStateOp::verify() {
+  if (failed(verifyStateDeclarationStructure(getOperation(), (*this)->hasAttr("operandSegmentSizes"))))
+    return failure();
   auto package = (*this)->getParentOfType<mlir::ModuleOp>();
   auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")
                        : StringAttr();

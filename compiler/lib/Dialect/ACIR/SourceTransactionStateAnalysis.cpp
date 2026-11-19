@@ -1310,7 +1310,10 @@ private:
       return found->second;
     auto q = useValue(declaration.getQ(), anchor, plan.rootFrame, effect);
     auto clock = useValue(declaration.getClk(), anchor, plan.rootFrame, effect);
-    auto reset = useValue(declaration.getRst(), anchor, plan.rootFrame, effect);
+    auto reset = useValue(declaration.getTransactionReset(), anchor, plan.rootFrame, effect);
+    if (declaration.getRst() &&
+        failed(useValue(declaration.getRst(), anchor, plan.rootFrame, effect)))
+      return failure();
     if (failed(q) || failed(clock) || failed(reset))
       return failure();
     auto domain = getDomain(*clock, *reset, effect);

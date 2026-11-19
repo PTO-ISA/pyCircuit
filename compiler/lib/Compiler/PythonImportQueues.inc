@@ -6,8 +6,11 @@ bool Importer::queueCall(const AstNode &node) const {
                                                   : function, "queue");
 }
 Instance *Importer::queueInstance(Instance *instance) const {
-  if (!instance || !instance->op)
-    return nullptr;
+  if (!instance) return nullptr;
+  if (!instance->op) {
+    auto builtin = headers.lookupBuiltin("async_fifo");
+    return builtin && instance->callee == builtin.symbol ? instance : nullptr;
+  }
   auto allocation = dyn_cast<ac::InstanceOp>(instance->op);
   return allocation && ac::isQueueInstance(allocation) ? instance : nullptr;
 }
@@ -292,6 +295,7 @@ FailureOr<std::optional<Value>> Importer::queueRawExpression(
                     ? nullptr
                     : queueInstance(found->second);
   if (!handle) return std::optional<Value>();
+  if (!handle->op) return error() << "Queue references expose push/pop/peek operations";
   if (activeSourceEffects && activeSourceEffects->callable &&
       !activeSourceEffects->callable->lexical)
     return error() << "global Rule cannot capture a caller Module Queue handle";

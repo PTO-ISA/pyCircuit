@@ -64,7 +64,9 @@ replace refinement or hardware verification.
 Ordinary anchors use `kind="pycircuit-anchor"`, `schema=3` and
 `routed_contract=4`. Anchors with a compiler-owned
 [selected entry boundary](entry-boundary.md) use `schema=4` and
-`routed_contract=5`. Only these two schema/contract pairs are admitted;
+`routed_contract=5`. The native-resource profile below adds schema 6 / contract 7;
+only these three schema/contract pairs are admitted. Superseded experimental
+schema 5 / contract 6 requires regeneration;
 the retired schema/contract pairs 1/2 and 2/3 and any unsupported or mismatched
 versions require regeneration from source units.
 The manifest has closed fields for owner, root, configuration and its identity,
@@ -117,6 +119,24 @@ payload allocation or MLIR parsing:
 
 Existing graph, proof and clone budgets still apply. The format does not expand
 compact Collections or claim lower peak memory without measurement.
+
+## Schema 6: domain/reset/CDC anchors
+
+The new `kind="pycircuit-anchor"`, `schema=6`, `routed_contract=7` pair
+stores [the domain/reset/CDC profile](routed-anchor.md#contract-7-domains-reset-policies-and-explicit-cdc).
+It retains logical domain attributes, full state policy/operand segments and
+canonical CDC native import/instance contracts in exact definition bodies. Its configuration
+additionally contains sorted `domain_bindings` records with `instance_path`,
+`formal` and `clock_input`. Native validation resolves each actual occurrence
+through its complete binding map and compares the reconstructed records exactly.
+These refer to logical root arguments, not emitted wire names or physical
+synchronizer topology. Reload does not choose a new default domain.
+
+Schema 6 permits an ordinary root or the canonical selected entry boundary.
+Only the latter adds `implementation_root` to the configuration, with separate
+logical and implementation root rows and the same native boundary validation.
+Reload preserves the complete contract before entering the shared hardware
+refinement chain; it does not upgrade a legacy anchor's policy.
 
 ## Publication and relocation
 

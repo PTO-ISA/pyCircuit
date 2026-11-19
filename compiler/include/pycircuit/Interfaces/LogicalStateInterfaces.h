@@ -9,6 +9,7 @@ class Operation;
 
 namespace acir {
 
+mlir::LogicalResult verifyStateDeclarationStructure(mlir::Operation *, bool current);
 mlir::LogicalResult verifyLogicalStateStructure(mlir::Operation *);
 mlir::LogicalResult verifyLogicalStateUpdateStructure(mlir::Operation *);
 
@@ -38,8 +39,9 @@ public:
 };
 
 /// Verify the fixed structural contract of a LogicalStateOpInterface
-/// operation: three operands, one result, no regions or successors, and
-/// getters aliasing exactly those slots and the declared name/occurrence
+/// operation: legacy three operands or current exact policy segments, one
+/// result, no regions or successors, and getters aliasing the decoded operands
+/// and the declared name/occurrence
 /// attributes. Call before consuming any getter of untrusted IR.
 mlir::LogicalResult verifyLogicalStateStructure(mlir::Operation *operation);
 

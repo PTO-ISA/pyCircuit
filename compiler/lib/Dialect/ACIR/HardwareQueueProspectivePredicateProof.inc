@@ -9,16 +9,17 @@
       return normal(view.rule->getOperand(capture), scope);
     };
     auto capacity = captureEndpoint(prospective.capacityCapture);
-    auto actualCapacity = normal(queue.getOutputs()[3], target.scope);
+    auto actualCapacity = normal(getQueuePrimitiveLayout(queue).capacity(), target.scope);
     if (failed(capacity) || failed(actualCapacity) || !same(*capacity, *actualCapacity))
       return module->emitOpError() << "prospective Queue capacity must be the actual committed local_capacity result";
-    auto config = analysis.resolveQueue(queue, target.bindings);
-    if (failed(config)) return failure();
-    bool downstream =
-        config->readyPolicy == QueueReadyPolicy::DownstreamPop;
+    bool downstream = false;
+    if (!getQueuePrimitiveLayout(queue).asynchronous) {
+      auto config = analysis.resolveQueue(cast<InstanceOp>(queue), target.bindings);
+      if (failed(config)) return failure();
+      downstream = config->readyPolicy == QueueReadyPolicy::DownstreamPop;
+    }
     if (!downstream) {
-      if (config->readyPolicy != QueueReadyPolicy::LocalOccupancy ||
-          prospective.validCapture ||
+      if (prospective.validCapture ||
           prospective.externalPopCapture || !prospective.priorPops.empty())
         return module->emitOpError() << "local_occupancy cannot receive prospective pop credit";
       auto actual = normal(bare, scope);
@@ -32,7 +33,7 @@
         *prospective.validCapture == *prospective.externalPopCapture)
       return module->emitOpError() << "downstream_pop requires dedicated capacity, valid and external-pop captures";
     auto valid = captureEndpoint(*prospective.validCapture);
-    auto actualValid = normal(queue.getOutputs()[1], target.scope);
+    auto actualValid = normal(getQueuePrimitiveLayout(queue).valid(), target.scope);
     if (failed(valid) || failed(actualValid) || !same(*valid, *actualValid))
       return module->emitOpError() << "prospective Queue valid must be the actual committed out_valid result";
     SmallVector<uint64_t> prior;

@@ -11,6 +11,9 @@
 #include <string>
 #include <utility>
 namespace acir::compiler {
+// Domain configuration remains in verified static bindings and clock wiring;
+// generated integer parameter lists contain only hardware arithmetic formals.
+bool isDomainStaticParameter(mlir::DictionaryAttr parameter);
 struct EmitNames {
   std::string cppQualified;
   std::string cppClass;
@@ -40,6 +43,7 @@ public:
   bool isSystem();
   bool managesChecks();
   bool isPhysical() const { return physical_; }
+  bool batchesPhysicalEvents() const;
   const ac::HardwarePhysicalProjection &physicalProjection() const {
     return *physicalProjection_;
   }
@@ -49,6 +53,8 @@ public:
   const ac::HardwareSourceCheckPlan &sourceChecks() const;
   bool resetIfOne() const;
   std::string cppReset(llvm::StringRef expression) const;
+  mlir::FailureOr<llvm::SmallVector<std::string>>
+  cppRegisterPolicy(mlir::Operation *occurrence) const;
   std::string rtlReset(llvm::StringRef expression) const;
   const EmitNames &names(mlir::Operation *definition) const;
   mlir::FailureOr<std::string> cppFormalName(llvm::StringRef name,

@@ -4,6 +4,7 @@
 // and grammar. Reached from InstanceOp payload contracts (until the r9 §5
 // instance reroute), the resolved dispatch and the staged plan walks.
 #include "ACIRSourceContracts.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
@@ -268,6 +269,14 @@ FailureOr<ResolvedQueueConfig> checkQueue(const HardwareAnalysis &analysis,
     if (queue->hasAttr(retired))
       return error() << "canonical FIFO configuration cannot duplicate retired '"
                      << retired << "' queue authority";
+  if (isAsyncQueueInstance(queue)) {
+    auto layout = getCDCPrimitiveLayout(queue, bindings);
+    auto config = getQueueConfiguration(queue);
+    if (failed(layout) || failed(config)) return failure();
+    return checkQueueConfiguration(analysis, queue, owner, *config,
+        TypeRange{layout->input().getType(), layout->output().getType()},
+        TypeRange{}, bindings, requireResolved);
+  }
   if (queue->getNumOperands() != 5 || queue->getNumResults() != 4 ||
       queue->getNumRegions() != 0)
     return error() << "queue requires five inputs and four outputs";
@@ -365,8 +374,23 @@ bool isQueueInstance(InstanceOp instance) {
   auto callee = instance.getCalleeAttr();
   if (!callee)
     return false;
-  return callee.getValue() == "pycircuit.__builtins__.fifo_local" ||
+  return isAsyncQueueInstance(instance) ||
+         callee.getValue() == "pycircuit.__builtins__.fifo_local" ||
          callee.getValue() == "pycircuit.__builtins__.fifo_downstream_pop";
+}
+
+bool isAsyncQueueInstance(InstanceOp instance) {
+  auto callee = instance ? instance.getCalleeAttr() : FlatSymbolRefAttr();
+  return callee && callee.getValue() == "pycircuit.__builtins__.async_fifo";
+}
+bool isQueueResource(Operation *resource) {
+  if (auto instance = dyn_cast_or_null<InstanceOp>(resource)) return isQueueInstance(instance);
+  auto witness = dyn_cast_or_null<CDCRefinementOp>(resource);
+  return witness && witness.getLogicalKind() == "async_fifo";
+}
+QueuePrimitiveLayout getQueuePrimitiveLayout(Operation *resource) {
+  bool physical = isa_and_nonnull<CDCRefinementOp>(resource);
+  return {resource, physical || isAsyncQueueInstance(dyn_cast_or_null<InstanceOp>(resource)), physical};
 }
 
 FailureOr<DictionaryAttr> getQueueConfiguration(InstanceOp instance) {
@@ -385,15 +409,18 @@ getQueueConfiguration(FlatSymbolRefAttr callee, ArrayAttr parameters,
   if (!callee ||
       (callee.getValue() != "pycircuit.__builtins__.fifo_local" &&
        callee.getValue() !=
-           "pycircuit.__builtins__.fifo_downstream_pop"))
+           "pycircuit.__builtins__.fifo_downstream_pop" &&
+       callee.getValue() != "pycircuit.__builtins__.async_fifo"))
     return diagnosticSite->emitOpError()
            << "queue configuration requires a canonical FIFO callee";
-  if (!parameters || parameters.size() != 2)
+  bool asynchronous = callee.getValue() == "pycircuit.__builtins__.async_fifo";
+  if (!parameters || parameters.size() != (asynchronous ? 1u : 2u))
     return diagnosticSite->emitOpError()
            << "canonical FIFO instance requires explicit DEPTH and "
               "AVAILABILITY_LATENCY arguments";
   auto depth = dyn_cast<StaticExprAttr>(parameters[0]);
-  auto latency = dyn_cast<StaticExprAttr>(parameters[1]);
+  auto latency = asynchronous ? dyn_cast<StaticExprAttr>(parameters[0])
+                              : dyn_cast<StaticExprAttr>(parameters[1]);
   if (!depth || !latency)
     return diagnosticSite->emitOpError()
            << "canonical FIFO arguments require StaticExpr values";
@@ -415,7 +442,13 @@ getQueueConfiguration(FlatSymbolRefAttr callee, ArrayAttr parameters,
                                         llvm::APSInt::getUnsigned(0)))}))});
   auto headRead =
       StaticExprAttr::get(diagnosticSite->getContext(), zeroTree);
-  StringRef readyPolicy = callee.getValue() ==
+  if (asynchronous) {
+    NamedAttrList one(zeroTree);
+    one.set("value", b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("integer")),
+        b.getNamedAttr("value", MathIntAttr::get(diagnosticSite->getContext(), llvm::APSInt::getUnsigned(1)))}));
+    latency = StaticExprAttr::get(diagnosticSite->getContext(), one.getDictionary(diagnosticSite->getContext()));
+  }
+  StringRef readyPolicy = asynchronous || callee.getValue() ==
                                   "pycircuit.__builtins__.fifo_local"
                               ? "local_occupancy"
                               : "downstream_pop";

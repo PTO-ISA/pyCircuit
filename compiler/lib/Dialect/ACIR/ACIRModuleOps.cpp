@@ -22,13 +22,13 @@ bool equivalentTypes(TypeRange lhs, TypeRange rhs) {
 } // namespace
 namespace detail {
 bool isCombinationalHardwareOperation(Operation *operation) {
-  return isa<BitsConstantOp, BitsConstant4Op, BitsUnaryOp, BitsBinaryOp,
-             BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
-             BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
-             EnumToBitsOp, EnumFromBitsOp, TableCreateOp, TableSplatOp,
-             TableMapOp, TableViewOp, TableIndexOp, TableReadOp, TableGetOp, TableMatchOp,
-             TableChooseOp, TableFoldOp, ValueMergeOp, ValueRequireOp>(
-      operation);
+  return isa<ValueZeroOp, BitsConstantOp, BitsConstant4Op, BitsUnaryOp,
+             BitsBinaryOp, BitsCompareOp, BitsSelectOp, BitsConcatOp,
+             BitsExtractOp, BitsResizeOp, StructCreateOp, StructGetOp,
+             EnumCreateOp, EnumToBitsOp, EnumFromBitsOp, TableCreateOp,
+             TableSplatOp, TableMapOp, TableViewOp, TableIndexOp, TableReadOp,
+             TableGetOp, TableMatchOp, TableChooseOp, TableFoldOp, ValueMergeOp,
+             ValueRequireOp>(operation);
 }
 
 LogicalResult verifyModuleSignature(Operation *op) {
@@ -50,8 +50,6 @@ LogicalResult verifyModuleSignature(Operation *op) {
   auto rootKind = op->getAttrOfType<StringAttr>("ac.root_kind");
   if (rootKind && rootKind.getValue() != "system")
     return error() << "ac.root_kind must be 'system' when present";
-  if (failed(getSystemSamples(op)))
-    return failure();
   llvm::StringSet<> names;
   for (ArrayAttr list : {inputs, outputs})
     for (Attribute raw : list) {
@@ -72,10 +70,12 @@ LogicalResult verifyModuleSignature(Operation *op) {
     auto p = dyn_cast<DictionaryAttr>(raw);
     auto name = p ? p.getAs<StringAttr>("name") : StringAttr();
     auto type = p ? p.getAs<TypeAttr>("type") : TypeAttr();
+    auto config = p ? p.getAs<DictionaryAttr>("type") : DictionaryAttr();
+    bool domainType = config && succeeded(detail::verifyStaticTypeStructure(config, error));
     Attribute def = p ? p.get("default") : Attribute();
     if (!p || (p.size() != 2 && p.size() != 3) || !name ||
         name.getValue().empty() || !names.insert(name.getValue()).second ||
-        !type || !isa<MathIntType>(type.getValue()) ||
+        ((!type || !isa<MathIntType>(type.getValue())) && !domainType) ||
         (def && !isa<StaticExprAttr>(def)) || (!def && defaultSeen))
       return error() << "integer parameters require unique name, math_int type "
                         "and trailing StaticExpr defaults";
@@ -232,7 +232,8 @@ LogicalResult ModuleImportOp::verify() {
   if (primitive &&
       !llvm::is_contained(ArrayRef<StringRef>{"dff", "dffe", "sync_mem",
                                               "sync_mem_dp", "byte_mem",
-                                              "fifo_local", "fifo_downstream_pop"},
+                                              "fifo_local", "fifo_downstream_pop",
+                                              "async_reg", "async_fifo"},
                           primitive.getValue()))
     return emitOpError() << "unknown trusted primitive kind";
   // The transaction-summary structure and import schema checks run from the
@@ -280,7 +281,17 @@ LogicalResult verifySourceReferenceParameters(Operation *module) {
     auto name = row ? row.getAs<StringAttr>("name") : StringAttr();
     auto callee = row ? row.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
     auto position = row ? row.getAs<IntegerAttr>("position") : IntegerAttr();
-    if (!row || row.size() != 3 || !name || !callee || callee.getValue().empty() ||
+    bool fifo = callee && callee.getValue() == "pycircuit.__builtins__.async_fifo";
+    auto parameters = row ? row.getAs<ArrayAttr>("parameters") : ArrayAttr();
+    auto arguments = row ? row.getAs<ArrayAttr>("type_arguments") : ArrayAttr();
+    if (fifo && (!parameters || parameters.size() != 1 ||
+        !isa<StaticExprAttr>(parameters[0]) || !arguments || arguments.size() != 1 ||
+        !isa<TypeAttr>(arguments[0]) || !row.getAs<DictionaryAttr>("payload_constraint")))
+      return module->emitOpError() << "AsyncFIFO references require payload and depth arguments";
+    if (fifo && (failed(detail::verifyHardwareAttributeScope(parameters, module)) ||
+                 failed(detail::verifyHardwareTypeScope(cast<TypeAttr>(arguments[0]).getValue(), module))))
+      return failure();
+    if (!row || row.size() != (fifo ? 6u : 3u) || !name || !callee || callee.getValue().empty() ||
         !position || !position.getType().isSignlessInteger(64) || position.getInt() < 0 ||
         static_cast<uint64_t>(position.getInt()) >= count || position.getInt() <= previous ||
         !positions.insert(position.getInt()).second || !names.insert(name.getValue()).second ||
@@ -455,4 +466,9 @@ LogicalResult verifyModuleObservationIdentities(Operation *rawDefinition) {
   return success();
 }
 } // namespace detail
+LogicalResult ValueZeroOp::verify() {
+  auto owner = (*this)->getParentOfType<ModuleOp>();
+  if (!owner) return emitOpError("requires a typed hardware owner");
+  return detail::verifyHardwareTypeScope(getResult().getType(), owner);
+}
 } // namespace acir::ac

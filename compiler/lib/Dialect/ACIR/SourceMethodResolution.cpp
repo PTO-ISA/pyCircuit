@@ -3,6 +3,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
 #include <functional>
@@ -72,6 +73,44 @@ FailureOr<Operation *> resolveSourceReferenceReceiver(
   uint64_t work = 0;
   return resolveReferenceReceiver(module, receiver, lookup, site, work, false);
 }
+FailureOr<std::pair<LexicalInstanceId, InstanceOp>>
+detail::resolveTransactionQueueReceiver(const TransactionStatePlan &plan,
+    LexicalInstanceId anchor, DictionaryAttr receiver, Operation *site,
+    llvm::function_ref<LogicalResult(uint64_t)> pay) {
+  for (unsigned depth = 0; depth < 128; ++depth) {
+    if (failed(pay(1)) || anchor >= plan.instances.size() || !receiver) return failure();
+    const auto &scope = plan.instances[anchor];
+    if (auto reference = receiver.getAs<StringAttr>("reference")) {
+      if (!scope.parent || !scope.allocation)
+        return site->emitOpError() << "Queue reference requires an actual enclosing instance";
+      auto bindings = scope.allocation->getAttrOfType<ArrayAttr>("ac.reference_bindings");
+      DictionaryAttr actual;
+      for (Attribute raw : bindings ? bindings : ArrayAttr::get(site->getContext(), {})) {
+        if (failed(pay(1))) return failure();
+        auto row = cast<DictionaryAttr>(raw);
+        if (row.getAs<StringAttr>("name") == reference) actual = row.getAs<DictionaryAttr>("receiver");
+      }
+      if (!actual) return site->emitOpError() << "Queue reference actual is absent";
+      anchor = *scope.parent;
+      receiver = actual;
+      continue;
+    }
+    auto path = receiver.getAs<ArrayAttr>("instance_path");
+    if (!path || path.size() != 1) return site->emitOpError() << "Queue reference must identify one existing allocation";
+    InstanceOp selected;
+    auto definition = scope.definition;
+    for (auto allocation : definition.getBody().front().getOps<InstanceOp>()) {
+      if (failed(pay(1))) return failure();
+      if (allocation.getOccurrence() != path[0]) continue;
+      if (selected) return site->emitOpError() << "Queue allocation identity is ambiguous";
+      selected = allocation;
+    }
+    if (!selected || !isQueueInstance(selected)) return site->emitOpError() << "Queue reference actual is not a canonical allocation";
+    return std::make_pair(anchor, selected);
+  }
+  return site->emitOpError() << "Queue reference binding depth exceeded";
+}
+
 LogicalResult verifySourceReferenceBindings(Operation *module, Operation *callee,
     Attribute raw, SourceModuleLookup lookup, Operation *site) {
   if (!callee) return site->emitOpError() << "Module reference binding requires an available callee provider";
@@ -95,6 +134,56 @@ LogicalResult verifySourceReferenceBindings(Operation *module, Operation *callee
     if (failed(target)) return failure();
     if (SymbolTable::getSymbolName(*target).getValue() != ref.getAs<FlatSymbolRefAttr>("callee").getValue())
       return site->emitOpError() << "Module reference binding has the wrong nominal Module provider";
+    if (ref.getAs<FlatSymbolRefAttr>("callee").getValue() == "pycircuit.__builtins__.async_fifo") {
+      auto receiver = row.getAs<DictionaryAttr>("receiver");
+      ArrayAttr actualTypes, actualParameters;
+      if (auto forwarded = receiver.getAs<StringAttr>("reference")) {
+        for (Attribute rawFormal : module->getAttrOfType<ArrayAttr>("ac.reference_parameters")) {
+          auto source = cast<DictionaryAttr>(rawFormal);
+          if (source.getAs<StringAttr>("name") != forwarded) continue;
+          actualTypes = source.getAs<ArrayAttr>("type_arguments");
+          actualParameters = source.getAs<ArrayAttr>("parameters");
+        }
+      } else {
+        auto path = receiver.getAs<ArrayAttr>("instance_path");
+        if (auto body = dyn_cast<ModuleOp>(module)) {
+          for (auto allocation : body.getBody().front().getOps<InstanceOp>())
+            if (allocation.getOccurrence() == path[0]) {
+              actualTypes = allocation.getTypeArguments(); actualParameters = allocation.getParameters();
+            }
+        } else if (auto summary = module->getAttrOfType<DictionaryAttr>("transaction_summary"))
+          for (Attribute rawOwner : summary.getAs<ArrayAttr>("owners")) {
+            auto owner = cast<DictionaryAttr>(rawOwner);
+            if (owner.get("occurrence") == path[0]) {
+              actualTypes = owner.getAs<ArrayAttr>("type_arguments"); actualParameters = owner.getAs<ArrayAttr>("parameters");
+            }
+          }
+      }
+      auto expectedTypes = ref.getAs<ArrayAttr>("type_arguments");
+      auto expectedParameters = ref.getAs<ArrayAttr>("parameters");
+      if (!actualTypes || actualTypes.size() != 1 || !actualParameters || actualParameters.size() != 1)
+        return site->emitOpError() << "AsyncFIFO reference actual lacks its payload and depth authority";
+      HardwareAnalysis hardware(module->getParentOfType<mlir::ModuleOp>());
+      HardwareBindings parent; parent.owner = module;
+      HardwareBindings formalBindings; formalBindings.owner = callee;
+      if (auto instance = dyn_cast<InstanceOp>(site)) {
+        auto bound = hardware.bindCallee(callee, instance.getParameters(), instance.getTypeArguments(), parent, site);
+        if (failed(bound)) return failure();
+        formalBindings = *bound;
+      }
+      auto actualType = hardware.resolveType(cast<TypeAttr>(actualTypes[0]).getValue(), parent, site);
+      auto expectedType = hardware.resolveType(cast<TypeAttr>(expectedTypes[0]).getValue(), formalBindings, site);
+      if (failed(actualType) || failed(expectedType) || !areEquivalentHardwareTypes(*actualType, *expectedType))
+        return site->emitOpError() << "AsyncFIFO reference payload differs from its declared contract";
+      auto actualDepth = cast<StaticExprAttr>(actualParameters[0]);
+      auto expectedDepth = cast<StaticExprAttr>(expectedParameters[0]);
+      if (hardware.isStaticEvaluable(actualDepth, parent) && hardware.isStaticEvaluable(expectedDepth, formalBindings)) {
+        auto a = hardware.evaluateStatic(actualDepth, parent, site);
+        auto e = hardware.evaluateStatic(expectedDepth, formalBindings, site);
+        if (failed(a) || failed(e) || *a != *e)
+          return site->emitOpError() << "AsyncFIFO reference depth differs from its declared contract";
+      }
+    }
   }
   return success();
 }
@@ -279,8 +368,9 @@ SourceReceiverProofContext::method(Operation *module, StringRef name,
 
 Type SourceQueueView::getPayloadType() const {
   if (allocation)
-    return allocation->getResult(2).getType();
-  return cast<TypeAttr>(row.getAs<ArrayAttr>("result_types")[2]).getValue();
+    return getQueuePrimitiveLayout(allocation).data().getType();
+  return cast<TypeAttr>(row.getAs<ArrayAttr>("result_types")[
+      row.getAs<FlatSymbolRefAttr>("callee").getValue() == "pycircuit.__builtins__.async_fifo" ? 0 : 2]).getValue();
 }
 Attribute SourceQueueView::getPayloadConstraint() const {
   return allocation ? allocation->getAttr("ac.payload_constraint")
@@ -347,7 +437,7 @@ static FailureOr<DictionaryAttr> getSourceNativeOwnerRow(InstanceOp queue) {
     return queue.emitOpError() << "queue domain requires a direct one-bit module input or literal";
   };
   auto clock = endpoint(queue->getOperand(0)),
-       reset = endpoint(queue->getOperand(1));
+       reset = endpoint(queue->getOperand(isAsyncQueueInstance(queue) ? 2 : 1));
   if (failed(clock) || failed(reset))
     return failure();
   NamedAttrList fields({
@@ -436,7 +526,8 @@ FailureOr<SourceQueueView> lookupSourceQueue(Operation *module, StringRef name,
           (row.getAs<FlatSymbolRefAttr>("callee").getValue() ==
                "pycircuit.__builtins__.fifo_local" ||
            row.getAs<FlatSymbolRefAttr>("callee").getValue() ==
-               "pycircuit.__builtins__.fifo_downstream_pop") &&
+               "pycircuit.__builtins__.fifo_downstream_pop" ||
+           row.getAs<FlatSymbolRefAttr>("callee").getValue() == "pycircuit.__builtins__.async_fifo") &&
           row.getAs<StringAttr>("name").getValue() == name) {
         if (result.row)
           return site->emitOpError() << "queue allocation name is ambiguous";
@@ -906,14 +997,29 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
     return site->emitOpError()
            << "callee module must match resolved receiver module";
   StringRef methodName = symbol.getNestedReferences().front().getValue();
+  bool queueReference = reference && hardware.getPrimitiveKind(owner) == "async_fifo";
+  if (queueReference) {
+    auto formals = caller->getAttrOfType<ArrayAttr>("ac.reference_parameters");
+    for (Attribute raw : formals) {
+      auto row = cast<DictionaryAttr>(raw);
+      if (row.getAs<StringAttr>("name") != reference) continue;
+      terminalOwnerRow = row;
+      auto bound = hardware.bindCallee(owner, row.getAs<ArrayAttr>("parameters"),
+          row.getAs<ArrayAttr>("type_arguments"), parent, site);
+      if (failed(bound)) return failure();
+      bindings = *bound;
+    }
+    if (!terminalOwnerRow) return site->emitOpError() << "Queue reference requires its typed resource contract";
+  }
   SourceMethodView method;
-  bool nativeQueue =
+  bool nativeQueue = queueReference ||
       (terminalInstance && isQueueInstance(terminalInstance)) ||
       (!terminalInstance && terminalOwnerRow &&
        (terminalOwnerRow.getAs<FlatSymbolRefAttr>("callee").getValue() ==
             "pycircuit.__builtins__.fifo_local" ||
         terminalOwnerRow.getAs<FlatSymbolRefAttr>("callee").getValue() ==
-            "pycircuit.__builtins__.fifo_downstream_pop"));
+            "pycircuit.__builtins__.fifo_downstream_pop" ||
+        terminalOwnerRow.getAs<FlatSymbolRefAttr>("callee").getValue() == "pycircuit.__builtins__.async_fifo"));
   StringRef memoryKind = hardware.getPrimitiveKind(owner);
   bool nativeMemory = memoryKind == "sync_mem" || memoryKind == "sync_mem_dp" || memoryKind == "byte_mem";
   if (nativeMemory) {
@@ -963,28 +1069,29 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
                                                : NativeQueueAction::None;
     if (action == NativeQueueAction::None)
       return site->emitOpError() << "unknown native Queue action";
-    bool pushUnbound = terminalInstance
+    bool pushUnbound = queueReference || (terminalInstance
                            ? terminalInstance->hasAttr(
                                  "ac.source_unbound_push")
                            : (terminalOwnerRow.getAs<BoolAttr>("unbound_push") &&
                               terminalOwnerRow.getAs<BoolAttr>("unbound_push")
-                                  .getValue());
-    bool popUnbound = terminalInstance
+                                  .getValue()));
+    bool popUnbound = queueReference || (terminalInstance
                           ? terminalInstance->hasAttr(
                                 "ac.source_unbound_pop")
                           : (terminalOwnerRow.getAs<BoolAttr>("unbound_pop") &&
                              terminalOwnerRow.getAs<BoolAttr>("unbound_pop")
-                                 .getValue());
+                                 .getValue()));
     if (action == NativeQueueAction::Push && !pushUnbound)
       return site->emitOpError()
              << "Queue push conflicts with an externally bound raw input";
     if (action == NativeQueueAction::Pop && !popUnbound)
       return site->emitOpError()
              << "Queue pop conflicts with an externally bound raw output";
-    Type payload = terminalInstance
-                       ? terminalInstance.getResult(2).getType()
+    Type payload = queueReference ? cast<TypeAttr>(terminalOwnerRow.getAs<ArrayAttr>("type_arguments")[0]).getValue()
+                       : terminalInstance ? getQueuePrimitiveLayout(terminalInstance).data().getType()
                        : cast<TypeAttr>(terminalOwnerRow
-                                            .getAs<ArrayAttr>("result_types")[2])
+                                            .getAs<ArrayAttr>("result_types")[
+                  terminalOwnerRow.getAs<FlatSymbolRefAttr>("callee").getValue() == "pycircuit.__builtins__.async_fifo" ? 0 : 2])
                              .getValue();
     Attribute constraint = terminalInstance
                                ? terminalInstance->getAttr(

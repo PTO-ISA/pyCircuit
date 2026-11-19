@@ -2,6 +2,7 @@
 #define PYCIRCUIT_DIALECT_ACIR_HARDWAREANALYSIS_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "pycircuit/Dialect/ACIR/RegisterContracts.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysisContext.h"
 #include "pycircuit/Dialect/ACIR/HardwarePackedWidth.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
@@ -18,6 +19,19 @@ namespace acir::ac {
 /// Validated raw clock/reset rows on a System Module/ModuleImport declaration.
 /// The empty array means no authored sequence; present sequences are nonempty.
 mlir::FailureOr<mlir::ArrayAttr> getSystemSamples(mlir::Operation *declaration);
+/// Explicit logical input ordinals for a multi-control System sample row.
+/// Empty means the existing clock/reset pair convention.
+mlir::FailureOr<llvm::SmallVector<unsigned>>
+getSystemSampleInputs(mlir::Operation *declaration);
+
+/// Verify the normalized transaction-wide reset predicate.
+mlir::FailureOr<mlir::Value> getVerifiedTransactionResetMask(RuleOp rule);
+struct StateLayout {
+  mlir::Value clock, reset, initial, resetValue;
+  RegisterPolicy policy;
+  mlir::StringAttr domain;
+};
+mlir::FailureOr<StateLayout> getStateLayout(mlir::Operation *state);
 
 /// Read the closed policy on the single root selection and reject overrides.
 /// A saved package without the attribute means strict; this never mutates IR.
@@ -50,6 +64,34 @@ enum class QueueReadyPolicy { LocalOccupancy, DownstreamPop };
 /// Recognize the canonical FIFO allocation; schema and bindings are verified
 /// by the same instance and primitive checks used for other native leaves.
 bool isQueueInstance(InstanceOp instance);
+bool isAsyncQueueInstance(InstanceOp instance);
+/// Pin roles shared by source admission, physical routing and its proof.
+struct QueuePrimitiveLayout {
+  mlir::Operation *allocation;
+  bool asynchronous;
+  bool physical = false;
+  unsigned dataResult() const { return asynchronous ? 0 : 2; }
+  unsigned validResult() const { return asynchronous ? 2 : 1; }
+  unsigned readyResult() const { return asynchronous ? 1 : 0; }
+  unsigned capacityResult() const { return asynchronous ? 1 : 3; }
+  unsigned pushOperand() const { return asynchronous ? 4 : 2; }
+  unsigned dataOperand() const { return 3; }
+  unsigned popOperand() const { return asynchronous ? 5 : 4; }
+  unsigned clockOperand(bool push) const { return asynchronous && !push ? 1 : 0; }
+  unsigned resetOperand() const { return asynchronous ? 2 : 1; }
+  mlir::Value data() const { return physical ? allocation->getOperand(6) : allocation->getResult(dataResult()); }
+  mlir::Value valid() const { return physical ? allocation->getOperand(8) : allocation->getResult(validResult()); }
+  mlir::Value ready() const { return physical ? allocation->getOperand(7) : allocation->getResult(readyResult()); }
+  mlir::Value capacity() const { return physical ? allocation->getOperand(7) : allocation->getResult(capacityResult()); }
+  mlir::Value push() const { return allocation->getOperand(pushOperand()); }
+  mlir::Value payload() const { return allocation->getOperand(dataOperand()); }
+  mlir::Value pop() const { return allocation->getOperand(popOperand()); }
+  mlir::Value clock(bool push) const { return allocation->getOperand(clockOperand(push)); }
+  mlir::Value reset() const { return allocation->getOperand(resetOperand()); }
+};
+QueuePrimitiveLayout getQueuePrimitiveLayout(mlir::Operation *resource);
+bool isQueueResource(mlir::Operation *resource);
+
 /// Derive the existing FIFO configuration from its canonical callee and
 /// ordinary static arguments. No duplicated configuration is stored on the IR.
 mlir::FailureOr<mlir::DictionaryAttr>
@@ -104,10 +146,17 @@ mlir::FailureOr<MemoryPrimitiveLayout>
 getMemoryPrimitiveLayout(InstanceOp instance,
                          const HardwareBindings &parentBindings = {});
 
+struct HardwareSamplingReset {
+  mlir::Value value;
+  RegisterResetKind kind = RegisterResetKind::Sync;
+  RegisterResetPolarity polarity = RegisterResetPolarity::High;
+};
 struct HardwareCheckSamplingBinding {
   ModuleOp definition;
   mlir::Value clock, reset;
   uint64_t localOrdinal = 0;
+  RegisterEdge edge = RegisterEdge::Posedge;
+  llvm::SmallVector<HardwareSamplingReset> resets;
 };
 struct HardwareCheckSamplingOccurrence {
   uint64_t bindingIndex = 0, ownerOccurrence = 0, ordinal = 0;
@@ -172,6 +221,8 @@ struct HardwareSourceCheckPlan {
 struct HardwarePhysicalProjection {
   ModuleOp root;
   unsigned clockInput = 0, resetInput = 0;
+  // Contract 5 event sources, deduplicated by actual root argument identity.
+  llvm::SmallVector<unsigned> clockInputs, resetInputs;
 };
 /// Field paths and packed leaf records moved to HardwareAnalysisContext.h:
 /// the shared packed-width core (r8 review) uses the same value types.

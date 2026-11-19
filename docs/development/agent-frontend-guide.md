@@ -429,6 +429,54 @@ its declared range. Keep comparison literals representable in fixed-width peers.
 
 ## Module state declarations and storage children
 
+### Explicit policies and multiple domains
+
+The [state/domain/CDC source extension](../reference/language.md#explicit-state-policies-clock-domains-and-cdc)
+has bounded end-to-end coverage for state policies, multi-domain hierarchy,
+AsyncReg and AsyncFIFO: saved-anchor reload, C++ workers 1/2 and four-state RTL,
+including FIFO failure/discard/retry. Keep unsupported combinations visible;
+these cases do not establish every type or configuration path.
+
+Use `count: ac.u8 = ac.state(init=3, reset_value=0)` when initialization and
+reset differ. Declare an explicit reset and its policy with
+`reset=rst_n, reset_kind="async", reset_polarity="low"`; use
+`reset_kind="none"` for storage without reset. Omitted explicit `init` means
+X. Keep subsequent Rule assignments ordinary and preserve declared payload
+types. Do not introduce q/d wrappers or fake zero initialization.
+
+Pass extra domains as ordinary static parameters and use only `domain` as the
+special instance binding:
+
+```python
+@ac.module
+def Top(*, domains: dict[str, ac.Domain]) -> None:
+    Child()  # Inherits Top's default domain.
+    Child(domain=domains["io"])
+```
+
+The zero-result autonomous children in this example exchange no data. Passing data across
+their domains requires CDC, and returning a child's value must satisfy Top's
+own output domain. Domain list/dict
+aliases and static indices describe configuration; they are not runtime
+containers. Preserve their structure in separately published interfaces.
+
+For CDC, keep algorithmic work in ordinary endpoint Modules. Pass a shared
+`ac.AsyncFIFO[T, DEPTH]` resource to the producer and consumer; put each
+push/compute or pop/compute sequence in its own cohesive Rule. Resource
+availability, endpoint fire and whole-system failure handling belong to the
+compiler. An AsyncReg alias denotes the same synchronizer, not another stage.
+Reset configuration belongs to the resource allocation, independently of
+where its endpoints are used.
+
+Named System samples describe complete clock/control epochs. Declare any
+one-bit reset/control parameter explicitly in the System signature and supply
+its same-named column. Clock names bind compiler-generated controls; default
+reset uses `pyc_rst`. Keep the generated System runner, independent expected
+values and four-state execution coverage. A failed sample must publish no
+observations and commit no endpoint effects.
+
+### Storage ownership
+
 A Module declares both child modules and its own persistent state variables.
 Authors express a state variable with a module-scope declaration such as
 `count: ac.u8 = 0` or `saved: Packet = Packet()`. The compiler supplies the

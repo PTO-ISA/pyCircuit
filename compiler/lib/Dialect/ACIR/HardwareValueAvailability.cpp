@@ -38,7 +38,7 @@ FailureOr<bool> hasUniformTableAvailability(
     } else {
       auto *operation = current.getDefiningOp();
       if (isa_and_nonnull<TableSplatOp, InstanceOp>(operation) ||
-          isa_and_nonnull<acir::LogicalStateOpInterface>(operation))
+          isa_and_nonnull<acir::LogicalStateOpInterface, ValueZeroOp>(operation))
         result = true;
       else if (auto collection = dyn_cast_or_null<CollectionOp>(operation))
         result = !analysis.getPrimitiveKind(analysis.resolveCallee(collection)).empty();
@@ -444,7 +444,7 @@ class AvailabilityProof {
       return Uniform();
     }
     Operation *op = value.getDefiningOp();
-    if (isa<acir::LogicalStateOpInterface>(op)) return Uniform(1);
+    if (isa<acir::LogicalStateOpInterface, ValueZeroOp>(op)) return Uniform(1);
     if (auto rule = dyn_cast<RuleOp>(op)) {
       if (rule->hasAttr("ac.sampled_admission"))
         return Uniform(availability(value, path));
@@ -1009,7 +1009,7 @@ class AvailabilityProof {
     if (inRow(value) && op->getNumRegions())
       return reject(op, "availability has unsupported nested row regions");
     if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp>(op) ||
-        isa<acir::LogicalStateOpInterface>(op))
+        isa<acir::LogicalStateOpInterface, ValueZeroOp>(op))
       return 1;
     if (auto rule = dyn_cast<RuleOp>(op)) {
       auto yields = cast<YieldOp>(rule.getBody().front().back()).getValues();

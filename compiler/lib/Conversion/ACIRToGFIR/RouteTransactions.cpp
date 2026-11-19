@@ -57,14 +57,177 @@ using detail::resourceLocation;
 // Conversion-common helpers shared with the GFIRToHWIR refinement stage;
 // routing call sites keep their original spelling.
 using detail::acceptTransactionCandidate;
+using detail::bitsLiteralAttribute;
 using detail::charge;
 using detail::knownTrue;
 using detail::prepayClone;
 using detail::prepayOperationHeader;
 
+// Select one common routed profile for the complete linked closure.
+int64_t sourceRoutedContract(mlir::ModuleOp package) {
+  for (auto module : package.getOps<ac::ModuleOp>()) {
+    if (module->hasAttr("ac.domain_params")) return 7;
+    for (auto state : module.getBody().front().getOps<ac::SourceStateOp>())
+      if (state->hasAttr("operandSegmentSizes")) return 7;
+  }
+  return llvm::any_of(package.getOps<ac::SystemOp>(), [](ac::SystemOp system) {
+    return system->hasAttr("ac.entry_boundary");
+  }) ? 5 : 4;
+}
+
+NamedAttrList routedModuleAttributes(ac::ModuleOp module) {
+  NamedAttrList result(module->getAttrs());
+  auto inputs = module->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+  if (!result.get("ac.domain_params") && inputs) {
+    Builder b(module.getContext());
+    auto name = b.getStringAttr("D");
+    result.set("ac.domain_params", b.getArrayAttr({name}));
+    result.set("ac.default_domain", name);
+    result.set("ac.domain_clock_inputs", b.getDictionaryAttr({
+        b.getNamedAttr("D", b.getI32IntegerAttr(inputs.getAs<IntegerAttr>("clock").getInt()))}));
+  }
+  return result;
+}
+
+DictionaryAttr routedInstanceDomains(ac::InstanceOp allocation,
+                                    const ac::HardwareAnalysis &hardware) {
+  if (auto explicitBindings = allocation->getAttrOfType<DictionaryAttr>("ac.domain_bindings"))
+    return explicitBindings;
+  auto child = dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(allocation));
+  auto parent = allocation->getParentOfType<ac::ModuleOp>();
+  if (!child || !parent) return {};
+  auto childAttrs = routedModuleAttributes(child);
+  auto parentAttrs = routedModuleAttributes(parent);
+  auto formals = dyn_cast_or_null<DictionaryAttr>(childAttrs.get("ac.domain_clock_inputs"));
+  auto actuals = dyn_cast_or_null<DictionaryAttr>(parentAttrs.get("ac.domain_clock_inputs"));
+  if (!formals || !actuals) return {};
+  NamedAttrList bindings;
+  for (auto formal : formals) {
+    auto ordinal = dyn_cast<IntegerAttr>(formal.getValue());
+    if (!ordinal || ordinal.getInt() < 0 || uint64_t(ordinal.getInt()) >= allocation->getNumOperands()) return {};
+    auto input = dyn_cast<BlockArgument>(allocation->getOperand(ordinal.getInt()));
+    if (!input || input.getOwner() != &parent.getBody().front()) return {};
+    StringAttr target;
+    for (auto actual : actuals)
+      if (cast<IntegerAttr>(actual.getValue()).getInt() == input.getArgNumber()) {
+        target = actual.getName();
+        break;
+      }
+    if (!target) return {};
+    bindings.set(formal.getName(), target);
+  }
+  return bindings.getDictionary(allocation.getContext());
+}
+
+NamedAttrList routedStateAttributes(ac::SourceStateOp state, bool current) {
+  NamedAttrList result(state->getAttrs());
+  if (current && !state->hasAttr("operandSegmentSizes")) {
+    Builder b(state.getContext());
+    auto owner = state->getParentOp();
+    auto domain = owner->getAttrOfType<StringAttr>("ac.default_domain");
+    result.set("operandSegmentSizes", b.getDenseI32ArrayAttr({1, 1, 1, 1}));
+    result.set("edge", b.getStringAttr("posedge"));
+    result.set("reset_kind", b.getStringAttr("sync"));
+    result.set("reset_polarity", b.getStringAttr("high"));
+    result.set("init_kind", b.getStringAttr("explicit"));
+    result.set("domain", domain ? domain : b.getStringAttr("D"));
+  }
+  return result;
+}
+
 bool product(SourceCheckBudget &budget, Operation *site, uint64_t count,
              uint64_t units) {
   return charge(budget, site, SourceCheckBudget::multiply(count, units));
+}
+
+// Derive the event and complete reset set from actual transitive effects.
+FailureOr<DictionaryAttr> sourceSamplingPolicy(const TransactionPreparation &prepared,
+                                               SourceCheckBudget &budget) {
+  const auto &plan = *prepared.plan;
+  auto transaction = plan.transaction;
+  Builder b(transaction.getContext());
+  SmallVector<Attribute> resets;
+  SmallVector<std::tuple<ac::DomainEndpoint, StringRef, StringRef>> resetEndpoints;
+  StringRef edge;
+  auto endpoint = [&](Value reset, ac::LexicalInstanceId anchor,
+                      StringRef kind, StringRef polarity,
+                      StringRef event) -> LogicalResult {
+    if (!edge.empty() && edge != event)
+      return transaction.emitOpError("transaction effects require one clock edge");
+    edge = event;
+    if (!reset || kind == "none") return success();
+    ac::DomainEndpoint actual{reset, anchor};
+    for (unsigned depth = 0;; ++depth) {
+      if (!charge(budget, transaction)) return failure();
+      if (depth > 128 || actual.anchor >= plan.instances.size())
+        return transaction.emitOpError("effect reset instance path is invalid");
+      const auto &instance = plan.instances[actual.anchor];
+      auto argument = dyn_cast<BlockArgument>(actual.value);
+      if (!argument || argument.getOwner()->getParentOp() != instance.definition ||
+          !instance.parent) break;
+      if (argument.getArgNumber() >= instance.allocation->getNumOperands())
+        return transaction.emitOpError("effect reset input ordinal is invalid");
+      actual = {instance.allocation->getOperand(argument.getArgNumber()), *instance.parent};
+    }
+    if (!charge(budget, transaction, resetEndpoints.size())) return failure();
+    auto identity = std::make_tuple(actual, kind, polarity);
+    if (llvm::is_contained(resetEndpoints, identity)) return success();
+    for (auto [capture, id] : llvm::enumerate(prepared.liveIns)) {
+      if (!charge(budget, plan.transaction)) return failure();
+      const auto &ref = plan.values[id];
+      if (ref.value != reset || ref.anchor != anchor) continue;
+      auto row = b.getDictionaryAttr({
+          b.getNamedAttr("capture", b.getI64IntegerAttr(capture)),
+          b.getNamedAttr("kind", b.getStringAttr(kind)),
+          b.getNamedAttr("polarity", b.getStringAttr(polarity))});
+      resets.push_back(row);
+      resetEndpoints.push_back(identity);
+      return success();
+    }
+    return transaction.emitOpError("effect reset is missing its source capture");
+  };
+  for (const auto &output : prepared.outputs) {
+    const auto &owner = plan.owners[output.binding.owner];
+    auto state = owner.declaration;
+    auto policy = routedStateAttributes(state, true);
+    if (failed(endpoint(state.getRst(), owner.anchor,
+          cast<StringAttr>(policy.get("reset_kind")).getValue(),
+          policy.get("reset_polarity") ? cast<StringAttr>(policy.get("reset_polarity")).getValue() : "high",
+          cast<StringAttr>(policy.get("edge")).getValue()))) return failure();
+  }
+  for (const auto &owner : plan.queueOwners) {
+    auto layout = ac::getQueuePrimitiveLayout(owner.allocation);
+    StringRef event = "posedge", polarity = "high";
+    if (layout.asynchronous) {
+      bool push = llvm::any_of(plan.queueAccesses, [&](const auto &access) {
+        return access.owner == uint64_t(&owner - plan.queueOwners.data()) &&
+               access.kind == ac::TransactionQueueAccessKind::Push;
+      });
+      if (auto attr = owner.allocation->getAttrOfType<StringAttr>(push ? "write_edge" : "read_edge")) event = attr.getValue();
+      if (auto attr = owner.allocation->getAttrOfType<StringAttr>("reset_polarity")) polarity = attr.getValue();
+    }
+    if (failed(endpoint(layout.reset(), owner.anchor,
+                        layout.asynchronous ? "async" : "sync", polarity, event))) return failure();
+  }
+  for (const auto &owner : plan.memoryOwners)
+    if (failed(endpoint(owner.allocation->getOperand(1), owner.anchor,
+                        "sync", "high", "posedge"))) return failure();
+  if (edge.empty()) {
+    edge = "posedge";
+    auto reset = plan.values[plan.resetValue];
+    if (failed(endpoint(reset.value, reset.anchor, "sync", "high", edge))) return failure();
+  }
+  return b.getDictionaryAttr({b.getNamedAttr("edge", b.getStringAttr(edge)),
+                             b.getNamedAttr("resets", b.getArrayAttr(resets))});
+}
+
+SmallVector<Value> samplingOperands(ac::RuleOp rule, const TransactionPreparation &prepared) {
+  SmallVector<Value> result{rule->getOperand(prepared.clockCapture)};
+  if (auto resets = prepared.expectedAdmission.getAs<ArrayAttr>("resets")) {
+    for (Attribute raw : resets)
+      result.push_back(rule->getOperand(cast<DictionaryAttr>(raw).getAs<IntegerAttr>("capture").getInt()));
+  } else result.push_back(rule->getOperand(prepared.resetCapture));
+  return result;
 }
 
 template <typename Vector>
@@ -871,7 +1034,7 @@ verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
           requirement.point.prefix > plan.controls.size() ||
           (requirement.point.path.branch && *requirement.point.path.branch >= plan.branches.size()))
         return site.emitOpError() << "transaction required-use bounds are inconsistent";
-    if (item.expectedAdmission.size() != (6 + !item.requirements.empty() +
+    if (item.expectedAdmission.size() != (6 + unsigned(sourceRoutedContract(prepared.original) == 7) + !item.requirements.empty() +
             !item.resources.empty() + !item.queueProposals.empty() + !item.memoryProposals.empty() + !item.writeDomains.empty()) ||
         item.expectedAdmission.get("ehr_entries") ||
         !guards || !checks ||
@@ -1834,6 +1997,14 @@ private:
          b.getNamedAttr("controls", b.getArrayAttr(guards)),
          b.getNamedAttr("body_checks", b.getArrayAttr(bodyChecks)),
          b.getNamedAttr("observations", b.getArrayAttr(observations))});
+    if (sourceRoutedContract(package) == 7) {
+      auto policy = sourceSamplingPolicy(prepared, budget);
+      if (failed(policy)) return failure();
+      NamedAttrList admission(prepared.expectedAdmission);
+      admission.erase("reset_capture");
+      for (NamedAttribute field : *policy) admission.set(field.getName(), field.getValue());
+      prepared.expectedAdmission = admission.getDictionary(b.getContext());
+    }
     if (!requirements.empty()) {
       NamedAttrList admission(prepared.expectedAdmission);
       admission.append("requirements", b.getArrayAttr(requirements));
@@ -2544,9 +2715,6 @@ FailureOr<MaterializedBranchResult> materializeSelection(
   return result;
 }
 
-
-ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
-                                        MLIRContext *context, bool one);
 
 class RuleMaterializer {
 public:
@@ -3429,25 +3597,6 @@ private:
   SmallVector<SavedMaterializedObservation, 0> savedObservations;
 };
 
-ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
-                                        MLIRContext *context, bool one) {
-  Builder builder(context);
-  auto type = cast<ac::BitsType>(payload);
-  auto literal = ac::MathIntAttr::get(
-      context, llvm::APSInt(llvm::APInt(1, one ? 1 : 0), true));
-  auto tree = builder.getDictionaryAttr(
-      {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
-       builder.getNamedAttr(
-           "value",
-           builder.getDictionaryAttr(
-               {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-                builder.getNamedAttr("value", literal)})),
-       builder.getNamedAttr("origin", occurrence),
-       builder.getNamedAttr("location",
-                            type.getWidth().getTree().get("location"))});
-  return ac::StaticExprAttr::get(context, tree);
-}
-
 Value bitsLiteral(Type payload, DictionaryAttr occurrence, Location location,
                   bool one, OpBuilder &builder) {
   OperationState constant(location, ac::BitsConstantOp::getOperationName());
@@ -3514,7 +3663,16 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
   Builder attributes(staged.getContext());
   // No source envelope or input object is changed before the complete proof.
   staged->setAttr("ac.stage", attributes.getStringAttr("routed"));
-  staged->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged.getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 5 : 4));
+  staged->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(sourceRoutedContract(prepared.original)));
+  if (sourceRoutedContract(prepared.original) == 7) {
+    for (auto original : prepared.original.getOps<ac::ModuleOp>()) {
+      auto module = cast<ac::ModuleOp>(mapping.lookup(original.getOperation()));
+      module->setAttrs(routedModuleAttributes(original));
+      for (auto allocation : original.getBody().front().getOps<ac::InstanceOp>())
+        if (auto domains = routedInstanceDomains(allocation, hardware))
+          mapping.lookup(allocation.getOperation())->setAttr("ac.domain_bindings", domains);
+    }
+  }
   using CandidateMap = llvm::DenseMap<RoutingKey, std::pair<Value, Value>>;
   llvm::DenseMap<Operation *, CandidateMap> nextValues;
   llvm::DenseMap<Operation *, SmallVector<std::pair<Value, Value>>> incoming;
@@ -3706,9 +3864,8 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
                             ac::SourceExpectOp::getOperationName());
       expect.addOperands(
           {materializedRule->getResult(transaction.checkBase + 2 * ordinal),
-           materializedRule->getResult(transaction.checkBase + 2 * ordinal + 1),
-           materializedRule->getOperand(transaction.clockCapture),
-           materializedRule->getOperand(transaction.resetCapture)});
+           materializedRule->getResult(transaction.checkBase + 2 * ordinal + 1)});
+      expect.addOperands(samplingOperands(materializedRule, transaction));
       expect.addAttribute("kind", expectBuilder.getStringAttr("guard_known"));
       expect.addAttribute("location", check.get("location"));
       expect.addAttribute("ac.check_id", check.get("id"));
@@ -3935,12 +4092,14 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
     // before the source declaration clone is erased, so the candidate never
     // retains the source class.
     OpBuilder builder(replaced);
+    bool current = staged->getAttrOfType<IntegerAttr>("ac.routed_contract").getInt() == 7;
+    SmallVector<Value> operands(replaced->getOperands());
+    if (current && !original->hasAttr("operandSegmentSizes"))
+      operands.push_back(replaced.getInitial());
     auto routed = builder.create<gfir::StateOp>(
-        original.getLoc(), replaced.getQ().getType(), replaced.getClk(),
-        replaced.getRst(), replaced.getInitial(),
+        original.getLoc(), replaced.getQ().getType(), operands,
         original.getInstanceNameAttr(), original.getOccurrence());
-    if (auto constraint = replaced.getPayloadConstraint())
-      routed->setAttr("ac.payload_constraint", constraint);
+    routed->setAttrs(routedStateAttributes(original, current));
     replaced.getQ().replaceAllUsesWith(routed.getQ());
     mapping.map(original.operator->(), routed.getOperation());
     mapping.map(original.getQ(), routed.getQ());
@@ -4319,7 +4478,7 @@ public:
                          StringAttr::get(staged.getContext(), "routed"));
     expectedEnvelope.set("ac.routed_contract",
                          IntegerAttr::get(IntegerType::get(staged.getContext(), 64),
-                             llvm::any_of(prepared.original->getRegion(0).getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 5 : 4));
+                             sourceRoutedContract(prepared.original)));
     if (staged->getAttrs() != expectedEnvelope.getAttrs() ||
         staged->getPropertiesAsAttribute() !=
             prepared.original->getPropertiesAsAttribute())
@@ -5491,7 +5650,9 @@ private:
       if (module->getAttr("ac.internal_ports") != internal)
         return reject("original appended route/internal port metadata differs");
     }
-    NamedAttrList expected(original->getAttrs()), actual(module->getAttrs());
+    NamedAttrList expected = sourceRoutedContract(prepared.original) == 7
+        ? routedModuleAttributes(original) : NamedAttrList(original->getAttrs());
+    NamedAttrList actual(module->getAttrs());
     expected.erase("ac.reference_parameters");
     if (module->getAttr("ac.transaction_returns") != definition.expectedReturns)
       return reject("original public return route metadata differs");
@@ -5604,22 +5765,27 @@ private:
                         op.getRawDictionaryAttrs().size() +
                         SourceCheckBudget::bytes(op.getPropertiesStorageSize())))
           return failure();
+        bool current = sourceRoutedContract(prepared.original) == 7;
+        bool promoted = current && !state->hasAttr("operandSegmentSizes");
         if (!isa<gfir::StateOp>(target) ||
             target->getLoc() != op.getLoc() ||
             target->getNumResults() != 1 ||
             target->getNumRegions() != 0 ||
             target->getResultTypes() != op.getResultTypes() ||
-            target->getNumOperands() != 3 ||
-            target->getAttrDictionary() != op.getAttrDictionary() ||
+            target->getNumOperands() != op.getNumOperands() + unsigned(promoted) ||
+            target->getAttrs() != routedStateAttributes(state, current).getAttrs() ||
             target->getPropertiesAsAttribute() !=
                 op.getPropertiesAsAttribute())
           return reject("original logical state owner/Q/type/domain/initial differs");
         for (auto [original, actual] :
-             llvm::zip(op.getOperands(), target->getOperands())) {
+             llvm::zip(op.getOperands(), target->getOperands().take_front(op.getNumOperands()))) {
           auto expected = authenticated.lookupOrNull(original);
           if (!expected || actual != expected)
             return reject("original logical state domain/initial binding differs");
         }
+        if (promoted && target->getOperand(op.getNumOperands()) !=
+                            authenticated.lookupOrNull(state.getInitial()))
+          return reject("legacy state reset value must preserve its initializer");
         // Cover registers the authenticated replacement in the clone
         // inventory exactly as exactClone registers an unchanged clone.
         if (failed(cover(target)))
@@ -5654,8 +5820,10 @@ private:
             target->getNumResults() != queue->getNumResults() || failed(cover(target)))
           return reject("original queue allocation identity differs");
         for (auto [ordinal, operand] : llvm::enumerate(queue->getOperands())) {
-          bool controlled = queue->hasAttr("ac.source_unbound_push") && (ordinal == 2 || ordinal == 3);
-          controlled |= queue->hasAttr("ac.source_unbound_pop") && ordinal == 4;
+          auto layout = ac::getQueuePrimitiveLayout(queue);
+          bool controlled = queue->hasAttr("ac.source_unbound_push") &&
+                            (ordinal == layout.pushOperand() || ordinal == layout.dataOperand());
+          controlled |= queue->hasAttr("ac.source_unbound_pop") && ordinal == layout.popOperand();
           if (!controlled && target->getOperand(ordinal) != authenticated.lookupOrNull(operand))
             return reject("original raw queue binding differs");
         }
@@ -5677,6 +5845,9 @@ private:
           extraOutputs += layout->routedOutputValidity.size();
         }
         NamedAttrList expectedInstance(op.getAttrs());
+        if (sourceRoutedContract(prepared.original) == 7)
+          if (auto domains = routedInstanceDomains(allocation, hardware))
+            expectedInstance.set("ac.domain_bindings", domains);
         expectedInstance.erase("ac.reference_bindings");
         if (!isa<ac::InstanceOp>(target) ||
             target->getAttrs() != expectedInstance.getAttrs() ||
@@ -5901,21 +6072,28 @@ private:
         (!captureRows.empty() && rule->getAttr("ac.value_availability_captures") !=
              captureAttributes.getArrayAttr(captureRows)))
       return reject("original validity capture metadata differs");
+    bool currentPolicy = sourceRoutedContract(prepared.original) == 7;
+    auto policy = currentPolicy ? sourceSamplingPolicy(preparation, budget)
+                                : FailureOr<DictionaryAttr>(DictionaryAttr());
+    if (failed(policy)) return failure();
+    if (currentPolicy && (preparation.expectedAdmission.get("edge") != policy->get("edge") ||
+                          preparation.expectedAdmission.get("resets") != policy->get("resets") ||
+                          preparation.expectedAdmission.get("reset_capture")))
+      return reject("original transaction event/reset policy differs");
     if (preparation.clockCapture != expectedClock ||
         preparation.resetCapture != expectedReset ||
         preparation.fireResult != expectedFire ||
         preparation.checkBase != cursor ||
         preparation.totalResults != expectedTotal ||
         preparation.expectedAdmission.size() !=
-            (6 + !preparation.requirements.empty() +
+            (6 + unsigned(currentPolicy) + !preparation.requirements.empty() +
              !preparation.resources.empty() + !preparation.queueProposals.empty() + !preparation.memoryProposals.empty() +
              !expectedDomains.empty()) ||
         preparation.expectedAdmission.getAs<IntegerAttr>("clock_capture") !=
             Builder(transaction.getContext())
                 .getI64IntegerAttr(expectedClock) ||
-        preparation.expectedAdmission.getAs<IntegerAttr>("reset_capture") !=
-            Builder(transaction.getContext())
-                .getI64IntegerAttr(expectedReset) ||
+        (!currentPolicy && preparation.expectedAdmission.getAs<IntegerAttr>("reset_capture") !=
+            Builder(transaction.getContext()).getI64IntegerAttr(expectedReset)) ||
         preparation.expectedAdmission.getAs<IntegerAttr>("fire_result") !=
             Builder(transaction.getContext()).getI64IntegerAttr(expectedFire))
       return reject("original transaction prepared layout differs");
@@ -6259,7 +6437,7 @@ private:
                                  plan.rootFrame)))
         return reject("original owner old-Q/occurrence/domain differs");
       auto clock = replay.find(declaration.getClk(), anchor, plan.rootFrame);
-      auto reset = replay.find(declaration.getRst(), anchor, plan.rootFrame);
+      auto reset = replay.find(declaration.getTransactionReset(), anchor, plan.rootFrame);
       if (failed(clock) || failed(reset))
         return failure();
       auto domainClock = replay.endpoint(*clock, point());
@@ -6499,7 +6677,8 @@ private:
         auto root = symbol.getRootReference().getValue();
         auto leaf = symbol.getLeafReference().getValue();
         return (root == "pycircuit.__builtins__.fifo_local" ||
-                root == "pycircuit.__builtins__.fifo_downstream_pop") &&
+                root == "pycircuit.__builtins__.fifo_downstream_pop" ||
+                root == "pycircuit.__builtins__.async_fifo") &&
                (leaf == "push" || leaf == "pop" || leaf == "peek");
       };
       auto isNativeMemoryCallee = [](ac::SourceMethodCallOp call) {
@@ -8134,25 +8313,18 @@ private:
         if (expect->getAttr("ac.check_id") != check.get("id"))
           continue;
         ++matches;
+        SmallVector<Value> expectedOperands{
+            rule->getResult(preparation.checkBase + 2 * ordinal),
+            rule->getResult(preparation.checkBase + 2 * ordinal + 1)};
+        llvm::append_range(expectedOperands, samplingOperands(rule, preparation));
         if (expect.getKind() != "guard_known" ||
             expect->getAttr("location") != location ||
-            expect->getNumOperands() != 4 ||
-            expect->getOperand(0) !=
-                rule->getResult(preparation.checkBase + 2 * ordinal) ||
-            expect->getOperand(1) !=
-                rule->getResult(preparation.checkBase + 2 * ordinal + 1) ||
-            expect->getOperand(2) !=
-                rule->getOperand(preparation.clockCapture) ||
-            expect->getOperand(3) !=
-                rule->getOperand(preparation.resetCapture) ||
+            !llvm::equal(expect->getOperands(), expectedOperands) ||
             !lastTerminal->isBeforeInBlock(expect))
           return reject("original guard expect span/suffix/domain differs");
         if (failed(generatedProof(
                 expect, ac::SourceExpectOp::getOperationName(),
-                {rule->getResult(preparation.checkBase + 2 * ordinal),
-                 rule->getResult(preparation.checkBase + 2 * ordinal + 1),
-                 rule->getOperand(preparation.clockCapture),
-                 rule->getOperand(preparation.resetCapture)},
+                expectedOperands,
                 {},
                 b.getDictionaryAttr(
                     {b.getNamedAttr("kind", b.getStringAttr("guard_known")),
@@ -8399,7 +8571,7 @@ public:
       OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(input->clone());
       Builder attributes(input.getContext());
       (*staged)->setAttr("ac.stage", attributes.getStringAttr("routed"));
-      (*staged)->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(llvm::any_of(staged->getOps<ac::SystemOp>(), [](ac::SystemOp system) { return system->hasAttr("ac.entry_boundary"); }) ? 5 : 4));
+      (*staged)->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(sourceRoutedContract(input)));
       if (failed(ac::verifyRoutedPackage(*staged, graphLimits))) {
         signalPassFailure();
         return;

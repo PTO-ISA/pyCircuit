@@ -21,6 +21,7 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
 #include "pycircuit/Transforms/SourceControlFlow.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
@@ -32,6 +33,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/MathExtras.h"
@@ -49,6 +51,7 @@ struct Parameter {
   std::string name;
   AstNode node;
   std::optional<AstNode> value;
+  DictionaryAttr staticType;
 };
 struct Port {
   std::string name;
@@ -72,8 +75,11 @@ struct ModuleDecl {
   SmallVector<NamedAttribute> sourceCallAttrs;
   bool behavioral = false;
   bool needsDomain = false;
+  bool needsDefaultReset = false;
+  DictionaryAttr domainExpressions;
   bool system = false;
   DictionaryAttr systemSamples;
+  SmallVector<StringAttr> sampleNames;
   bool methodOwner = false;
   bool transactionEffects = false;
   size_t sourceInputCount = 0;
@@ -560,6 +566,8 @@ private:
   llvm::StringMap<llvm::StringMap<StaticInstanceReference>> staticInstanceReferences;
   llvm::DenseSet<DictionaryAttr> staticReferenceAssignments;
   bool intrinsic(const AstNode &node, StringRef name) const;
+  DictionaryAttr domainParameterType(const AstNode &node);
+  bool domainConfiguration(const AstNode &node, FlatSymbolRefAttr symbol) const;
   FailureOr<StringRef> fourStatePattern(const AstNode &node);
   bool fixedAnnotation(const AstNode &node) const;
   bool hasDecorator(const AstNode &node, StringRef name) const;
@@ -651,6 +659,13 @@ private:
       const AstNode &node, FlatSymbolRefAttr symbol,
       llvm::StringMap<Value> &values,
       llvm::StringMap<Instance *> &instances);
+  StringRef cdcKind(const AstNode &node) const;
+  LogicalResult declareCDC(const AstNode &assignment, ModuleDecl &decl, OpBuilder &at);
+  FailureOr<bool> bindCDCStatement(const AstNode &assignment, OpBuilder &at,
+      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances, SmallVectorImpl<Instance> &instanceStorage);
+  LogicalResult finishCDCResources(OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values);
   bool queueCall(const AstNode &node) const;
   bool moduleCall(const AstNode &node) const;
   bool methodOwner(const AstNode &function) const;
@@ -676,6 +691,12 @@ private:
                                     OpBuilder &at, FlatSymbolRefAttr symbol);
   LogicalResult serializeSourceCall(ModuleDecl &decl);
   LogicalResult inferModuleGraph();
+  FailureOr<ac::StaticExprAttr> normalizeDomainExpression(ac::StaticExprAttr expression);
+  FailureOr<std::string> clockDomainName(ac::StaticExprAttr expression);
+  LogicalResult prepareDomainInputs(ModuleDecl &decl);
+  LogicalResult bindDomainInputs(const CallableDecl &callee, const AstNode &call,
+      OpBuilder &at, FlatSymbolRefAttr parent, llvm::StringMap<Value> &values,
+      SmallVectorImpl<Value> &inputs, Operation *instance);
   StringRef memoryReference(const AstNode &node) const;
   StringRef memoryKind(const AstNode &call) const;
   LogicalResult prepareMemoryBindings();
@@ -1147,6 +1168,11 @@ private:
   llvm::DenseSet<size_t> dischargedPairs;
   SmallVector<MemoryCallPlan, 0> memoryPlans;
   SmallVector<ModuleDomainPlan, 0> domainPlans;
+  bool clockConfigurationActive = false;
+  llvm::DenseMap<Operation *, AstNode> cdcDeclarations;
+  llvm::DenseSet<Operation *> cdcInputs;
+  llvm::DenseMap<Attribute, llvm::StringMap<AstNode>> configurationAliases;
+  llvm::DenseMap<Attribute, llvm::StringSet<>> configurationParameters;
   llvm::StringSet<> memoryResultNames;
   unsigned directCallOrdinal = 0;
   llvm::DenseMap<DictionaryAttr, DirectCallSite> directCallSites;
@@ -1171,10 +1197,12 @@ ArrayAttr portNames(OpBuilder &b, ArrayRef<Port> ports);
 #include "PythonImportAggregates.inc"
 #include "PythonImportAssignments.inc"
 #include "PythonImportBehavior.inc"
+#include "PythonImportDomains.inc"
 #include "PythonImportComposition.inc"
 #include "PythonImportDefaults.inc"
 #include "PythonImportMemoryCalls.inc"
 #include "PythonImportMemoryPreparation.inc"
+#include "PythonImportCDC.inc"
 #include "PythonImportQueues.inc"
 #include "PythonImportRuleCall.inc"
 #include "PythonImportValueHelpers.inc"
@@ -2312,10 +2340,47 @@ LogicalResult Importer::scanConstants() {
       negate = sign == "USub";
       rhs = rhs.child("operand");
     }
+    DictionaryAttr staticType;
+    auto symbol = FlatSymbolRefAttr::get(b.getContext(), qualify(name));
     auto value = rhs.kind() == "Constant" ? staticValue(b, rhs.get("value"), error)
                                            : DictionaryAttr();
+    if (!signedLiteral && domainConfiguration(rhs, symbol)) {
+      auto expression = staticExpr(rhs, symbol);
+      if (failed(expression)) return failure();
+      ac::HardwareAnalysis analysis(*body);
+      auto evaluated = analysis.evaluateStatic(*expression, {}, body->getOperation());
+      if (failed(evaluated)) return failure();
+      value = dyn_cast<DictionaryAttr>(*evaluated);
+      auto inferType = [&](auto &&self, DictionaryAttr value) -> FailureOr<DictionaryAttr> {
+        StringRef kind = value.getAs<StringAttr>("kind").getValue();
+        if (kind == "domain") return b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("domain"))});
+        DictionaryAttr element;
+        auto append = [&](DictionaryAttr child) -> LogicalResult {
+          auto type = self(self, child);
+          if (failed(type)) return failure();
+          if (element && element != *type) return error() << "static Domain container requires one element type";
+          element = *type;
+          return success();
+        };
+        if (kind == "list") {
+          for (Attribute child : value.getAs<ArrayAttr>("values"))
+            if (failed(append(cast<DictionaryAttr>(child)))) return failure();
+        } else if (kind == "dict") {
+          for (NamedAttribute child : value.getAs<DictionaryAttr>("values"))
+            if (failed(append(cast<DictionaryAttr>(child.getValue())))) return failure();
+        }
+        if (!element) return error() << "static Domain configuration requires Domain elements";
+        return b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr(kind == "list" ? "domain_list" : "domain_dict")),
+                                    b.getNamedAttr("element", element)});
+      };
+      if (!value) return error() << "source Domain configuration must be static";
+      auto type = inferType(inferType, value);
+      if (failed(type)) return failure();
+      staticType = *type;
+      clockConfigurationActive = true;
+    }
     if (!value || (signedLiteral && !isa<ac::MathIntAttr>(value.get("value"))))
-      return error() << "source constant requires an Integer or Boolean literal";
+      return error() << "source constant requires an Integer, Boolean or Domain configuration";
     if (negate) {
       auto integer = cast<ac::MathIntAttr>(value.get("value"));
       auto negative = ac::detail::evaluateValue(
@@ -2325,13 +2390,12 @@ LogicalResult Importer::scanConstants() {
           b.getNamedAttr("kind", b.getStringAttr("integer")),
           b.getNamedAttr("value", *negative)});
     }
-    auto symbol = FlatSymbolRefAttr::get(b.getContext(), qualify(name));
     b.setInsertionPointToEnd(body->getBody());
     auto declaration = createOp(
         b, statement.location(b.getContext(), source.path),
         ac::ConstantOp::getOperationName(), {}, {},
         {b.getNamedAttr("sym_name", b.getStringAttr(symbol.getValue())),
-         b.getNamedAttr("type", b.getDictionaryAttr({
+         b.getNamedAttr("type", staticType ? staticType : b.getDictionaryAttr({
              b.getNamedAttr("kind", value.getAs<StringAttr>("kind"))})),
          b.getNamedAttr("value", value),
          b.getNamedAttr("ac.source_owner", owner),
@@ -2345,7 +2409,8 @@ LogicalResult Importer::scanConstants() {
 }
 
 // Native ConstantOp deliberately supports more StaticType/StaticValue kinds.
-// The Python literal binding capability admits only these two closed scalars.
+// Python also admits immutable Domain configurations through this same static
+// constant publication path.
 DictionaryAttr Importer::literalConstantValue(ac::ConstantOp declaration) const {
   auto type = declaration->getAttrOfType<DictionaryAttr>("type");
   auto value = declaration->getAttrOfType<DictionaryAttr>("value");
@@ -2357,7 +2422,10 @@ DictionaryAttr Importer::literalConstantValue(ac::ConstantOp declaration) const 
        (typeKind.getValue() == "bool" &&
         isa_and_nonnull<BoolAttr>(value.get("value")))))
     return value;
-  error() << "source constant binding requires an Integer or Boolean literal: @"
+  if (typeKind && llvm::is_contained(ArrayRef<StringRef>{"domain", "domain_list", "domain_dict"}, typeKind.getValue()) &&
+      succeeded(ac::detail::verifyStaticValueMatchesType(value, type,
+          ac::detail::ExpectedTypeKind::Static, {}, error))) return value;
+  error() << "source constant binding requires an Integer, Boolean or Domain configuration: @"
           << declaration.getSymName();
   return {};
 }
@@ -2509,6 +2577,58 @@ LogicalResult Importer::stageEnums() {
   return success();
 }
 
+DictionaryAttr Importer::domainParameterType(const AstNode &node) {
+  if (intrinsic(node, "Domain"))
+    return b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("domain"))});
+  if (node.kind() != "Subscript" || node.child("value").kind() != "Name") return {};
+  StringRef name = node.child("value").string("id");
+  auto builtin = [&](const AstNode &candidate) {
+    if (candidate.kind() != "Name") return false;
+    StringRef spelling = candidate.string("id");
+    if (names.contains(spelling) || structs.contains(spelling) || enums.contains(spelling) ||
+        behavioralRules.contains(spelling) || lexicallyShadowed(candidate, spelling)) return false;
+    for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+      auto declaration = source.module.item("body", i);
+      if ((declaration.kind() == "FunctionDef" || declaration.kind() == "ClassDef") &&
+          declaration.string("name") == spelling) return false;
+    }
+    return true;
+  };
+  if (!builtin(node.child("value"))) return {};
+  auto slice = node.child("slice");
+  AstNode element;
+  if (name == "list") element = slice;
+  else if (name == "dict" && slice.kind() == "Tuple" && slice.array("elts").size() == 2 &&
+           builtin(slice.item("elts", 0)) && slice.item("elts", 0).string("id") == "str")
+    element = slice.item("elts", 1);
+  auto type = element ? domainParameterType(element) : DictionaryAttr();
+  if (!type) return {};
+  return b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr(
+      name == "list" ? "domain_list" : "domain_dict")), b.getNamedAttr("element", type)});
+}
+bool Importer::domainConfiguration(const AstNode &node, FlatSymbolRefAttr symbol) const {
+  if (node.kind() == "Call") return intrinsic(node.child("func"), "domain");
+  if (node.kind() == "Name" || node.kind() == "Attribute") {
+    if (auto constant = sourceConstant(node)) {
+      StringRef kind = constant.getAs<StringAttr>("kind").getValue();
+      if (kind == "domain" || kind == "list" || kind == "dict") return true;
+    }
+    if (node.kind() != "Name") return false;
+    auto parameters = configurationParameters.find(symbol);
+    auto aliases = configurationAliases.find(symbol);
+    return (parameters != configurationParameters.end() && parameters->second.contains(node.string("id"))) ||
+           (aliases != configurationAliases.end() && aliases->second.contains(node.string("id")));
+  }
+  if (node.kind() == "Subscript") return domainConfiguration(node.child("value"), symbol);
+  if (node.kind() == "List" || node.kind() == "Dict") {
+    StringRef field = node.kind() == "List" ? "elts" : "values";
+    for (size_t i = 0; i < node.array(field).size(); ++i)
+      if (!domainConfiguration(node.item(field, i), symbol)) return false;
+    return true;
+  }
+  return false;
+}
+
 FailureOr<ac::StaticExprAttr>
 Importer::staticExpr(const AstNode &node, FlatSymbolRefAttr ownerSymbol) {
   auto wrap = [&](StringRef kind, ArrayRef<NamedAttribute> payload) {
@@ -2521,6 +2641,49 @@ Importer::staticExpr(const AstNode &node, FlatSymbolRefAttr ownerSymbol) {
         b.getNamedAttr("location", sourceSpan(b, source.path, node)));
     return ac::StaticExprAttr::get(b.getContext(), b.getDictionaryAttr(fields));
   };
+  if (node.kind() == "Call" && intrinsic(node.child("func"), "domain")) {
+    if (!node.array("args").empty() || node.array("keywords").size() != 1 ||
+        node.item("keywords", 0).string("arg") != "clock")
+      return error() << "domain requires exactly clock=literal name";
+    auto clock = node.item("keywords", 0).child("value");
+    auto name = clock.kind() == "Constant" ? dyn_cast_or_null<StringAttr>(clock.get("value")) : StringAttr();
+    if (!name || name.getValue().empty()) return error() << "domain clock requires a nonempty literal name";
+    auto value = b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("domain")),
+                                    b.getNamedAttr("clock", name)});
+    return wrap("literal", {b.getNamedAttr("value", value)});
+  }
+  if (node.kind() == "List") {
+    SmallVector<Attribute> elements;
+    for (size_t i = 0; i < node.array("elts").size(); ++i) {
+      auto element = staticExpr(node.item("elts", i), ownerSymbol);
+      if (failed(element)) return failure();
+      elements.push_back(*element);
+    }
+    return wrap("list", {b.getNamedAttr("elements", b.getArrayAttr(elements))});
+  }
+  if (node.kind() == "Dict") {
+    SmallVector<NamedAttribute> fields;
+    llvm::StringSet<> seen;
+    for (size_t i = 0; i < node.array("keys").size(); ++i) {
+      auto key = node.item("keys", i);
+      auto name = key.kind() == "Constant" ? dyn_cast_or_null<StringAttr>(key.get("value")) : StringAttr();
+      if (!name || !seen.insert(name.getValue()).second) return error() << "static domain dict requires unique literal keys";
+      auto value = staticExpr(node.item("values", i), ownerSymbol);
+      if (failed(value)) return failure();
+      fields.push_back(b.getNamedAttr(name.getValue(), *value));
+    }
+    return wrap("dict", {b.getNamedAttr("fields", b.getDictionaryAttr(fields))});
+  }
+  if (node.kind() == "Subscript") {
+    auto base = staticExpr(node.child("value"), ownerSymbol);
+    if (failed(base)) return failure();
+    auto slice = node.child("slice");
+    auto name = slice.kind() == "Constant" ? dyn_cast_or_null<StringAttr>(slice.get("value")) : StringAttr();
+    if (name) return wrap("field", {b.getNamedAttr("base", *base), b.getNamedAttr("name", name)});
+    auto index = staticExpr(slice, ownerSymbol);
+    if (failed(index)) return failure();
+    return wrap("element", {b.getNamedAttr("base", *base), b.getNamedAttr("index", *index)});
+  }
   if (node.kind() == "Constant" || sourceConstant(node)) {
     DictionaryAttr value = node.kind() == "Constant"
                                ? staticValue(b, node.get("value"), error)
@@ -2531,6 +2694,11 @@ Importer::staticExpr(const AstNode &node, FlatSymbolRefAttr ownerSymbol) {
     return wrap("literal", ArrayRef<NamedAttribute>{field});
   }
   if (node.kind() == "Name") {
+    auto aliases = configurationAliases.find(ownerSymbol);
+    if (aliases != configurationAliases.end()) {
+      auto alias = aliases->second.find(node.string("id"));
+      if (alias != aliases->second.end()) return staticExpr(alias->second, ownerSymbol);
+    }
     DictionaryAttr ref = b.getDictionaryAttr(
         {b.getNamedAttr("kind", b.getStringAttr("parameter")),
          b.getNamedAttr("owner", ownerSymbol),
@@ -2851,13 +3019,34 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
         rows.reserve(count);
         for (uint64_t index = 0; index < count; ++index) {
           auto row = sequence.item("elts", index);
-          if ((row.kind() != "Tuple" && row.kind() != "List") ||
-              row.array("elts").size() != 2)
-            return error()
-                   << "each System sample requires exactly clock and reset";
-          char encoded[2];
-          for (unsigned cellIndex = 0; cellIndex < 2; ++cellIndex) {
-            auto cell = row.item("elts", cellIndex);
+          bool named = row.kind() == "Dict";
+          if (!index && named) {
+            llvm::StringSet<> seen;
+            for (size_t j = 0; j < row.array("keys").size(); ++j) {
+              auto key = row.item("keys", j);
+              auto name = key.kind() == "Constant" ? dyn_cast_or_null<StringAttr>(key.get("value")) : StringAttr();
+              if (!name || !seen.insert(name.getValue()).second)
+                return error() << "named System samples require unique literal control names";
+              result.sampleNames.push_back(name);
+            }
+          }
+          unsigned width = result.sampleNames.empty() ? 2 : result.sampleNames.size();
+          if ((!named && ((row.kind() != "Tuple" && row.kind() != "List") ||
+                           row.array("elts").size() != width)) ||
+              (named && row.array("keys").size() != width) ||
+              (named != !result.sampleNames.empty()))
+            return error() << "System rows must provide the same complete controls";
+          std::string encoded(width, '0');
+          for (unsigned cellIndex = 0; cellIndex < width; ++cellIndex) {
+            AstNode cell;
+            if (named) {
+              for (size_t j = 0; j < row.array("keys").size(); ++j)
+                if (row.item("keys", j).get("value") == result.sampleNames[cellIndex]) {
+                  if (cell) return error() << "repeated System control";
+                  cell = row.item("values", j);
+                }
+              if (!cell) return error() << "System row is missing a named control";
+            } else cell = row.item("elts", cellIndex);
             auto integer =
                 mlir::dyn_cast_or_null<DictionaryAttr>(cell.get("value"));
             auto spelling =
@@ -2880,7 +3069,7 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
                                 "four_state";
             }
           }
-          rows.push_back(b.getStringAttr(StringRef(encoded, 2)));
+          rows.push_back(b.getStringAttr(encoded));
         }
         result.systemSamples = b.getDictionaryAttr(
             {b.getNamedAttr("rows", b.getArrayAttr(rows)),
@@ -2893,7 +3082,8 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   }
   AstNode args = node.child("args");
   if (result.system &&
-      (!args.array("posonlyargs").empty() || !args.array("args").empty() ||
+      (!args.array("posonlyargs").empty() ||
+       (!args.array("args").empty() && result.sampleNames.empty()) ||
        !args.array("kwonlyargs").empty() || args.child("vararg") ||
        args.child("kwarg") || !args.array("defaults").empty() ||
        !args.array("kw_defaults").empty()))
@@ -2912,6 +3102,8 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
              << "module input shadows a source declaration or namespace";
     if (!seen.insert(arg.string("arg")).second || !arg.child("annotation"))
       return error() << "module input requires a unique name and annotation";
+    if (arg.string("arg") == "domain")
+      return error() << "domain is reserved for the instance default clock binding";
     FlatSymbolRefAttr referenceModule;
     auto annotation = arg.child("annotation");
     if (auto binding = lookupBinding(annotation);
@@ -2924,6 +3116,35 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
             declaration.string("name") == annotation.string("id"))
           referenceModule = FlatSymbolRefAttr::get(b.getContext(), qualify(declaration.string("name")));
       }
+    if (cdcKind(annotation) == "async_fifo") {
+      auto arguments = annotation.child("slice");
+      if (arguments.kind() != "Tuple" || arguments.array("elts").size() != 2)
+        return error() << "AsyncFIFO reference requires payload type and static depth";
+      auto payload = portType(arguments.item("elts", 0), result.symbol);
+      auto depth = staticExpr(arguments.item("elts", 1), result.symbol);
+      if (failed(payload) || failed(depth)) return failure();
+      Port payloadPort{arg.string("arg").str(), *payload, arguments.item("elts", 0),
+                       annotationKind(arguments.item("elts", 0)), fixedAnnotation(arguments.item("elts", 0))};
+      auto constraint = sourceConstraint(payloadPort);
+      if (failed(constraint)) return failure();
+      auto builtin = headers.lookupBuiltin("async_fifo");
+      if (!builtin || !headers.isTrustedBuiltin(builtin.declaration))
+        return error() << "AsyncFIFO reference requires its canonical resource declaration";
+      if (!SymbolTable::lookupSymbolIn(*body, builtin.symbol)) {
+        auto *copy = builtin.declaration->clone();
+        copy->setAttr("ac.declaration_role", b.getStringAttr("import_snapshot"));
+        body->getBody()->push_back(copy);
+      }
+      references.push_back(b.getDictionaryAttr({
+          b.getNamedAttr("name", b.getStringAttr(arg.string("arg"))),
+          b.getNamedAttr("callee", builtin.symbol),
+          b.getNamedAttr("position", b.getI64IntegerAttr(i)),
+          b.getNamedAttr("parameters", b.getArrayAttr({*depth})),
+          b.getNamedAttr("type_arguments", b.getArrayAttr({TypeAttr::get(*payload)})),
+          b.getNamedAttr("payload_constraint", *constraint)}));
+      clockConfigurationActive = true;
+      continue;
+    }
     if (referenceModule) {
       references.push_back(b.getDictionaryAttr({
           b.getNamedAttr("name", b.getStringAttr(arg.string("arg"))),
@@ -2934,6 +3155,9 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
     auto type = portType(arg.child("annotation"), result.symbol);
     if (failed(type))
       return failure();
+    if (result.system && (!fixedAnnotation(arg.child("annotation")) ||
+        !llvm::is_contained(result.sampleNames, b.getStringAttr(arg.string("arg")))))
+      return error() << "System authored parameters must name sampled one-bit controls";
     result.inputs.push_back({arg.string("arg").str(), *type, arg,
                              annotationKind(arg.child("annotation")),
                              fixedAnnotation(arg.child("annotation"))});
@@ -2946,14 +3170,30 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
     if (names.contains(arg.string("arg")))
       return error()
              << "static parameter shadows a source declaration or namespace";
-    if (!seen.insert(arg.string("arg")).second || type.kind() != "Name" ||
-        type.string("id") != "int")
-      return error() << "static parameters require unique keyword-only int "
-                        "declarations";
+    auto domainType = domainParameterType(type);
+    if (!seen.insert(arg.string("arg")).second ||
+        (!domainType && (type.kind() != "Name" || type.string("id") != "int")))
+      return error() << "static parameters require unique keyword-only int or Domain declarations";
+    if (domainType) {
+      configurationParameters[result.symbol].insert(arg.string("arg"));
+      clockConfigurationActive = true;
+    }
+    if (arg.string("arg") == "domain")
+      return error() << "domain is reserved for the instance default clock binding";
     AstNode value = args.item("kw_defaults", i);
     result.parameters.push_back(
         {arg.string("arg").str(), arg,
-         value ? std::optional<AstNode>(value) : std::nullopt});
+         value ? std::optional<AstNode>(value) : std::nullopt, domainType});
+  }
+  for (size_t i = 0; i < node.array("body").size(); ++i) {
+    auto statement = node.item("body", i);
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        domainConfiguration(statement.child("value"), result.symbol)) {
+      StringRef name = statement.item("targets", 0).string("id");
+      if (!seen.insert(name).second) return error() << "static Domain binding must be unique";
+      configurationAliases[result.symbol][name] = statement.child("value");
+    }
   }
   if (!references.empty()) result.transactionEffects = true;
   AstNode returns = node.child("returns");
@@ -2965,7 +3205,7 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
     return failure();
   for (size_t i = 0; i < node.array("body").size(); ++i) {
     auto stmt = node.item("body", i);
-    if (stmt.kind() == "AnnAssign" ||
+    if ((stmt.kind() == "AnnAssign" && cdcKind(stmt.child("annotation")).empty()) ||
         (stmt.kind() == "Assign" && stmt.child("value").kind() == "Call" &&
          stmt.child("value").child("func").kind() == "Subscript" &&
          intrinsic(stmt.child("value").child("func").child("value"), "table")))
@@ -2975,7 +3215,8 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   result.sourceInputCount = result.inputs.size();
   result.behavioral =
       result.persistent || result.returnShape != ReturnShape::Mapping ||
-      result.methodOwner;
+      result.methodOwner || !configurationAliases[result.symbol].empty() ||
+      !configurationParameters[result.symbol].empty();
   for (size_t i = 0; i < node.array("body").size(); ++i) {
     auto stmt = node.item("body", i);
     auto call = stmt.child("value");
@@ -3056,8 +3297,13 @@ Importer::moduleSignatureAttrs(const ModuleDecl &target) {
         return failure();
       defaultValue = *value;
     }
-    parameters.push_back(
-        ac::getStaticParameterAttr(b, parameter.name, defaultValue));
+    auto encoded = ac::getStaticParameterAttr(b, parameter.name, defaultValue);
+    if (parameter.staticType) {
+      NamedAttrList fields(encoded);
+      fields.set("type", parameter.staticType);
+      encoded = fields.getDictionary(b.getContext());
+    }
+    parameters.push_back(encoded);
   }
   SmallVector<NamedAttribute> attrs{
       b.getNamedAttr("sym_name", b.getStringAttr(target.symbol.getValue())),
@@ -3091,6 +3337,7 @@ Importer::bindParameters(DictionaryAttr calleeAttrs, const AstNode &call,
     auto typeFormals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
     if (name && typeFormals && llvm::is_contained(typeFormals, name))
       continue;
+    if (name && name.getValue() == "domain") continue;
     if (directCall && name) {
       auto references = calleeAttrs.getAs<ArrayAttr>("ac.reference_parameters");
       if (references && llvm::any_of(references, [&](Attribute raw) {
@@ -6380,6 +6627,7 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
   for (ModuleDecl &decl : modules)
     if (failed(emitModule(decl)))
       return failure();
+  if (failed(ac::inferSourceCDCEndpoints(*body))) return failure();
   SmallVector<ValueHelperDecl *> pendingHelpers;
   for (auto &entry : valueHelpers)
     if (entry.second->state == 0) pendingHelpers.push_back(entry.second.get());

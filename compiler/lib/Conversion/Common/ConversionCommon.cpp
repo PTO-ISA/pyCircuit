@@ -11,6 +11,25 @@ using namespace mlir;
 
 namespace acir::detail {
 
+ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
+                                        MLIRContext *context, bool one) {
+  Builder builder(context);
+  auto type = cast<ac::BitsType>(payload);
+  auto literal = ac::MathIntAttr::get(
+      context, llvm::APSInt(llvm::APInt(1, one ? 1 : 0), true));
+  auto tree = builder.getDictionaryAttr(
+      {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+       builder.getNamedAttr(
+           "value",
+           builder.getDictionaryAttr(
+               {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+                builder.getNamedAttr("value", literal)})),
+       builder.getNamedAttr("origin", occurrence),
+       builder.getNamedAttr("location",
+                            type.getWidth().getTree().get("location"))});
+  return ac::StaticExprAttr::get(context, tree);
+}
+
 bool charge(ac::detail::SourceCheckBudget &budget, Operation *site,
             uint64_t units) {
   return succeeded(budget.debit(units, site));

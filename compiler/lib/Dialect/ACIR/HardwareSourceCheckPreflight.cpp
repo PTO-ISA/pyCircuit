@@ -2,6 +2,7 @@
 #include "HardwareSourceCheckPreflight.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "pycircuit/Analysis/LogicalStateValidation.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
@@ -25,6 +26,9 @@ struct Allocation {
   uint64_t count = 1;
   HardwareCheckCommitEndpointForm form = HardwareCheckCommitEndpointForm::Physical;
   bool combinationalExternal = false;
+  // A routed native resource is validated here, but its physical storage
+  // endpoints exist only after GFIRToHWIR has expanded the component.
+  bool deferredLogicalResource = false;
 };
 struct BoundDefinition {
   ModuleOp definition;
@@ -521,10 +525,27 @@ private:
     };
     if (failed(budget.debit(1, site)))
       return failure();
+    auto resets = sampled ? sampled.getAs<ArrayAttr>("resets") : ArrayAttr();
+    bool events = bool(resets);
+    auto masked = sampled ? sampled.getAs<BoolAttr>("reset_masked") : BoolAttr();
+    if (sampled && sampled.get("reset_masked") && (!masked || !masked.getValue() || !events || resets.empty())) return fail();
     auto clock = rawIndex(sampled, "clock_capture"),
-         reset = rawIndex(sampled, "reset_capture"),
+         reset = rawIndex(sampled, events ? "clock_capture" : "reset_capture"),
          fire = rawIndex(sampled, "fire_result");
-    if (!sampled || sampled.size() != (6 + bool(requirements) + bool(resources) + bool(proposals) + bool(memoryProposals) + bool(domains)) || !controls || controls.empty() ||
+    if (events) {
+      auto edge = sampled.getAs<StringAttr>("edge");
+      if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") || sampled.get("reset_capture")) return fail();
+      for (Attribute raw : resets) {
+        auto row = dyn_cast<DictionaryAttr>(raw);
+        auto capture = rawIndex(row, "capture");
+        auto kind = row ? row.getAs<StringAttr>("kind") : StringAttr();
+        auto polarity = row ? row.getAs<StringAttr>("polarity") : StringAttr();
+        if (!row || row.size() != 3 || !capture || *capture >= site->getNumOperands() || !kind ||
+            (kind.getValue() != "sync" && kind.getValue() != "async") || !polarity ||
+            (polarity.getValue() != "high" && polarity.getValue() != "low")) return fail();
+      }
+    }
+    if (!sampled || sampled.size() != (6 + unsigned(events) + unsigned(bool(masked)) + bool(requirements) + bool(resources) + bool(proposals) + bool(memoryProposals) + bool(domains)) || !controls || controls.empty() ||
         !checks || !observations || !clock || !reset || !fire ||
         *clock >= site->getNumOperands() || *reset >= site->getNumOperands())
       return fail();
@@ -535,6 +556,7 @@ private:
     auto add = Budget::add;
     auto multiply = Budget::multiply;
     uint64_t cost = schemaRecordCost<SampledAdmissionView>();
+    if (resets) cost = add(cost, multiply(resets.size(), schemaRecordCost<HardwareSamplingReset>()));
     auto attributeCost = [&](Attribute value) -> LogicalResult {
       auto units = sampledAttributeCost(value, site);
       if (failed(units))
@@ -1370,13 +1392,25 @@ private:
           normalizeIdentityEndpoint(*reset, stops, analysis, budget);
       if (failed(normalizedClock) || failed(normalizedReset))
         return failure();
+      SmallVector<HardwareSamplingReset> resets;
+      for (const auto &resetBinding : sampled->resets) {
+        auto endpoint = makeIdentityEndpoint(resetBinding.value, scope, analysis, budget);
+        if (failed(endpoint)) return failure();
+        auto normalized = normalizeIdentityEndpoint(*endpoint, stops, analysis, budget);
+        if (failed(normalized)) return failure();
+        resets.push_back({normalized->value, resetBinding.kind, resetBinding.polarity});
+      }
       std::optional<uint64_t> found;
       for (uint64_t index : indices) {
         if (failed(budget.debit(1, definition)))
           return failure();
         const auto &binding = plan.samplingBindings[index];
         if (binding.clock == normalizedClock->value &&
-            binding.reset == normalizedReset->value) {
+            binding.reset == normalizedReset->value && binding.edge == sampled->edge &&
+            binding.resets.size() == resets.size() &&
+            llvm::equal(binding.resets, resets, [](const auto &a, const auto &b) {
+              return a.value == b.value && a.kind == b.kind && a.polarity == b.polarity;
+            })) {
           found = index;
           break;
         }
@@ -1390,7 +1424,7 @@ private:
         found = plan.samplingBindings.size();
         plan.samplingBindings.push_back({definition, normalizedClock->value,
                                          normalizedReset->value,
-                                         indices.size()});
+                                         indices.size(), sampled->edge, std::move(resets)});
         indices.push_back(*found);
       }
       if (failed(budget.debit(
@@ -1454,7 +1488,10 @@ private:
       // uninstantiated module cannot bypass the original rejection boundary.
       auto lexical = definition.walk([&](Operation *op) {
         LogicalResult result = success();
-        if (isa<EnumCreateOp, EnumToBitsOp, EnumFromBitsOp>(op))
+        if (isa<CDCRefinementOp>(op) ||
+            isCDCInstance(dyn_cast<InstanceOp>(op)))
+          result = verifyBoundHardwareCDCOperation(analysis, op, local);
+        else if (isa<EnumCreateOp, EnumToBitsOp, EnumFromBitsOp>(op))
           result = analysis.verifyEnumValueOperation(op, local);
         else if (isa<CollectionOp, TableCreateOp, TableSplatOp, TableMapOp,
                     TableViewOp, TableIndexOp, TableReadOp, TableGetOp,
@@ -1664,6 +1701,7 @@ private:
           if (failed(analysis.verifyImport(cast<ModuleImportOp>(child->owner))))
             return failure();
           edge.primitive = StringAttr::get(definition.getContext(), primitive);
+          edge.deferredLogicalResource = isCDCPrimitive(child->owner);
         } else {
           auto childDefinition = dyn_cast<ModuleOp>(child->owner);
           if (!childDefinition) {
@@ -1718,7 +1756,7 @@ private:
             Budget::add(
                 1, Budget::bytes(sizeof(HardwareCheckSamplingOccurrence)))));
     for (auto &edge : node.allocations) {
-      if (edge.combinationalExternal) continue;
+      if (edge.combinationalExternal || edge.deferredLogicalResource) continue;
       for (uint64_t extent : edge.shape)
         edge.count = Budget::multiply(edge.count, extent);
       if (edge.child) {
@@ -1808,7 +1846,7 @@ private:
           {bindingIndex, owner, reset, plan.checks.size(), samplingOccurrence});
     }
     for (const auto &edge : node.allocations) {
-      if (edge.combinationalExternal) continue;
+      if (edge.combinationalExternal || edge.deferredLogicalResource) continue;
       for (uint64_t lane = 0; lane < edge.count; ++lane) {
         // Debit before creating either coordinate or copied path payload.
         if (failed(budget.debit(edge.shape.size(), edge.operation)))

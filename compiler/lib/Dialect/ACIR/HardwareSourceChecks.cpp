@@ -1,4 +1,5 @@
 #include "HardwareSourceChecks.h"
+#include "HardwarePhysicalEvents.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
 #include "HardwareSourceCheckPreflight.h"
@@ -913,7 +914,10 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       detail::HardwareIdentityStopPolicy stops{
           detail::HardwareIdentityTraversal::DefinitionLocal,
           (*prepared)->getBoundaries()};
-      const Value captures[] = {sampled->second.clock, sampled->second.reset};
+      SmallVector<Value> captures{sampled->second.clock};
+      for (const auto &reset : sampled->second.resets) captures.push_back(reset.value);
+      if (expect.getSampling().size() != captures.size())
+        return expect.emitOpError("check sampling operands differ from owning event context");
       for (auto [actual, capture] : llvm::zip(expect.getSampling(), captures)) {
         auto lhs = detail::makeIdentityEndpoint(actual, (*prepared)->getScope(),
                                                 analysis, budget);
@@ -1046,8 +1050,10 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
   if (expect->hasAttr("ac.message") &&
       !expect->getAttrOfType<StringAttr>("ac.message"))
     return error() << "source check message must be a static string";
-  if (expect.getSampling().size() !=
-      (expect.getKind() == "guard_known" ? 2u : 0u))
+  auto contract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  bool events = contract && contract.getInt() == 7;
+  if (events ? (expect.getKind() == "guard_known" ? expect.getSampling().empty() : !expect.getSampling().empty()) :
+      expect.getSampling().size() != (expect.getKind() == "guard_known" ? 2u : 0u))
     return error() << "guard_known requires clock/reset sampling operands; "
                       "assert/range require no sampling operands";
   for (Value pin : expect.getSampling())
@@ -1125,9 +1131,13 @@ FailureOr<HardwareBindings> resolveHardwareEntryBindings(
     auto value = analysis.evaluateStatic(expr, bindings, system);
     if (failed(value))
       return failure();
-    if (!isa<MathIntAttr>(*value))
-      return system.emitOpError()
-             << "root integer parameter requires math integer";
+    if (auto type = formal.getAs<DictionaryAttr>("type")) {
+      auto configuration = dyn_cast<DictionaryAttr>(*value);
+      if (!configuration || failed(verifyStaticValueMatchesType(configuration, type,
+              ExpectedTypeKind::Static, {}, [&] { return system.emitOpError(); })))
+        return failure();
+    } else if (!isa<MathIntAttr>(*value))
+      return system.emitOpError() << "root integer parameter requires math integer";
     bindings.integers[formal.getAs<StringAttr>("name").getValue()] = *value;
   }
   return bindings;
@@ -1254,7 +1264,11 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
   for (auto [lhs, rhs] :
        llvm::zip(plan.samplingBindings, fresh->samplingBindings))
     if (lhs.definition != rhs.definition || lhs.clock != rhs.clock ||
-        lhs.reset != rhs.reset || lhs.localOrdinal != rhs.localOrdinal)
+        lhs.reset != rhs.reset || lhs.localOrdinal != rhs.localOrdinal || lhs.edge != rhs.edge ||
+        lhs.resets.size() != rhs.resets.size() ||
+        !llvm::equal(lhs.resets, rhs.resets, [](const auto &a, const auto &b) {
+          return a.value == b.value && a.kind == b.kind && a.polarity == b.polarity;
+        }))
       return mismatch();
   for (auto [lhs, rhs] :
        llvm::zip(plan.samplingOccurrences, fresh->samplingOccurrences))

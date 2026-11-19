@@ -15,10 +15,15 @@
           if (failed(fact) || *fact != access.pathFact)
             return reject("original queue authored path fact differs");
           const auto &owner = plan.queueOwners[access.owner];
-          auto allocation = resolved->method.nativeQueueInstance;
+          auto actual = ac::detail::resolveTransactionQueueReceiver(plan, anchor,
+              resolved->receiver, call, [&](uint64_t work) { return success(charge(budget, call, work)); });
+          if (failed(actual)) return failure();
+          auto ownerAnchor = actual->first;
+          auto allocation = actual->second;
+          auto pins = ac::getQueuePrimitiveLayout(allocation);
           if (!allocation || owner.allocation != allocation ||
-              owner.anchor != anchor ||
-              owner.instancePath != plan.instances[anchor].occurrencePath ||
+              owner.anchor != ownerAnchor ||
+              owner.instancePath != plan.instances[ownerAnchor].occurrencePath ||
               owner.occurrence != allocation.getOccurrence() ||
               owner.unboundPush !=
                   allocation->hasAttr("ac.source_unbound_push") ||
@@ -26,29 +31,29 @@
             return reject("original queue owner allocation differs");
           for (auto [id, value] : {
                    std::pair<ac::BoundValueId, Value>{
-                       owner.data, allocation.getOutputs()[2]},
-                   {owner.valid, allocation.getOutputs()[1]},
-                   {owner.ready, allocation.getOutputs()[0]},
-                   {owner.localCapacity, allocation.getOutputs()[3]},
-                   {owner.inValid, allocation.getInputs()[2]},
-                   {owner.inData, allocation.getInputs()[3]},
-                   {owner.outReady, allocation.getInputs()[4]}})
-            if (failed(replay.identify(id, value, anchor, plan.rootFrame)))
+                       owner.data, pins.data()},
+                   {owner.valid, pins.valid()},
+                   {owner.ready, pins.ready()},
+                   {owner.localCapacity, pins.capacity()},
+                   {owner.inValid, pins.push()},
+                   {owner.inData, pins.payload()},
+                   {owner.outReady, pins.pop()}})
+            if (failed(replay.identify(id, value, ownerAnchor, plan.rootFrame)))
               return failure();
-          auto clock = replay.find(allocation.getInputs()[0], anchor,
+          auto clock = replay.find(pins.clock(access.kind == ac::TransactionQueueAccessKind::Push), ownerAnchor,
                                    plan.rootFrame);
-          auto reset = replay.find(allocation.getInputs()[1], anchor,
+          auto reset = replay.find(pins.reset(), ownerAnchor,
                                    plan.rootFrame);
           if (failed(clock) || failed(reset)) return failure();
           auto c = replay.endpoint(*clock, point());
           auto r = replay.endpoint(*reset, point());
           auto config = hardware.resolveQueue(
-              allocation, plan.instances[anchor].bindings);
+              allocation, plan.instances[ownerAnchor].bindings);
           auto payload = hardware.resolveType(
-              allocation.getOutputs()[2].getType(),
-              plan.instances[anchor].bindings, allocation);
+              pins.data().getType(),
+              plan.instances[ownerAnchor].bindings, allocation);
           if (failed(c) || failed(r) || failed(config) || failed(payload) ||
-              !(owner.domain == ac::TransactionDomain{*c, *r}) ||
+              !(owner.domain == ac::TransactionDomain{*c, ac::isAsyncQueueInstance(allocation) ? plan.domain.reset : *r}) ||
               !(owner.domain == plan.domain) ||
               !ac::areEquivalentHardwareTypes(*payload, owner.payloadType) ||
               owner.config.depth != config->depth ||

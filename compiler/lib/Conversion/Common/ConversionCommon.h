@@ -17,6 +17,9 @@ class SourceCheckBudget;
 }
 
 namespace acir::detail {
+ac::StaticExprAttr bitsLiteralAttribute(mlir::Type payload,
+                                        mlir::DictionaryAttr occurrence,
+                                        mlir::MLIRContext *context, bool one);
 bool charge(ac::detail::SourceCheckBudget &budget, mlir::Operation *site,
             uint64_t units = 1);
 bool prepayOperationHeader(mlir::Operation *op,

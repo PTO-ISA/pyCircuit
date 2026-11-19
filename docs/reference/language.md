@@ -860,6 +860,75 @@ the lowest unsigned key, with the lowest index breaking ties. Four-state
 predicates and keys retain the existing conditional-merge semantics; a logical
 range proof does not establish that a physical value is known.
 
+## Explicit state policies, clock domains and CDC
+
+`tests/system/test_frontend_state_domain_cdc.py` exercises explicit state
+policies, multi-domain hierarchy, AsyncReg and AsyncFIFO through source
+compile/link, saved-anchor reload, C++ workers 1/2 and four-state RTL. These
+bounded cases include independent provider compilation, inferred endpoints,
+reset recovery and failed FIFO transaction discard followed by retry. Explicit
+endpoint variants also pass compile/save/reload; logical depth three reaches
+the saved stage and rejects physicalization without replacing existing output.
+This coverage does not establish every type/configuration combination.
+Existing plain state declarations and two-column System schedules retain their
+behavior.
+
+An explicit storage declaration keeps its logical payload annotation:
+
+```python
+count: ac.u8 = ac.state(
+    init=3, reset=rst_n, reset_kind="async", reset_polarity="low",
+    reset_value=0, edge="posedge",
+)
+```
+
+`init` is optional; omission means unspecified initial state (X), not zero.
+`edge` defaults to `posedge`, and `reset_kind` to `sync`. An omitted reset
+inherits the compiler default reset and polarity; an explicit reset defaults
+to high polarity. An omitted reset value uses explicit `init`; a reset-enabled
+declaration with neither value is invalid. `reset_kind="none"` omits reset
+entirely and cannot be combined with reset arguments. Rule assignments update
+the existing storage. Initialization and reset values remain distinct.
+
+`ac.domain(clock="clk_fast")` denotes static clock configuration. The special
+instance keyword `domain` selects that instance's default domain; omission
+inherits the parent's default. Additional domains travel through ordinary
+`ac.Domain`, `list[ac.Domain]` or `dict[str, ac.Domain]` static parameters.
+`domains` is a recommended ordinary parameter name, not a reserved keyword.
+Aliases, static indexing and forwarding retain domain identity; mutation and
+runtime configuration are outside this extension. These arguments create no
+data Table or hardware payload ports, and published interfaces retain their
+binding requirements for independent compilation.
+
+A child in another domain does not make its result legal at the parent's
+ordinary output boundary. Ordinary cross-domain Method calls are invalid;
+use explicit CDC resources for crossings.
+
+Named System sample rows supply every clock/control column in every epoch.
+Clock names bind generated root controls. Explicitly declared one-bit System
+control parameters bind their same-named columns; the compiler does not inject
+Python variables or admit arbitrary external data inputs. Use a `pyc_rst`
+column when the design uses the default reset. Original `(clock, reset)` rows
+remain available. The compiler generates both target runners and their input
+index mappings.
+
+`ac.AsyncReg[ac.u1](source=fast, target=slow, reset=rst)` allocates a level
+synchronizer. Assignment connects its input, reading references its output,
+and aliases preserve one allocation. Endpoint configuration can be omitted
+only when connections determine it uniquely; all consumers share one target
+domain. `ac.AsyncFIFO[T, DEPTH](write=fast, read=slow, reset=rst)` uses the
+Queue `push`, `pop` and `peek` operations. Typed Module parameters carry FIFO
+allocation identity, payload and depth, rather than copying a data value.
+Each endpoint uses its local availability and its own domain's transaction;
+there is no cross-domain atomic transaction or remote pop credit.
+
+CDC reset belongs to the resource declaration. Omission inherits that
+Module's default reset; endpoint resets are neither selected nor merged.
+Independent endpoint resets are outside this extension. Backend recovery
+controls when transfer resumes. Every positive FIFO depth is logically valid;
+the first physical implementation supports powers of two of at least two.
+Other capacities report an implementation limitation without changing depth.
+
 ## Queues
 
 Prefer a named Queue with typed calls inside Rules:

@@ -186,12 +186,17 @@ def _validate_manifest(value: object) -> None:
         manifest["kind"] != "pycircuit-anchor"
         or type(manifest["schema"]) is not int
         or type(manifest["routed_contract"]) is not int
-        or (manifest["schema"], manifest["routed_contract"]) not in ((3, 4), (4, 5))
+        or (manifest["schema"], manifest["routed_contract"])
+        not in ((3, 4), (4, 5), (6, 7))
     ):
         raise _PublicationError(
             "unsupported anchor format/contract; regenerate from source units"
         )
-    entry_boundary = manifest["schema"] == 4
+    entry_boundary = manifest["schema"] == 4 or (
+        manifest["schema"] == 6
+        and isinstance(manifest["configuration"], dict)
+        and "implementation_root" in manifest["configuration"]
+    )
     owner = _validate_owner(manifest["owner"])
     if owner["kind"] != "anchor" or _symbol(manifest["root"]) != owner["definition"]:
         raise _PublicationError("anchor root and owner disagree")
@@ -335,7 +340,8 @@ def _validate_manifest(value: object) -> None:
             "graph_sha256",
             "definitions",
         }
-        | ({"implementation_root"} if entry_boundary else set()),
+        | ({"implementation_root"} if entry_boundary else set())
+        | ({"domain_bindings"} if manifest["schema"] == 6 else set()),
         "configuration",
     )
     config_root = _object(
@@ -385,6 +391,24 @@ def _validate_manifest(value: object) -> None:
     if configuration["type_arguments"] != []:
         raise _PublicationError("anchor public root type arguments must be empty")
     _text(configuration["domain"], "domain")
+    if manifest["schema"] == 6:
+        previous = None
+        for raw in _array(configuration["domain_bindings"], "domain bindings"):
+            row = _object(
+                raw, {"instance_path", "formal", "clock_input"}, "domain binding"
+            )
+            path = _array(row["instance_path"], "domain instance path")
+            if len(path) > _DEPTH_LIMIT or any(type(part) is not dict for part in path):
+                raise _PublicationError("anchor domain instance path is invalid")
+            if not _text(row["formal"], "domain formal") or (
+                type(row["clock_input"]) is not int
+                or not 0 <= row["clock_input"] < 2**32
+            ):
+                raise _PublicationError("anchor domain binding is invalid")
+            identity = _canonical(row)
+            if previous is not None and identity <= previous:
+                raise _PublicationError("anchor domain bindings are not canonical")
+            previous = identity
     if configuration["reset_semantics"] not in ("strict", "if_one"):
         raise _PublicationError("anchor reset semantics is invalid")
     if _hash(configuration["graph_sha256"]) != files["graph.ac"]["sha256"]:
