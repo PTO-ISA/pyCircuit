@@ -22,6 +22,12 @@
 
 using namespace mlir;
 namespace acir::ac::detail {
+static FailureOr<HardwareIdentityEndpoint>
+normalizeCurrentIdentityEndpoint(HardwareIdentityEndpoint current,
+                                 const HardwareIdentityStopPolicy &stops,
+                                 const HardwareAnalysis &analysis,
+                                 SourceCheckBudget &budget,
+                                 const HardwareIdentityStopIndex *stopIndex);
 namespace {
 LogicalResult charge(SourceCheckBudget &budget, Operation *site, uint64_t count,
                      uint64_t size) {
@@ -264,7 +270,8 @@ normalized(Value value, const HardwareIdentityScope &scope,
   auto endpoint = makeIdentityEndpoint(value, scope, analysis, budget);
   if (failed(endpoint))
     return failure();
-  return normalizeIdentityEndpoint(*endpoint, policy, analysis, budget);
+  return normalizeCurrentIdentityEndpoint(std::move(*endpoint), policy, analysis,
+                                          budget, nullptr);
 }
 LogicalResult wholeStateID(DictionaryAttr state, Operation *site) {
   if (failed(verifyStateID(state, [&] { return site->emitOpError(); })))
@@ -469,7 +476,13 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   if (!required || required.size() != checkCount)
     return rule->emitOpError() << "sampled admission requires exactly its "
                                   "ordered control/assert obligations";
-  if (failed(payAttribute(required, budget, rule)) ||
+  // Each three-field record needs a slot/shape check and seven bounded field
+  // lookups. IDs already belong to the sampled row and are paid for again only
+  // when the actual structural comparison traverses distinct attributes.
+  constexpr uint64_t requiredRecordWork = 2 + 7 * (3 + 1);
+  if (failed(budget.debit(SourceCheckBudget::multiply(required.size(),
+                                                      requiredRecordWork),
+                          rule)) ||
       failed(payAttribute(rule->getAttr("occurrence"), budget, rule)))
     return failure();
   if (failed(
@@ -662,22 +675,25 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     // Closed CheckIDs already have distinct obligations equal to their row
     // ordinals and the same verified registration. Only role-specific
     // invocation/site uniqueness still needs a pairwise comparison here.
-    for (const auto &prior : result.controls) {
-      if (failed(budget.debit(1, rule)))
-        return failure();
-      if (prior.kind != role || prior.invocation.size() != invocation.size())
-        continue;
-      if (failed(payComparison(prior.invocation, invocation, budget, rule)))
-        return failure();
-      bool sameInvocation = identical(prior.invocation, invocation);
-      if (role == SampledControlKind::CallableGuard && sameInvocation)
-        return rule->emitOpError() << "duplicate sampled callable identity";
-      if (role == SampledControlKind::BranchSelect && sameInvocation) {
-        if (failed(payComparison(prior.id.get("check"), id.get("check"), budget,
-                                 rule)))
+    if (role == SampledControlKind::CallableGuard ||
+        role == SampledControlKind::BranchSelect) {
+      for (const auto &prior : result.controls) {
+        if (failed(budget.debit(1, rule)))
           return failure();
-        if (identical(prior.id.get("check"), id.get("check")))
-          return rule->emitOpError() << "duplicate sampled selection site";
+        if (prior.kind != role || prior.invocation.size() != invocation.size())
+          continue;
+        if (failed(payComparison(prior.invocation, invocation, budget, rule)))
+          return failure();
+        bool sameInvocation = identical(prior.invocation, invocation);
+        if (role == SampledControlKind::CallableGuard && sameInvocation)
+          return rule->emitOpError() << "duplicate sampled callable identity";
+        if (role == SampledControlKind::BranchSelect && sameInvocation) {
+          if (failed(payComparison(prior.id.get("check"), id.get("check"), budget,
+                                   rule)))
+            return failure();
+          if (identical(prior.id.get("check"), id.get("check")))
+            return rule->emitOpError() << "duplicate sampled selection site";
+        }
       }
     }
     const SampledControlView *owner = nullptr;
@@ -706,9 +722,12 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (failed(payComparison(check.get("id"), id, budget, rule)))
       return failure();
     auto kind = check.getAs<StringAttr>("kind");
+    auto location = check.getAs<DictionaryAttr>("location");
+    if (failed(payAttribute(location, budget, rule)))
+      return failure();
     if (!kind || kind.getValue() != "guard_known" ||
         !identical(check.get("id"), id) ||
-        failed(verifySourceSpan(check.getAs<DictionaryAttr>("location"),
+        failed(verifySourceSpan(location,
                                 [&] { return rule->emitOpError(); })))
       return rule->emitOpError() << "sampled control differs from its ordered "
                                     "guard_known obligation";
@@ -776,6 +795,10 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     auto declaration = resource.getAs<DictionaryAttr>("declaration");
     auto occurrence = resource.getAs<DictionaryAttr>("occurrence");
     auto location = resource.getAs<DictionaryAttr>("location");
+    // The control loop established this RequiredCheck's exact record shape.
+    // Pay the additional array slot and bounded location lookup here.
+    if (failed(budget.debit(5, rule)))
+      return failure();
     if (failed(controlIndex) || *controlIndex != ordinal || !kind ||
         (kind.getValue() != "queue_valid" && kind.getValue() != "queue_ready" && kind.getValue() != "memory_live") ||
         failed(verifyOwnerRef(owner, [&] { return rule->emitOpError(); })) ||
@@ -880,9 +903,12 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (failed(payComparison(record.get("id"), id, budget, rule)))
       return failure();
     auto kind = record.getAs<StringAttr>("kind");
+    auto location = record.getAs<DictionaryAttr>("location");
+    if (failed(payAttribute(location, budget, rule)))
+      return failure();
     if (!kind || kind.getValue() != "assert" ||
         !identical(record.get("id"), id) ||
-        failed(verifySourceSpan(record.getAs<DictionaryAttr>("location"),
+        failed(verifySourceSpan(location,
                                 [&] { return rule->emitOpError(); })))
       return rule->emitOpError()
              << "sampled body assertion differs from its ordered obligation";
@@ -1422,25 +1448,17 @@ makeIdentityEndpoint(Value value, const HardwareIdentityScope &scope,
 }
 
 namespace {
-using IdentityStopIndex = std::multimap<const void *, size_t>;
+using IdentityStopIndex = HardwareIdentityStopIndex;
 uint64_t orderedLookupCost(uint64_t count);
 }
 
 static FailureOr<HardwareIdentityEndpoint>
-normalizeIdentityEndpointImpl(const HardwareIdentityEndpoint &endpoint,
-                              const HardwareIdentityStopPolicy &stops,
-                              const HardwareAnalysis &analysis,
-                              SourceCheckBudget &budget,
-                              const IdentityStopIndex *stopIndex) {
-  auto checked =
-      makeIdentityEndpoint(endpoint.value, endpoint.scope, analysis, budget);
-  if (failed(checked))
-    return failure();
-  if (!areEquivalentHardwareTypes(checked->resolvedType, endpoint.resolvedType))
-    return valueSite(endpoint.value)->emitOpError()
-           << "stale identity endpoint resolved type";
+normalizeCurrentIdentityEndpoint(HardwareIdentityEndpoint current,
+                                 const HardwareIdentityStopPolicy &stops,
+                                 const HardwareAnalysis &analysis,
+                                 SourceCheckBudget &budget,
+                                 const HardwareIdentityStopIndex *stopIndex) {
   SmallVector<HardwareIdentityEndpoint> seen;
-  HardwareIdentityEndpoint current = std::move(*checked);
   for (;;) {
     Operation *site = valueSite(current.value);
     auto matchesStop = [&](const HardwareIdentityEndpoint &stop)
@@ -1581,7 +1599,15 @@ normalizeIdentityEndpoint(const HardwareIdentityEndpoint &endpoint,
                           const HardwareIdentityStopPolicy &stops,
                           const HardwareAnalysis &analysis,
                           SourceCheckBudget &budget) {
-  return normalizeIdentityEndpointImpl(endpoint, stops, analysis, budget, nullptr);
+  auto checked =
+      makeIdentityEndpoint(endpoint.value, endpoint.scope, analysis, budget);
+  if (failed(checked))
+    return failure();
+  if (!areEquivalentHardwareTypes(checked->resolvedType, endpoint.resolvedType))
+    return valueSite(endpoint.value)->emitOpError()
+           << "stale identity endpoint resolved type";
+  return normalizeCurrentIdentityEndpoint(std::move(*checked), stops, analysis,
+                                          budget, nullptr);
 }
 
 namespace {
@@ -1614,12 +1640,48 @@ public:
   IdentityMemo(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
                HardwareIdentityStopPolicy policy)
       : analysis(analysis), budget(budget), policy(policy) {}
+  IdentityMemo(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
+               const PreparedSampledBoundaries &prepared)
+      : analysis(analysis), budget(budget),
+        policy{HardwareIdentityTraversal::DefinitionLocal,
+               prepared.getBoundaries()},
+        borrowedStopIndex(&prepared.getStopIndex()) {}
   FailureOr<HardwareIdentityEndpoint>
   normalize(Value value, const HardwareIdentityScope &scope) {
+    bool cacheHit;
+    auto endpoint = normalizeBorrowedImpl(value, scope, cacheHit);
+    if (failed(endpoint))
+      return failure();
+    // A miss already prepays its output copy. Hits need an owning result only
+    // for callers that retain or mutate an endpoint beyond the lookup.
+    if (cacheHit &&
+        (failed(charge(budget, valueSite(value), 1,
+                       sizeof(HardwareIdentityEndpoint))) ||
+         failed(payScope((*endpoint)->scope, budget, valueSite(value)))))
+      return failure();
+    return **endpoint;
+  }
+  FailureOr<const HardwareIdentityEndpoint *>
+  normalizeBorrowed(Value value, const HardwareIdentityScope &scope) {
+    bool cacheHit;
+    return normalizeBorrowedImpl(value, scope, cacheHit);
+  }
+
+  static uint64_t entryStorageBytes() {
+    return sizeof(Cache::value_type) + 4 * sizeof(void *);
+  }
+
+private:
+  // Map nodes stay stable across insertions and are never erased. Borrowers
+  // remain inside this immutable proof's lifetime; full scope keys still match.
+  FailureOr<const HardwareIdentityEndpoint *>
+  normalizeBorrowedImpl(Value value, const HardwareIdentityScope &scope,
+                         bool &cacheHit) {
+    cacheHit = false;
     if (!value)
       return failure();
     Operation *site = valueSite(value);
-    if (!stopIndexPrepared) {
+    if (!borrowedStopIndex && !stopIndexPrepared) {
       IdentityStopIndex preparedIndex;
       for (auto [ordinal, stop] : llvm::enumerate(policy.boundaries)) {
         if (failed(budget.debit(orderedLookupCost(preparedIndex.size()), site)) ||
@@ -1648,16 +1710,24 @@ public:
       // SSA value in the full same scope resolve to the same payload type.
       if (!sameScope(entry.input.scope, scope))
         continue;
-      if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))) ||
-          failed(payScope(entry.output.scope, budget, site)))
-        return failure();
-      return entry.output;
+      cacheHit = true;
+      return &entry.output;
     }
     auto input = makeIdentityEndpoint(value, scope, analysis, budget);
     if (failed(input))
       return failure();
-    auto output = normalizeIdentityEndpointImpl(*input, policy, analysis, budget,
-                                                &stopIndex);
+    // Retain the freshly checked input for the cache while giving the route
+    // loop its own paid scope copy, without repeating binding/type resolution.
+    if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))))
+      return failure();
+    auto currentScope = copyScope(input->scope, budget, site);
+    if (failed(currentScope))
+      return failure();
+    HardwareIdentityEndpoint current{input->value, std::move(*currentScope),
+                                      input->resolvedType};
+    auto output = normalizeCurrentIdentityEndpoint(
+        std::move(current), policy, analysis, budget,
+        borrowedStopIndex ? borrowedStopIndex : &stopIndex);
     if (failed(output) ||
         failed(
             charge(budget, valueSite(value), 1, entryStorageBytes())) ||
@@ -1665,22 +1735,19 @@ public:
         failed(payScope(input->scope, budget, valueSite(value))) ||
         failed(payScope(output->scope, budget, valueSite(value))))
       return failure();
-    cache.emplace_hint(position, key,
-                       IdentityMemoEntry{std::move(*input), *output});
-    return std::move(*output);
+    auto saved = cache.emplace_hint(
+        position, key,
+        IdentityMemoEntry{std::move(*input), std::move(*output)});
+    return &saved->second.output;
   }
 
-  static uint64_t entryStorageBytes() {
-    return sizeof(Cache::value_type) + 4 * sizeof(void *);
-  }
-
-private:
   using Cache = std::multimap<const void *, IdentityMemoEntry>;
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;
   // Immutable for this object's lifetime: traversal and complete stop contents
   // are part of every entry's implicit key, independent of ArrayRef address.
   HardwareIdentityStopPolicy policy;
+  const IdentityStopIndex *borrowedStopIndex = nullptr;
   // The policy is complete and immutable for this memo's lifetime. Indexing
   // changes only candidate enumeration; normalization still authenticates every
   // equal-SSA stop's complete scope, bindings and resolved payload type.
@@ -1724,10 +1791,9 @@ class OrderedPrefixProof {
 public:
   OrderedPrefixProof(const HardwareAnalysis &analysis,
                      SourceCheckBudget &budget,
-                     HardwareIdentityStopPolicy policy,
-                     const HardwareIdentityScope &scope)
-      : analysis(analysis), budget(budget), fixedScope(&scope),
-        identity(analysis, budget, policy) {}
+                     const PreparedSampledBoundaries &prepared)
+      : analysis(analysis), budget(budget), fixedScope(&prepared.getScope()),
+        identity(analysis, budget, prepared) {}
   FailureOr<Prefix> parse(Value value,
                           PrefixMode mode = PrefixMode::Prefix) {
     SmallVector<PrefixParseFrame, 0> frames;
@@ -1741,11 +1807,40 @@ public:
       completed = std::move(result);
       return success();
     };
+    auto replay = [&](uint64_t position, Operation *site) -> LogicalResult {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      const auto &entry = cache[position];
+      if (!entry.complete)
+        return site->emitOpError() << "cyclic sampled admission prefix";
+      auto result = copy(entry.prefix, site);
+      if (failed(result))
+        return failure();
+      completed = std::move(*result);
+      return success();
+    };
     auto start = [&](Value input, PrefixMode inputMode) -> LogicalResult {
-      auto endpoint = identity.normalize(input, *fixedScope);
-      if (failed(endpoint))
+      if (!input)
         return failure();
       Operation *site = valueSite(input);
+      PrefixIndexKey inputKey{input.getAsOpaquePointer(),
+                              static_cast<uint64_t>(inputMode)};
+      if (failed(budget.debit(orderedLookupCost(inputIndex.size()), site)))
+        return failure();
+      auto inputEntry = inputIndex.lower_bound(inputKey);
+      if (inputEntry != inputIndex.end() && inputEntry->first == inputKey)
+        return replay(inputEntry->second, site);
+      auto bindInput = [&](uint64_t position) -> LogicalResult {
+        if (failed(charge(budget, site, 1, prefixIndexStorageBytes())) ||
+            failed(budget.debit(3, site)))
+          return failure();
+        inputIndex.emplace_hint(inputEntry, inputKey, position);
+        return success();
+      };
+      auto borrowed = identity.normalizeBorrowed(input, *fixedScope);
+      if (failed(borrowed))
+        return failure();
+      const auto *endpoint = *borrowed;
       PrefixIndexKey key{endpoint->value.getAsOpaquePointer(),
                          static_cast<uint64_t>(inputMode)};
       if (failed(budget.debit(orderedLookupCost(cacheIndex.size()), site)))
@@ -1759,13 +1854,9 @@ public:
         if (!sameEndpoint(entry.endpoint, *endpoint))
           return site->emitOpError()
                  << "sampled prefix cache differs from its fixed scope or type";
-        if (!entry.complete)
-          return site->emitOpError() << "cyclic sampled admission prefix";
-        auto result = copy(entry.prefix, site);
-        if (failed(result))
+        if (failed(replay(indexed->second, site)))
           return failure();
-        completed = std::move(*result);
-        return success();
+        return bindInput(indexed->second);
       }
       auto bound = scopeBindings(endpoint->scope, analysis, budget, site);
       if (failed(bound) ||
@@ -1779,6 +1870,8 @@ public:
         return failure();
       cache.push_back({*endpoint, inputMode, {}, false});
       cacheIndex.emplace_hint(indexed, key, position);
+      if (failed(bindInput(position)))
+        return failure();
       auto known = literal(*endpoint, analysis, budget);
       if (failed(known))
         return failure();
@@ -1854,7 +1947,7 @@ public:
           failed(payScope(endpoint->scope, budget, site)))
         return failure();
       frames.push_back(
-          {inputMode, std::move(*endpoint), position, 0, std::nullopt});
+          {inputMode, *endpoint, position, 0, std::nullopt});
       return success();
     };
     if (failed(start(value, mode)))
@@ -1905,6 +1998,10 @@ public:
   FailureOr<HardwareIdentityEndpoint>
   normalize(Value value) {
     return identity.normalize(value, *fixedScope);
+  }
+  FailureOr<HardwareIdentityEndpoint>
+  normalize(Value value, const HardwareIdentityScope &scope) {
+    return identity.normalize(value, scope);
   }
   FailureOr<Prefix> knownValue(const HardwareIdentityEndpoint &raw,
                                KnownTest test, Operation *site) {
@@ -2075,12 +2172,12 @@ private:
   FailureOr<Prefix> knownEither(BitsBinaryOp binary,
                                 const HardwareBindings &bound) {
     // Six requests: two comparison operations and their four raw operands.
-    auto left = identity.normalize(binary.getLhs(), *fixedScope);
-    auto right = identity.normalize(binary.getRhs(), *fixedScope);
+    auto left = identity.normalizeBorrowed(binary.getLhs(), *fixedScope);
+    auto right = identity.normalizeBorrowed(binary.getRhs(), *fixedScope);
     if (failed(left) || failed(right) || failed(budget.debit(2, binary)))
       return failure();
-    auto a = left->value.getDefiningOp<BitsCompareOp>();
-    auto b = right->value.getDefiningOp<BitsCompareOp>();
+    auto a = (*left)->value.getDefiningOp<BitsCompareOp>();
+    auto b = (*right)->value.getDefiningOp<BitsCompareOp>();
     if (!a || !b || a.getPredicate() != "case_eq" ||
         b.getPredicate() != "case_eq")
       return binary->emitOpError()
@@ -2088,24 +2185,24 @@ private:
     if (failed(analysis.verifyResolvedOperation(a, bound)) ||
         failed(analysis.verifyResolvedOperation(b, bound)))
       return failure();
-    auto al = identity.normalize(a.getLhs(), *fixedScope);
-    auto ar = identity.normalize(a.getRhs(), *fixedScope);
-    auto bl = identity.normalize(b.getLhs(), *fixedScope);
-    auto br = identity.normalize(b.getRhs(), *fixedScope);
+    auto al = identity.normalizeBorrowed(a.getLhs(), *fixedScope);
+    auto ar = identity.normalizeBorrowed(a.getRhs(), *fixedScope);
+    auto bl = identity.normalizeBorrowed(b.getLhs(), *fixedScope);
+    auto br = identity.normalizeBorrowed(b.getRhs(), *fixedScope);
     if (failed(al) || failed(ar) || failed(bl) || failed(br))
       return failure();
-    auto avl = literal(*al, analysis, budget),
-         avr = literal(*ar, analysis, budget);
-    auto bvl = literal(*bl, analysis, budget),
-         bvr = literal(*br, analysis, budget);
+    auto avl = literal(**al, analysis, budget),
+         avr = literal(**ar, analysis, budget);
+    auto bvl = literal(**bl, analysis, budget),
+         bvr = literal(**br, analysis, budget);
     if (failed(avl) || failed(avr) || failed(bvl) || failed(bvr))
       return failure();
     const HardwareIdentityEndpoint *raw = nullptr;
     for (bool reverse : {false, true}) {
       if (failed(budget.debit(1, binary)))
         return failure();
-      const HardwareIdentityEndpoint *as[] = {&*ar, &*al};
-      const HardwareIdentityEndpoint *bs[] = {&*br, &*bl};
+      const HardwareIdentityEndpoint *as[] = {*ar, *al};
+      const HardwareIdentityEndpoint *bs[] = {*br, *bl};
       std::optional<bool> av[] = {*avl, *avr}, bv[] = {*bvl, *bvr};
       for (unsigned i = 0; i < 2; ++i)
         for (unsigned j = 0; j < 2; ++j) {
@@ -2133,6 +2230,9 @@ private:
   PrefixIndex knownIndex;
   SmallVector<PrefixCache, 0> cache;
   PrefixIndex cacheIndex;
+  // Actual SSA queries have a separate index from normalized aliases. The
+  // fixed immutable scope and stop policy authenticate reuse within this proof.
+  PrefixIndex inputIndex;
   SmallVector<ConditionalAtom, 0> pool;
 };
 // One context fixes the immutable package, analysis, budget, definition, full
@@ -2159,9 +2259,7 @@ public:
   IntentProof(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
               const PreparedSampledBoundaries &prepared, RuleOp rule)
       : analysis(analysis), budget(budget), prepared(prepared), rule(rule),
-        policy{HardwareIdentityTraversal::DefinitionLocal,
-               prepared.getBoundaries()},
-        identity(analysis, budget, policy) {}
+        identity(analysis, budget, prepared) {}
 
   static uint64_t nodeStorageBytes() {
     return sizeof(std::pair<const Key, State>) + 4 * sizeof(void *);
@@ -2308,16 +2406,15 @@ private:
   SourceCheckBudget &budget;
   const PreparedSampledBoundaries &prepared;
   RuleOp rule;
-  HardwareIdentityStopPolicy policy;
   IdentityMemo identity;
   std::map<Key, State, Less> nodes;
   std::set<Key, Less> roots;
 };
 FailureOr<SmallVector<HardwareIdentityEndpoint>>
 localBoundaries(ModuleOp module, const HardwareIdentityScope &scope,
-                const HardwareAnalysis &analysis, SourceCheckBudget &budget) {
+                const HardwareAnalysis &analysis, SourceCheckBudget &budget,
+                std::optional<TransactionWiringView> &wiring) {
   SmallVector<HardwareIdentityEndpoint> result;
-  std::optional<TransactionWiringView> wiring;
   auto bindings = scopeBindings(scope, analysis, budget, module);
   if (failed(bindings))
     return failure();
@@ -2371,8 +2468,11 @@ localBoundaries(ModuleOp module, const HardwareIdentityScope &scope,
 
 PreparedSampledBoundaries::PreparedSampledBoundaries(
     HardwareIdentityScope &&scope,
-    SmallVector<HardwareIdentityEndpoint> &&boundaries)
-    : scope(std::move(scope)), boundaries(std::move(boundaries)) {}
+    SmallVector<HardwareIdentityEndpoint> &&boundaries,
+    HardwareIdentityStopIndex &&stopIndex,
+    std::unique_ptr<TransactionWiringView> &&wiring)
+    : scope(std::move(scope)), boundaries(std::move(boundaries)),
+      stopIndex(std::move(stopIndex)), wiring(std::move(wiring)) {}
 
 LogicalResult
 PreparedSampledBoundaries::verifyFor(ModuleOp definition,
@@ -2419,10 +2519,41 @@ prepareSampledBoundaries(ModuleOp definition, const HardwareAnalysis &analysis,
           definition)))
     return failure();
   HardwareIdentityScope scope{definition, bindings, {}};
-  auto boundaries = localBoundaries(definition, scope, analysis, budget);
+  std::optional<TransactionWiringView> wiring;
+  auto boundaries = localBoundaries(definition, scope, analysis, budget, wiring);
   if (failed(boundaries))
     return failure();
-  PreparedSampledBoundaries prepared(std::move(scope), std::move(*boundaries));
+  HardwareIdentityStopIndex stopIndex;
+  for (auto [ordinal, stop] : llvm::enumerate(*boundaries)) {
+    if (failed(budget.debit(orderedLookupCost(stopIndex.size()), definition)) ||
+        failed(charge(budget, definition, 1,
+                      sizeof(HardwareIdentityStopIndex::value_type) +
+                          4 * sizeof(void *))))
+      return failure();
+    stopIndex.emplace(stop.value.getAsOpaquePointer(), ordinal);
+  }
+  std::unique_ptr<TransactionWiringView> retainedWiring;
+  if (wiring) {
+    uint64_t moveWork = SourceCheckBudget::add(
+        1, SourceCheckBudget::add(
+               wiring->states.size(),
+               SourceCheckBudget::add(wiring->incoming.size(),
+                                      wiring->writers.size())));
+    for (const auto &writer : wiring->writers)
+      moveWork = SourceCheckBudget::add(moveWork, writer.candidates.size());
+    if (failed(budget.debit(
+            SourceCheckBudget::add(
+                moveWork, SourceCheckBudget::add(
+                              1, SourceCheckBudget::bytes(
+                                     sizeof(TransactionWiringView)))),
+            definition)))
+      return failure();
+    retainedWiring =
+        std::make_unique<TransactionWiringView>(std::move(*wiring));
+  }
+  PreparedSampledBoundaries prepared(std::move(scope), std::move(*boundaries),
+                                    std::move(stopIndex),
+                                    std::move(retainedWiring));
   return std::optional<PreparedSampledBoundaries>(std::move(prepared));
 }
 
@@ -2442,13 +2573,12 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
            << "sampled proof requires a parsed nonempty control inventory";
   if (failed(prepared.verifyFor(view.definition, bindings, budget)))
     return failure();
-  const auto &scope = prepared.getScope();
-  HardwareIdentityStopPolicy policy{HardwareIdentityTraversal::DefinitionLocal,
-                                    prepared.getBoundaries()};
   if (failed(charge(budget, view.rule, 1,
-                    sizeof(const HardwareIdentityScope *))))
+                    sizeof(const HardwareIdentityScope *) +
+                        sizeof(const IdentityStopIndex *) +
+                        sizeof(PrefixIndex))))
     return failure();
-  OrderedPrefixProof proof(analysis, budget, policy, scope);
+  OrderedPrefixProof proof(analysis, budget, prepared);
   auto orderedReaches = verifyResourceDemandReach(view, analysis, budget, proof);
   if (failed(orderedReaches)) return failure();
   Prefix expected, root;
@@ -2524,12 +2654,12 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   auto fire = proof.parse(view.fire);
   if (failed(fire) || failed(proof.equal(*fire, expected, view.rule)))
     return failure();
-  auto exactFire = normalized(view.fire, scope, policy, analysis, budget);
+  auto exactFire = proof.normalize(view.fire);
   if (failed(exactFire))
     return failure();
   auto effect = [&](Value value,
                     SampledPathRef executionPath) -> LogicalResult {
-    auto endpoint = normalized(value, scope, policy, analysis, budget);
+    auto endpoint = proof.normalize(value);
     if (failed(endpoint))
       return failure();
     if (executionPath.selectionControl) {
@@ -2537,8 +2667,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
       if (!binary || binary.getOpcode() != "and")
         return view.rule->emitOpError()
                << "sampled arm effect requires canonical final-fire AND path";
-      endpoint = normalized(binary.getLhs(), endpoint->scope, policy, analysis,
-                            budget);
+      endpoint = proof.normalize(binary.getLhs(), endpoint->scope);
       if (failed(endpoint))
         return failure();
     }
@@ -2574,7 +2703,6 @@ struct SampledAdmissionValidation::Entry {
   explicit Entry(PreparedSampledBoundaries &&prepared)
       : prepared(std::move(prepared)) {}
   PreparedSampledBoundaries prepared;
-  std::optional<TransactionWiringView> wiring;
   SmallVector<RuleOp, 0> provenRules;
   SmallVector<std::pair<RuleOp, std::unique_ptr<IntentProof>>, 0> intentProofs;
 };
@@ -2687,33 +2815,12 @@ SampledAdmissionValidation::wiring(ModuleOp definition,
   if (!*prepared)
     return definition->emitOpError()
            << "wiring validation lacks complete definition boundaries";
-  for (auto &entry : entries) {
-    if (failed(budget.debit(1, definition)))
-      return failure();
-    if (&entry->prepared != *prepared)
-      continue;
-    if (!entry->wiring) {
-      auto parsed =
-          parseTransactionWiring(definition, analysis, bindings, budget);
-      if (failed(parsed))
-        return failure();
-      uint64_t moveWork = SourceCheckBudget::add(
-          1, SourceCheckBudget::add(
-                 parsed->states.size(),
-                 SourceCheckBudget::add(parsed->incoming.size(),
-                                        parsed->writers.size())));
-      for (const auto &writer : parsed->writers)
-        moveWork = SourceCheckBudget::add(moveWork, writer.candidates.size());
-      if (failed(budget.debit(moveWork, definition)))
-        return failure();
-      entry->wiring = std::move(*parsed);
-    }
-    // Definition, complete bindings and private boundaries are fixed by Entry.
-    // This is immutable schema preparation, never an occurrence/root verdict.
-    return &*entry->wiring;
-  }
-  return definition->emitOpError()
-         << "wiring validation has no exact definition entry";
+  // Boundary preparation already parsed this exact immutable definition schema.
+  // Live Rule queries and physical occurrence/root proofs remain separate.
+  if (!(*prepared)->wiring)
+    return definition->emitOpError()
+           << "wiring validation requires a transaction wiring schema";
+  return &*(*prepared)->wiring;
 }
 
 FailureOr<SampledAdmissionView>

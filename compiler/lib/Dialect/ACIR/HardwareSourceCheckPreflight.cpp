@@ -636,7 +636,17 @@ private:
       }
       return success();
     };
-    if (failed(attributeCost(sampled)) || failed(attributeCost(required)) ||
+    // Mirror the native fixed three-field RequiredCheck reads; only locations
+    // need their own traversal, while ID comparisons retain their owner below.
+    constexpr uint64_t requiredRecordWork = 2 + 7 * (3 + 1);
+    // The raw census itself reads each slot, shape, ID and location. Its work
+    // is separate from the native parser reservation returned in cost.
+    constexpr uint64_t rawRequiredRecordWork = 2 + 3 * (3 + 1);
+    if (failed(budget.debit(multiply(required.size(), rawRequiredRecordWork),
+                            site)))
+      return failure();
+    cost = add(cost, multiply(required.size(), requiredRecordWork));
+    if (failed(attributeCost(sampled)) ||
         failed(attributeCost(site->getAttr("occurrence"))))
       return failure();
     uint64_t frames = 0, k = 0, checkBase = add(*fire, 1);
@@ -652,29 +662,33 @@ private:
       auto record = dyn_cast<DictionaryAttr>(required[ordinal]);
       if (!record || record.size() != 3 || !record.getAs<DictionaryAttr>("id"))
         return fail();
-      if (failed(comparison(id.get("registration"), site->getAttr("occurrence"))) ||
+      if (failed(attributeCost(record.get("location"))) ||
+          failed(comparison(id.get("registration"), site->getAttr("occurrence"))) ||
           failed(comparison(record.get("id"), id)) ||
           failed(pathCost(row, invocation, ordinal)))
         return failure();
-      for (uint64_t j = 0; j < ordinal; ++j) {
-        if (failed(budget.debit(1, site)))
-          return failure();
-        cost = add(cost, 1);
-        auto prior = dyn_cast<DictionaryAttr>(controls[j]);
-        if (!validControl(prior))
-          return fail();
-        auto priorInvocation = prior.getAs<ArrayAttr>("invocation");
-        if (kindOf(prior) != kindOf(row) ||
-            priorInvocation.size() != invocation.size())
-          continue;
-        if (failed(comparison(priorInvocation, invocation)))
-          return failure();
-        // Census all eligible selection-site comparisons without retaining
-        // structural identity verdicts or stopping at a successful owner.
-        if (kindOf(row).getValue() == "branch_select" &&
-            failed(comparison(prior.getAs<DictionaryAttr>("id").get("check"),
-                              id.get("check"))))
-          return failure();
+      if (kindOf(row).getValue() == "callable_guard" ||
+          kindOf(row).getValue() == "branch_select") {
+        for (uint64_t j = 0; j < ordinal; ++j) {
+          if (failed(budget.debit(1, site)))
+            return failure();
+          cost = add(cost, 1);
+          auto prior = dyn_cast<DictionaryAttr>(controls[j]);
+          if (!validControl(prior))
+            return fail();
+          auto priorInvocation = prior.getAs<ArrayAttr>("invocation");
+          if (kindOf(prior) != kindOf(row) ||
+              priorInvocation.size() != invocation.size())
+            continue;
+          if (failed(comparison(priorInvocation, invocation)))
+            return failure();
+          // Census all eligible selection-site comparisons without retaining
+          // structural identity verdicts or stopping at a successful owner.
+          if (kindOf(row).getValue() == "branch_select" &&
+              failed(comparison(prior.getAs<DictionaryAttr>("id").get("check"),
+                                id.get("check"))))
+            return failure();
+        }
       }
       if (ordinal && failed(callableCost(
                          invocation, ordinal,
@@ -707,7 +721,8 @@ private:
           auto record = dyn_cast<DictionaryAttr>(required[g + ordinal]);
           if (!record || record.size() != 3 || !record.getAs<DictionaryAttr>("id"))
             return fail();
-          if (failed(comparison(record.get("id"), id)))
+          if (failed(attributeCost(record.get("location"))) ||
+              failed(comparison(record.get("id"), id)))
             return failure();
         } else {
           auto count = rawIndex(row, "value_count");
@@ -740,6 +755,7 @@ private:
         if (kindOf(control).getValue() != "resource_available") continue;
         if (nextResource == resources.size()) return fail();
         auto row = dyn_cast<DictionaryAttr>(resources[nextResource++]);
+        cost = add(cost, 5); // Native RequiredCheck slot/location association.
         auto controlIndex = rawIndex(row, "control");
         auto kind = kindOf(row);
         if (!row || row.size() != 6 + unsigned(bool(row.get("prospective"))) + unsigned(kind && kind.getValue() == "memory_live") || !controlIndex || *controlIndex != ordinal ||
