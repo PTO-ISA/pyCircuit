@@ -568,11 +568,12 @@ struct InvocationResult {
   GuardBoundaryId guard = 0;
 };
 
-// Exact immutable closed type proofs may be shared across occurrence plans of
-// this one unchanged package. Parameter/reference/value/effect facts never are.
-struct ClosedLayoutProofs {
+// These facts depend only on the unchanged package, regardless of occurrence,
+// parameter bindings, or the state of any transaction.
+struct TransactionStructuralMemo {
   llvm::DenseMap<Type, bool> layouts;
   llvm::DenseMap<Type, Type> branches;
+  llvm::DenseMap<Operation *, bool> branchSelections;
 };
 
 class TransactionPlanBuilder {
@@ -580,9 +581,10 @@ public:
   TransactionPlanBuilder(mlir::ModuleOp package, StateAnalysisBudget &budget,
                          const PackageInventory &inventory,
                          SourceReceiverProofContext &receiverProof,
-                         ClosedLayoutProofs &closedTypes)
-      : closedLayoutMemo(closedTypes.layouts),
-        closedBranchTypes(closedTypes.branches), package(package),
+                         TransactionStructuralMemo &structuralMemo)
+      : closedLayoutMemo(structuralMemo.layouts),
+        closedBranchTypes(structuralMemo.branches),
+        branchSelectionMemo(structuralMemo.branchSelections), package(package),
         hardware(package), budget(budget), inventory(inventory),
         receiverProof(receiverProof),
         subelements(budget, package.getContext()) {}
@@ -951,6 +953,7 @@ private:
   // types. No actual bound/value/effect checks are skipped.
   llvm::DenseMap<Type, bool> &closedLayoutMemo;
   llvm::DenseMap<Type, Type> &closedBranchTypes;
+  llvm::DenseMap<Operation *, bool> &branchSelectionMemo;
   FailureOr<bool> closedLayout(Type type, Operation *site, unsigned depth = 0) {
     if (!budget.charge(site) || depth > maxDepth)
       return failure();
@@ -1952,30 +1955,35 @@ private:
     return success();
   }
 
-  FailureOr<bool> needsSelection(SourceBranchOp branch) {
-    SmallVector<Operation *, 0> pending;
-    auto append = [&](Operation *op) {
-      if (!budget.chargeStorage<Operation *>(branch, 1) ||
-          !budget.reserve(branch, pending, 1))
-        return false;
-      pending.push_back(op);
-      return true;
-    };
-    if (!append(branch))
-      return failure();
-    bool effectful = false;
-    while (!pending.empty()) {
-      Operation *op = pending.pop_back_val();
-      if (!budget.charge(branch))
+  FailureOr<bool> needsSelection(Operation *op) {
+    bool isBranch = isa<SourceBranchOp>(op);
+    if (isBranch) {
+      if (!budget.charge(op))
         return failure();
-      effectful |= isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp,
-                       SourceQueuePopOp, SourceQueuePeekOp, SourceQueuePushOp>(op) ||
-                   op->hasAttr("ac.loop_continuation");
-      for (Region &region : op->getRegions())
-        for (Block &block : region)
-          for (Operation &child : block)
-            if (!append(&child))
-              return failure();
+      if (auto found = branchSelectionMemo.find(op);
+          found != branchSelectionMemo.end())
+        return found->second;
+    }
+    if (!budget.charge(op))
+      return failure();
+    bool effectful = isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp,
+                         SourceQueuePopOp, SourceQueuePeekOp,
+                         SourceQueuePushOp>(op) ||
+                     op->hasAttr("ac.loop_continuation");
+    // Preflight bounds structural depth. Complete the postorder traversal so
+    // every nested branch can reuse its result, even if effectful is already true.
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (Operation &child : block) {
+          auto nested = needsSelection(&child);
+          if (failed(nested))
+            return failure();
+          effectful |= *nested;
+        }
+    if (isBranch) {
+      if (!budget.reserveMapInsert(op, branchSelectionMemo))
+        return failure();
+      branchSelectionMemo.try_emplace(op, effectful);
     }
     return effectful;
   }
@@ -3387,7 +3395,7 @@ void runTransactionStateAnalysis(
     return;
   SmallVector<TransactionStatePlan, 0> completed;
   SourceReceiverProofContext receiverProof;
-  ClosedLayoutProofs closedTypes;
+  TransactionStructuralMemo structuralMemo;
   HardwareAnalysis hardware(package);
   llvm::DenseSet<Operation *> allocated, referenceDefinitions,
       relativeDefinitions, contextualDefinitions;
@@ -3509,7 +3517,7 @@ void runTransactionStateAnalysis(
           [&](ModuleOp module, unsigned depth) -> LogicalResult {
         if (depth > maxDepth || !budget.charge(module)) return failure();
         TransactionPlanBuilder builder(package, budget, inventory,
-                                       receiverProof, closedTypes);
+                                       receiverProof, structuralMemo);
         if (failed(builder.verifyReceivers(module, root, path))) return failure();
         for (auto allocation : module.getBody().front().getOps<InstanceOp>()) {
           if (!budget.charge(allocation)) return failure();
@@ -3531,7 +3539,7 @@ void runTransactionStateAnalysis(
         if (!budget.charge(module)) return;
         if (selected.contains(module)) continue;
         TransactionPlanBuilder builder(package, budget, inventory,
-                                       receiverProof, closedTypes);
+                                       receiverProof, structuralMemo);
         if (failed(builder.verifyReceivers(module, module, {}))) return;
       }
   }
@@ -3585,7 +3593,7 @@ void runTransactionStateAnalysis(
         !budget.chargeStorage<TransactionStatePlan>(transaction, 1) ||
         !budget.reserve(transaction, completed, 1)) return failure();
     TransactionPlanBuilder builder(package, budget, inventory, receiverProof,
-                                   closedTypes);
+                                   structuralMemo);
     auto plan = builder.run(transaction, root, path);
     if (failed(plan)) return failure();
     plan->ordinal = completed.size();
@@ -3753,7 +3761,7 @@ void runTransactionStateAnalysis(
     if (duplicate) continue;
     if (prefix) {
       TransactionPlanBuilder builder(package, budget, inventory, receiverProof,
-                                     closedTypes);
+                                     structuralMemo);
       auto fresh = builder.run(plan.transaction, root, ArrayRef<InstanceOp>(registration).drop_front(prefix));
       if (failed(fresh)) return;
       plan = std::move(*fresh);
