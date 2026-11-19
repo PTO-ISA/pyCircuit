@@ -40,9 +40,10 @@ protected:
   DictionaryAttr d(std::initializer_list<NamedAttribute> fields) {
     return b.getDictionaryAttr(fields);
   }
-  DictionaryAttr occurrence(uint64_t index, StringRef symbol = "Owner") {
+  DictionaryAttr occurrence(uint64_t index, StringRef symbol = "Owner",
+                            unsigned indexWidth = 64) {
     auto step = d({f("kind", b.getStringAttr("index")),
-                   f("value", b.getI64IntegerAttr(index))});
+                   f("value", b.getIntegerAttr(b.getIntegerType(indexWidth), index))});
     return d(
         {f("site", d({f("definition", FlatSymbolRefAttr::get(&context, symbol)),
                       f("ast_path", b.getArrayAttr({step}))})),
@@ -299,14 +300,15 @@ protected:
                       f("parameters", b.getArrayAttr({})),
                       f("type_arguments", b.getArrayAttr({}))}))});
   }
-  SmallVector<ac::InstanceOp> expandToThreeCandidates() {
+  SmallVector<ac::InstanceOp> expandCandidates(unsigned count = 3) {
     if (!storage) {
-      ADD_FAILURE() << "three-candidate fixture requires stateful build";
+      ADD_FAILURE() << "candidate expansion requires stateful build";
       return {};
     }
     auto &body = definition.getBody().front();
     SmallVector<ac::InstanceOp> states{storage};
-    for (uint64_t declaration : {21u, 22u}) {
+    for (unsigned i = 1; i < count; ++i) {
+      uint64_t declaration = 20 + i;
       auto *copy = storage->clone();
       copy->setAttr("instance_name",
                     b.getStringAttr("state_" + std::to_string(declaration)));
@@ -318,15 +320,16 @@ protected:
     NamedAttrList attributes(rule->getAttrs());
     NamedAttrList sampled(
         rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    sampled.set("fire_result", b.getI64IntegerAttr(6));
+    uint64_t fire = 2 * count;
+    sampled.set("fire_result", b.getI64IntegerAttr(fire));
     attributes.set("ac.sampled_admission", sampled.getDictionary(&context));
     b.setInsertionPoint(rule);
     OperationState state(loc(), ac::RuleOp::getOperationName());
     SmallVector<Value> captures(rule.getOperands());
-    captures.push_back(states[1].getResult(0));
-    captures.push_back(states[2].getResult(0));
+    for (auto additional : ArrayRef<ac::InstanceOp>(states).drop_front())
+      captures.push_back(additional.getResult(0));
     state.addOperands(captures);
-    state.addTypes(SmallVector<Type>(9, bit()));
+    state.addTypes(SmallVector<Type>(fire + 3, bit()));
     state.addAttributes(attributes);
     state.addRegion();
     auto replacement = cast<ac::RuleOp>(b.create(state));
@@ -341,7 +344,7 @@ protected:
            {replacementBody->getArgument(2), knownOne}, {bit()},
            {f("predicate", b.getStringAttr("case_eq"))}));
     SmallVector<Value> yielded;
-    for (unsigned i = 0; i != 3; ++i) {
+    for (unsigned i = 0; i < count; ++i) {
       auto enabled = op(ac::BitsBinaryOp::getOperationName(),
                         {known.getResult(), knownOne}, {bit()},
                         {f("opcode", b.getStringAttr("and"))});
@@ -356,16 +359,17 @@ protected:
       instance->setOperands({body.getArgument(1), body.getArgument(2),
                              replacement.getResult(2 * index + 1),
                              replacement.getResult(2 * index), zero});
-    expect->setOperands({replacement.getResult(7), replacement.getResult(8),
+    expect->setOperands({replacement.getResult(fire + 1), replacement.getResult(fire + 2),
                          body.getArgument(1), body.getArgument(2)});
     rule.erase();
     rule = replacement;
-    definition->setAttr(
-        "ac.transaction_wiring",
-        wiring(
-            {occurrence(20), occurrence(21), occurrence(22)}, {},
-            {writer({candidate(stateID(20), 0, 1), candidate(stateID(21), 2, 3),
-                     candidate(stateID(22), 4, 5)})}));
+    SmallVector<Attribute> declarations, candidates;
+    for (unsigned i = 0; i < count; ++i) {
+      declarations.push_back(occurrence(20 + i));
+      candidates.push_back(candidate(stateID(20 + i), 2 * i, 2 * i + 1));
+    }
+    definition->setAttr("ac.transaction_wiring",
+                        wiring(declarations, {}, {writer(candidates)}));
     return states;
   }
   ac::RuleOp addIllegalRuleCapture(ValueRange captures,
@@ -946,7 +950,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 TEST_F(HardwareSampledAdmissionWiringTest,
        ParsedCandidatePairsUseExactOPlusTwoWLayout) {
   build(true);
-  expandToThreeCandidates();
+  expandCandidates();
   ac::HardwareAnalysis analysis(*package);
   ac::HardwareBindings bindings;
   bindings.owner = definition;
@@ -1015,7 +1019,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 TEST_F(HardwareSampledAdmissionWiringTest,
        ThreeCandidatesRetainEveryDataEnablePairAndOneInternalFire) {
   build(true);
-  auto states = expandToThreeCandidates();
+  auto states = expandCandidates();
   ASSERT_EQ(states.size(), 3u);
   EXPECT_TRUE(rule.getResult(6).use_empty());
   for (auto [index, instance] : llvm::enumerate(states)) {
@@ -1029,7 +1033,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 TEST_F(HardwareSampledAdmissionWiringTest,
        LateSharedFireRuleCaptureRejectsWithAllPhysicalRoutesIntact) {
   build(true);
-  auto states = expandToThreeCandidates();
+  auto states = expandCandidates();
   ASSERT_EQ(states.size(), 3u);
   addIllegalRuleCapture({rule.getResult(6)});
   for (auto [index, instance] : llvm::enumerate(states)) {
@@ -1043,7 +1047,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 TEST_F(HardwareSampledAdmissionWiringTest,
        LateSharedFireIdentityForkWithoutDeadEndRejects) {
   build(true);
-  auto states = expandToThreeCandidates();
+  auto states = expandCandidates();
   ASSERT_EQ(states.size(), 3u);
   auto &body = definition.getBody().front();
   b.setInsertionPoint(body.getTerminator());
@@ -1067,7 +1071,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 TEST_F(HardwareSampledAdmissionWiringTest,
        LateCandidateEnableIdentityForkWithDeadEndsRejects) {
   build(true);
-  auto states = expandToThreeCandidates();
+  auto states = expandCandidates();
   ASSERT_EQ(states.size(), 3u);
   auto &body = definition.getBody().front();
   b.setInsertionPoint(body.getTerminator());
@@ -1217,14 +1221,14 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 TEST_F(HardwareSampledAdmissionWiringTest,
        CandidatePairsCannotSubstituteAnotherOwnerRoutes) {
   build(true);
-  auto states = expandToThreeCandidates();
+  auto states = expandCandidates();
   ASSERT_EQ(states.size(), 3u);
   states[0]->setOperand(2, rule.getResult(3));
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
   EXPECT_FALSE(diagnostics.empty());
 
   build(true);
-  states = expandToThreeCandidates();
+  states = expandCandidates();
   ASSERT_EQ(states.size(), 3u);
   states[0]->setOperand(3, rule.getResult(2));
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
@@ -1373,7 +1377,8 @@ TEST_F(HardwareSampledAdmissionWiringTest,
     auto metadata =
         definition->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
     NamedAttrList fields(metadata);
-    fields.set("states", b.getArrayAttr({occurrence(20), occurrence(20)}));
+    fields.set("states",
+               b.getArrayAttr({occurrence(20), occurrence(20, "Owner", 32)}));
     definition->setAttr("ac.transaction_wiring",
                         fields.getDictionary(&context));
   });
@@ -1610,6 +1615,18 @@ TEST_F(HardwareSampledAdmissionWiringTest,
   ASSERT_EQ(plan->samplingOccurrences.size(), 1u);
   ASSERT_EQ(plan->checks.size(), 1u);
   EXPECT_EQ(plan->checks.front().samplingOccurrenceIndex, 0u);
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       DefaultBudgetAdmitsOneRuleWritingManyStates) {
+  build();
+  auto states = expandCandidates(128);
+  auto plan = capture(
+      [&] { return ac::HardwareAnalysis(*package).getSourceCheckPlan(); });
+  ASSERT_TRUE(succeeded(plan)) << diagnostics;
+  ASSERT_EQ(plan->commits.size(), states.size());
+  for (auto [commit, state] : llvm::zip(plan->commits, states))
+    EXPECT_EQ(commit.allocation, state.getOperation());
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,

@@ -1033,7 +1033,7 @@ private:
     uint64_t cost = schemaRecordCost<TransactionWiringView>();
     cost =
         add(cost, multiply(local.states,
-                           schemaRecordCost<TransactionStateInventoryEntry>()));
+                           schemaRecordCost<Operation *>()));
     cost = add(cost, multiply(local.incoming,
                               schemaRecordCost<TransactionIncomingView>()));
     cost = add(cost, multiply(local.writers,
@@ -1068,7 +1068,7 @@ private:
     // Do not invoke typed attribute/signature accessors or any op verifier.
     // ModuleOp's region verifier constructs the local association catalog, so
     // its record payload and comparison work must be prepaid first.
-    llvm::DenseMap<Operation *, RawDefinitionWork> work;
+    std::map<Operation *, RawDefinitionWork> work;
     if (failed(budget.debit(
             Budget::bytes(sizeof(Operation *) + sizeof(RawDefinitionWork *)),
             analysis.getPackage())))
@@ -1094,51 +1094,16 @@ private:
       if (failed(budget.debit(1, op)))
         return WalkResult::interrupt();
       if (definition != lastDefinition) {
-        // Reuse only the immediately preceding owner's accumulator. A change
-        // of owner invalidates both pointers before any possible map growth.
-        lastDefinition = nullptr;
-        lastWork = nullptr;
-        using Bucket = decltype(work)::value_type;
-        uint64_t oldCapacity = work.getMemorySize() / sizeof(Bucket);
-        // Insert-only DenseMap probes are bounded by the complete bucket array.
-        // Pay before even the existing-key lookup can inspect that array.
-        if (failed(budget.debit(Budget::add(oldCapacity, 1), op)))
+        // Tree lookups are bounded by height and insertion preserves the
+        // accumulators' addresses. Consecutive ops in one owner share a lookup.
+        if (failed(budget.debit(Budget::orderedLookupCost(work.size()), op)))
           return WalkResult::interrupt();
         auto found = work.find(definition);
         if (found == work.end()) {
-          if (failed(budget.debit(1, op)))
-            return WalkResult::interrupt();
-          uint64_t next = Budget::add(work.size(), 1);
-          uint64_t capacity = std::max(uint64_t(64), oldCapacity);
-          while (true) {
-            if (failed(budget.debit(1, op)))
-              return WalkResult::interrupt();
-            // LLVM's reserve and load calculations use unsigned arithmetic.
-            if (next > std::numeric_limits<unsigned>::max() / 4 ||
-                capacity > std::numeric_limits<unsigned>::max() / 3) {
-              (void)budget.debit(std::numeric_limits<uint64_t>::max(), op);
-              return WalkResult::interrupt();
-            }
-            if (Budget::multiply(4, next) < Budget::multiply(3, capacity))
-              break;
-            capacity = Budget::multiply(2, capacity);
-          }
-          uint64_t growth = 1;
-          if (capacity > oldCapacity) {
-            growth = Budget::add(
-                growth,
-                Budget::add(
-                    Budget::bytes(Budget::multiply(capacity, sizeof(Bucket))),
-                    Budget::add(capacity,
-                                Budget::add(oldCapacity,
-                                            Budget::multiply(
-                                                work.size(),
-                                                Budget::add(capacity, 1))))));
-          }
-          if (failed(budget.debit(growth, op)))
-            return WalkResult::interrupt();
-          work.reserve(next);
-          if (failed(budget.debit(Budget::add(capacity, 1), op)))
+          if (failed(budget.debit(
+                  Budget::orderedInsertCost(
+                      work.size(), sizeof(decltype(work)::value_type)),
+                  op)))
             return WalkResult::interrupt();
           found = work.try_emplace(definition).first;
         }
@@ -1238,11 +1203,6 @@ private:
       return WalkResult::advance();
     });
     if (counted.wasInterrupted())
-      return failure();
-    // DenseMap iteration scans spare buckets as well as occupied records.
-    if (failed(budget.debit(
-            Budget::add(1, work.getMemorySize() / sizeof(decltype(work)::value_type)),
-            analysis.getPackage())))
       return failure();
     for (const auto &[definition, local] : work) {
       if (failed(budget.debit(1, definition)))
@@ -1505,17 +1465,27 @@ private:
       return definition.emitOpError()
              << "recursive source check owner hierarchy";
     llvm::scope_exit cleanup([&] { active.erase(definition); });
-    for (size_t index = 0; index < nodes.size(); ++index) {
-      if (failed(budget.debit(Budget::add(1, Budget::bindings(scope)),
-                              definition)))
-        return failure();
-      if (nodes[index]->definition == definition &&
-          sameHardwareBindings(nodes[index]->bindings, scope))
-        return index;
-    }
-    if (failed(budget.debit(Budget::add(Budget::bytes(sizeof(BoundDefinition)),
-                                        Budget::bindings(scope)),
+    if (failed(budget.debit(Budget::orderedLookupCost(boundIndices.size()),
                             definition)))
+      return failure();
+    for (auto it = boundIndices.lower_bound(definition);
+         it != boundIndices.end() && it->first == definition; ++it) {
+      const auto &bindings = nodes[it->second]->bindings;
+      if (failed(budget.debit(
+              Budget::add(1, Budget::add(Budget::bindings(scope),
+                                         Budget::bindings(bindings))),
+              definition)))
+        return failure();
+      if (sameHardwareBindings(bindings, scope))
+        return it->second;
+    }
+    if (failed(budget.debit(
+            Budget::add(
+                Budget::orderedInsertCost(
+                    boundIndices.size(), sizeof(decltype(boundIndices)::value_type)),
+                Budget::add(Budget::bytes(sizeof(BoundDefinition)),
+                            Budget::bindings(scope))),
+            definition)))
       return failure();
     auto node = std::make_unique<BoundDefinition>();
     node->definition = definition;
@@ -1534,6 +1504,7 @@ private:
     node->hasChecks = !node->checkIndices.empty();
     size_t index = nodes.size();
     nodes.push_back(std::move(node));
+    boundIndices.emplace(definition, index);
     auto &bound = *nodes[index];
     for (Type type : definition.getFunctionType().getInputs())
       if (failed(analysis.getPackedWidth(type, scope, definition)))
@@ -1874,6 +1845,7 @@ private:
   std::map<const void *, uint64_t> sampledAttributeCosts;
   llvm::DenseSet<Operation *> active;
   SmallVector<std::unique_ptr<BoundDefinition>> nodes;
+  std::multimap<Operation *, size_t> boundIndices;
   SmallVector<std::pair<ModuleOp, HardwareBindings>> catalogScopes;
 };
 } // namespace

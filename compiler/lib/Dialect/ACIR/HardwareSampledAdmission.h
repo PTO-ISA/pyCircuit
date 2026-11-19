@@ -101,9 +101,26 @@ struct SampledAdmissionView {
   llvm::SmallVector<SampledMemoryProposalView> memoryProposals;
   llvm::SmallVector<SampledWriteDomainView> writeDomains;
 };
-struct TransactionStateInventoryEntry {
-  mlir::DictionaryAttr declaration;
-  mlir::Operation *storage = nullptr;
+// Keys must pass their closed identity grammar before lookup or insertion.
+class ClosedIdentityIndex {
+public:
+  mlir::FailureOr<std::optional<size_t>>
+  find(mlir::DictionaryAttr key, SourceCheckBudget &budget,
+       mlir::Operation *site) const;
+  mlir::FailureOr<bool> insert(mlir::DictionaryAttr key, size_t ordinal,
+                               SourceCheckBudget &budget,
+                               mlir::Operation *site);
+
+private:
+  struct Less {
+    bool operator()(mlir::DictionaryAttr lhs, mlir::DictionaryAttr rhs) const;
+  };
+  using Map = std::map<mlir::DictionaryAttr, size_t, Less>;
+  mlir::FailureOr<Map::const_iterator>
+  lookup(mlir::DictionaryAttr key, SourceCheckBudget &budget,
+         mlir::Operation *site, uint64_t &work) const;
+  Map entries;
+  uint64_t maxWork = 0;
 };
 struct TransactionIncomingView {
   mlir::DictionaryAttr stateID;
@@ -124,7 +141,8 @@ struct TransactionWriterView {
 struct TransactionWiringView {
   ModuleOp definition;
   ModulePortLayout ports;
-  llvm::SmallVector<TransactionStateInventoryEntry> states;
+  llvm::SmallVector<mlir::Operation *> states;
+  ClosedIdentityIndex stateDeclarations;
   llvm::SmallVector<TransactionIncomingView> incoming;
   llvm::SmallVector<TransactionWriterView> writers;
 };
