@@ -134,6 +134,11 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
   if (!unit)
     return emitError() << "source unit is required";
   auto forged = unit.walk([&](Operation *operation) {
+    if (operation->getName().getDialectNamespace() == "scf" ||
+        isa<SourceIndexOp, SourcePredicateOp>(operation)) {
+      operation->emitOpError("source publication requires normalized control flow");
+      return WalkResult::interrupt();
+    }
     if (auto name = SymbolTable::getSymbolName(operation);
         name && name.getValue() == "pycircuit.__link_entry__") {
       operation->emitOpError("reserved compiler entry boundary symbol is forbidden in source units");

@@ -48,23 +48,20 @@ bool equivalentTypes(TypeRange left, TypeRange right) {
   return true;
 }
 
-LogicalResult transactionPlacement(Operation *operation, bool allowGuard,
-                                   bool allowBranch = false) {
-  auto *placed = operation;
-  auto *parent = placed->getParentOp();
-  while (allowBranch && isa_and_nonnull<SourceBranchOp>(parent)) {
-    placed = parent;
-    parent = placed->getParentOp();
-  }
-  if (!isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent))
-    return operation->emitOpError() << "requires direct method or transaction "
-                                       "region placement, or legal branch arms";
-  if ((!allowGuard || placed != operation) &&
-      placed->getParentRegion() != &parent->getRegion(1))
+LogicalResult transactionPlacement(Operation *operation, bool allowGuard) {
+  if (!detail::sourceEffectCallable(operation, allowGuard)) {
+    if (!allowGuard && detail::sourceEffectCallable(operation, true))
+      return operation->emitOpError()
+             << "state writes and method calls are forbidden in guards "
+                "and while conditions";
     return operation->emitOpError()
-           << "state writes and method calls are forbidden in guards";
+           << "requires legal method or transaction region placement";
+  }
   return occurrence(operation);
 }
+
+LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
+                            uint64_t &work);
 
 LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
                      TypeRange outputs) {
@@ -84,69 +81,43 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
   } else if (!equivalentTypes(yield.getOperandTypes(), outputs)) {
     return yield.emitOpError() << "body yield types do not match results";
   }
-  for (Operation &nested : block.without_terminator()) {
-    if (isa<SourceStateReadOp>(nested))
-      continue;
-    if (!guard &&
-        isa<SourceStateWriteOp, SourceFormalWriteOp, SourceMethodCallOp,
-            SourceExpectOp, SourceObserveOp, SourceBranchOp>(nested))
-      continue;
-    if (!detail::isCombinationalHardwareOperation(&nested))
-      return nested.emitOpError()
-             << (guard ? "guard accepts only closed pure payload operations "
-                         "and state reads"
-                       : "body accepts only closed payload operations, state "
-                         "accesses, method calls, checks and observations");
-    // Pure nested collection regions do not open another effect placement.
-    auto walk =
-        nested.walk([&](Operation *child) {
-          if (child == &nested ||
-              detail::isCombinationalHardwareOperation(child) ||
-              isa<YieldOp>(child))
-            return WalkResult::advance();
-          child->emitOpError()
-              << "nested payload region cannot contain transaction "
-                 "effects or declarations";
-          return WalkResult::interrupt();
-        });
-    if (walk.wasInterrupted())
+  uint64_t work = 0;
+  for (Operation &nested : block.without_terminator())
+    if (failed(branchPayload(&nested, !guard, 0, work)))
       return failure();
-  }
   return success();
 }
 
-// Structured arms are the only nested regions that can carry transaction
-// effects. Pure collection regions remain closed even when enclosed by a
-// branch.
+// Serial regions inherit body permissions; pure payload regions stay closed.
 LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
                             uint64_t &work) {
   if (depth > 128 || ++work > 1024 * 1024)
     return operation->emitOpError()
            << "source branch verification budget exceeded";
-  if (arm && isa<SourceBranchOp>(operation)) {
+  if (isa<SourceBranchOp>(operation) ||
+      (operation->getNumRegions() &&
+       detail::isSourceControlRegion(operation->getRegion(0)))) {
     for (Region &nested : operation->getRegions())
       for (Block &block : nested)
         for (Operation &child : block)
-          if (failed(branchPayload(&child, true, depth + 1, work)))
+          if (failed(branchPayload(
+                  &child,
+                  arm && !(operation->getName().getStringRef() == "scf.while" &&
+                           &nested == &operation->getRegion(0)),
+                  depth + 1, work)))
             return failure();
     return success();
   }
-  if (arm && isa<SourceStateReadOp, SourceStateWriteOp>(operation)) {
-    auto selectors = operation->getAttrOfType<ArrayAttr>("selectors");
-    Value payload = isa<SourceStateReadOp>(operation)
-                        ? operation->getResult(0)
-                        : operation->getOperand(1);
-    if (!selectors ||
-        !isa<BitsType, EnumType, StructType, TableType>(payload.getType()))
-      return operation->emitOpError()
-             << "source branch arms require selected finite state accesses";
+  if (isa<SourceStateReadOp>(operation))
     return success();
-  }
+  if (arm && isa<SourceStateWriteOp>(operation))
+    return success();
   if (arm &&
       isa<SourceFormalWriteOp, SourceMethodCallOp, SourceExpectOp,
           SourceObserveOp>(operation))
     return success();
   if (!isa<YieldOp>(operation) &&
+      !detail::isSourceControlComputation(operation) &&
       !detail::isCombinationalHardwareOperation(operation))
     return operation->emitOpError()
            << "source branch arms accept only closed pure payload operations, "
@@ -200,11 +171,11 @@ LogicalResult SourceStateOp::verify() {
 }
 
 LogicalResult SourceStateReadOp::verify() {
-  return transactionPlacement(*this, true, true);
+  return transactionPlacement(*this, true);
 }
 
 LogicalResult SourceStateWriteOp::verify() {
-  return transactionPlacement(*this, false, true);
+  return transactionPlacement(*this, false);
 }
 
 LogicalResult SourceFormalWriteOp::verify() {
@@ -214,7 +185,7 @@ LogicalResult SourceFormalWriteOp::verify() {
                                                 "occurrence", "ac.location"},
                             attr.getName().getValue()))
       return emitOpError() << "unknown formal write attribute";
-  if (failed(transactionPlacement(*this, false, true)))
+  if (failed(transactionPlacement(*this, false)))
     return failure();
   auto method = (*this)->getParentOfType<SourceMethodOp>();
   if (!method)
@@ -253,7 +224,7 @@ LogicalResult SourceFormalWriteOp::verify() {
 }
 
 LogicalResult SourceBranchOp::verify() {
-  if (failed(transactionPlacement(*this, false, true)))
+  if (failed(transactionPlacement(*this, false)))
     return failure();
   auto owner = (*this)->getParentOfType<ModuleOp>();
   if (failed(detail::verifySourceEffectMetadata(getOccurrence(),
@@ -374,7 +345,7 @@ LogicalResult SourceMethodCallOp::verify() {
     if (failed(verifySourceRelativeReceiver(receiver.getDictionary(getContext()), *this)))
       return failure();
   }
-  if (failed(transactionPlacement(*this, false, true)))
+  if (failed(transactionPlacement(*this, false)))
     return failure();
   if (Attribute raw = (*this)->getAttr("ac.reference")) {
     auto reference = dyn_cast<StringAttr>(raw);

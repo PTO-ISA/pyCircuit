@@ -620,3 +620,18 @@ and strict sampled domains; authors do not tie off commit controls or insert
 clock/reset pins in their computational model. The eight-snapshot native1/2
 and RTL check is public and independently reproducible with the installed SDK.
 It does not require the private SSM adapter or certify unrelated runtime gates.
+
+### Importer control-flow boundary
+
+`ac-lower-python-source` produces verifiable intermediate IR that may retain
+`scf.for`, `scf.while`, `scf.if`, single-block `scf.execute_region`, and source
+index/predicate bridges. Ordinary MLIR printing and parsing preserve this stage.
+Serial body regions inherit the enclosing Method/Rule permissions; while
+conditions permit computations and state reads, and guards and pure payload
+regions retain their effect restrictions.
+
+The explicit `ac-normalize-source-control-flow` pass removes this transport
+before Method summary analysis and Source unit publication. Publication rejects
+remaining SCF and source control-flow bridges. The public `source-import`
+diagnostic output retains its existing meaning; this intermediate boundary does
+not add a CLI output mode.

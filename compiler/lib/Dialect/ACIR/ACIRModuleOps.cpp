@@ -1,3 +1,5 @@
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
@@ -311,21 +313,33 @@ DictionaryAttr declarationSourceOwner(Operation *operation) {
 // from the staged dispatcher row and the check-plan tier after the ops
 // archive stopped referencing the analysis target.
 namespace detail {
-// Only statement arms extend a callable body. Other region owners (including
-// guards and pure helpers) never acquire source-effect placement by ancestry.
-Operation *sourceEffectCallable(Operation *operation) {
+// Only serial statement regions inherit callable permissions. The while
+// condition region is read-only; collection and helper regions stay closed.
+bool isSourceControlRegion(Region &region) {
+  auto *owner = region.getParentOp();
+  return isa<SourceBranchOp, scf::ForOp, scf::WhileOp, scf::IfOp>(owner) ||
+         (isa<scf::ExecuteRegionOp>(owner) && region.hasOneBlock());
+}
+bool isSourceControlComputation(Operation *operation) {
+  return isa<arith::ConstantOp, arith::AddIOp, arith::SubIOp,
+             arith::MulIOp, arith::CmpIOp, arith::IndexCastOp,
+             arith::AndIOp, arith::OrIOp, arith::XOrIOp,
+             scf::YieldOp, scf::ConditionOp, SourceIndexOp,
+             SourcePredicateOp>(operation);
+}
+Operation *sourceEffectCallable(Operation *operation, bool allowReads) {
   Region *region = operation->getParentRegion();
-  Operation *parent = operation->getParentOp();
-  while (auto branch = dyn_cast_or_null<SourceBranchOp>(parent)) {
-    if (branch->getNumRegions() != 2)
-      return nullptr;
-    if (region != &branch.getThenRegion() && region != &branch.getElseRegion())
-      return nullptr;
-    region = branch->getParentRegion();
-    parent = branch->getParentOp();
+  while (region && isSourceControlRegion(*region)) {
+    auto *parent = region->getParentOp();
+    if (auto loop = dyn_cast<scf::WhileOp>(parent))
+      if (region == &loop.getBefore() && !allowReads)
+        return nullptr;
+    region = parent->getParentRegion();
   }
+  auto *parent = region ? region->getParentOp() : nullptr;
   return isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent) &&
-                 parent->getNumRegions() == 2 && region == &parent->getRegion(1)
+                 parent->getNumRegions() == 2 &&
+                 (region == &parent->getRegion(1) || allowReads)
              ? parent
              : nullptr;
 }
