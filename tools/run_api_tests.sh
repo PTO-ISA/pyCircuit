@@ -50,6 +50,7 @@ nightly_python_tests=(
   tests/system/test_saved_anchor_variants.py
   tests/system/test_selected_module_proposals.py
   tests/system/test_source_rule_queues.py
+  tests/system/test_routed_queue_controls.py
   tests/system/test_rule_resource_demand.py
   tests/system/test_rule_queue_external_pop.py
   tests/system/test_hierarchical_state_rules.py

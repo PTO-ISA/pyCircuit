@@ -7,6 +7,14 @@
 void require(bool condition) {
   if (!condition) { std::cerr << "queue fault oracle failed\n"; std::abort(); }
 }
+template <class Sibling>
+void checkPreparedWrite(const Sibling &sibling, unsigned edge) {
+  // A statically enabled counter can use a DFF with no enable pin.
+  if constexpr (requires { sibling.pyc_instance_value_en; })
+    require(sibling.pyc_instance_value_en.element(0).value().toBool());
+  require(sibling.pyc_instance_value_d.element(0).value().value() == edge + 1);
+  require(sibling.pyc_instance_value_clk.element(0).value().toBool() == (edge == 0));
+}
 template <class Wire> void wire(std::ostream &out, const Wire &value) {
   const auto packed = value.packed();
   for (unsigned bit = Wire::width; bit-- > 0;)
@@ -82,10 +90,7 @@ int main() {
         require(info.code == "source_check_failed" && info.message == message);
         require(!info.instance.empty() && !info.sourceJson.empty() && !info.checkIdJson.empty());
         require(snapshot(dut) == before && dut.system().cycle() == cycle);
-        const auto sibling = @SIBLING@;
-        require(sibling->pyc_instance_value_en.element(0).value().toBool());
-        require(sibling->pyc_instance_value_d.element(0).value().value() == edge + 1);
-        require(sibling->pyc_instance_value_clk.element(0).value().toBool() == (edge == 0));
+        checkPreparedWrite(*(@SIBLING@), edge);
         require(dut.observations().Events().empty());
         require(dut.system().Step() == gfsim::SimStepResult::Failed);
         require(snapshot(dut) == before && dut.system().cycle() == cycle);

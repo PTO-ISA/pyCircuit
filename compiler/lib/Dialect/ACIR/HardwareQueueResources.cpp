@@ -12,6 +12,40 @@
 
 using namespace mlir;
 namespace acir::ac::detail {
+
+FailureOr<Value> proveUnconditionalQueuePath(
+    const SampledAdmissionView &view, const SampledResourceView &resource,
+    llvm::function_ref<FailureOr<bool>(Value)> isOne,
+    SourceCheckBudget &budget) {
+  if (view.controls[resource.control].executionPath.selectionControl)
+    return view.rule->emitOpError()
+           << "branch-dependent Queue resource requires path selection";
+  Value path;
+  for (const auto &proposal : view.queueProposals) {
+    if (failed(budget.debit(1, view.rule)))
+      return failure();
+    if (proposal.resourceControl != resource.control)
+      continue;
+    bool push = resource.kind.getValue() == "queue_ready";
+    if (path || proposal.kind.getValue() != (push ? "push" : "pop") ||
+        proposal.queue.get("owner") != resource.owner ||
+        proposal.queue.get("declaration") != resource.declaration)
+      return view.rule->emitOpError()
+             << "unconditional Queue resource requires its unique proposal";
+    path = proposal.rawPath;
+  }
+  if (!path)
+    return view.rule->emitOpError()
+           << "unconditional Queue resource lacks a retained proposal path";
+  auto one = isOne(path);
+  if (failed(one))
+    return failure();
+  if (!*one)
+    return view.rule->emitOpError()
+           << "unconditional Queue resource requires a known-one raw path";
+  return path;
+}
+
 namespace {
 struct QueueEndpoint {
   HardwareIdentityScope scope;
@@ -937,6 +971,7 @@ private:
 #include "HardwareQueueProspectivePredicateProof.inc"
   LogicalResult resources(const SampledAdmissionView &sampled) {
     mlir::Builder b(module.getContext());
+    llvm::DenseSet<Value> compactReadiness;
     for (const auto &resource : sampled.resources) {
       if (resource.kind.getValue() == "memory_live") continue;
       auto id = b.getDictionaryAttr({b.getNamedAttr("owner", resource.owner),
@@ -945,22 +980,45 @@ private:
       if (failed(target)) return failure();
       const auto &control = sampled.controls[resource.control];
       auto raw = normal(control.raw, scope);
-      auto select = succeeded(raw) ? raw->value.getDefiningOp<BitsSelectOp>() : BitsSelectOp();
-      if (!select) return module->emitOpError() << "queue resource requires path-selected raw queue predicate";
-      auto predicate = normal(select.getTrueValue(), raw->scope);
+      if (failed(raw)) return failure();
+      auto select = raw->value.getDefiningOp<BitsSelectOp>();
+      Value bare = select ? select.getTrueValue() : control.raw;
+      if (select) {
+        auto bypass = literal(select.getFalseValue(), raw->scope, true);
+        if (failed(bypass) || !*bypass ||
+            failed(resourcePath(sampled, control, select.getCondition(), scope)))
+          return module->emitOpError() << "queue resource must bypass with known one";
+      } else if (failed(proveUnconditionalQueuePath(
+                     sampled, resource,
+                     [&](Value path) { return literal(path, scope, true); },
+                     budget))) {
+        return failure();
+      }
+      auto predicate = normal(bare, select ? raw->scope : scope);
       auto expected = normal(target->queue.getOutputs()[1], target->scope);
       if (resource.kind.getValue() == "queue_ready" &&
-          failed(prospectivePredicate(sampled, resource, *target, select.getTrueValue()))) return failure();
-      auto bypass = literal(select.getFalseValue(), raw->scope, true);
-      if (failed(resourcePath(sampled, control, select.getCondition(), scope))) return failure();
+          failed(prospectivePredicate(sampled, resource, *target, bare))) return failure();
+      if (!select && prospectiveLeaves.contains(raw->value)) {
+        // The bare prospective computation is now the raw guard. Permit only
+        // its exact raw-check slot and comparison edges in the admission graph.
+        auto rule = sampled.rule;
+        auto yield = cast<YieldOp>(rule.getBody().front().getTerminator());
+        if (raw->value != control.raw ||
+            failed(prospectiveEdge(yield, control.rawResult)) ||
+            failed(pay(sizeof(Value) * 3)))
+          return failure();
+        compactReadiness.insert(control.raw);
+      }
       auto clock = normal(sampled.clock, scope), reset = normal(sampled.reset, scope);
       auto queueClock = normal(target->queue.getInputs()[0], target->scope),
            queueReset = normal(target->queue.getInputs()[1], target->scope);
-      if (failed(predicate) || failed(expected) || failed(bypass) || !*bypass ||
+      if (failed(predicate) || failed(expected) ||
           (resource.kind.getValue() == "queue_valid" && !same(*predicate, *expected)) || failed(clock) || failed(reset) ||
           failed(queueClock) || failed(queueReset) || !same(*clock, *queueClock) || !same(*reset, *queueReset))
         return module->emitOpError() << "queue resource predicate or domain differs from actual allocation";
     }
+    if (failed(compactReadinessUses(sampled, compactReadiness)))
+      return failure();
     return llvm::any_of(sampled.resources, [](const auto &resource) {
       return resource.kind.getValue() == "queue_ready";
     }) ? prospectiveUseClosure(sampled) : success();

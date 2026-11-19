@@ -174,6 +174,13 @@ mappings locate objects but do not supply semantic authority. The
 [routed-anchor contract](../architecture/routed-anchor.md) defines these native
 boundaries, stage markers, graph/executable distinction and retained snapshots.
 
+After original-source authentication, routing folds known-one terms in the
+admission prefix. A Queue push or pop with a literal-one root path can carry its
+raw readiness or validity directly to the check and known-one comparison.
+Standalone verification ties the compact form to the retained proposal path
+and the actual Queue allocation. Guard checks use the original ordered reach
+and resource demand in both targets.
+
 C++ and managed RTL consume the same sampling plan, freeze physical pins and
 ordered checks during Work/PREPARE, and commit pending history only after
 whole-system success. False-fire, held and falling samples maintain legal
