@@ -3,18 +3,52 @@
 
 #include "mlir/IR/DialectInterface.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/DenseMap.h"
+#include <algorithm>
+#include <cstdint>
 #include <mutex>
 
 namespace acir::ac {
+namespace detail {
+
+struct RawAttributeShape {
+  static constexpr unsigned maxHeight = 128;
+  static constexpr uint32_t maxExpandedWork = 1024 * 1024;
+
+  // Zero means that grammar succeeded without a reusable bounded shape.
+  uint32_t expandedWork = 0;
+  unsigned height = 0;
+
+  explicit operator bool() const { return expandedWork != 0; }
+
+  static RawAttributeShape leaf(uint64_t storage = 0) {
+    return storage < maxExpandedWork
+               ? RawAttributeShape{uint32_t(1 + storage), 0}
+               : RawAttributeShape{};
+  }
+
+  void include(RawAttributeShape child) {
+    if (!*this || !child || child.height >= maxHeight ||
+        child.expandedWork > maxExpandedWork - expandedWork) {
+      *this = {};
+      return;
+    }
+    expandedWork += child.expandedWork;
+    height = std::max(height, child.height + 1);
+  }
+};
+
+using VerifiedGrammarMemo = llvm::DenseMap<mlir::DictionaryAttr, RawAttributeShape>;
+
+} // namespace detail
 
 // Shared grammar-memo storage (B2 step-2 design r9 §GrammarCacheHost).
-// The three sets retain only grammar successes; owner/source checks stay
-// with callers. The mutex guards all three sets.
+// Only grammar successes and optional immutable shapes are retained.
+// Owner/source checks stay with callers. The mutex guards all three maps.
 struct GrammarMemoCache {
-  llvm::DenseSet<mlir::DictionaryAttr> verifiedOccurrenceGrammars;
-  llvm::DenseSet<mlir::DictionaryAttr> verifiedStaticExpressionGrammars;
-  llvm::DenseSet<mlir::DictionaryAttr> verifiedSourceSpanGrammars;
+  detail::VerifiedGrammarMemo verifiedOccurrenceGrammars;
+  detail::VerifiedGrammarMemo verifiedStaticExpressionGrammars;
+  detail::VerifiedGrammarMemo verifiedSourceSpanGrammars;
   std::mutex mutex;
 };
 

@@ -4,6 +4,7 @@
 
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -47,6 +48,57 @@ parseCanonicalMathInt(StringRef spelling,
 } // namespace
 
 namespace detail {
+
+uint64_t rawAttributeStorage(Attribute value) {
+  if (auto text = dyn_cast<StringAttr>(value))
+    return text.getValue().size();
+  if (auto opaque = dyn_cast<OpaqueAttr>(value))
+    return opaque.getAttrData().size();
+  if (auto integer = dyn_cast<IntegerAttr>(value))
+    return (uint64_t(integer.getValue().getBitWidth()) + 7) / 8;
+  if (auto dense = dyn_cast<DenseElementsAttr>(value))
+    return dense.getRawData().size();
+  if (auto array = dyn_cast<DenseArrayAttr>(value))
+    return array.getRawData().size();
+  return 0;
+}
+
+namespace {
+RawAttributeShape summarizeClosedLeaf(Attribute attr) {
+  // The only non-leaf attributes here are wrappers around a string or an
+  // empty array. Unknown types on typed attributes require the full raw walk.
+  if (!isa<StringAttr, IntegerAttr, FlatSymbolRefAttr, MathIntAttr>(attr)) {
+    auto array = dyn_cast<ArrayAttr>(attr);
+    return array && array.empty() ? RawAttributeShape::leaf()
+                                  : RawAttributeShape{};
+  }
+  auto shape = RawAttributeShape::leaf(rawAttributeStorage(attr));
+  attr.walkImmediateSubElements(
+      [&](Attribute child) { shape.include(summarizeClosedLeaf(child)); },
+      [&](Type type) {
+        shape.include(isa<NoneType, IntegerType>(type)
+                          ? RawAttributeShape::leaf()
+                          : RawAttributeShape{});
+      });
+  return shape;
+}
+} // namespace
+
+RawAttributeShape summarizeClosedRecord(
+    DictionaryAttr value,
+    ArrayRef<std::pair<Attribute, RawAttributeShape>> fields) {
+  auto shape = RawAttributeShape::leaf();
+  // DictionaryAttr's raw walk visits both names and values.
+  value.walkImmediateSubElements(
+      [&](Attribute child) {
+        auto found = llvm::find_if(
+            fields, [&](const auto &field) { return field.first == child; });
+        shape.include(found == fields.end() ? summarizeClosedLeaf(child)
+                                            : found->second);
+      },
+      [&](Type) { shape = {}; });
+  return shape;
+}
 
 LogicalResult verifyDeclarationMetadata(Operation *operation,
                                         DictionaryAttr owner,
@@ -239,7 +291,8 @@ LogicalResult verifyPathComponent(DictionaryAttr value, EmitError emitError) {
   return emitError() << "PathComponent kind must be 'field' or 'index'";
 }
 
-LogicalResult verifySite(DictionaryAttr value, EmitError emitError) {
+LogicalResult verifyAndSummarizeSite(DictionaryAttr value, EmitError emitError,
+                                     RawAttributeShape *shape) {
   if (!value || value.size() != 2)
     return emitError() << "Site must contain exactly two fields";
   if (!value.getAs<FlatSymbolRefAttr>("definition"))
@@ -247,6 +300,7 @@ LogicalResult verifySite(DictionaryAttr value, EmitError emitError) {
   auto path = value.getAs<ArrayAttr>("ast_path");
   if (!path)
     return emitError() << "Site field 'ast_path' must be an ArrayAttr";
+  auto pathShape = RawAttributeShape::leaf();
   for (Attribute component : path) {
     auto record = dyn_cast<DictionaryAttr>(component);
     if (!record)
@@ -254,8 +308,16 @@ LogicalResult verifySite(DictionaryAttr value, EmitError emitError) {
              << "Site ast_path elements must be PathComponent DictionaryAttr";
     if (failed(verifyPathComponent(record, emitError)))
       return failure();
+    if (shape && pathShape)
+      pathShape.include(summarizeClosedRecord(record));
   }
+  if (shape)
+    *shape = summarizeClosedRecord(value, {{path, pathShape}});
   return success();
+}
+
+LogicalResult verifySite(DictionaryAttr value, EmitError emitError) {
+  return verifyAndSummarizeSite(value, emitError, nullptr);
 }
 
 } // namespace detail

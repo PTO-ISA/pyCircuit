@@ -364,6 +364,10 @@ plan is published if any transaction fails.
 
 New nominal closure/metadata traversal, structural-container allocation,
 materialization and proof costs are reserved before use under existing limits.
+Transaction preflight reuses raw graph height and expansion summaries for
+verified closed attributes, applying the limits at each reference. It also
+reuses equivalent property views for fixed-schema bit operations within a
+module. Native operation and resolver checks retain their own work charges.
 The inherited arbitrary-precision arithmetic evaluator capacity policy remains
 OPEN; these debits do not establish full evaluator bounds or close
 `METHOD-ANALYSIS-BOUNDS`.
