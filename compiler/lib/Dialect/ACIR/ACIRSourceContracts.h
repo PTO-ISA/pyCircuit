@@ -2,6 +2,7 @@
 #define ACIR_LIB_DIALECT_ACIR_ACIRSOURCECONTRACTS_H
 
 #include "pycircuit/Dialect/ACIR/ACIRAttributes.h"
+#include "pycircuit/Dialect/ACIR/GrammarCacheHost.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -11,6 +12,7 @@
 #include "llvm/ADT/StringMap.h"
 
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 namespace acir::ac {
@@ -182,6 +184,12 @@ mlir::LogicalResult verifySourceEffectMetadata(mlir::DictionaryAttr occurrence,
                                                EmitError emitError);
 
 // Intrinsic immutable grammar only; no lexical-owner or source admission fact.
+std::optional<RawAttributeShape>
+verifiedOccurrenceGrammar(mlir::DictionaryAttr value);
+std::optional<RawAttributeShape>
+verifiedSourceSpanGrammar(mlir::DictionaryAttr value);
+std::optional<RawAttributeShape>
+verifiedStaticExpressionGrammar(mlir::DictionaryAttr value);
 bool isVerifiedOccurrenceGrammar(mlir::DictionaryAttr value);
 bool isVerifiedSourceSpanGrammar(mlir::DictionaryAttr value);
 void rememberVerifiedSourceSpanGrammar(mlir::DictionaryAttr value);
@@ -194,10 +202,20 @@ staticExpressionGrammarCacheShape(mlir::MLIRContext *context);
 std::pair<uint64_t, uint64_t>
 occurrenceGrammarCacheShape(mlir::MLIRContext *context);
 
+uint64_t rawAttributeStorage(mlir::Attribute value);
+// Compose a verified record from its immutable scalar fields and summaries
+// already collected while verifying its non-scalar fields.
+RawAttributeShape summarizeClosedRecord(
+    mlir::DictionaryAttr value,
+    llvm::ArrayRef<std::pair<mlir::Attribute, RawAttributeShape>> fields = {});
+
 mlir::LogicalResult verifyPathComponent(mlir::DictionaryAttr value,
                                         EmitError emitError);
 
 mlir::LogicalResult verifySite(mlir::DictionaryAttr value, EmitError emitError);
+mlir::LogicalResult verifyAndSummarizeSite(mlir::DictionaryAttr value,
+                                           EmitError emitError,
+                                           RawAttributeShape *shape);
 
 mlir::LogicalResult verifyLogicalTypeStructure(mlir::DictionaryAttr value,
                                                EmitError emitError);

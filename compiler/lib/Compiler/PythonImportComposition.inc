@@ -442,10 +442,10 @@ Importer::moduleResultTargets(const AstNode &assignment, size_t arity) {
 }
 LogicalResult Importer::bindCallableResults(
     const AstNode &assignment, ValueRange results, OpBuilder &at,
-    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances,
     const llvm::StringSet<> &forbidden,
-    llvm::StringMap<BindingBoundary> *boundaries) {
+    EnvironmentMap<BindingBoundary> *boundaries) {
   auto targets = moduleResultTargets(assignment, results.size());
   if (failed(targets)) return failure();
   SmallVector<PreparedLocalBinding, 2> destinations;
@@ -467,7 +467,7 @@ LogicalResult Importer::bindCallableResults(
 
 FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
     const AstNode &call, ArrayRef<Port> inputs, OpBuilder &at,
-    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances,
     ArrayRef<unsigned> deferredReferences) {
   SmallVector<StringRef> names;
@@ -503,7 +503,7 @@ FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
 
 FailureOr<bool> Importer::bindModuleResults(
     const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     const llvm::StringSet<> &forbidden) {
   auto call = assignment.child("value");
   if (!moduleCall(call) || methodOwner(call.child("func")))
@@ -566,7 +566,7 @@ LogicalResult Importer::registerDirectModuleHandle(
 
 FailureOr<Value> Importer::directModuleCall(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   auto callee = callable(call.child("func"));
   if (failed(callee))
     return failure();
@@ -581,7 +581,7 @@ FailureOr<Value> Importer::directModuleCall(
 }
 FailureOr<SmallVector<Value>> Importer::directModuleResults(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   if (!isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
     return error() << "direct module calls are only admitted at module scope";
   auto found = directCallSites.find(sourceOccurrence(at, symbol, call));
@@ -625,7 +625,7 @@ FailureOr<SmallVector<Value>> Importer::directModuleResults(
 }
 FailureOr<Value> Importer::stateInitializer(
     const Port &contract, const AstNode &initializer, const AstNode &site,
-    OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    OpBuilder &at, FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances, bool allowCapturedConstants) {
   ac::HardwareAnalysis analysis(*body);
   ac::HardwareBindings bindings;
@@ -674,7 +674,7 @@ FailureOr<Value> Importer::stateInitializer(
 
 FailureOr<SmallVector<Value>>
 Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
-                      OpBuilder &at, llvm::StringMap<Value> &values,
+                      OpBuilder &at, EnvironmentMap<Value> &values,
                       llvm::StringMap<Instance *> &instances) {
   SmallVector<Value> outputs;
   if (decl.returnShape == ReturnShape::None) {
@@ -749,7 +749,7 @@ Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
   return outputs;
 }
 void Importer::bindState(const StateOwner &state, Value next, Value en,
-                         OpBuilder &at, llvm::StringMap<Value> &values) {
+                         OpBuilder &at, EnvironmentMap<Value> &values) {
   SmallVector<Value> inputs{values["pyc_clk"], values["pyc_rst"], en, next,
                             state.init};
   if (auto table = dyn_cast<ac::TableType>(state.type))
@@ -766,7 +766,7 @@ void Importer::bindState(const StateOwner &state, Value next, Value en,
 
 LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
                                       OpBuilder &at,
-                                      llvm::StringMap<Value> &values,
+                                      EnvironmentMap<Value> &values,
                                       FlatSymbolRefAttr symbol) {
   if (!activeBehavioralDecl ||
       failed(preflightProposals(activeBehavioralDecl->node)))

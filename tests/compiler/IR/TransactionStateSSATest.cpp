@@ -715,6 +715,60 @@ TEST_F(TransactionStateSSATest,
 }
 
 TEST_F(TransactionStateSSATest,
+       NestedSelectionDoesNotMultiplyCombinationalWork) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto &body = run.getBody().front();
+  constexpr unsigned depth = 32;
+  constexpr unsigned payloadSize = 256;
+  auto *leaf = &body;
+  SourceBranchOp outer;
+  for (unsigned level = 0; level < depth; ++level) {
+    auto split = branch(*leaf, leaf->getTerminator()->getIterator(),
+                        body.getArgument(0), std::nullopt, std::nullopt,
+                        20 + level);
+    if (!outer)
+      outer = split;
+    leaf = &split.getThenRegion().front();
+  }
+
+  // Keep the payload's SSA chain and call unchanged while moving the chain
+  // from outside the branches into the deepest arm.
+  builder.setInsertionPoint(outer);
+  std::array<mlir::Operation *, payloadSize> payload;
+  mlir::Value value = body.getArgument(1);
+  for (auto &operation : payload) {
+    mlir::OperationState add(run.getLoc(), BitsBinaryOp::getOperationName());
+    add.addOperands({value, value});
+    add.addTypes(value.getType());
+    add.addAttribute("opcode", builder.getStringAttr("add"));
+    operation = builder.create(add);
+    value = operation->getResult(0);
+  }
+  auto *call = first<SourceMethodCallOp>(run.getBody())->clone();
+  call->setOperand(1, value);
+  call->setAttr("occurrence", occurrence("Root", 20 + depth));
+  leaf->getOperations().insert(leaf->getTerminator()->getIterator(), call);
+
+  auto outside = analyze(*file);
+  ASSERT_TRUE(outside->isValid()) << diagnostics;
+  auto outsideWork = outside->getAnalysisWork();
+  outside.reset();
+  for (auto *operation : payload)
+    operation->moveBefore(call);
+
+  auto nested = analyze(*file);
+  ASSERT_TRUE(nested->isValid()) << diagnostics;
+  auto *plan = nested->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(plan->selections.size(), depth);
+  // The total also includes planning and pricing values in the deeper scope.
+  // Allow that work while bounding the extra cost of relocating the payload.
+  EXPECT_LE(nested->getAnalysisWork(), outsideWork + 128 * payloadSize);
+}
+
+TEST_F(TransactionStateSSATest,
        RepeatedMethodBranchesUseInvocationLocalJoinsAndOwnerOrdinals) {
   auto file = parse();
   ASSERT_TRUE(file);
@@ -2569,6 +2623,38 @@ TEST_F(TransactionStateSSATest,
 }
 
 TEST_F(TransactionStateSSATest,
+       SharedNativePropertiesStillVerifyEachExtractOperand) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto &body = child.getBody().front();
+  builder.setInsertionPointToStart(&body);
+  auto low = first<BitsConstantOp>(child.getBody()).getValue();
+  auto makeExtract = [&](mlir::Value input) {
+    mlir::OperationState state(builder.getUnknownLoc(),
+                               BitsExtractOp::getOperationName());
+    state.addOperands(input);
+    state.addTypes(body.getArgument(1).getType());
+    state.addAttribute("low", low);
+    return builder.create(state);
+  };
+  // Identical low properties permit bit one of seed, but cannot make
+  // that bit exist in the one-bit flag operand.
+  auto *valid = makeExtract(body.getArgument(0));
+  auto *invalid = makeExtract(body.getArgument(1));
+  ASSERT_EQ(valid->getAttrDictionary(), invalid->getAttrDictionary());
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(valid); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  EXPECT_FALSE(analysis->isValid());
+  EXPECT_EQ(analysis->lookup(transaction(*file)), nullptr);
+  std::string partial;
+  llvm::raw_string_ostream stream(partial);
+  EXPECT_TRUE(mlir::failed(analysis->print(stream)));
+  EXPECT_TRUE(partial.empty());
+}
+
+TEST_F(TransactionStateSSATest,
        WarmStaticLiteralGrammarDoesNotBypassRawGraphBounds) {
   // Warm the exact literal grammar first. Its raw graph still has to pass the
   // depth and expanded-occurrence preflight before any native scope shortcut.
@@ -2577,7 +2663,8 @@ TEST_F(TransactionStateSSATest,
     auto file = parse();
     ASSERT_TRUE(file);
     auto child = module(*file, "Child");
-    auto base = first<BitsConstantOp>(child.getBody()).getValue();
+    auto constant = first<BitsConstantOp>(child.getBody());
+    auto base = constant.getValue();
     auto tree = base.getTree();
     if (graph != 2) {
       auto value = tree.getAs<mlir::DictionaryAttr>("value");
@@ -2599,9 +2686,9 @@ TEST_F(TransactionStateSSATest,
     ASSERT_TRUE(detail::isVerifiedStaticExpressionGrammar(tree));
     mlir::Attribute payload = StaticExprAttr::get(&context, tree);
     if (graph == 2)
-      for (unsigned i = 0; i < 140; ++i)
+      for (unsigned i = 0; i < 124; ++i)
         payload = builder.getArrayAttr({payload});
-    child->setAttr("test_warm_static_grammar", payload);
+    constant->setAttr("test_warm_static_grammar", payload);
     auto operations = identities(*file);
     std::vector<mlir::DictionaryAttr> attributes;
     for (mlir::Operation *operation : operations)
@@ -2617,7 +2704,7 @@ TEST_F(TransactionStateSSATest,
     EXPECT_EQ(operations, identities(*file));
     for (auto [index, operation] : llvm::enumerate(operations))
       EXPECT_EQ(operation->getAttrDictionary(), attributes[index]);
-    EXPECT_EQ(child->getAttr("test_warm_static_grammar"), payload);
+    EXPECT_EQ(constant->getAttr("test_warm_static_grammar"), payload);
     std::string partial;
     llvm::raw_string_ostream stream(partial);
     EXPECT_TRUE(mlir::failed(analysis->print(stream)));
@@ -2690,7 +2777,8 @@ TEST_F(TransactionStateSSATest,
       });
     }))) << diagnostics;
     ASSERT_TRUE(detail::isVerifiedOccurrenceGrammar(origin));
-    child->setAttr("test_warm_grammar", origin);
+    first<BitsConstantOp>(child.getBody())
+        ->setAttr("test_warm_grammar", origin);
     auto analysis = analyzeRawPreflightFailure(*file);
     EXPECT_FALSE(analysis->isValid());
     EXPECT_NE(diagnostics.find(exponential ? "attribute/type graph expansion"

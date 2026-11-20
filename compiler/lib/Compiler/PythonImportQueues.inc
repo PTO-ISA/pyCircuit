@@ -129,7 +129,7 @@ LogicalResult Importer::declareQueue(const AstNode &assignment, ModuleDecl &decl
 }
 FailureOr<bool> Importer::bindQueueResults(
     const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     SmallVectorImpl<Instance> &instanceStorage) {
   auto call = assignment.child("value");
   if (!queueCall(call)) return false;
@@ -249,7 +249,7 @@ FailureOr<bool> Importer::bindQueueResults(
   return true;
 }
 FailureOr<std::optional<Type>> Importer::queueExpressionType(
-    const AstNode &node, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    const AstNode &node, FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances) {
   AstNode attribute = node.kind() == "Call" ? node.child("func") : node;
   if (attribute.kind() != "Attribute" || attribute.child("value").kind() != "Name")
@@ -278,7 +278,7 @@ FailureOr<std::optional<Type>> Importer::queueExpressionType(
 }
 FailureOr<std::optional<Value>> Importer::queueRawExpression(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   auto named = node.kind() == "Name" ? instances.find(node.string("id"))
                                     : instances.end();
   if (node.kind() == "Name" && named != instances.end() &&

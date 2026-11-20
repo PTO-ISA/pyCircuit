@@ -108,6 +108,8 @@ target_compile_definitions(ACIRSourceInterfacePassTests PRIVATE
 target_link_libraries(ACIRSourceInterfacePassTests PRIVATE
   ACIRCodegen
   ACIRSourceCompiler ACIRToGFIR ACIRTransforms MLIRPass)
+add_acir_api_test(ACIREnvironmentMapTests EnvironmentMapTest.cpp)
+target_link_libraries(ACIREnvironmentMapTests PRIVATE ACIRSourceCompiler)
 add_acir_api_test(ACIRRecordProjectionSimplificationTests RecordProjectionSimplificationTest.cpp)
 target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
   ACIRTransforms MLIRPass)
@@ -253,7 +255,7 @@ add_custom_target(check-pycircuit
     -L "^api$" -L "^${PYC_TEST_TIER}$" --output-junit "api-${PYC_TEST_TIER}.xml"
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
   DEPENDS pycircuit-opt pycircuit-emit pycircuit-source-unit pycircuit-link
-    ACIRRoutedAnchorTests ACIRAnchorArtifactTests ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
+    ACIREnvironmentMapTests ACIRRoutedAnchorTests ACIRAnchorArtifactTests ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
     ACIRExactIntegerLoweringTests
     ACIRFixedUnsignedDivRemLoweringTests
     ACIRSourceInterfacePassTests

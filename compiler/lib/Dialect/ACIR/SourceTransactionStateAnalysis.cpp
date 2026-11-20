@@ -15,6 +15,7 @@
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
+#include <array>
 #include <limits>
 
 #include <functional>
@@ -198,11 +199,12 @@ public:
     spanCapacity = spanShape.second;
   }
 
-  bool check(Operation *site, Attribute attribute) {
-    return !attribute || check(site, Node(attribute));
+  bool check(Operation *site, Attribute attribute,
+             bool reuseGrammarShapes = false) {
+    return !attribute || check(site, Node(attribute), reuseGrammarShapes);
   }
-  bool check(Operation *site, Type type) {
-    return !type || check(site, Node(type));
+  bool check(Operation *site, Type type, bool reuseGrammarShapes = false) {
+    return !type || check(site, Node(type), reuseGrammarShapes);
   }
 
 private:
@@ -234,7 +236,7 @@ private:
   }
 
   bool reserveGrammarInsert(Operation *site, uint64_t &entries,
-                            uint64_t &oldCapacity) {
+                            uint64_t &oldCapacity, uint64_t shapeWork) {
     uint64_t count = saturatedAdd(entries, 1);
     uint64_t capacity = std::max(uint64_t(64), oldCapacity);
     while (saturatedMultiply(count, 4) >= saturatedMultiply(capacity, 3)) {
@@ -243,18 +245,41 @@ private:
       capacity = saturatedMultiply(capacity, 2);
     }
     if (capacity > oldCapacity &&
-        (!budget.chargeStorage<DictionaryAttr>(site,
-                                                capacity - oldCapacity) ||
+        (!budget.chargeStorage<detail::VerifiedGrammarMemo::value_type>(
+             site, capacity - oldCapacity) ||
          !budget.charge(site, oldCapacity)))
       return false;
-    if (!budget.charge(site, 2))
+    if (!budget.charge(site, saturatedAdd(2, shapeWork)))
       return false;
     entries = count;
     oldCapacity = capacity;
     return true;
   }
 
-  bool check(Operation *site, Node root) {
+  static detail::RawAttributeShape lookupGrammarShape(Node node) {
+    auto attribute = node.dyn_cast<Attribute>();
+    if (auto expression = dyn_cast_or_null<StaticExprAttr>(attribute)) {
+      if (auto tree =
+              detail::verifiedStaticExpressionGrammar(expression.getTree());
+          tree && *tree) {
+        // The grammar memo describes the tree dictionary. The ODS attribute
+        // that wraps it contributes a node and a parent edge of its own.
+        auto shape = detail::RawAttributeShape::leaf();
+        shape.include(*tree);
+        return shape;
+      }
+    } else if (auto dictionary = dyn_cast_or_null<DictionaryAttr>(attribute)) {
+      if (dictionary.size() == 2)
+        return detail::verifiedOccurrenceGrammar(dictionary).value_or(
+            detail::RawAttributeShape{});
+      if (dictionary.size() == 5)
+        return detail::verifiedSourceSpanGrammar(dictionary).value_or(
+            detail::RawAttributeShape{});
+    }
+    return {};
+  }
+
+  bool check(Operation *site, Node root, bool reuseGrammarShapes) {
     auto known = summaries.find(root);
     if (known != summaries.end())
       return budget.charge(site, known->second.nativeWork);
@@ -268,6 +293,15 @@ private:
       auto &frame = stack.back();
       if (!frame.initialized) {
         frame.initialized = true;
+        // The existing frame charge includes this bounded lookup. A complete
+        // summary is still merged at every reference by the ordinary DFS.
+        if (reuseGrammarShapes)
+          if (auto shape = lookupGrammarShape(frame.node)) {
+            summaries.find(frame.node)->second = {
+                shape.expandedWork, 2, shape.height, false};
+            stack.pop_back();
+            continue;
+          }
         bool valid = true;
         auto child = [&](Node node) {
           if (!valid || !node)
@@ -282,16 +316,7 @@ private:
         auto type = [&](Type ty) { child(Node(ty)); };
         uint64_t storage = 0;
         if (auto attr = frame.node.dyn_cast<Attribute>()) {
-          if (auto text = dyn_cast<StringAttr>(attr))
-            storage = text.getValue().size();
-          else if (auto opaque = dyn_cast<OpaqueAttr>(attr))
-            storage = opaque.getAttrData().size();
-          else if (auto integer = dyn_cast<IntegerAttr>(attr))
-            storage = (uint64_t(integer.getValue().getBitWidth()) + 7) / 8;
-          else if (auto dense = dyn_cast<DenseElementsAttr>(attr))
-            storage = dense.getRawData().size();
-          else if (auto array = dyn_cast<DenseArrayAttr>(attr))
-            storage = array.getRawData().size();
+          storage = detail::rawAttributeStorage(attr);
           if (!budget.charge(site, storage) ||
               !addWork(site, frame.expandedWork, storage) ||
               !addWork(site, frame.nativeWork, storage))
@@ -314,14 +339,16 @@ private:
         if (auto attribute = frame.node.dyn_cast<Attribute>())
           if (auto expression = dyn_cast<StaticExprAttr>(attribute)) {
             auto tree = expression.getTree();
+            auto kind = tree ? tree.getAs<StringAttr>("kind") : StringAttr();
+            bool literal = kind && kind.getValue() == "literal";
             if (detail::isVerifiedStaticExpressionGrammar(tree)) {
-              auto kind = tree.getAs<StringAttr>("kind");
               // Native grammar and lexical scope both reuse the closed
               // literal proof. Other kinds retain owner-dependent scope work.
-              if (kind && kind.getValue() == "literal")
+              if (literal)
                 frame.nativeWork = 2;
             } else if (!reserveGrammarInsert(site, staticEntries,
-                                             staticCapacity))
+                                             staticCapacity,
+                                             literal ? frame.expandedWork : 0))
               return false;
           }
         if (auto attribute = frame.node.dyn_cast<Attribute>())
@@ -334,7 +361,8 @@ private:
                        occurrence.getAs<IntegerAttr>("column") &&
                        occurrence.getAs<IntegerAttr>("end_line") &&
                        occurrence.getAs<IntegerAttr>("end_column") &&
-                       !reserveGrammarInsert(site, spanEntries, spanCapacity))
+                       !reserveGrammarInsert(site, spanEntries, spanCapacity,
+                                             frame.expandedWork))
               return false;
             if (detail::isVerifiedOccurrenceGrammar(occurrence)) {
               // Both native occurrence grammar and the generic scope walk
@@ -345,7 +373,8 @@ private:
                        occurrence.getAs<DictionaryAttr>("site") &&
                        occurrence.getAs<ArrayAttr>("expansion") &&
                        !reserveGrammarInsert(site, occurrenceEntries,
-                                             occurrenceCapacity))
+                                             occurrenceCapacity,
+                                             frame.expandedWork))
               return false;
           }
         summaries.find(frame.node)->second = {
@@ -386,7 +415,8 @@ private:
     return budget.charge(site, summaries.find(root)->second.nativeWork);
   }
 
-  static constexpr uint64_t maxExpandedWork = 1024 * 1024;
+  static constexpr uint64_t maxExpandedWork =
+      detail::RawAttributeShape::maxExpandedWork;
   StateAnalysisBudget &budget;
   llvm::DenseMap<Node, Summary> summaries;
   uint64_t occurrenceEntries = 0, occurrenceCapacity = 0;
@@ -394,8 +424,77 @@ private:
   uint64_t spanEntries = 0, spanCapacity = 0;
 };
 
+class PropertyViews {
+public:
+  FailureOr<Attribute> get(Operation *op, Operation *module,
+                           StateAnalysisBudget &budget) {
+    uint64_t size = op->getPropertiesStorageSize();
+    Views *views = nullptr;
+    // These ODS properties each contain one immutable Attribute handle.
+    // Two recent values per kind cover interleaved properties with fixed work
+    // and storage, including inputs where every conversion would be unique.
+    if (size == sizeof(Attribute) &&
+        isa<BitsConstantOp, BitsConstant4Op, BitsUnaryOp, BitsBinaryOp,
+            BitsCompareOp, BitsExtractOp, BitsResizeOp>(op)) {
+      if (!memo) {
+        if (!budget.chargeStorage<Memo::value_type>(op, inlineBuckets))
+          return failure();
+        memo.emplace();
+      }
+      if (!budget.charge(op))
+        return failure();
+      views = &memo->try_emplace(op->getName()).first->second;
+      if (views->module != module) {
+        if (!budget.charge(op))
+          return failure();
+        *views = {module, {}};
+      }
+      for (auto &view : views->recent) {
+        if (!view.operation)
+          break;
+        if (!budget.charge(op))
+          return failure();
+        if (op->getName().compareOpProperties(
+                op->getPropertiesStorage(),
+                view.operation->getPropertiesStorage())) {
+          if (&view != &views->recent.front()) {
+            if (!budget.charge(op))
+              return failure();
+            std::swap(view, views->recent.front());
+          }
+          return views->recent.front().attribute;
+        }
+      }
+    }
+    if (!budget.charge(op, size) || (views && !budget.charge(op)))
+      return failure();
+    Attribute attribute = op->getPropertiesAsAttribute();
+    if (views) {
+      views->recent.back() = views->recent.front();
+      views->recent.front() = {op, attribute};
+    }
+    return attribute;
+  }
+
+private:
+  struct View {
+    Operation *operation = nullptr;
+    Attribute attribute;
+  };
+  struct Views {
+    Operation *module = nullptr;
+    std::array<View, 2> recent;
+  };
+  // The seven admitted operation kinds fit under the inline load limit.
+  static constexpr unsigned inlineBuckets = 16;
+  using Memo = llvm::SmallDenseMap<OperationName, Views, inlineBuckets>;
+  std::optional<Memo> memo;
+};
+
 struct PackageInventory {
   SmallVector<SourceTransactionOp> transactions;
+  // Declaration entries also fund later resolver validation. Other entries
+  // supply the read-only operation inventory for receiver analysis.
   llvm::DenseMap<Operation *, uint64_t> operationCosts;
   llvm::DenseMap<Operation *, uint64_t> moduleCosts;
   llvm::DenseMap<Attribute, uint64_t> methodCosts;
@@ -411,6 +510,7 @@ LogicalResult preflight(mlir::ModuleOp package, StateAnalysisBudget &budget,
   };
   SmallVector<Pending> pending;
   AttributeTypePreflight subelements(budget, package.getContext());
+  PropertyViews propertyViews;
   Operation *scopeOwner = nullptr;
   llvm::DenseMap<Type, bool> scopedTypes;
   uint64_t nativeTypeCapacity = 0;
@@ -424,6 +524,11 @@ LogicalResult preflight(mlir::ModuleOp package, StateAnalysisBudget &budget,
              << "transaction state analysis structural depth exceeded";
     if (isa<ModuleOp>(op))
       module = op;
+    // Use the full structural pricing path for declarations that fund later
+    // module, instance and Method revalidation. Cached complete results from
+    // earlier operations retain the same native work as the full traversal.
+    bool replayPriced =
+        isa<ModuleOp, ModuleImportOp, InstanceOp, SourceMethodOp>(op);
     if (module != scopeOwner) {
       // ModuleOp's native scope verifier owns one immutable root memo per
       // definition. Clearing this pricing memo preserves that authority cut.
@@ -436,10 +541,10 @@ LogicalResult preflight(mlir::ModuleOp package, StateAnalysisBudget &budget,
     }
     auto checkType = [&](Type type) {
       budget.setPhase("raw type scope");
-      if (!module) return subelements.check(op, type);
+      if (!module) return subelements.check(op, type, !replayPriced);
       if (!budget.charge(op)) return false;
       if (scopedTypes.contains(type)) return true;
-      if (!subelements.check(op, type)) return false;
+      if (!subelements.check(op, type, !replayPriced)) return false;
       // The native DenseSet has its own bucket array for this definition,
       // separate from this retained-capacity pricing map. Pay its complete
       // growth and retained bucket moves before native verification allocates.
@@ -463,16 +568,20 @@ LogicalResult preflight(mlir::ModuleOp package, StateAnalysisBudget &budget,
       return failure();
     uint64_t before = budget.usedWork();
     budget.setPhase("raw attribute dictionaries");
-    if (!subelements.check(op, op->getRawDictionaryAttrs())) return failure();
+    if (!subelements.check(op, op->getRawDictionaryAttrs(), !replayPriced))
+      return failure();
     budget.setPhase("raw locations");
-    if (!subelements.check(op, op->getLoc())) return failure();
+    if (!subelements.check(op, op->getLoc(), !replayPriced)) return failure();
     // Property conversion is shallow for the owning operation representation;
     // prepay its storage before requesting the attribute view. Inherent attrs
     // stored as properties are absent from the raw discardable dictionary.
     if (op->getPropertiesStorageSize()) {
       budget.setPhase("raw property dictionaries");
-      if (!budget.charge(op, op->getPropertiesStorageSize()) ||
-          !subelements.check(op, op->getPropertiesAsAttribute()))
+      auto properties = propertyViews.get(op, module, budget);
+      // A converted dictionary has no operand, owner or verifier authority.
+      // Charge the downstream native work at each operation.
+      if (failed(properties) ||
+          !subelements.check(op, *properties, !replayPriced))
         return failure();
     }
     for (Type type : op->getOperandTypes())
@@ -568,11 +677,12 @@ struct InvocationResult {
   GuardBoundaryId guard = 0;
 };
 
-// Exact immutable closed type proofs may be shared across occurrence plans of
-// this one unchanged package. Parameter/reference/value/effect facts never are.
-struct ClosedLayoutProofs {
+// These facts depend only on the unchanged package, regardless of occurrence,
+// parameter bindings, or the state of any transaction.
+struct TransactionStructuralMemo {
   llvm::DenseMap<Type, bool> layouts;
   llvm::DenseMap<Type, Type> branches;
+  llvm::DenseMap<Operation *, bool> branchSelections;
 };
 
 class TransactionPlanBuilder {
@@ -580,9 +690,10 @@ public:
   TransactionPlanBuilder(mlir::ModuleOp package, StateAnalysisBudget &budget,
                          const PackageInventory &inventory,
                          SourceReceiverProofContext &receiverProof,
-                         ClosedLayoutProofs &closedTypes)
-      : closedLayoutMemo(closedTypes.layouts),
-        closedBranchTypes(closedTypes.branches), package(package),
+                         TransactionStructuralMemo &structuralMemo)
+      : closedLayoutMemo(structuralMemo.layouts),
+        closedBranchTypes(structuralMemo.branches),
+        branchSelectionMemo(structuralMemo.branchSelections), package(package),
         hardware(package), budget(budget), inventory(inventory),
         receiverProof(receiverProof),
         subelements(budget, package.getContext()) {}
@@ -951,6 +1062,7 @@ private:
   // types. No actual bound/value/effect checks are skipped.
   llvm::DenseMap<Type, bool> &closedLayoutMemo;
   llvm::DenseMap<Type, Type> &closedBranchTypes;
+  llvm::DenseMap<Operation *, bool> &branchSelectionMemo;
   FailureOr<bool> closedLayout(Type type, Operation *site, unsigned depth = 0) {
     if (!budget.charge(site) || depth > maxDepth)
       return failure();
@@ -1952,30 +2064,35 @@ private:
     return success();
   }
 
-  FailureOr<bool> needsSelection(SourceBranchOp branch) {
-    SmallVector<Operation *, 0> pending;
-    auto append = [&](Operation *op) {
-      if (!budget.chargeStorage<Operation *>(branch, 1) ||
-          !budget.reserve(branch, pending, 1))
-        return false;
-      pending.push_back(op);
-      return true;
-    };
-    if (!append(branch))
-      return failure();
-    bool effectful = false;
-    while (!pending.empty()) {
-      Operation *op = pending.pop_back_val();
-      if (!budget.charge(branch))
+  FailureOr<bool> needsSelection(Operation *op) {
+    bool isBranch = isa<SourceBranchOp>(op);
+    if (isBranch) {
+      if (!budget.charge(op))
         return failure();
-      effectful |= isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp,
-                       SourceQueuePopOp, SourceQueuePeekOp, SourceQueuePushOp>(op) ||
-                   op->hasAttr("ac.loop_continuation");
-      for (Region &region : op->getRegions())
-        for (Block &block : region)
-          for (Operation &child : block)
-            if (!append(&child))
-              return failure();
+      if (auto found = branchSelectionMemo.find(op);
+          found != branchSelectionMemo.end())
+        return found->second;
+    }
+    if (!budget.charge(op))
+      return failure();
+    bool effectful = isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp,
+                         SourceQueuePopOp, SourceQueuePeekOp,
+                         SourceQueuePushOp>(op) ||
+                     op->hasAttr("ac.loop_continuation");
+    // Preflight bounds structural depth. Complete the postorder traversal so
+    // every nested branch can reuse its result, even if effectful is already true.
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (Operation &child : block) {
+          auto nested = needsSelection(&child);
+          if (failed(nested))
+            return failure();
+          effectful |= *nested;
+        }
+    if (isBranch) {
+      if (!budget.reserveMapInsert(op, branchSelectionMemo))
+        return failure();
+      branchSelectionMemo.try_emplace(op, effectful);
     }
     return effectful;
   }
@@ -3387,7 +3504,7 @@ void runTransactionStateAnalysis(
     return;
   SmallVector<TransactionStatePlan, 0> completed;
   SourceReceiverProofContext receiverProof;
-  ClosedLayoutProofs closedTypes;
+  TransactionStructuralMemo structuralMemo;
   HardwareAnalysis hardware(package);
   llvm::DenseSet<Operation *> allocated, referenceDefinitions,
       relativeDefinitions, contextualDefinitions;
@@ -3509,7 +3626,7 @@ void runTransactionStateAnalysis(
           [&](ModuleOp module, unsigned depth) -> LogicalResult {
         if (depth > maxDepth || !budget.charge(module)) return failure();
         TransactionPlanBuilder builder(package, budget, inventory,
-                                       receiverProof, closedTypes);
+                                       receiverProof, structuralMemo);
         if (failed(builder.verifyReceivers(module, root, path))) return failure();
         for (auto allocation : module.getBody().front().getOps<InstanceOp>()) {
           if (!budget.charge(allocation)) return failure();
@@ -3531,7 +3648,7 @@ void runTransactionStateAnalysis(
         if (!budget.charge(module)) return;
         if (selected.contains(module)) continue;
         TransactionPlanBuilder builder(package, budget, inventory,
-                                       receiverProof, closedTypes);
+                                       receiverProof, structuralMemo);
         if (failed(builder.verifyReceivers(module, module, {}))) return;
       }
   }
@@ -3585,7 +3702,7 @@ void runTransactionStateAnalysis(
         !budget.chargeStorage<TransactionStatePlan>(transaction, 1) ||
         !budget.reserve(transaction, completed, 1)) return failure();
     TransactionPlanBuilder builder(package, budget, inventory, receiverProof,
-                                   closedTypes);
+                                   structuralMemo);
     auto plan = builder.run(transaction, root, path);
     if (failed(plan)) return failure();
     plan->ordinal = completed.size();
@@ -3753,7 +3870,7 @@ void runTransactionStateAnalysis(
     if (duplicate) continue;
     if (prefix) {
       TransactionPlanBuilder builder(package, budget, inventory, receiverProof,
-                                     closedTypes);
+                                     structuralMemo);
       auto fresh = builder.run(plan.transaction, root, ArrayRef<InstanceOp>(registration).drop_front(prefix));
       if (failed(fresh)) return;
       plan = std::move(*fresh);

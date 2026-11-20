@@ -800,7 +800,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     module->setAttr(attr.getName(), attr.getValue());
   auto *graph = new Block();
   module->getRegion(0).push_back(graph);
-  llvm::StringMap<Value> moduleValues;
+  EnvironmentMap<Value> moduleValues;
   for (const Port &port : decl.inputs) {
     Value value = graph->addArgument(port.type, module->getLoc());
     moduleValues[port.name] = value;
@@ -854,7 +854,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   auto snapshot = [&](CaptureSnapshot &captures) {
     captures.clear();
     llvm::DenseSet<Value> seen;
-    for (const auto &value : moduleValues)
+    for (const auto &value : moduleValues.materialize())
       if (value.first() != "pyc_clk" && value.first() != "pyc_rst" &&
           !localRuleResult(value.second)) {
         captures.push_back({value.first().str(), value.second});
@@ -975,7 +975,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   };
 
   auto emitStatements = [&](SourceCallableDecl &callable, OpBuilder &inside,
-                            llvm::StringMap<Value> &values,
+                            EnvironmentMap<Value> &values,
                             bool guard) -> FailureOr<SmallVector<Value>> {
     // Owner-bound Rule formals name the analyzed physical owner. Ordinary
     // Method/value parameters remain SSA, and saved read results stay snapshots.
@@ -1139,7 +1139,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       branch.getThenRegion().push_back(new Block());
       branch.getElseRegion().push_back(new Block());
       OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
-      BranchEnvironment yes = environment, no = environment;
+      BranchEnvironment yes = environment.fork(), no = environment.fork();
       if (failed(emitBody(statement, "orelse", thenAt, yes, true))) return failure();
       auto joined = joinBranches(*predicate, environment, yes, no, statement, at, decl.symbol, branch);
       if (failed(joined)) return failure();
@@ -1175,7 +1175,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             branch.getThenRegion().push_back(new Block());
             branch.getElseRegion().push_back(new Block());
             OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
-            BranchEnvironment yes = environment, no = environment;
+            BranchEnvironment yes = environment.fork(), no = environment.fork();
             if (failed(emitRange(parent, field, thenAt, yes, inBranch, i, true))) return failure();
             auto joined = joinBranches(*predicate, environment, yes, no, statement,
                                         inside, decl.symbol, branch);
@@ -1344,8 +1344,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             remember(*live, ac::detail::ValueKind::Boolean);
             values[control->live] = *live;
             if (controlKinds.first && trips && !stateInduction) {
-              auto boundary = environment.boundaries.find(inductionName);
-              if (boundary == environment.boundaries.end() || !boundary->second.declared ||
+              const BindingBoundary *boundary =
+                  environment.boundaries.lookupPtr(inductionName);
+              if (!boundary || !boundary->declared ||
                   !values.contains(inductionName)) {
                 auto seed = constant(indexType, 0, statement, inside, decl.symbol);
                 if (failed(seed)) return failure();
@@ -1408,14 +1409,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (failed(chargeLoopDescriptorWork(statement, "source for statement")) ||
               failed(reserveSourceEnvironmentCopies(statement, environment)))
             return failure();
-          BranchEnvironment iteration = environment;
+          BranchEnvironment iteration = environment.fork();
           for (const auto &name : carriedNames) {
             Value original = values.lookup(name);
             auto kind = valueInfo(original).sourceKind;
             if (kind == ac::detail::ValueKind::Integer && name != inductionName) {
-              auto boundary = iteration.boundaries.find(name);
-              if (boundary == iteration.boundaries.end() || !boundary->second.declared ||
-                  boundary->second.integerMode != IntegerBoundaryMode::Range) {
+              const BindingBoundary *boundary = iteration.boundaries.lookupPtr(name);
+              if (!boundary || !boundary->declared ||
+                  boundary->integerMode != IntegerBoundaryMode::Range) {
                 auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
                   return port.name == name && port.sourceKind == kind;
                 });
@@ -1439,9 +1440,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                loopAt.getNamedAttr("is_signed", loopAt.getBoolAttr(signedIndex))})->getResult(0);
           remember(induction, ac::detail::ValueKind::Integer,
               IntegerInterval{llvm::APSInt(lo, false), llvm::APSInt(last + 1, false)});
-          if (auto boundary = iteration.boundaries.find(inductionName);
-              boundary != iteration.boundaries.end()) {
-            auto converted = applyBindingBoundary(induction, boundary->second,
+          if (const BindingBoundary *boundary =
+                  iteration.boundaries.lookupPtr(inductionName)) {
+            auto converted = applyBindingBoundary(induction, *boundary,
                                                    target, loopAt, decl.symbol);
             if (failed(converted)) return failure();
             induction = *converted;
@@ -1516,7 +1517,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           }
           if (trips) {
             SmallVector<std::string> introduced;
-            for (const auto &binding : iteration.values)
+            for (const auto &binding : iteration.values.materialize())
               if ((binding.first() == inductionName && !controlKinds.first) || !values.contains(binding.first()))
                 introduced.push_back(binding.first().str());
             llvm::sort(introduced);
@@ -1624,7 +1625,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                inside.getNamedAttr("ac.condition_location",
                                    sourceSpan(inside, source.path, statement.child("test")))}, 2);
           BranchEnvironment conditionEnvironment = environment;
-          BranchEnvironment iteration = environment;
+          BranchEnvironment iteration = environment.fork();
           auto *before = new Block(), *after = new Block();
           loop->getRegion(0).push_back(before);
           loop->getRegion(1).push_back(after);
@@ -1632,9 +1633,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             Value original = values.lookup(name);
             auto kind = valueInfo(original).sourceKind;
             if (kind == ac::detail::ValueKind::Integer) {
-              auto boundary = environment.boundaries.find(name);
-              if (boundary == environment.boundaries.end() || !boundary->second.declared ||
-                  boundary->second.integerMode != IntegerBoundaryMode::Range) {
+              const BindingBoundary *boundary = environment.boundaries.lookupPtr(name);
+              if (!boundary || !boundary->declared ||
+                  boundary->integerMode != IntegerBoundaryMode::Range) {
                 auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
                   return port.name == name && port.sourceKind == kind;
                 });
@@ -2023,9 +2024,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               failed(updateAssignment(*access, *converted, statement, inside,
                                       decl.symbol, values, &indices)))
             return failure();
-          if (auto boundary = environment.boundaries.find(ownerRoot);
-              boundary != environment.boundaries.end()) {
-            auto bounded = applyBindingBoundary(values.lookup(ownerRoot), boundary->second,
+          if (const BindingBoundary *boundary =
+                  environment.boundaries.lookupPtr(ownerRoot)) {
+            auto bounded = applyBindingBoundary(values.lookup(ownerRoot), *boundary,
                                                  target, inside, decl.symbol);
             if (failed(bounded)) return failure();
             values[ownerRoot] = *bounded;
@@ -2246,7 +2247,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     for (unsigned regionIndex = 0; regionIndex < 2; ++regionIndex) {
       auto *block = new Block();
       method->getRegion(regionIndex).push_back(block);
-      llvm::StringMap<Value> values;
+      EnvironmentMap<Value> values;
       for (auto [index, port] : llvm::enumerate(callable.inputs)) {
         Value argument = block->addArgument(port.type, method->getLoc());
         values[port.name] = argument;
@@ -2406,7 +2407,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         return error() << "Rule owner formal annotation must match its actual owner";
       callable.stateFormals[port.name] = state->first().str();
     }
-    llvm::StringMap<Value> actualValues(moduleValues);
+    EnvironmentMap<Value> actualValues(moduleValues);
     for (const auto &entry : states) {
       Value oldQ = entry.second.op->getResult(0);
       actualValues[entry.first()] = oldQ;
@@ -2529,7 +2530,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   };
 
   llvm::StringMap<unsigned> moduleAssignmentCounts;
-  llvm::StringMap<BindingBoundary> ordinaryBoundaries;
+  EnvironmentMap<BindingBoundary> ordinaryBoundaries;
   auto ordinaryStatement = [&](size_t ordinal) -> LogicalResult {
     auto ordinaryValues = std::move(moduleValues);
     auto restoreValues = llvm::scope_exit([&] {
@@ -2657,7 +2658,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     }
     if (statement.kind() == "Assign" &&
         !memoryKind(statement.child("value")).empty()) {
-      llvm::StringMap<Value> memoryValues(moduleValues);
+      EnvironmentMap<Value> memoryValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
         memoryValues[entry.first()] = oldQ;
@@ -2675,7 +2676,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     }
     if (statement.kind() == "Assign" &&
         queueCall(statement.child("value"))) {
-      llvm::StringMap<Value> queueValues(moduleValues);
+      EnvironmentMap<Value> queueValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
         queueValues[entry.first()] = oldQ;
@@ -2720,7 +2721,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       continue;
     }
     if (statement.kind() == "Expr" && moduleCall(statement.child("value"))) {
-      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      EnvironmentMap<Value> ordinaryValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
         ordinaryValues[entry.first()] = oldQ;
@@ -2742,7 +2743,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         statement.array("targets").size() == 1 &&
         statement.item("targets", 0).kind() == "Tuple" &&
         !fixedResultCall(statement.child("value")).empty()) {
-      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      EnvironmentMap<Value> ordinaryValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
         ordinaryValues[entry.first()] = oldQ;
@@ -2789,7 +2790,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (declaration.kind() == "AnnAssign")
           forbidden.insert(assignmentRoot(declaration.child("target")));
       }
-      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      EnvironmentMap<Value> ordinaryValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
         ordinaryValues[entry.first()] = oldQ;
@@ -3047,7 +3048,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     if (!registration) {
       if (statement.kind() != "Return")
         continue;
-      llvm::StringMap<Value> returnedValues(moduleValues);
+      EnvironmentMap<Value> returnedValues(moduleValues);
       for (const auto &entry : states) {
         Value oldQ = entry.second.op->getResult(0);
         rememberState(oldQ, entry.second);
@@ -3173,7 +3174,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
 
 FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     std::optional<bool> tupleCall) {
   if (!activeSourceEffects || node.kind() != "Call")
     return failure();
@@ -3573,7 +3574,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
 
 FailureOr<std::optional<Value>> Importer::sourceEffectExpression(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   if (!activeSourceEffects)
     return std::optional<Value>();
   if (node.kind() == "Name" && !queryBound(node.string("id")) &&
