@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
+#include <map>
 #include <optional>
 using namespace mlir;
 namespace acir::ac {
@@ -18,6 +19,8 @@ bool prefix(ArrayRef<StringAttr> a, ArrayRef<StringAttr> b) {
   return a.size() <= b.size() && std::equal(a.begin(), a.end(), b.begin());
 }
 struct Engine {
+  using Budget = detail::SourceCheckBudget;
+
   const HardwareAnalysis &analysis;
   llvm::DenseSet<Operation *> active;
   // Validation consumes dependency summaries and cycle checks, not schedules.
@@ -33,16 +36,31 @@ struct Engine {
     SmallVector<InstanceOp, 0> ownerPath;
   };
   struct CompletedModule {
-    ModuleOp module;
     HardwareBindings bindings;
     ModuleAnalysis result;
     SmallVector<LocalReport, 0> reports;
   };
   // A result depends on the definition and its full binding environment, not on
   // the parent occurrence. Keep it only for this immutable analysis traversal.
-  SmallVector<CompletedModule, 0> completed{};
+  std::multimap<Operation *, CompletedModule> completed;
+  FailureOr<const CompletedModule *>
+  findCompleted(ModuleOp module, const HardwareBindings &bindings,
+                Operation *site) const {
+    if (failed(charge(Budget::orderedLookupCost(completed.size()), site)))
+      return failure();
+    for (auto it = completed.lower_bound(module);
+         it != completed.end() && it->first == module; ++it) {
+      const auto &cached = it->second;
+      if (failed(charge(Budget::add(1, Budget::add(Budget::bindings(bindings),
+                                                  Budget::bindings(cached.bindings))),
+                        site)))
+        return failure();
+      if (detail::sameHardwareBindings(cached.bindings, bindings))
+        return &cached;
+    }
+    return nullptr;
+  }
   uint64_t resultCost(const ModuleAnalysis &result) const {
-    using Budget = detail::SourceCheckBudget;
     uint64_t size = Budget::add(
         sizeof(ModuleAnalysis),
         Budget::multiply(result.schedule.size() + result.storageWork.size(),
@@ -64,22 +82,6 @@ struct Engine {
                                                         sizeof(StringAttr))));
     }
     return Budget::bytes(size);
-  }
-  bool sameBindings(const HardwareBindings &left,
-                    const HardwareBindings &right) const {
-    auto sameMap = [](const auto &a, const auto &b) {
-      if (a.size() != b.size())
-        return false;
-      for (const auto &entry : a) {
-        auto found = b.find(entry.getKey());
-        if (found == b.end() || found->second != entry.second)
-          return false;
-      }
-      return true;
-    };
-    return left.owner == right.owner &&
-           sameMap(left.integers, right.integers) &&
-           sameMap(left.types, right.types);
   }
   FailureOr<SmallVector<FieldPath>>
   computePaths(Type type, const HardwareBindings &bindings, Operation *site,
@@ -425,31 +427,10 @@ struct Engine {
         entries = importedEntries;
       } else {
         auto module = cast<ModuleOp>(binding->owner);
-        if (active.contains(module))
-          return module.emitOpError("recursive hardware instance hierarchy");
-        const ModuleAnalysis *proof = nullptr;
-        for (const auto &cached : completed) {
-          if (failed(charge(
-                  1 + detail::SourceCheckBudget::bindings(cached.bindings) +
-                      detail::SourceCheckBudget::bindings(*binding),
-                  module)))
-            return failure();
-          if (cached.module == module &&
-              sameBindings(cached.bindings, *binding)) {
-            proof = &cached.result;
-            break;
-          }
-        }
-        if (!proof) {
-          auto nested = analyze(module, *binding);
-          if (failed(nested))
-            return failure();
-          proof = &completed.back().result;
-        }
-        // Read the completed immutable summary in place. A field lookup must
-        // not copy the callee's entire schedule and every other field summary.
-        // No recursive analysis occurs while this ArrayRef is being consumed.
-        entries = proof->dependencies;
+        auto proof = analyze(module, *binding);
+        if (failed(proof))
+          return failure();
+        entries = (*proof)->result.dependencies;
       }
       unsigned port = cast<OpResult>(value).getResultNumber();
       for (const auto &entry : entries) {
@@ -550,25 +531,15 @@ struct Engine {
         return failure();
     return out;
   }
-  FailureOr<ModuleAnalysis> analyze(ModuleOp module,
-                                    const HardwareBindings &bindings) {
-    if (!active.insert(module).second)
+  FailureOr<const CompletedModule *>
+  analyze(ModuleOp module, const HardwareBindings &bindings) {
+    if (active.contains(module))
       return module.emitOpError() << "recursive hardware instance hierarchy";
+    auto proof = findCompleted(module, bindings, module);
+    if (failed(proof) || *proof)
+      return proof;
+    active.insert(module);
     llvm::scope_exit cleanup([&] { active.erase(module); });
-    for (const auto &cached : completed) {
-      if (failed(charge(
-              detail::SourceCheckBudget::add(
-                  1, detail::SourceCheckBudget::add(
-                         detail::SourceCheckBudget::bindings(bindings),
-                         detail::SourceCheckBudget::bindings(cached.bindings))),
-              module)))
-        return failure();
-      if (cached.module == module && sameBindings(cached.bindings, bindings)) {
-        if (failed(charge(resultCost(cached.result), module)))
-          return failure();
-        return cached.result;
-      }
-    }
     // Only completed exact-binding proofs may skip declaration resolution in
     // this immutable invocation. Every miss authenticates all observation
     // kinds.
@@ -947,27 +918,15 @@ struct Engine {
         if (!child)
           return report.observe->emitOpError()
                  << "report child definition is unresolved";
-        const CompletedModule *proof = nullptr;
-        for (const auto &cached : completed) {
-          if (failed(charge(detail::SourceCheckBudget::add(
-                                2, detail::SourceCheckBudget::add(
-                                       detail::SourceCheckBudget::bindings(
-                                           *childBindings),
-                                       detail::SourceCheckBudget::bindings(
-                                           cached.bindings))),
-                            instance)))
-            return failure();
-          if (cached.module == child && sameBindings(cached.bindings, *childBindings)) {
-            proof = &cached;
-            break;
-          }
-        }
-        if (!proof)
+        auto childProof = findCompleted(child, *childBindings, instance);
+        if (failed(childProof))
+          return failure();
+        if (!*childProof)
           return report.observe->emitOpError()
                  << "report child proof is incomplete";
         ArrayRef<InstanceOp> suffix(report.ownerPath.data() + index + 1,
                                     report.ownerPath.size() - index - 1);
-        for (const auto &local : proof->reports) {
+        for (const auto &local : (*childProof)->reports) {
           if (failed(charge(
                   detail::SourceCheckBudget::add(
                       2, std::max(local.ownerPath.size(), suffix.size())),
@@ -981,18 +940,15 @@ struct Engine {
         bound = std::move(*childBindings);
       }
     }
-    if (failed(charge(
-            detail::SourceCheckBudget::add(
-                detail::SourceCheckBudget::bindings(bindings),
-                detail::SourceCheckBudget::multiply(2, resultCost(result))),
-            module)))
-      return failure();
-    if (failed(charge(detail::SourceCheckBudget::bytes(sizeof(CompletedModule)),
+    if (failed(charge(Budget::add(
+                          Budget::orderedInsertCost(
+                              completed.size(), sizeof(decltype(completed)::value_type)),
+                          Budget::add(Budget::bindings(bindings), resultCost(result))),
                       module)))
       return failure();
-    completed.push_back(
-        {module, bindings, result, std::move(reports)});
-    return result;
+    auto it = completed.emplace(
+        module, CompletedModule{bindings, std::move(result), std::move(reports)});
+    return &it->second;
   }
 };
 } // namespace
@@ -1021,7 +977,10 @@ FailureOr<ModuleAnalysis>
 HardwareAnalysis::analyzeModule(ModuleOp module,
                                 const HardwareBindings &bindings) const {
   Engine engine{*this, {}};
-  return engine.analyze(module, bindings);
+  auto proof = engine.analyze(module, bindings);
+  if (failed(proof))
+    return failure();
+  return (*proof)->result;
 }
 namespace detail {
 LogicalResult verifySourceCheckDependencies(

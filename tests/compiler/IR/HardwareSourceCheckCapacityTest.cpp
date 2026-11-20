@@ -608,6 +608,18 @@ TEST_F(HardwareSourceCheckCapacityTest,
 }
 
 TEST_F(HardwareSourceCheckCapacityTest,
+       DefaultBudgetAdmitsManyDistinctSmallDefinitions) {
+  begin();
+  root = module("Root");
+  for (unsigned i = 0; i < 1024; ++i) {
+    auto child = module("Leaf" + std::to_string(i));
+    instance(root, child, i);
+  }
+  select(root);
+  EXPECT_TRUE(compactSuccess()) << diagnostics;
+}
+
+TEST_F(HardwareSourceCheckCapacityTest,
        DistinctDefinitionsPreserveLateValidationAcrossCatalogGrowth) {
   for (unsigned count : {47u, 48u, 95u, 96u}) {
     SCOPED_TRACE(count);

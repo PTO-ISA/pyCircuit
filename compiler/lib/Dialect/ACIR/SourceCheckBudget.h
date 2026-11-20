@@ -6,6 +6,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/StringRef.h"
+#include <bit>
 #include <limits>
 
 namespace acir::ac::detail {
@@ -44,6 +45,15 @@ public:
                : a * b;
   }
   static uint64_t bytes(uint64_t size) { return size / 8 + (size % 8 != 0); }
+  // Prepay the height of a red-black tree, including the empty-tree probe.
+  static uint64_t orderedLookupCost(uint64_t count) {
+    return 1 + 2 * std::bit_width(count);
+  }
+  static uint64_t orderedInsertCost(uint64_t count, uint64_t valueSize) {
+    // Cover the search and rebalancing, plus the node and its bookkeeping.
+    return add(4 + 4 * std::bit_width(count),
+               bytes(add(valueSize, 4 * sizeof(void *))));
+  }
   mlir::LogicalResult admit(uint64_t units, mlir::Operation *site) const {
     // Saturation is always a rejection, even with a maximal explicit limit.
     if (units == std::numeric_limits<uint64_t>::max() || units > limit - used) {

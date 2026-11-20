@@ -59,18 +59,38 @@ LogicalResult exact(DictionaryAttr row, ArrayRef<StringRef> fields,
 // Prepay every visited node before invoking those existing owners; there is no
 // alternate identity parser or unaccounted comparison traversal here.
 LogicalResult payAttribute(Attribute attr, SourceCheckBudget &budget,
-                           Operation *site) {
-  if (failed(budget.debit(1, site)))
+                           Operation *site, uint64_t *comparisonWork = nullptr) {
+  using Budget = SourceCheckBudget;
+  auto payNode = [&](uint64_t units) {
+    if (comparisonWork)
+      *comparisonWork = Budget::add(*comparisonWork, units);
+    return budget.debit(units, site);
+  };
+  auto payLeaf = [&](Attribute value) -> LogicalResult {
+    if (auto text = dyn_cast<StringAttr>(value))
+      return payNode(Budget::bytes(text.getValue().size()));
+    if (comparisonWork) {
+      if (auto symbol = dyn_cast<FlatSymbolRefAttr>(value))
+        return payNode(Budget::bytes(symbol.getValue().size()));
+      if (auto integer = dyn_cast<IntegerAttr>(value))
+        return payNode(integer.getValue().getNumWords());
+      if (auto integer = dyn_cast<MathIntAttr>(value)) {
+        // Structural comparison parses the decimal spelling into an APSInt.
+        uint64_t digits = integer.getCanonicalValue().size();
+        return payNode(Budget::multiply(digits, Budget::bytes(digits)));
+      }
+    }
+    return success();
+  };
+  if (failed(payNode(1)))
     return failure();
   if (!attr)
     return success();
-  if (auto text = dyn_cast<StringAttr>(attr))
-    return budget.debit(SourceCheckBudget::bytes(text.getValue().size()), site);
   if (!isa<ArrayAttr, DictionaryAttr>(attr))
-    return success();
+    return payLeaf(attr);
   SmallVector<Attribute, 0> pending;
   auto push = [&](Attribute value) {
-    if (failed(budget.debit(1, site)))
+    if (failed(payNode(1)))
       return failure();
     if (pending.size() == pending.capacity()) {
       uint64_t capacity = std::max(
@@ -97,9 +117,7 @@ LogicalResult payAttribute(Attribute attr, SourceCheckBudget &budget,
           return failure();
     } else if (auto dictionary = dyn_cast<DictionaryAttr>(value)) {
       for (auto item : dictionary)
-        if (failed(budget.debit(
-                SourceCheckBudget::bytes(item.getName().getValue().size()),
-                site)) ||
+        if (failed(payNode(Budget::bytes(item.getName().getValue().size()))) ||
             failed(push(item.getValue())))
           return failure();
     }
@@ -111,11 +129,7 @@ LogicalResult payAttribute(Attribute attr, SourceCheckBudget &budget,
     Attribute value = pending.pop_back_val();
     if (!value)
       continue;
-    if (auto text = dyn_cast<StringAttr>(value)) {
-      if (failed(budget.debit(SourceCheckBudget::bytes(text.getValue().size()),
-                              site)))
-        return failure();
-    } else if (failed(children(value)))
+    if (failed(payLeaf(value)) || failed(children(value)))
       return failure();
   }
   return success();
@@ -281,6 +295,15 @@ LogicalResult wholeStateID(DictionaryAttr state, Operation *site) {
            << "sampled transaction state requires whole finite ownership";
   return success();
 }
+LogicalResult verifyStateAllocation(Operation *storage,
+                                    const HardwareAnalysis &analysis) {
+  if (!isa<acir::LogicalStateOpInterface>(storage))
+    return verifyPhysicalStateAllocation(storage, analysis);
+  if (storage->getNumOperands() != 3 || storage->getNumResults() != 1)
+    return storage->emitOpError()
+           << "logical state requires clock, reset, initial and one Q result";
+  return success();
+}
 FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
                                   const HardwareAnalysis &analysis,
                                   SourceCheckBudget &budget) {
@@ -307,13 +330,7 @@ FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
     if (found)
       return module->emitOpError()
              << "state declaration resolves to multiple logical or physical allocations";
-    if (isa<acir::LogicalStateOpInterface>(instance)) {
-      if (instance->getNumOperands() != 3 || instance->getNumResults() != 1)
-        return instance->emitOpError() << "logical state requires clock, reset, initial and one Q result";
-      found = instance;
-      continue;
-    }
-    if (failed(verifyPhysicalStateAllocation(instance, analysis)))
+    if (failed(verifyStateAllocation(instance, analysis)))
       return failure();
     found = instance;
   }
@@ -1066,6 +1083,59 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   return result;
 }
 
+bool ClosedIdentityIndex::Less::operator()(DictionaryAttr lhs,
+                                            DictionaryAttr rhs) const {
+  return compareClosedSourceStructure(lhs, rhs) < 0;
+}
+
+FailureOr<ClosedIdentityIndex::Map::const_iterator>
+ClosedIdentityIndex::lookup(DictionaryAttr key, SourceCheckBudget &budget,
+                            Operation *site, uint64_t &work) const {
+  using Budget = SourceCheckBudget;
+  if (failed(payAttribute(key, budget, site, &work)) ||
+      failed(budget.debit(
+          Budget::multiply(Budget::orderedLookupCost(entries.size()),
+                           Budget::add(work, maxWork)),
+          site)))
+    return failure();
+  return entries.lower_bound(key);
+}
+
+FailureOr<std::optional<size_t>>
+ClosedIdentityIndex::find(DictionaryAttr key, SourceCheckBudget &budget,
+                          Operation *site) const {
+  uint64_t work = 0;
+  auto pos = lookup(key, budget, site, work);
+  if (failed(pos))
+    return failure();
+  if (*pos == entries.end() || !identical((*pos)->first, key))
+    return std::optional<size_t>();
+  return std::optional((*pos)->second);
+}
+
+FailureOr<bool> ClosedIdentityIndex::insert(DictionaryAttr key, size_t ordinal,
+                                            SourceCheckBudget &budget,
+                                            Operation *site) {
+  using Budget = SourceCheckBudget;
+  uint64_t work = 0;
+  auto pos = lookup(key, budget, site, work);
+  if (failed(pos))
+    return failure();
+  if (*pos != entries.end() && identical((*pos)->first, key))
+    return false;
+  // lower_bound locates the insertion successor. Prepay adjacent key
+  // comparisons as well as rebalancing and the new node.
+  if (failed(budget.debit(
+          Budget::add(
+              Budget::orderedInsertCost(entries.size(), sizeof(Map::value_type)),
+              Budget::multiply(3, Budget::add(work, maxWork))),
+          site)))
+    return failure();
+  entries.emplace_hint(*pos, key, ordinal);
+  maxWork = std::max(maxWork, work);
+  return true;
+}
+
 FailureOr<TransactionWiringView>
 parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
                        const HardwareBindings &bindings,
@@ -1139,7 +1209,7 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     return module->emitOpError()
            << "transaction, return, Queue, Memory and availability routes must exactly cover appended inputs";
   if (failed(charge(budget, module, states.size(),
-                    sizeof(TransactionStateInventoryEntry))) ||
+                    sizeof(Operation *))) ||
       failed(charge(budget, module, incoming.size(),
                     sizeof(TransactionIncomingView))) ||
       failed(charge(budget, module, writers.size(),
@@ -1160,34 +1230,60 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     if (failed(verifyOccurrence(declaration,
                                 [&] { return module->emitOpError(); })))
       return failure();
-    for (const auto &prior : result.states) {
-      if (failed(payComparison(prior.declaration, declaration, budget, module)))
-        return failure();
-      if (identical(prior.declaration, declaration))
-        return module->emitOpError() << "duplicate transaction state inventory";
-    }
-    auto storage = directState(module, declaration, analysis, budget);
-    if (failed(storage))
+    auto inserted = result.stateDeclarations.insert(
+        declaration, result.states.size(), budget, module);
+    if (failed(inserted))
       return failure();
-    auto type =
-        analysis.resolveType((*storage)->getResult(0).getType(), bindings, module);
-    if (failed(type))
-      return failure();
-    if (failed(verifySourceTemplateType(analysis, (*storage)->getResult(0).getType(),
-                                      bindings, module))) return failure();
-    result.states.push_back({declaration, *storage});
+    if (!*inserted)
+      return module->emitOpError() << "duplicate transaction state inventory";
+    result.states.push_back(nullptr);
   }
   auto &body = module.getBody().front();
-  for (auto logical : body.getOps<acir::LogicalStateOpInterface>()) {
-    bool inventoried = false;
-    for (const auto &entry : result.states) {
-      if (failed(budget.debit(1, logical))) return failure();
-      inventoried |= entry.storage == logical.getOperation();
+  Operation *missingLogicalState = nullptr;
+  for (Operation &op : body) {
+    if (failed(budget.debit(1, &op)))
+      return failure();
+    bool logical = isa<acir::LogicalStateOpInterface>(op);
+    if (states.empty()) {
+      if (logical)
+        return op.emitOpError()
+               << "logical state is missing its transaction inventory";
+      continue;
     }
-    if (!inventoried)
-      return logical->emitOpError()
-             << "logical state is missing its transaction inventory";
+    if (!logical && !isa<InstanceOp, CollectionOp>(op))
+      continue;
+    auto occurrence = op.getAttrOfType<DictionaryAttr>("occurrence");
+    if (failed(payAttribute(occurrence, budget, &op)) ||
+        failed(verifyOccurrence(occurrence, [&] { return op.emitOpError(); })))
+      return failure();
+    auto match = result.stateDeclarations.find(occurrence, budget, &op);
+    if (failed(match))
+      return failure();
+    if (!*match) {
+      if (logical && !missingLogicalState)
+        missingLogicalState = &op;
+      continue;
+    }
+    auto &storage = result.states[**match];
+    if (storage)
+      return module->emitOpError()
+             << "state declaration resolves to multiple logical or physical allocations";
+    storage = &op;
   }
+  for (Operation *storage : result.states) {
+    if (!storage)
+      return module->emitOpError()
+             << "transaction inventory has no matching direct state allocation";
+    if (failed(verifyStateAllocation(storage, analysis)))
+      return failure();
+    Type payload = storage->getResult(0).getType();
+    if (failed(analysis.resolveType(payload, bindings, module)) ||
+        failed(verifySourceTemplateType(analysis, payload, bindings, module)))
+      return failure();
+  }
+  if (missingLogicalState)
+    return missingLogicalState->emitOpError()
+           << "logical state is missing its transaction inventory";
   uint64_t nextPair = ports->sourceInputCount;
   for (auto raw : incoming) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
@@ -1288,6 +1384,7 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     if (candidates.size() > writer.candidates.max_size())
       return budget.debit(std::numeric_limits<uint64_t>::max(), rule);
     writer.candidates.reserve(candidates.size());
+    ClosedIdentityIndex candidateOwners;
     for (auto [ordinal, candidateRaw] : llvm::enumerate(candidates)) {
       auto candidate = dyn_cast<DictionaryAttr>(candidateRaw);
       if (failed(exact(candidate, {"state", "data", "enable"}, rule,
@@ -1307,13 +1404,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
           static_cast<uint64_t>(*enable) >= sampled->fireResult)
         return rule->emitOpError()
                << "candidate D/E must cover its exact continuous pair";
-      for (const auto &prior : writer.candidates) {
-        if (failed(payComparison(prior.stateID, state, budget, rule)))
-          return failure();
-        if (identical(prior.stateID, state))
-          return rule->emitOpError()
-                 << "duplicate candidate owner within transaction";
-      }
+      auto added = candidateOwners.insert(state, ordinal, budget, rule);
+      if (failed(added))
+        return failure();
+      if (!*added)
+        return rule->emitOpError()
+               << "duplicate candidate owner within transaction";
       if (failed(bitOne(rule->getResult(*enable), analysis, bindings, rule,
                         budget)))
         return failure();
@@ -1333,11 +1429,18 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
   return result;
 }
 
-FailureOr<StateEndpoint>
-resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
-                        const HardwareAnalysis &analysis,
-                        const HardwareBindings &bindings,
-                        SourceCheckBudget &budget) {
+namespace {
+struct TransactionStateOwner {
+  ModuleOp definition;
+  HardwareBindings bindings;
+  SmallVector<InstanceOp> path;
+};
+
+FailureOr<TransactionStateOwner>
+resolveTransactionStateOwner(ModuleOp relativeTo, DictionaryAttr stateID,
+                             const HardwareAnalysis &analysis,
+                             const HardwareBindings &bindings,
+                             SourceCheckBudget &budget) {
   if (!relativeTo)
     return analysis.getPackage().emitOpError()
            << "StateID requires a relative module owner";
@@ -1349,21 +1452,16 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
            << "StateID bindings have the wrong relative owner";
   if (failed(payAttribute(stateID, budget, relativeTo)) ||
       failed(wholeStateID(stateID, relativeTo)) ||
-      failed(charge(budget, relativeTo, 1, sizeof(StateEndpoint))) ||
+      failed(charge(budget, relativeTo, 1, sizeof(TransactionStateOwner))) ||
       failed(budget.debit(SourceCheckBudget::bindings(bindings), relativeTo)))
     return failure();
-  StateEndpoint result;
-  result.ownerScope.root = relativeTo;
-  result.ownerScope.rootBindings = bindings;
-  result.ownerScope.rootBindings.owner = relativeTo;
-  HardwareBindings bound = result.ownerScope.rootBindings;
-  ModuleOp owner = relativeTo;
+  TransactionStateOwner result{relativeTo, bindings, {}};
   auto path =
       stateID.getAs<DictionaryAttr>("owner").getAs<ArrayAttr>("instance_path");
   for (auto raw : path) {
     auto occurrence = cast<DictionaryAttr>(raw);
     InstanceOp allocation;
-    for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
+    for (auto instance : result.definition.getBody().front().getOps<InstanceOp>()) {
       if (failed(budget.debit(1, instance)))
         return failure();
       auto actual = instance->getAttrOfType<DictionaryAttr>("occurrence");
@@ -1372,11 +1470,10 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
                                   [&] { return instance->emitOpError(); })) ||
           failed(payComparison(actual, occurrence, budget, instance)))
         return failure();
-      if (!identical(instance->getAttrOfType<DictionaryAttr>("occurrence"),
-                     occurrence))
+      if (!identical(actual, occurrence))
         continue;
       if (allocation)
-        return owner->emitOpError()
+        return result.definition->emitOpError()
                << "StateID owner occurrence resolves ambiguously";
       allocation = instance;
     }
@@ -1385,18 +1482,33 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
             ? dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(allocation))
             : ModuleOp();
     if (!child || !child.getBody().hasOneBlock())
-      return owner->emitOpError()
+      return result.definition->emitOpError()
              << "StateID owner path must resolve actual ordinary instances";
     if (failed(charge(budget, allocation, 1, sizeof(InstanceOp))) ||
-        failed(budget.debit(SourceCheckBudget::bindings(bound), allocation)))
+        failed(budget.debit(SourceCheckBudget::bindings(result.bindings),
+                            allocation)))
       return failure();
-    auto next = analysis.bindInstance(allocation, bound);
-    if (failed(next))
+    auto bound = analysis.bindInstance(allocation, result.bindings);
+    if (failed(bound))
       return failure();
-    result.ownerScope.path.push_back(allocation);
-    bound = std::move(*next);
-    owner = child;
+    result.path.push_back(allocation);
+    result.bindings = std::move(*bound);
+    result.definition = child;
   }
+  return result;
+}
+} // namespace
+
+FailureOr<StateEndpoint>
+resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
+                        const HardwareAnalysis &analysis,
+                        const HardwareBindings &bindings,
+                        SourceCheckBudget &budget) {
+  auto resolved =
+      resolveTransactionStateOwner(relativeTo, stateID, analysis, bindings, budget);
+  if (failed(resolved))
+    return failure();
+  ModuleOp owner = resolved->definition;
   auto declaration = stateID.getAs<DictionaryAttr>("declaration");
   auto inventory =
       owner->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
@@ -1416,9 +1528,13 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
            << "StateID terminal owner is missing its matching inventory";
   auto storage = directState(owner, declaration, analysis, budget);
   if (failed(storage) ||
-      failed(budget.debit(SourceCheckBudget::bindings(bound), owner)))
+      failed(charge(budget, owner, 1, sizeof(StateEndpoint))) ||
+      failed(budget.debit(SourceCheckBudget::bindings(bindings), owner)))
     return failure();
-  if (failed(bindStateEndpoint(result, *storage, owner, bound, analysis, budget)))
+  StateEndpoint result;
+  result.ownerScope = {relativeTo, bindings, std::move(resolved->path)};
+  if (failed(bindStateEndpoint(result, *storage, owner, resolved->bindings,
+                               analysis, budget)))
     return failure();
   return result;
 }
@@ -2961,6 +3077,7 @@ SampledAdmissionValidation::verifyCandidateEnablesImpl(
           sampled->fireResult)
     return writer.rule->emitOpError()
            << "candidate enable writer differs from actual wiring";
+  ClosedIdentityIndex candidateOwners;
   for (auto [i, raw] : llvm::enumerate(candidates)) {
     if (failed(budget.debit(1, writer.rule)))
       return failure();
@@ -2990,14 +3107,12 @@ SampledAdmissionValidation::verifyCandidateEnablesImpl(
              << "candidate enable query differs from actual slots";
     if (failed(bitOne(view.enable, analysis, bindings, writer.rule, budget)))
       return failure();
-    for (uint64_t j = 0; j < i; ++j) {
-      if (failed(payComparison(writer.candidates[j].stateID, state, budget,
-                               writer.rule)))
-        return failure();
-      if (identical(writer.candidates[j].stateID, state))
-        return writer.rule->emitOpError()
-               << "duplicate candidate owner within transaction";
-    }
+    auto added = candidateOwners.insert(state, i, budget, writer.rule);
+    if (failed(added))
+      return failure();
+    if (!*added)
+      return writer.rule->emitOpError()
+             << "duplicate candidate owner within transaction";
   }
   auto prepared = prepare(sampled->definition, bindings);
   if (failed(prepared) || !*prepared)
@@ -3334,17 +3449,6 @@ private:
     }
     return success();
   }
-  FailureOr<HardwareIdentityScope>
-  actualStateScope(const Occurrence &entry,
-                   const StateEndpoint &relative) {
-    auto scope = copyScope(entry.scope, budget, entry.module);
-    if (failed(scope) ||
-        failed(charge(budget, entry.module, relative.ownerScope.path.size(),
-                      sizeof(InstanceOp))))
-      return failure();
-    scope->path.append(relative.ownerScope.path);
-    return std::move(*scope);
-  }
   FailureOr<size_t> target(const Occurrence &entry, DictionaryAttr id) {
     size_t entryOrdinal = &entry - occurrences.data();
     if (failed(budget.debit(1, entry.module)))
@@ -3353,24 +3457,50 @@ private:
     auto proven = stateTargetProofs.find(key);
     if (proven != stateTargetProofs.end())
       return proven->second;
-    auto relative = resolveTransactionState(entry.module, id, analysis,
-                                            entry.bindings, budget);
+    auto relative =
+        resolveTransactionStateOwner(entry.module, id, analysis, entry.bindings, budget);
     if (failed(relative))
       return failure();
-    auto scope = actualStateScope(entry, *relative);
-    if (failed(scope))
+    auto scope = copyScope(entry.scope, budget, entry.module);
+    if (failed(scope) ||
+        failed(charge(budget, entry.module, relative->path.size(),
+                      sizeof(InstanceOp))))
       return failure();
+    scope->path.append(relative->path);
     auto occurrence = occurrenceFor(*scope);
-    if (failed(occurrence) || failed(budget.debit(1, entry.module)))
+    if (failed(occurrence))
       return failure();
-    auto found =
-        stateIndex.find({*occurrence, relative->storage});
+    const auto &terminal = occurrences[*occurrence];
+    if (failed(budget.debit(SourceCheckBudget::add(
+                                SourceCheckBudget::bindings(relative->bindings),
+                                SourceCheckBudget::bindings(terminal.bindings)),
+                            entry.module)))
+      return failure();
+    if (terminal.module != relative->definition ||
+        !sameHardwareBindings(terminal.bindings, relative->bindings))
+      return entry.module->emitOpError()
+             << "transaction route target differs from its bound owner";
+    if (!terminal.wiring)
+      return terminal.module->emitOpError()
+             << "StateID terminal owner is missing its matching inventory";
+    auto declaration = terminal.wiring->stateDeclarations.find(
+        id.getAs<DictionaryAttr>("declaration"), budget, terminal.module);
+    if (failed(declaration))
+      return failure();
+    if (!*declaration)
+      return terminal.module->emitOpError()
+             << "StateID terminal owner is missing its matching inventory";
+    // inventory() already proved the storage endpoint in this exact occurrence.
+    Operation *storage = terminal.wiring->states[**declaration];
+    if (failed(budget.debit(1, entry.module)))
+      return failure();
+    auto found = stateIndex.find({*occurrence, storage});
     if (found != stateIndex.end()) {
       const auto &state = states[found->second];
       if (failed(payScope(state.scope, budget, entry.module)) ||
           failed(payScope(*scope, budget, entry.module)))
         return failure();
-      if (state.storage == relative->storage &&
+      if (state.storage == storage &&
           sameScope(state.scope, *scope)) {
         if (failed(charge(budget, entry.module, 1,
                           sizeof(std::pair<decltype(key), size_t>) + 64)))
@@ -3402,19 +3532,19 @@ private:
         if (!*prepared)
           return entry.module->emitOpError()
                  << "transaction inventory lacks prepared boundaries";
-        for (const auto &record : entry.wiring->states) {
+        for (Operation *storage : entry.wiring->states) {
           if (failed(charge(budget, entry.module, 1, sizeof(State))))
             return failure();
           auto scope = copyScope(entry.scope, budget, entry.module);
           if (failed(scope) || failed(budget.debit(1, entry.module)))
             return failure();
           auto payload =
-              analysis.resolveType(record.storage->getResult(0).getType(),
+              analysis.resolveType(storage->getResult(0).getType(),
                                    entry.bindings, entry.module);
           if (failed(payload))
             return failure();
           states.push_back({std::move(*scope),
-                            record.storage,
+                            storage,
                             *payload,
                             {},
                             {},
@@ -3422,14 +3552,14 @@ private:
                             {},
                             {},
                             false, {}, false, {}, {}});
-          if (failed(bindStateEndpoint(states.back().endpoint, record.storage,
+          if (failed(bindStateEndpoint(states.back().endpoint, storage,
                                        entry.module, entry.bindings, analysis, budget)))
             return failure();
-          std::pair<size_t, Operation *> key{occurrenceOrdinal, record.storage};
+          std::pair<size_t, Operation *> key{occurrenceOrdinal, storage};
           if (stateIndex.contains(key))
-            return record.storage->emitOpError()
+            return storage->emitOpError()
                    << "duplicate state terminal in actual occurrence";
-          if (failed(charge(budget, record.storage, 1,
+          if (failed(charge(budget, storage, 1,
                             sizeof(std::pair<decltype(key), size_t>) + 64)))
             return failure();
           stateIndex.try_emplace(key, states.size() - 1);
