@@ -763,12 +763,17 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
 } // namespace
 FailureOr<FinalVerilogSourceParts>
 emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis,
-                       bool physical) {
-  HardwareEmitContext context(package, analysis, physical);
+                       bool physical,
+                       const ac::HardwareSourceCheckPlan *sharedPlan) {
+  HardwareEmitContext context(package, analysis, physical, sharedPlan);
   const bool system = context.isSystem();
   if (failed(context.prepareNativeChecks()))
     return failure();
-  if (failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
+  // One-shot: the first consumer after a fresh prepare() may skip the
+  // rebuild-and-compare; later calls and shared plans revalidate.
+  if (context.hasFreshSourceCheckPlan())
+    context.consumeFreshSourceCheckPlan();
+  else if (failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
     return failure();
   auto root = rootModule(context);
   if (failed(root))
