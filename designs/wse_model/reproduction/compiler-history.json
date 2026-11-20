@@ -1,0 +1,7 @@
+{
+  "base_revision": "3ee29b077725638081b69dcb0b267979ade07f1f",
+  "historical_revision": "505edbc7dc2429640a41a31385ce3ff951c02aad",
+  "patch_archive": "compiler-prerequisites.mbox.gz",
+  "note": "Five local source commits, packaged as git-format-patch input. Applying them creates new commit IDs but the historical compiler tree is reproducible.",
+  "historical_tree": "1faf5a74a9a26b1e6f1aa9f07ca15d3e0c14dcc8"
+}
