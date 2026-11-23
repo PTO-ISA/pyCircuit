@@ -136,15 +136,29 @@ auto pyc_work_broadcast(const Plane &source) noexcept {
   return pyc_work_broadcast_view<OutputLanes, InputLanes, Plane>{source};
 }
 
+template <class Expression>
+struct pyc_work_expression_view {
+  Expression expression;
+  auto element(std::size_t lane) const noexcept { return expression(lane); }
+};
+
+template <class Condition, class True, class False>
+auto pyc_work_select_lane(const Condition &condition, const True &whenTrue,
+                          const False &whenFalse, std::size_t lane) noexcept {
+  const auto guard = condition.element(lane).packed();
+  if (guard.isFullyKnown())
+    return guard.value().toBool() ? whenTrue.element(lane)
+                                  : whenFalse.element(lane);
+  using Wire = std::remove_cvref_t<decltype(whenTrue.element(lane))>;
+  return Wire::fromPacked(gfsim::select(guard, whenTrue.element(lane).packed(),
+                                        whenFalse.element(lane).packed()));
+}
+
 template <class Output, class Condition, class True, class False>
 void pyc_work_select(Output &out, const Condition &condition,
                      const True &whenTrue, const False &whenFalse) noexcept {
-  using Wire = gfsim::wire<typename Output::element_type>;
   for (std::size_t lane = 0; lane < Output::size; ++lane)
-    out.element(lane) = Wire::fromPacked(
-        gfsim::select(condition.element(lane).packed(),
-                      whenTrue.element(lane).packed(),
-                      whenFalse.element(lane).packed()));
+    out.element(lane) = pyc_work_select_lane(condition, whenTrue, whenFalse, lane);
 }
 
 template <std::size_t Group, class Output, class Condition, class True,
@@ -155,7 +169,7 @@ void pyc_work_select(Output &out,
   static_assert(Output::size % Group == 0);
   using Wire = gfsim::wire<typename Output::element_type>;
   for (std::size_t first = 0; first < Output::size; first += Group) {
-    const auto &guard = condition.source.element(first / Group).packed();
+    const auto guard = condition.source.element(first / Group).packed();
     if (guard.isFullyKnown()) {
       const auto copy = [&](const auto &source) {
         for (std::size_t lane = first; lane < first + Group; ++lane)

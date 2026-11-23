@@ -1206,9 +1206,22 @@ private:
     auto [entry, inserted] = scalarPlanes.try_emplace(type + "\n" + *expr);
     if (!inserted)
       return entry->second;
+    bool selectPlanes =
+        isa<ac::BitsSelectOp>(op) && inputs.size() == 3 &&
+        llvm::all_of(inputs, [](const auto &input) { return input.sameCount; });
+    // Keep small, single-use calculations inside the consumer's lane loop.
+    // All independent reads have already been scheduled by gather().
+    if (outline && v.hasOneUse() && expr->size() <= 1024) {
+      if (selectPlanes)
+        *expr = "pyc_work_select_lane(" + inputs[0].plane + ", " +
+                inputs[1].plane + ", " + inputs[2].plane + ", pyc_lane).packed()";
+      entry->second =
+          "pyc_work_expression_view{[&](std::size_t pyc_lane) noexcept { return "
+          "gfsim::wire<" + *p + ">::fromPacked(" + *expr + "); }}";
+      return entry->second;
+    }
     auto result = planeDeclaration(type, name());
-    if (isa<ac::BitsSelectOp>(op) && inputs.size() == 3 &&
-        llvm::all_of(inputs, [](const auto &input) { return input.sameCount; }))
+    if (selectPlanes)
       out << "    pyc_work_select(" << result << ", " << inputs[0].plane << ", "
           << inputs[1].plane << ", " << inputs[2].plane << ");\n";
     else
