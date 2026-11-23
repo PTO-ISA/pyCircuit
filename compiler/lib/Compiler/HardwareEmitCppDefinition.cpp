@@ -149,10 +149,6 @@ public:
         return failure();
       statement();
     }
-    for (auto &scope : scopes)
-      if (&scope != &scopes.front() && !isDelegated(scope) &&
-          failed(outputs(scope)))
-        return failure();
     // Check-only roots use the same memoized SSA/old-Q evaluation as outputs
     // and storage pins. Flattened child scopes capture their own lane planes.
     for (auto &scope : scopes)
@@ -803,6 +799,8 @@ private:
                              Path(path.begin() + selected.size(), path.end()));
             if (failed(g) || failed(candidate))
               return failure();
+            if (*candidate == *base)
+              return *base;
             return "gfsim::select(" + *g + ", " + *candidate + ", " + *base +
                    ")";
           }
@@ -884,6 +882,8 @@ private:
       auto low = ctx.staticValue(extract.getLow(), s.bindings, op);
       if (failed(low))
         return failure();
+      if (*low == "0" && op->getOperand(0).getType() == value.getType())
+        return operands[0];
       return "gfsim::extract<" + *w + ">(" + operands[0] + ", " + *low + ")";
     }
     if (auto resize = dyn_cast<ac::BitsResizeOp>(op)) {
@@ -1141,37 +1141,47 @@ private:
     return planeDeclaration(*p, name());
   }
   FailureOr<std::string> scalarPlane(Scope &s, Value v, Path path) {
-    auto result = declarePlane(s, v, path);
-    if (failed(result))
-      return failure();
     Operation *op = v.getDefiningOp();
     auto resultPlan = fieldPlane(v.getType(), path, s, op);
     auto count = planeCount(v.getType(), s, op, path);
     if (failed(resultPlan) || failed(count))
       return failure();
-    SmallVector<std::tuple<Value, Path, std::string>> inputs;
+    struct ScalarInput {
+      Value value;
+      Path path;
+      std::string plane, packed;
+      bool sameLayout;
+    };
+    SmallVector<ScalarInput> inputs;
     auto gather = [&](Value input, Path p) -> FailureOr<std::string> {
+      for (const auto &entry : inputs)
+        if (entry.value == input && entry.path == p)
+          return entry.packed;
       auto inputPlan = fieldPlane(input.getType(), p, s, op);
       if (failed(inputPlan))
         return failure();
-      auto lane = "((pyc_lane / (" + resultPlan->count + ")) * (" +
-                  inputPlan->count + ") + pyc_lane % (" +
-                  inputPlan->count + "))";
-      for (auto &entry : inputs)
-        if (std::get<0>(entry) == input && std::get<1>(entry) == p)
-          return std::get<2>(entry) + ".element(" + lane + ").packed()";
       auto text = emit(s, input, p);
       if (failed(text))
         return failure();
-      inputs.push_back({input, p, *text});
-      return *text + ".element(" + lane + ").packed()";
+      bool sameCount = resultPlan->count == inputPlan->count;
+      auto lane = sameCount ? std::string("pyc_lane")
+                            : "((pyc_lane / (" + resultPlan->count + ")) * (" +
+                                  inputPlan->count + ") + pyc_lane % (" +
+                                  inputPlan->count + "))";
+      auto packed = *text + ".element(" + lane + ").packed()";
+      inputs.push_back({input, std::move(p), std::move(*text), packed,
+                        sameCount && resultPlan->element == inputPlan->element});
+      return packed;
     };
     auto expr = scalarExpression(s, v, path, gather);
     if (failed(expr))
       return failure();
-    auto e = fieldType(v.getType(), path, s, op);
-    auto p = failed(e) ? FailureOr<std::string>(failure()) : payload(*e, s, op);
-    if (failed(p))
+    for (const auto &input : inputs)
+      if (input.sameLayout && *expr == input.packed)
+        return input.plane;
+    auto result = declarePlane(s, v, path);
+    auto p = payload(resultPlan->element, s, op);
+    if (failed(result) || failed(p))
       return failure();
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
         << "; ++pyc_lane) " << *result << ".element(pyc_lane) = gfsim::wire<"
@@ -1218,11 +1228,9 @@ private:
         return emit(s, rule.getCaptures()[arg.getArgNumber()], path);
       unsigned port = arg.getArgNumber();
       if (s.parent) {
-        auto source = emit(*s.parent, s.occurrence->getOperand(port), path);
-        if (failed(source) ||
-            failed(setPort(*s.parent, s.occurrence, port, path, *source)))
-          return failure();
-        return *source;
+        // This occurrence is evaluated in the parent's field schedule. Work
+        // items that actually run separately receive their pins in run().
+        return emit(*s.parent, s.occurrence->getOperand(port), path);
       }
       auto pin =
           id(cast<StringAttr>(s.definition.getInputNames()[port]).getValue(),
