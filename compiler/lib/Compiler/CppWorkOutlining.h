@@ -25,9 +25,8 @@ public:
                        bool borrowedConstant = false) {
     auto page = planes.size() / pageFields;
     planes.push_back({type.str(), name.str(), borrowedConstant});
-    std::string value = "pyc_values.page<pyc_work_page_" +
-                        std::to_string(page) + ">(" + std::to_string(page) +
-                        ")." + name.str();
+    std::string value =
+        "pyc_values.page_" + std::to_string(page) + "." + name.str();
     return {value, borrowedConstant ? "(*" + value + ")" : value};
   }
   // Called only at emission-owned statement boundaries, never by inspecting
@@ -61,6 +60,12 @@ public:
       // constructor must not become the new unbounded generated function.
       out << "    pyc_work_noinline pyc_work_page_" << page << "() {}\n  };\n";
     }
+    out << "  struct pyc_work_frame {\n";
+    for (std::size_t start = 0; start < planes.size(); start += pageFields) {
+      auto page = start / pageFields;
+      out << "    pyc_work_page_" << page << " page_" << page << ";\n";
+    }
+    out << "  };\n";
     std::vector<std::string> calls;
     for (std::size_t i = 0; i < parts.size(); ++i) {
       auto name = "pyc_work_part_" + std::to_string(i);
@@ -88,10 +93,9 @@ public:
     }
     out << "public:\n  void Work() {\n    pyc_clear_check_snapshots();\n    "
            "try {\n"
-        << "      pyc_work_frame pyc_values("
-        << (planes.size() + pageFields - 1) / pageFields << ");\n";
+           "      auto pyc_values = std::make_unique_for_overwrite<pyc_work_frame>();\n";
     for (auto &name : calls)
-      out << "      " << name << "(pyc_values);\n";
+      out << "      " << name << "(*pyc_values);\n";
     out << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
   }
 
@@ -113,38 +117,12 @@ private:
 
 inline llvm::StringRef cppWorkRuntimeSupport() {
   return R"cpp(
-#include <vector>
+#include <memory>
 #if defined(_MSC_VER)
 #define pyc_work_noinline __declspec(noinline)
 #else
 #define pyc_work_noinline __attribute__((noinline))
 #endif
-// Per-evaluation, normally constructed typed storage. The fixed page sizes
-// avoid a giant implicit constructor; the erased owners only manage lifetime.
-class pyc_work_frame {
-  struct slot {
-    void *value = nullptr;
-    void (*destroy)(void *) noexcept = nullptr;
-  };
-  std::vector<slot> slots_;
-public:
-  explicit pyc_work_frame(std::size_t count) : slots_(count) {}
-  pyc_work_frame(const pyc_work_frame &) = delete;
-  pyc_work_frame &operator=(const pyc_work_frame &) = delete;
-  ~pyc_work_frame() noexcept {
-    for (auto &entry : slots_)
-      if (entry.value) entry.destroy(entry.value);
-  }
-  template <class Page> Page &page(std::size_t index) {
-    auto &entry = slots_[index];
-    if (!entry.value) {
-      auto *value = new Page;
-      entry.value = value;
-      entry.destroy = +[](void *object) noexcept { delete static_cast<Page *>(object); };
-    }
-    return *static_cast<Page *>(entry.value);
-  }
-};
 )cpp";
 }
 } // namespace acir::compiler

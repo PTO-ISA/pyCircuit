@@ -868,9 +868,12 @@ private:
       return "gfsim::compare<gfsim::ComparePredicate::" + predicate.str() +
              ">(" + operands[0] + ", " + operands[1] + ")";
     }
-    if (isa<ac::BitsSelectOp>(op))
+    if (isa<ac::BitsSelectOp>(op)) {
+      if (operands[1] == operands[2])
+        return operands[1];
       return "gfsim::select(" + operands[0] + ", " + operands[1] + ", " +
              operands[2] + ")";
+    }
     if (isa<ac::BitsConcatOp>(op)) {
       std::string text = operands[0];
       for (unsigned i = 1; i < operands.size(); ++i)
