@@ -27,16 +27,18 @@ public:
     return FourState(value, Mask{0}, Mask::ones());
   }
   static FourState fromMasks(Mask value, Mask knownMask, Mask zMask) {
-    return FourState(value, knownMask, zMask);
+    auto result = FourState(value, knownMask, zMask);
+    if (!result.invariantHolds())
+      throw std::invalid_argument("four-state masks require (known & z) == 0");
+    return result;
   }
 
   const Mask &value() const { return value_; }
   const Mask &knownMask() const { return knownMask_; }
   const Mask &zMask() const { return zMask_; }
 
-  bool isFullyKnown() const {
-    return knownMask_ == Mask::ones() && zMask_ == Mask{0};
-  }
+  // A fully known value cannot also have any Z bits by construction.
+  bool isFullyKnown() const { return knownMask_ == Mask::ones(); }
   bool invariantHolds() const { return (knownMask_ & zMask_) == Mask{0}; }
 
   // Update only the words touched by a verified field assignment. This is a
@@ -81,11 +83,15 @@ public:
   }
 
 private:
-  FourState(Mask value, Mask knownMask, Mask zMask)
-      : value_(value), knownMask_(knownMask), zMask_(zMask) {
-    if (!invariantHolds())
-      throw std::invalid_argument("four-state masks require (known & z) == 0");
-  }
+  template <unsigned W>
+  friend FourState<W> select(const FourState<1> &, const FourState<W> &,
+                             const FourState<W> &) noexcept;
+  template <unsigned Out, unsigned In>
+  friend FourState<Out> extract(const FourState<In> &, unsigned) noexcept;
+
+  // Internal construction requires disjoint masks.
+  FourState(Mask value, Mask knownMask, Mask zMask) noexcept
+      : value_(value), knownMask_(knownMask), zMask_(zMask) {}
 
   Mask value_{};
   Mask knownMask_{};
@@ -224,7 +230,8 @@ FourState<W> select(const FourState<1> &condition, const FourState<W> &whenTrue,
   const auto commonKnown = whenTrue.knownMask() & whenFalse.knownMask() &
                            ~(whenTrue.value() ^ whenFalse.value());
   const auto commonZ = whenTrue.zMask() & whenFalse.zMask();
-  return FourState<W>::fromMasks(whenTrue.value(), commonKnown, commonZ);
+  // Both masks are subsets of the corresponding masks in either arm.
+  return FourState<W>(whenTrue.value(), commonKnown, commonZ);
 }
 
 template <unsigned Out, unsigned In>
@@ -256,9 +263,9 @@ FourState<Out> extract(const FourState<In> &value, unsigned low) noexcept {
   // a direct caller: no out-of-range host access or arithmetic wraparound.
   if (Out > In || low > In - Out)
     return FourState<Out>::unknown();
-  return FourState<Out>::fromMasks(extract<Out, In>(value.value(), low),
-                                   extract<Out, In>(value.knownMask(), low),
-                                   extract<Out, In>(value.zMask(), low));
+  return FourState<Out>(extract<Out, In>(value.value(), low),
+                        extract<Out, In>(value.knownMask(), low),
+                        extract<Out, In>(value.zMask(), low));
 }
 
 template <unsigned High, unsigned Low>
