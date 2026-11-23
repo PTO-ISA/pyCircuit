@@ -181,10 +181,13 @@ expands explicit CDC resources and refines logical storage. Physical constructio
 and logical-to-expanded correspondence belong to `GFIRToHWIR`; `ACIRAnalysis`
 shares read-only circuit equations and standalone final-component checks. Each
 step has an independent source-to-candidate correspondence check. Saved-anchor
-reload and the lowering pass use this same chain. A transaction's static transitive effect
-reset set masks all normal effects and result availability; committed-state
-reads do not enlarge that set. Individual reset transitions and independently
-required reset-known checks remain separate.
+reload and the lowering pass use this same chain. A transaction's static
+transitive effect reset set masks all normal effects and result availability.
+State writes, Queue push/pop, Memory writes and synchronous read requests, and
+AsyncFIFO transfers contribute their actual resets. Queue peek, Memory result
+and asynchronous reads of committed storage keep their own admission or demand.
+Individual reset transitions and independently required reset-known checks
+remain separate.
 
 CDC resources use canonical `ac.module.import` declarations and ordinary
 `ac.instance` allocations. Their complete native primitive contracts authenticate
@@ -203,6 +206,8 @@ local sampled Rule final fire, admitted by that endpoint's availability and
 static transaction reset set; known-zero intent is dormant. Remote pop never
 grants immediate write capacity, and endpoint connections do not form a
 cross-domain atomic transaction.
+In the same local Rule, Queue proposals and Memory writes and synchronous read
+requests include the AsyncFIFO availability in their commit conditions.
 
 Public expansion removes all logical CDC imports/instances and generates
 synchronizers, release state, pointers and typed banks using common IR. The

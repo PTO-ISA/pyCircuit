@@ -972,14 +972,19 @@ private:
   LogicalResult verifyResourceEvent(const SampledAdmissionView &sampled,
                                     const HardwareIdentityScope &at,
                                     InstanceOp allocation,
-                                    const HardwareIdentityScope &allocatedAt) {
+                                    const HardwareIdentityScope &allocatedAt,
+                                    bool commits) {
     auto clock = normal(sampled.clock, at);
     auto actualClock = normal(allocation.getInputs()[0], allocatedAt);
-    auto actualReset = normal(allocation.getInputs()[1], allocatedAt);
-    if (failed(clock) || failed(actualClock) || failed(actualReset))
+    if (failed(clock) || failed(actualClock))
       return failure();
-    if (sampled.edge != RegisterEdge::Posedge || !same(*clock, *actualClock))
-      return sampled.rule->emitOpError("resource allocation requires its own rising clock edge");
+    if (!same(*clock, *actualClock) || sampled.edge != RegisterEdge::Posedge)
+      return sampled.rule->emitOpError("sampled event differs from the resource clock or edge");
+    if (!commits && !sampled.legacyReset)
+      return success();
+    auto actualReset = normal(allocation.getInputs()[1], allocatedAt);
+    if (failed(actualReset))
+      return failure();
     for (const auto &binding : sampled.resets) {
       if (failed(budget.debit(1, allocation)))
         return failure();
@@ -997,6 +1002,14 @@ private:
   LogicalResult resources(const SampledAdmissionView &sampled) {
     mlir::Builder b(module.getContext());
     llvm::DenseSet<Value> compactReadiness;
+    llvm::SmallDenseSet<uint64_t, 4> committingControls;
+    if (!sampled.legacyReset)
+      for (const auto &proposal : sampled.queueProposals) {
+        if (failed(pay(sizeof(uint64_t))))
+          return failure();
+        if (proposal.resourceControl)
+          committingControls.insert(*proposal.resourceControl);
+      }
     for (const auto &resource : sampled.resources) {
       if (resource.kind.getValue() == "memory_live") continue;
       auto id = b.getDictionaryAttr({b.getNamedAttr("owner", resource.owner),
@@ -1037,7 +1050,8 @@ private:
       if (failed(predicate) || failed(expected) ||
           (resource.kind.getValue() == "queue_valid" && !same(*predicate, *expected)))
         return module->emitOpError() << "queue resource predicate differs from actual allocation";
-      if (failed(verifyResourceEvent(sampled, scope, target->queue, target->scope)))
+      if (failed(verifyResourceEvent(sampled, scope, target->queue, target->scope,
+                                     committingControls.contains(resource.control))))
         return failure();
     }
     if (failed(compactReadinessUses(sampled, compactReadiness)))

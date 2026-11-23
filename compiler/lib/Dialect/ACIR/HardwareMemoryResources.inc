@@ -57,7 +57,8 @@
       if (failed(expected)) return failure();
       if (!same(*predicate, *expected))
         return view.rule->emitOpError() << "Memory live predicate differs from actual allocation";
-      if (failed(verifyResourceEvent(view, at, target->layout.allocation, target->scope)))
+      if (failed(verifyResourceEvent(view, at, target->layout.allocation,
+                                     target->scope, /*commits=*/false)))
         return failure();
     }
     return success();
@@ -108,7 +109,9 @@
             return rule->emitOpError() << "Memory proposal action/port differs from primitive layout";
           auto identity = normal(target->layout.allocation.getOutputs()[0], target->scope);
           if (failed(identity) ||
-              failed(verifyResourceEvent(*view, at, target->layout.allocation, target->scope)))
+              failed(verifyResourceEvent(*view, at, target->layout.allocation,
+                                         target->scope,
+                                         write || request)))
             return failure();
           if (failed(pay(sizeof(Proposal) + at.path.size() * sizeof(InstanceOp)))) return failure();
           proposals.push_back({view, &proposal, at, std::move(*target), *identity});

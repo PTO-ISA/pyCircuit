@@ -4287,6 +4287,147 @@ private:
     writerAdmissions.emplace_hint(position, key, sampled);
     return sampled;
   }
+  LogicalResult verifyEffectFootprint(
+      const Occurrence &entry, const TransactionWriterView &writer,
+      const SampledAdmissionView &sampled, const HardwareIdentityEndpoint &clock,
+      ArrayRef<HardwareCDCEndpointEffect> cdcEffects) {
+    auto commitsMemory = [](const SampledMemoryProposalView &proposal) {
+      return proposal.kind.getValue() != "read";
+    };
+    // A read-only transaction retains its explicit sampling context. A
+    // committing transaction uses the exact reset set of its effects.
+    if (writer.candidates.empty() && sampled.queueProposals.empty() &&
+        !llvm::any_of(sampled.memoryProposals, commitsMemory) && cdcEffects.empty())
+      return success();
+    struct ResetRequirement {
+      HardwareIdentityEndpoint endpoint;
+      RegisterResetKind kind;
+      RegisterResetPolarity polarity;
+    };
+    SmallVector<ResetRequirement> expectedResets;
+    auto matches = [&](const ResetRequirement &expected,
+                       const HardwareIdentityEndpoint &reset,
+                       RegisterResetKind kind, RegisterResetPolarity polarity) {
+      return expected.kind == kind && expected.polarity == polarity &&
+             sameEndpoint(expected.endpoint, reset);
+    };
+    auto includeEvent = [&](Value clockPin, RegisterEdge edge, Value resetPin,
+                            RegisterResetKind kind, RegisterResetPolarity polarity,
+                            const HardwareIdentityScope &scope) -> LogicalResult {
+      auto actualClock = normal(clockPin, scope);
+      if (failed(actualClock))
+        return failure();
+      if (edge != sampled.edge || failed(equalClocks(*actualClock, clock)))
+        return writer.rule->emitOpError("transaction effect has a different clock or edge");
+      if (kind == RegisterResetKind::None)
+        return success();
+      auto reset = normal(resetPin, scope);
+      if (failed(reset))
+        return failure();
+      for (const auto &prior : expectedResets) {
+        if (failed(budget.debit(1, writer.rule)))
+          return failure();
+        if (matches(prior, *reset, kind, polarity))
+          return success();
+      }
+      if (failed(charge(budget, writer.rule, 1, sizeof(ResetRequirement))))
+        return failure();
+      expectedResets.push_back({std::move(*reset), kind, polarity});
+      return success();
+    };
+    for (const auto &candidate : writer.candidates) {
+      auto targetIndex = target(entry, candidate.stateID);
+      if (failed(targetIndex))
+        return failure();
+      const auto &state = states[*targetIndex];
+      const auto &endpoint = state.endpoint;
+      if (failed(includeEvent(endpoint.clock, endpoint.policy.edge, endpoint.reset,
+                              endpoint.policy.resetKind, endpoint.policy.resetPolarity,
+                              state.scope)))
+        return failure();
+    }
+    auto includeResource = [&](DictionaryAttr identity, bool memory) -> LogicalResult {
+      auto scope = copyScope(entry.scope, budget, writer.rule);
+      if (failed(scope))
+        return failure();
+      auto findAllocation = [&](ModuleOp owner, Attribute occurrence)
+          -> FailureOr<InstanceOp> {
+        InstanceOp found;
+        for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
+          if (failed(budget.debit(1, instance)))
+            return failure();
+          if (instance.getOccurrence() != occurrence)
+            continue;
+          if (found)
+            return writer.rule->emitOpError("ambiguous resource effect allocation");
+          found = instance;
+        }
+        if (!found)
+          return writer.rule->emitOpError("resource effect lacks an actual allocation");
+        return found;
+      };
+      ModuleOp owner = entry.module;
+      auto path = identity.getAs<DictionaryAttr>("owner").getAs<ArrayAttr>("instance_path");
+      if (failed(charge(budget, writer.rule, path.size(), sizeof(InstanceOp))))
+        return failure();
+      for (Attribute occurrence : path) {
+        auto child = findAllocation(owner, occurrence);
+        if (failed(child))
+          return failure();
+        owner = dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(*child));
+        if (!owner)
+          return writer.rule->emitOpError("invalid resource effect owner path");
+        scope->path.push_back(*child);
+      }
+      auto allocation = findAllocation(owner, identity.get("declaration"));
+      if (failed(allocation))
+        return failure();
+      if (allocation->getInputs().size() < 2 ||
+          !(memory ? isMemoryInstance(*allocation) : isQueueInstance(*allocation)))
+        return writer.rule->emitOpError("resource effect must resolve its native allocation");
+      return includeEvent(allocation->getInputs()[0], RegisterEdge::Posedge,
+                          allocation->getInputs()[1], RegisterResetKind::Sync,
+                          RegisterResetPolarity::High, *scope);
+    };
+    // Proposals identify writes, pushes, pops and synchronous read requests.
+    // Peek, result and asynchronous read demand observe committed storage.
+    for (const auto &proposal : sampled.queueProposals)
+      if (failed(includeResource(proposal.queue, false)))
+        return failure();
+    for (const auto &proposal : sampled.memoryProposals)
+      if (commitsMemory(proposal) && failed(includeResource(proposal.memory, true)))
+        return failure();
+    for (const auto &effect : cdcEffects)
+      if (failed(includeEvent(effect.clock, effect.edge, effect.reset,
+                              RegisterResetKind::Async, effect.polarity, entry.scope)))
+        return failure();
+    if (expectedResets.size() != sampled.resets.size())
+      return writer.rule->emitOpError("sampled reset set differs from transitive effect footprint");
+    if (failed(charge(budget, writer.rule, sampled.resets.size(),
+                      sizeof(HardwareIdentityEndpoint))))
+      return failure();
+    SmallVector<HardwareIdentityEndpoint> actualResets;
+    for (const auto &binding : sampled.resets) {
+      auto reset = normal(binding.value, entry.scope);
+      if (failed(reset))
+        return failure();
+      actualResets.push_back(std::move(*reset));
+    }
+    for (const auto &expected : expectedResets) {
+      bool present = false;
+      for (auto [actual, binding] : llvm::zip(actualResets, sampled.resets)) {
+        if (failed(budget.debit(1, writer.rule)))
+          return failure();
+        if (matches(expected, actual, binding.kind, binding.polarity)) {
+          present = true;
+          break;
+        }
+      }
+      if (!present)
+        return writer.rule->emitOpError("missing effect reset from sampled reset set");
+    }
+    return success();
+  }
   LogicalResult writers() {
     for (const auto &entry : occurrences) {
       for (auto rule : entry.module->getRegion(0).front().getOps<RuleOp>()) {
@@ -4486,94 +4627,9 @@ private:
         }
         auto cdcEffects = getAsyncFIFOEndpointEffects(writer.rule);
         if (failed(cdcEffects)) return failure();
-        if (eventPolicy && (!writer.candidates.empty() || !sampled->resources.empty() || !cdcEffects->empty())) {
-          struct ResetRequirement { HardwareIdentityEndpoint endpoint; RegisterResetKind kind; RegisterResetPolarity polarity; };
-          SmallVector<ResetRequirement> expectedResets;
-          for (const auto &candidate : writer.candidates) {
-            auto targetIndex = target(entry, candidate.stateID);
-            if (failed(targetIndex)) return failure();
-            const auto &state = states[*targetIndex];
-            const auto &endpoint = state.endpoint;
-            auto actualClock = normal(endpoint.clock, state.scope);
-            if (failed(actualClock)) return failure();
-            if (failed(equalClocks(*actualClock, *clock)) || endpoint.policy.edge != sampled->edge)
-              return writer.rule->emitOpError("transaction effect footprint has different clock or edge");
-            if (endpoint.policy.resetKind == RegisterResetKind::None) continue;
-            auto actualReset = normal(endpoint.reset, state.scope);
-            if (failed(actualReset)) return failure();
-            bool present = false;
-            for (const auto &prior : expectedResets)
-              present |= sameEndpoint(prior.endpoint, *actualReset) && prior.kind == endpoint.policy.resetKind &&
-                         prior.polarity == endpoint.policy.resetPolarity;
-            if (!present) expectedResets.push_back({*actualReset, endpoint.policy.resetKind, endpoint.policy.resetPolarity});
-          }
-          for (const auto &resource : sampled->resources) {
-            auto resourceScope = copyScope(entry.scope, budget, writer.rule);
-            if (failed(resourceScope)) return failure();
-            ModuleOp owner = entry.module;
-            auto path = resource.owner.getAs<ArrayAttr>("instance_path");
-            if (!path) return writer.rule->emitOpError("resource owner lacks instance path");
-            for (Attribute occurrence : path) {
-              InstanceOp child;
-              for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
-                if (failed(budget.debit(1, writer.rule))) return failure();
-                if (instance.getOccurrence() == occurrence) {
-                  if (child) return writer.rule->emitOpError("ambiguous resource owner");
-                  child = instance;
-                }
-              }
-              owner = child ? dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(child)) : ModuleOp();
-              if (!owner) return writer.rule->emitOpError("invalid resource owner path");
-              resourceScope->path.push_back(child);
-            }
-            InstanceOp allocation;
-            for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
-              if (failed(budget.debit(1, writer.rule))) return failure();
-              if (instance.getOccurrence() == resource.declaration) {
-                if (allocation) return writer.rule->emitOpError("ambiguous resource allocation");
-                allocation = instance;
-              }
-            }
-            auto kind = allocation ? analysis.getPrimitiveKind(analysis.resolveCallee(allocation)) : StringRef();
-            if (!allocation || allocation->getNumOperands() < 2 ||
-                (kind != "fifo_local" && kind != "fifo_downstream_pop" && kind != "sync_mem" && kind != "sync_mem_dp" && kind != "byte_mem"))
-              return writer.rule->emitOpError("resource effect must resolve an actual Queue or Memory");
-            auto resourceClock = normal(allocation->getOperand(0), *resourceScope);
-            auto resourceReset = normal(allocation->getOperand(1), *resourceScope);
-            if (failed(resourceClock) || failed(resourceReset)) return failure();
-            if (failed(equalClocks(*resourceClock, *clock)) || sampled->edge != RegisterEdge::Posedge)
-              return writer.rule->emitOpError("resource effect clock or edge differs from transaction");
-            bool present = false;
-            for (const auto &prior : expectedResets)
-              present |= sameEndpoint(prior.endpoint, *resourceReset) && prior.kind == RegisterResetKind::Sync &&
-                         prior.polarity == RegisterResetPolarity::High;
-            if (!present) expectedResets.push_back({*resourceReset, RegisterResetKind::Sync, RegisterResetPolarity::High});
-          }
-          for (const auto &effect : *cdcEffects) {
-            auto actualClock = normal(effect.clock, entry.scope);
-            auto actualReset = normal(effect.reset, entry.scope);
-            if (failed(actualClock) || failed(actualReset)) return failure();
-            if (failed(equalClocks(*actualClock, *clock)) || effect.edge != sampled->edge)
-              return writer.rule->emitOpError("CDC endpoint event differs from transaction");
-            bool present = false;
-            for (const auto &prior : expectedResets)
-              present |= sameEndpoint(prior.endpoint, *actualReset) && prior.kind == RegisterResetKind::Async &&
-                         prior.polarity == effect.polarity;
-            if (!present) expectedResets.push_back({*actualReset, RegisterResetKind::Async, effect.polarity});
-          }
-          if (expectedResets.size() != sampled->resets.size())
-            return writer.rule->emitOpError("sampled reset set differs from transitive effect footprint");
-          for (const auto &expectedReset : expectedResets) {
-            bool present = false;
-            for (const auto &actualReset : sampled->resets) {
-              auto normalizedReset = normal(actualReset.value, entry.scope);
-              if (failed(normalizedReset)) return failure();
-              present |= sameEndpoint(expectedReset.endpoint, *normalizedReset) &&
-                  expectedReset.kind == actualReset.kind && expectedReset.polarity == actualReset.polarity;
-            }
-            if (!present) return writer.rule->emitOpError("missing effect reset from sampled reset set");
-          }
-        }
+        if (eventPolicy &&
+            failed(verifyEffectFootprint(entry, writer, *sampled, *clock, *cdcEffects)))
+          return failure();
         if (failed(indexedWriteRequirements(*sampled, entry.scope, indexedDomains)))
           return failure();
         for (const auto &guard : sampled->controls) {
