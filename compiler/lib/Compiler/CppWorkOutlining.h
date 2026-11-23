@@ -123,6 +123,19 @@ inline llvm::StringRef cppWorkRuntimeSupport() {
 #else
 #define pyc_work_noinline __attribute__((noinline))
 #endif
+
+template <std::size_t OutputLanes, std::size_t InputLanes, class Plane>
+struct pyc_work_broadcast_view {
+  const Plane &source;
+  decltype(auto) element(std::size_t lane) const noexcept {
+    return source.element(lane / OutputLanes * InputLanes + lane % InputLanes);
+  }
+};
+
+template <std::size_t OutputLanes, std::size_t InputLanes, class Plane>
+auto pyc_work_broadcast(const Plane &source) noexcept {
+  return pyc_work_broadcast_view<OutputLanes, InputLanes, Plane>{source};
+}
 )cpp";
 }
 } // namespace acir::compiler

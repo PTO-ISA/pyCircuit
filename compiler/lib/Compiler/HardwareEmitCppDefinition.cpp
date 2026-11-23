@@ -1140,6 +1140,11 @@ private:
       return failure();
     return planeDeclaration(*p, name());
   }
+  std::string broadcastPlane(StringRef source, StringRef outputLanes,
+                             StringRef inputLanes) {
+    return "pyc_work_broadcast<(" + outputLanes.str() + "), (" +
+           inputLanes.str() + ")>(" + source.str() + ")";
+  }
   FailureOr<std::string> scalarPlane(Scope &s, Value v, Path path) {
     Operation *op = v.getDefiningOp();
     auto resultPlan = fieldPlane(v.getType(), path, s, op);
@@ -1212,17 +1217,11 @@ private:
           return failure();
         if (operand < map.getTables().size())
           return *source;
-        auto result = declarePlane(s, v, path);
         auto plan = fieldPlane(v.getType(), path, s, map);
-        auto count = planeCount(v.getType(), s, map, path);
-        if (failed(result) || failed(plan) || failed(count))
+        if (failed(plan))
           return failure();
-        out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-            << "; ++pyc_lane) " << *result << ".element(pyc_lane) = "
-            << *source << ".element((pyc_lane / ((" << *n << ") * ("
-            << plan->count << "))) * (" << plan->count
-            << ") + pyc_lane % (" << plan->count << "));\n";
-        return *result;
+        return broadcastPlane(*source, "(" + *n + ") * (" + plan->count + ")",
+                              plan->count);
       }
       if (auto rule = dyn_cast<ac::RuleOp>(arg.getOwner()->getParentOp()))
         return emit(s, rule.getCaptures()[arg.getArgNumber()], path);
@@ -1396,6 +1395,27 @@ private:
   }
   FailureOr<std::string> tableOperation(Scope &s, Value v, Path path) {
     auto *op = v.getDefiningOp();
+    if (auto map = dyn_cast<ac::TableMapOp>(op)) {
+      auto n = ctx.shapeSize(map.getShape(), op, false, s.bindings);
+      if (failed(n))
+        return failure();
+      // The leading Table extent is the region's lane multiplier, so its
+      // yielded plane already has the lane order of the result.
+      regionScopes.push_back({s.definition, s.bindings, nullptr, nullptr,
+                              s.object, "(" + s.count + " * (" + *n + "))",
+                              &s, map});
+      auto yielded = cast<ac::YieldOp>(map.getBody().front().back())
+                         .getValues()[cast<OpResult>(v).getResultNumber()];
+      return emit(regionScopes.back(), yielded, path);
+    }
+    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+      auto source = emit(s, splat.getInput(), path);
+      auto inputPlan = fieldPlane(splat.getInput().getType(), path, s, op);
+      auto resultPlan = fieldPlane(v.getType(), path, s, op);
+      if (failed(source) || failed(inputPlan) || failed(resultPlan))
+        return failure();
+      return broadcastPlane(*source, resultPlan->count, inputPlan->count);
+    }
     if (promoteConstantPlanes && !resetting && !s.regionParent &&
         isa<ac::TableCreateOp>(op)) {
       auto selected = fieldType(v.getType(), path, s, op);
@@ -1438,17 +1458,6 @@ private:
       }
       return *result;
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
-      auto input = emit(s, splat.getInput(), path);
-      auto in = fieldPlane(splat.getInput().getType(), path, s, op);
-      if (failed(input) || failed(in))
-        return failure();
-      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
-          << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *input
-          << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
-          << in->count << ") + pyc_lane % (" << in->count << "));\n";
-      return *result;
-    }
     if (auto view = dyn_cast<ac::TableViewOp>(op)) {
       auto input = emit(s, view.getInput(), path);
       auto in = fieldPlane(view.getInput().getType(), path, s, op);
@@ -1466,26 +1475,6 @@ private:
           << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
           << in->count << ") + (" << *index << ") * ("
           << suffix << ") + pyc_lane % (" << suffix << "));\n";
-      return *result;
-    }
-    if (auto map = dyn_cast<ac::TableMapOp>(op)) {
-      auto n = ctx.shapeSize(map.getShape(), op, false, s.bindings);
-      if (failed(n))
-        return failure();
-      // Keep region SSA, captures and nested Table operations on the existing
-      // field-sensitive schedule. Only requested argument paths are gathered.
-      regionScopes.push_back({s.definition, s.bindings, nullptr, nullptr,
-                              s.object, "(" + s.count + " * (" + *n + "))",
-                              &s, map});
-      auto &region = regionScopes.back();
-      auto yielded = cast<ac::YieldOp>(map.getBody().front().back())
-                         .getValues()[cast<OpResult>(v).getResultNumber()];
-      auto source = emit(region, yielded, path);
-      if (failed(source))
-        return failure();
-      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
-          << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *source
-          << ".element(pyc_lane);\n";
       return *result;
     }
     if (auto match = dyn_cast<ac::TableMatchOp>(op)) {
