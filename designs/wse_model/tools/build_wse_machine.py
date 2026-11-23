@@ -31,6 +31,12 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=False)
     toolchain = Path(os.environ["PYC_TOOLCHAIN_ROOT"]).resolve()
     compiler = toolchain / "bin/pycircuit"
+    native_helpers = {
+        "PYCIRCUIT_SOURCE_COMPILER": toolchain / "bin/pycircuit-source-unit",
+        "PYCIRCUIT_LINKER": toolchain / "bin/pycircuit-link",
+        "PYCIRCUIT_EMITTER": toolchain / "bin/pycircuit-emit",
+    }
+    build_env = dict(os.environ, **{name: str(path) for name, path in native_helpers.items()})
     source = ROOT / "models/machine"
     metadata = json.loads((toolchain / "share/pycircuit/toolchain-metadata.json").read_text())
     pin_file = ROOT / (
@@ -85,10 +91,7 @@ def main() -> int:
         "sources": {str(path): digest(path) for path in sources},
         "toolchain": metadata,
         "compiler": {"path": str(compiler), "sha256": digest(compiler)},
-        "native_helpers": {
-            name: digest(toolchain / "bin" / name)
-            for name in ("pycircuit-source-unit", "pycircuit-link", "pycircuit-emit")
-        },
+        "native_helpers": {path.name: digest(path) for path in native_helpers.values()},
         "conditions": {
             "optimization": args.optimization,
             "build_parallelism": 1,
@@ -122,6 +125,7 @@ def main() -> int:
                     entry["command"],
                     stdout=log,
                     stderr=subprocess.STDOUT,
+                    env=build_env,
                     timeout=args.timeout,
                     check=False,
                 )

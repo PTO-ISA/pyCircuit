@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/PTO-ISA/pyCircuit.git",
-  "revision": "75dc3ba3ec0de6a177583339c6d2d8d873b65fcb",
+  "revision": "9b394d437dee4fb0f14869aad119e56cb4f8ed57",
   "llvm_mlir": "22.1.8",
   "note": "Timed machine candidate, PR #424."
 }

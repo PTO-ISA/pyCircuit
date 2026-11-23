@@ -182,12 +182,14 @@ python tools/run_pto_allgather.py \
 ## 集成时序模型
 
 时序构建使用 PR #424 的 SDK（提交见 `models/machine/timed-pycircuit.lock.json`）。
-激活对应的 Python、源码编译器、链接器及发射器后执行下列命令。构建器从共享
+将 `PYC_TOOLCHAIN_ROOT` 指向该 SDK 的安装目录后执行下列命令。构建器使用
+该目录中的源码编译器、链接器和发射器，并从共享
 账本生成固定布局的源码，保存在构建输出的 `fixed-source/` 目录。配置为 40 节点、
 每节点 2 个早到槽、56 个去重槽，身份行宽 1232 位（56 × 22）。
 
-时序构建单独链接时序顶层和所需组件。上述配置的全部源码单元已编译通过。
-当前整机链接在事务计划分析阶段触发 `transaction state analysis work budget exceeded`。
+上述配置的七个源码单元均已通过编译。整机链接仍在生成事务计划时触发
+`transaction state analysis work budget exceeded`，具体诊断见构建输出中的
+`link.log`。
 后两条验收命令需要整机构建生成 `wse_runner` 后才能运行。
 
 ```sh

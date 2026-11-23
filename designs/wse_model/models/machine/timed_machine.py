@@ -285,7 +285,7 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                         stage = 7
                     else:
                         pc = pc + 1
-                if command.kind == 2:
+                elif command.kind == 2:
                     if not drained:
                         fault_code = 4
                         stage = 7
@@ -298,7 +298,7 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                             stage = 7
                         else:
                             pc = pc + 1
-                if command.kind == 3:
+                elif command.kind == 3:
                     installed_post = configuration.process(
                         node, CalRegRequest(kind=3, opcode=opcode, drained=drained)
                     )
@@ -343,7 +343,7 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                             receive_capacity.write(capacity_address, command.capacity)
                             active_nodes = active_nodes | one << node
                             pc = pc + 1
-                if command.kind == 4 or command.kind == 8:
+                elif command.kind == 4 or command.kind == 8:
                     if command.source >= 40:
                         fault_code = 7
                         stage = 7
@@ -378,7 +378,7 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                                 stage = 8
                             else:
                                 pc = pc + 1
-                if command.kind == 5:
+                elif command.kind == 5:
                     epoch_wait = epochs.process(
                         node, EpochRequest(advance=False, opcode=opcode, drained=drained)
                     )
@@ -402,7 +402,7 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                     else:
                         scan = 0
                         stage = 8
-                if command.kind == 6:
+                elif command.kind == 6:
                     memory_value_12_raw = reserved_identities.read(node_row)
                     memory_value_12 = memory_value_12_raw[0:8]
                     if memory_value_12 != 0:
@@ -507,11 +507,12 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
             elif decision.status == 3:
                 targets = targets & ~target_bit
             else:
-                memory_value_14_raw = reserved.read(row_address(selected % 40))
-                memory_value_14 = memory_value_14_raw[0:32]
+                reservation_address = row_address(selected % 40)
+                reserved_word = reserved.read(reservation_address)
+                reserved_bytes = reserved_word[0:32]
                 if (
                     decision.status == 2
-                    and receive.counted + memory_value_14 + current.nbytes > capacity_value
+                    and receive.counted + reserved_bytes + current.nbytes > capacity_value
                 ):
                     fault_code = 5
                     stage = 7
@@ -519,21 +520,17 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                     fault_code = 5
                     stage = 7
                 else:
-                    memory_value_15_raw = committed_identities.read(row_address(selected % 40))
-                    memory_value_15 = memory_value_15_raw[0:8]
-                    memory_value_16_raw = reserved_identities.read(row_address(selected % 40))
-                    memory_value_16 = memory_value_16_raw[0:8]
+                    committed_word = committed_identities.read(reservation_address)
+                    reserved_identity_word = reserved_identities.read(reservation_address)
+                    committed_count = committed_word[0:8]
+                    reserved_count = reserved_identity_word[0:8]
                     assert (
-                        memory_value_15 + memory_value_16 < 56
+                        committed_count + reserved_count < 56
                     ), "receive identity reservation capacity"
-                    memory_value_17_raw = reserved_identities.read(row_address(selected % 40))
-                    memory_value_17 = memory_value_17_raw[0:8]
-                    memory_write_18: ac.u64 = memory_value_17 + 1
-                    reserved_identities.write(row_address(selected % 40), memory_write_18)
-                    memory_value_19_raw = reserved.read(row_address(selected % 40))
-                    memory_value_19 = memory_value_19_raw[0:32]
-                    memory_write_20: ac.u64 = memory_value_19 + current.nbytes
-                    reserved.write(row_address(selected % 40), memory_write_20)
+                    next_reserved_count: ac.u64 = reserved_count + 1
+                    reserved_identities.write(reservation_address, next_reserved_count)
+                    next_reserved_bytes: ac.u64 = reserved_bytes + current.nbytes
+                    reserved.write(reservation_address, next_reserved_bytes)
             receive_index: ac.u16 = current.source[0:6]
             selected_index: ac.u16 = selected
             receive_address_wide = (receive_index * 40 + selected_index) % 1600 * 2
@@ -1094,19 +1091,19 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
             active_stage = stage
             if active_stage == 1:
                 stage_1()
-            if active_stage == 2:
+            elif active_stage == 2:
                 stage_2()
-            if active_stage == 3:
+            elif active_stage == 3:
                 stage_3()
-            if active_stage == 4:
+            elif active_stage == 4:
                 stage_4()
-            if active_stage == 5:
+            elif active_stage == 5:
                 stage_5()
-            if active_stage == 9:
+            elif active_stage == 9:
                 stage_9()
-            if active_stage == 8:
+            elif active_stage == 8:
                 stage_8()
-            if active_stage == 10:
+            elif active_stage == 10:
                 stage_10()
         data: ac.bits[512] = 0
         if host_read:
