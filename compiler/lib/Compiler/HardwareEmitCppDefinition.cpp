@@ -4,6 +4,7 @@
 #include "HardwareEmitCppChecks.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <array>
 #include <deque>
@@ -1184,14 +1185,21 @@ private:
     for (const auto &input : inputs)
       if (input.sameLayout && *expr == input.packed)
         return input.plane;
-    auto result = declarePlane(s, v, path);
     auto p = payload(resultPlan->element, s, op);
-    if (failed(result) || failed(p))
+    if (failed(p))
       return failure();
+    auto type = "gfsim::wire<gfsim::table<" + *p + ", " + *count + ">>";
+    // Use the resolved plane references and lane layout. Distinct IR values
+    // can denote the same calculation after field forwarding.
+    auto [entry, inserted] = scalarPlanes.try_emplace(type + "\n" + *expr);
+    if (!inserted)
+      return entry->second;
+    auto result = planeDeclaration(type, name());
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-        << "; ++pyc_lane) " << *result << ".element(pyc_lane) = gfsim::wire<"
+        << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
         << *p << ">::fromPacked(" << *expr << ");\n";
-    return *result;
+    entry->second = result;
+    return result;
   }
   FailureOr<std::string> build(Scope &s, Value v, Path path) {
     if (auto arg = dyn_cast<BlockArgument>(v)) {
@@ -1742,6 +1750,7 @@ private:
   bool probeSize = false, exceededSize = false;
   bool promoteConstantPlanes = true;
   llvm::DenseMap<ConstantKey, ConstantState> constantMemo;
+  llvm::StringMap<std::string> scalarPlanes;
   bool tasksFinished = false;
   SmallVector<Operation *> delegated;
   std::deque<Scope> scopes, regionScopes;
