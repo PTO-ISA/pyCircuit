@@ -69,7 +69,19 @@ LogicalResult detail::verifyHardwarePackageStage(
        (marker.getInt() != 7 && marker.getValue() != (boundary ? 5 : 4))))
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
+  bool domainProfile = marker && marker.getInt() == 7;
   auto closed = package.walk([&](Operation *operation) {
+    if (!domainProfile && isa<ModuleOp, ModuleImportOp>(operation)) {
+      auto kind = operation->getAttrOfType<StringAttr>("ac.root_kind");
+      auto samples =
+          operation->getAttrOfType<DictionaryAttr>("ac.system_samples");
+      if (kind && kind.getValue() == "system" &&
+          (operation->hasAttr("ac.domain_clock_inputs") ||
+           (samples && samples.get("inputs")))) {
+        operation->emitOpError("multi-control System requires routed contract 7");
+        return WalkResult::interrupt();
+      }
+    }
     // HWIR rejects every routed logical-state interface unconditionally,
     // including retained dead regions; source state forms stay rejected by
     // their own declaration contract.
@@ -85,8 +97,7 @@ LogicalResult detail::verifyHardwarePackageStage(
     // declaration cannot leak into the executable primitive catalog.
     bool logicalCDC = isCDCPrimitive(operation) ||
                       isCDCInstance(dyn_cast<InstanceOp>(operation));
-    if (logicalCDC && (!policy.admitRoutedLogicalStateByName || !marker ||
-                       marker.getInt() != 7)) {
+    if (logicalCDC && (!policy.admitRoutedLogicalStateByName || !domainProfile)) {
       operation->emitOpError()
           << "logical CDC requires the current routed resource profile";
       return WalkResult::interrupt();

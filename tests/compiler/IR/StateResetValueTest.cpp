@@ -424,6 +424,105 @@ TEST_F(StateResetValueTest, PublishAsyncNegativeStateForIndependentConsumers) {
                "PYCIRCUIT_TEST_ASYNC_STATE_ANCHOR");
 }
 
+// An ordinary module with no checks still owns physical storage endpoints.
+std::string resetFreeStorageIR(bool routed) {
+  auto text = stateIR(routed);
+  if (!routed) return text;
+  const auto begin = text.find("    %reset_value =");
+  const auto end = text.find("    \"ac.yield\"(%q)", begin);
+  text.replace(begin, end - begin, R"ir(
+    %zero = "ac.bits.constant"() {value = #w0} : () -> !b1
+    %q = "gfir.state"(%clk, %initial) {instance_name = "held", occurrence = #occ, domain = "D", operandSegmentSizes = array<i32: 1, 0, 1, 0>, init_kind = "explicit", edge = "posedge", reset_kind = "none"} : (!b1, !b9) -> !b9
+    "gfir.state.update"(%q, %q, %zero) : (!b9, !b9, !b1) -> ()
+)ir");
+  const auto writers = text.find("writers = [");
+  const std::string writer =
+      "writers = [{registration = #writer, ordinary_results = 0 : i64, "
+      "candidates = [{state = #state_id, data = 0 : i64, enable = 1 : i64}]}]";
+  text.replace(writers, writer.size(), "writers = []");
+  return text;
+}
+
+TEST_F(StateResetValueTest, PublishUncheckedResetFreeStorageForConsumers) {
+  publishSaved(resetFreeStorageIR(false), resetFreeStorageIR(true),
+               "PYCIRCUIT_TEST_UNCHECKED_STORAGE_ANCHOR");
+}
+
+TEST_F(StateResetValueTest, TableClockRequiresAConstantSelection) {
+  auto text = resetFreeStorageIR(true);
+  text.insert(text.find("module attributes"), R"ir(
+#extent = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = #occ, location = #span}>
+!clocks = !ac.table<[#extent], !b1>
+)ir");
+  const auto state = text.find("    %q =");
+  text.insert(state, R"ir(
+    %levels = "ac.table.create"(%clk, %clk) : (!b1, !b1) -> !clocks
+    %selected = "ac.table.read"(%levels, %zero) : (!clocks, !b1) -> !b1
+)ir");
+  const auto clock = text.find("\"gfir.state\"(%clk");
+  text.replace(clock, std::string("\"gfir.state\"(%clk").size(),
+               "\"gfir.state\"(%selected");
+  auto routed = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
+  ASSERT_TRUE(routed);
+  ASSERT_TRUE(mlir::succeeded(ac::verifyRoutedPackage(*routed)));
+  auto final = acir::detail::refineRoutedHardware(*routed);
+  ASSERT_TRUE(mlir::succeeded(final));
+  ASSERT_TRUE(mlir::succeeded(ac::verifyHardwarePackage(**final)));
+  // Equal clock lanes do not make an unknown dynamic index a clock alias.
+  auto useDynamicIndex = [](mlir::ModuleOp module) {
+    module.walk([&](ac::TableReadOp read) {
+      read->setOperand(1, read->getBlock()->getArgument(0));
+    });
+  };
+  useDynamicIndex(*routed);
+  useDynamicIndex(**final);
+  mlir::ScopedDiagnosticHandler expectedFailure(
+      &context, [](mlir::Diagnostic &) { return mlir::success(); });
+  EXPECT_TRUE(mlir::failed(ac::verifyRoutedPackage(*routed)));
+  EXPECT_TRUE(mlir::failed(ac::verifyHardwarePackage(**final)));
+}
+
+std::string deepHierarchyIR(bool routed) {
+  const auto original = stateIR(routed);
+  auto text = original.substr(0, original.find("module attributes"));
+  std::string modules;
+  auto name = [](unsigned i) {
+    return "reset_value.fixture." + (i ? "N" + std::to_string(i) : "Held");
+  };
+  // Hardware depth exceeds the filesystem transport's independent 32-level cap.
+  for (unsigned i = 0; i <= 33; ++i) {
+    const auto ordinal = std::to_string(i);
+    text += "#node" + ordinal + " = {site = {definition = @\"" + name(i) +
+            "\", ast_path = []}, expansion = []}\n";
+    text += "#edge" + ordinal + " = {site = {definition = @\"" + name(i) +
+            "\", ast_path = [{kind = \"index\", value = 1 : i64}]}, expansion = []}\n";
+    modules += "  \"ac.module\"() ({\n  ^bb0(%clk: !b1):\n";
+    if (i < 33) {
+      modules += "    \"ac.instance\"(%clk) {instance_name = \"inner\", callee = @\"" +
+          name(i + 1) + "\", parameters = [], type_arguments = [], occurrence = #edge" +
+          ordinal + ", ac.domain_bindings = {D = \"D\"}} : (!b1) -> ()\n";
+    }
+    modules += "    \"ac.yield\"() : () -> ()\n  }) {sym_name = \"" + name(i) +
+        "\", source_owner = #owner, parameters = [], type_parameters = [], "
+        "function_type = (!b1) -> (), input_names = [\"clock\"], output_names = [], "
+        "ac.origin = #node" + ordinal + ", ac.declaration_role = \"definition\", "
+        "ac.domain_params = [\"D\"], ac.default_domain = \"D\"";
+    if (i == 0) modules += ", ac.domain_clock_inputs = {D = 0 : i32}";
+    modules += "} : () -> ()\n";
+  }
+  const auto begin = original.find("module attributes");
+  const auto end = original.find("} {", begin);
+  text += original.substr(begin, end + 3 - begin) + "\n" + modules;
+  if (routed)
+    text += "  \"ac.system\"() {entry = {callee = @\"reset_value.fixture.Held\", parameters = [], type_arguments = []}, domain = \"default\"} : () -> ()\n";
+  return text + "}\n";
+}
+
+TEST_F(StateResetValueTest, PublishDeepHardwareHierarchyForTransport) {
+  publishSaved(deepHierarchyIR(false), deepHierarchyIR(true),
+               "PYCIRCUIT_TEST_DEEP_HIERARCHY_ANCHOR");
+}
+
 #include "StateResetCDCFixture.inc"
 
 TEST_F(StateResetValueTest, UnusedNativeCDCDeclarationIsRemovedBeforeFinal) {

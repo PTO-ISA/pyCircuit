@@ -115,7 +115,8 @@ module attributes {ac.stage = "routed", ac.routed_contract = 7 : i64, ac.source_
     %five = "ac.bits.constant"() {value = #w5} : () -> !b9
     %zero = "ac.bits.constant"() {value = #w0} : () -> !b9
     %false = "ac.bits.constant"() {value = #w0} : () -> !b1
-    %q = "gfir.state"(%clk, %rst, %five, %zero) {instance_name = "local", occurrence = #child, domain = "D", operandSegmentSizes = array<i32: 1, 1, 1, 1>, init_kind = "explicit", edge = "posedge", reset_kind = "sync", reset_polarity = "high"} : (!b1, !b1, !b9, !b9) -> !b9
+    %inverted = "ac.bits.unary"(%rst) {opcode = "not"} : (!b1) -> !b1
+    %q = "gfir.state"(%clk, %inverted, %five, %zero) {instance_name = "local", occurrence = #child, domain = "D", operandSegmentSizes = array<i32: 1, 1, 1, 1>, init_kind = "explicit", edge = "posedge", reset_kind = "sync", reset_polarity = "low"} : (!b1, !b1, !b9, !b9) -> !b9
     "gfir.state.update"(%q, %q, %false) : (!b9, !b9, !b1) -> ()
     "ac.yield"(%q) : (!b9) -> ()
   }) {sym_name = "reset_value.fixture.Child", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1) -> !b9, input_names = ["pyc_clk", "pyc_rst"], output_names = ["q"], ac.domain_inputs = {clock = 0 : i64, reset = 1 : i64}, ac.domain_params = ["D"], ac.default_domain = "D", ac.transaction_wiring = {states = [#child], incoming = [], writers = []}} : () -> ()
@@ -124,7 +125,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 7 : i64, ac.source_
     %left = "ac.instance"(%wclk, %rst) {instance_name = "left", callee = @"reset_value.fixture.Child", parameters = [], type_arguments = [], occurrence = #left, ac.domain_bindings = {D = "W"}} : (!b1, !b1) -> !b9
     %right = "ac.instance"(%rclk, %rst) {instance_name = "right", callee = @"reset_value.fixture.Child", parameters = [], type_arguments = [], occurrence = #right, ac.domain_bindings = {D = "R"}} : (!b1, !b1) -> !b9
     "ac.yield"() : () -> ()
-  }) {sym_name = "reset_value.fixture.Held", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1) -> (), input_names = ["write_clock", "pyc_clk", "pyc_rst"], output_names = [], ac.domain_inputs = {clock = 1 : i64, reset = 2 : i64}, ac.domain_params = ["W", "R"], ac.domain_clock_inputs = {W = 0 : i32, R = 1 : i32}, ac.root_kind = "system"} : () -> ()
+  }) {sym_name = "reset_value.fixture.Held", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1) -> (), input_names = ["write_clock", "pyc_clk", "pyc_rst"], output_names = [], ac.domain_inputs = {clock = 1 : i64, reset = 2 : i64}, ac.domain_params = ["W", "R"], ac.default_domain = "W", ac.domain_clock_inputs = {W = 0 : i32, R = 1 : i32}, ac.root_kind = "system"} : () -> ()
   "ac.system"() {entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 )ir";
@@ -147,7 +148,23 @@ module attributes {ac.stage = "routed", ac.routed_contract = 7 : i64, ac.source_
     EXPECT_TRUE(mlir::failed(ac::verifyRoutedPackage(*package)));
   }
   left->setOperand(0, originalClock);
-  EXPECT_TRUE(mlir::succeeded(ac::verifyRoutedPackage(*package)));
+  ASSERT_TRUE(mlir::succeeded(ac::verifyRoutedPackage(*package)));
+  gf::StateOp state;
+  gf::StateUpdateOp update;
+  package->walk([&](gf::StateOp candidate) { state = candidate; });
+  package->walk([&](gf::StateUpdateOp candidate) { update = candidate; });
+  ASSERT_TRUE(state); ASSERT_TRUE(update);
+  auto &child = *state->getBlock();
+  mlir::OpBuilder builder(update);
+  mlir::OperationState select(update->getLoc(), "ac.bits.select");
+  select.addOperands({child.getArgument(1), state.getInitial(), state.getResetValue()});
+  select.addTypes(state.getQ().getType());
+  update->setOperand(1, builder.create(select)->getResult(0));
+  // Reset-role forwarding must not make the same argument domain-neutral
+  // when it separately selects an ordinary candidate payload in the R child.
+  mlir::ScopedDiagnosticHandler expectedFailure(
+      &context, [](mlir::Diagnostic &) { return mlir::success(); });
+  EXPECT_TRUE(mlir::failed(ac::verifyHardwareDomains(*package)));
 }
 
 std::string asyncRegSystemIR(bool routed) {
@@ -201,6 +218,33 @@ std::string asyncRegSystemIR(bool routed) {
 TEST_F(StateResetValueTest, PublishAsyncRegSystemForIndependentTrace) {
   publishSaved(asyncRegSystemIR(false), asyncRegSystemIR(true),
                "PYCIRCUIT_TEST_ASYNC_REG_ANCHOR");
+}
+
+TEST_F(StateResetValueTest, MultiControlSystemRequiresCurrentContract) {
+  // Reuse the four-input sampling fixture without its CDC implementation, so
+  // rejection cannot be explained by a native-resource version requirement.
+  auto text = asyncRegSystemIR(false);
+  const auto begin = text.find("module attributes");
+  const auto end = text.find("} {", begin);
+  text.replace(begin, end + 3 - begin,
+      "module attributes {ac.stage = \"routed\", ac.routed_contract = 7 : i64, ac.source_units = [#owner]} {");
+  text.insert(text.find(", ac.system_samples"),
+      ", ac.domain_params = [\"W\", \"R\"], ac.default_domain = \"W\", ac.domain_clock_inputs = {W = 1 : i32, R = 2 : i32}");
+  text.insert(text.rfind('}'),
+      "  \"ac.system\"() {entry = {callee = @\"reset_value.fixture.Held\", parameters = [], type_arguments = []}, domain = \"default\"} : () -> ()\n");
+  auto routed = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
+  ASSERT_TRUE(routed);
+  ASSERT_TRUE(mlir::succeeded(ac::verifyRoutedPackage(*routed)));
+  auto final = acir::detail::refineRoutedHardware(*routed);
+  ASSERT_TRUE(mlir::succeeded(final));
+  ASSERT_TRUE(mlir::succeeded(ac::verifyHardwarePackage(**final)));
+  mlir::OpBuilder builder(&context);
+  (*routed)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(4));
+  (*final)->getOperation()->setAttr("ac.routed_contract", builder.getI64IntegerAttr(4));
+  mlir::ScopedDiagnosticHandler expectedFailure(
+      &context, [](mlir::Diagnostic &) { return mlir::success(); });
+  EXPECT_TRUE(mlir::failed(ac::verifyRoutedPackage(*routed)));
+  EXPECT_TRUE(mlir::failed(ac::verifyHardwarePackage(**final)));
 }
 
 std::string physicalTwoDomainIR(bool routed) {

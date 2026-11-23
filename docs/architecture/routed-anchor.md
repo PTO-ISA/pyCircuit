@@ -19,7 +19,7 @@ A routed top-level package has `ac.stage = "routed"` and
 `ac.routed_contract = 4 : i64`, or contract 5 when it has a verified
 [selected Module entry boundary](entry-boundary.md). Contract 5 requires that
 boundary; contract 4 forbids it. Contract 7 adds the native-resource domain/reset/CDC profile below. Superseded
-experimental contract 7, versions 1–3 and unknown or
+experimental contract 6, versions 1–3 and unknown or
 malformed markers require rebuilding from source. The marker cannot appear in a
 source unit or on a nested operation.
 Hardware refinement preserves the marker while changing the stage to `final`.

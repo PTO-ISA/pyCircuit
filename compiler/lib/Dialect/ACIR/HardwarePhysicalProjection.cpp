@@ -144,7 +144,8 @@ FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
         continue;
       auto view = detail::parseSampledAdmission(rule, *this,
                                                 occurrence.bindings, budget);
-      if (failed(view) || failed(pair(view->clock, view->reset, owner, rule)))
+      if (failed(view) ||
+          failed(pair(view->clock, view->legacyReset, owner, rule)))
         return failure();
       for (const auto &control : view->controls)
         if (control.kind != detail::SampledControlKind::CallableGuard &&

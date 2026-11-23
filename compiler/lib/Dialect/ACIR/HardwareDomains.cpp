@@ -1,16 +1,45 @@
 #include "pycircuit/Dialect/ACIR/HardwareDomains.h"
+#include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "HardwareSourceChecks.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "pycircuit/Interfaces/LogicalStateInterfaces.h"
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include <limits>
 #include <memory>
 #include <set>
 #include <vector>
 using namespace mlir;
 namespace acir::ac {
+FailureOr<bool> isKnownInRangeTableSelection(
+    Value table, Value index, const HardwareAnalysis &analysis,
+    const HardwareBindings &bindings, Operation *site) {
+  std::optional<llvm::APInt> ordinal;
+  if (auto constant = index.getDefiningOp<BitsConstantOp>()) {
+    auto number = analysis.evaluateStatic(constant.getValue(), bindings, constant);
+    auto width = analysis.getPackedWidth(index.getType(), bindings, site);
+    if (failed(number) || failed(width))
+      return failure();
+    if (auto integer = dyn_cast<MathIntAttr>(*number);
+        integer && *width <= std::numeric_limits<unsigned>::max())
+      ordinal = llvm::APSInt(integer.getCanonicalValue())
+                    .extOrTrunc(static_cast<unsigned>(*width));
+  } else if (auto constant = index.getDefiningOp<BitsConstant4Op>()) {
+    auto pattern = constant.getPattern();
+    if (!pattern.empty() && pattern.find_first_not_of("01") == StringRef::npos)
+      ordinal = llvm::APInt(pattern.size(), pattern, 2);
+  }
+  if (!ordinal || ordinal->getActiveBits() > 64)
+    return false;
+  auto size = analysis.getTableSize(cast<TableType>(table.getType()), bindings, site);
+  if (failed(size))
+    return failure();
+  return ordinal->getZExtValue() < *size;
+}
+
 namespace {
 using Domains = std::set<unsigned>;
 class Resolver {
@@ -28,6 +57,7 @@ class Resolver {
     DenseMap<Operation *, unsigned> children;
     DenseSet<Value> masks, cuts;
     DenseSet<Value> controls, visiting;
+    SmallVector<Value> resets;
   };
   std::vector<std::unique_ptr<Scope>> scopes;
   LogicalResult reject(Operation *op, StringRef reason) {
@@ -123,11 +153,16 @@ class Resolver {
         return failure();
       return clock(view.getInput(), scope);
     }
-    if (auto read = value.getDefiningOp<TableReadOp>())
-      return clock(read.getInput(), scope);
-    if (auto get = value.getDefiningOp<TableGetOp>();
-        get && value == get.getValue())
-      return clock(get.getInput(), scope);
+    if (auto *op = value.getDefiningOp();
+        isa_and_nonnull<TableReadOp, TableGetOp>(op) && value == op->getResult(0)) {
+      auto selected = isKnownInRangeTableSelection(
+          op->getOperand(0), op->getOperand(1), analysis, scope.bindings, op);
+      if (failed(selected))
+        return failure();
+      if (!*selected)
+        return reject(op, "clock table read requires a known in-range constant index");
+      return clock(op->getOperand(0), scope);
+    }
     if (auto extract = value.getDefiningOp<BitsExtractOp>()) {
       auto inputWidth = analysis.getPackedWidth(extract.getInput().getType(),
                                                 scope.bindings, extract);
@@ -340,14 +375,15 @@ class Resolver {
     }
     for (auto &entry : scope.clockValues)
       scope.controls.insert(entry.first);
-    // Resets are dedicated logical controls and never ordinary payload inputs.
+    // Record reset sinks; their formal input roles are determined after the
+    // full hierarchy is available, including forward instance references.
     for (auto &op : module.getBody().front()) {
       if (auto state = dyn_cast<acir::LogicalStateOpInterface>(op)) {
         if (state.getStateReset())
-          scope.controls.insert(state.getStateReset());
+          scope.resets.push_back(state.getStateReset());
       }
-      if (isCDCInstance(dyn_cast<InstanceOp>(op)) || isa<CDCRefinementOp>(op))
-        scope.controls.insert(op.getOperand(2));
+      if (isa<CDCRefinementOp>(op))
+        scope.resets.push_back(op.getOperand(2));
     }
     for (auto arg : module.getBody().front().getArguments())
       if (!scope.parent && defaultDomain)
@@ -387,7 +423,7 @@ class Resolver {
           scope.values[layout->writeAvailable()] = {*first};
           scope.values[layout->readAvailable()] = {*second};
         }
-        scope.controls.insert(layout->reset());
+        scope.resets.push_back(layout->reset());
       } else if (callee) {
         auto kind = analysis.getPrimitiveKind(callee);
         if (!kind.empty()) {
@@ -396,7 +432,14 @@ class Resolver {
             return failure();
           for (auto result : op.getResults())
             scope.values[result] = {*actual};
-          scope.controls.insert(op.getOperand(1));
+          if (kind == "dff" || kind == "dffe") {
+            auto policy = getRegisterPolicy(&op);
+            if (failed(policy))
+              return failure();
+            if (policy->resetKind == RegisterResetKind::None)
+              continue;
+          }
+          scope.resets.push_back(op.getOperand(1));
         }
       }
     }
@@ -416,7 +459,7 @@ class Resolver {
               reset ? reset.getAs<IntegerAttr>("capture") : IntegerAttr();
           if (capture && capture.getInt() >= 0 &&
               uint64_t(capture.getInt()) < rule.getCaptures().size())
-            scope.controls.insert(rule.getCaptures()[capture.getInt()]);
+            scope.resets.push_back(rule.getCaptures()[capture.getInt()]);
         }
     }
     for (auto &op : module.getBody().front()) {
@@ -483,28 +526,59 @@ class Resolver {
         if (failed(visit(child, *childBindings, std::move(next),
                          std::move(childClocks), depth + 1)))
           return failure();
-        auto &childScope = *scopes[scope.children.lookup(instance)];
-        // Descendants have established dedicated pin roles. Carry only those
-        // roles through actual forwarding; ordinary data dependencies stay
-        // attached to the parent values and are checked at their data uses.
-        for (auto argument : child.getBody().front().getArguments()) {
-          if (failed(budget.debit(8, instance)))
-            return failure();
-          if (!childScope.controls.contains(argument))
-            continue;
-          auto input = instance->getOperand(argument.getArgNumber());
-          scope.controls.insert(input);
-          auto forwarded = forwardedInput(input);
-          if (forwardingBudgetExceeded)
-            return failure();
-          if (succeeded(forwarded) &&
-              *forwarded < module.getBody().front().getNumArguments())
-            scope.controls.insert(
-                module.getBody().front().getArgument(*forwarded));
-        }
       }
     }
     active.erase(module);
+    return success();
+  }
+  LogicalResult traceResetInputs() {
+    // Follow dedicated reset uses through combinational SSA and actual
+    // instance pins. Primitive outputs cut the trace at their storage.
+    using ScopedValue = std::pair<Scope *, Value>;
+    DenseSet<ScopedValue> visited;
+    SmallVector<ScopedValue> pending;
+    for (const auto &scope : scopes)
+      for (Value reset : scope->resets)
+        pending.emplace_back(scope.get(), reset);
+    while (!pending.empty()) {
+      auto [scope, value] = pending.pop_back_val();
+      if (failed(budget.debit(8, value.getParentBlock()->getParentOp())))
+        return failure();
+      if (!visited.insert({scope, value}).second)
+        continue;
+      const auto &occurrence = plan.occurrences[scope->occurrence];
+      if (auto arg = dyn_cast<BlockArgument>(value)) {
+        auto *owner = arg.getOwner()->getParentOp();
+        if (owner == occurrence.definition) {
+          scope->controls.insert(arg);
+          if (scope->parent)
+            pending.emplace_back(
+                scope->parent, occurrence.allocation->getOperand(arg.getArgNumber()));
+        } else if (auto rule = dyn_cast<RuleOp>(owner)) {
+          pending.emplace_back(scope, rule.getCaptures()[arg.getArgNumber()]);
+        }
+        continue;
+      }
+      auto result = cast<OpResult>(value);
+      auto *op = result.getOwner();
+      unsigned output = result.getResultNumber();
+      if (auto rule = dyn_cast<RuleOp>(op)) {
+        auto yield = cast<YieldOp>(rule.getBody().front().back());
+        pending.emplace_back(scope, yield.getOperand(output));
+      } else if (auto child = scope->children.find(op);
+                 child != scope->children.end()) {
+        auto definition = plan.occurrences[child->second].definition;
+        if (analysis.getPrimitiveKind(definition).empty()) {
+          auto yield = cast<YieldOp>(definition.getBody().front().back());
+          pending.emplace_back(scopes[child->second].get(), yield.getOperand(output));
+        }
+      } else if (detail::isCombinationalHardwareOperation(op)) {
+        if (failed(budget.debit(op->getNumOperands(), op)))
+          return failure();
+        for (Value operand : op->getOperands())
+          pending.emplace_back(scope, operand);
+      }
+    }
     return success();
   }
   LogicalResult validate(Scope &scope) {
@@ -656,7 +730,7 @@ public:
     }
     if (failed(
             visit(plan.root, *bindings, std::move(root), std::move(values), 0)) ||
-        forwardingBudgetExceeded)
+        forwardingBudgetExceeded || failed(traceResetInputs()))
       return failure();
     for (auto &scope : scopes)
       if (failed(validate(*scope)))

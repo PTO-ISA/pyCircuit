@@ -5,7 +5,9 @@
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
+#include "pycircuit/Conversion/GFIRToHWIR.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/GFIRPackageValidation.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
@@ -512,6 +514,73 @@ protected:
              f("parameters", b.getArrayAttr({})),
              f("type_arguments", b.getArrayAttr({}))}))});
   }
+  // One writer event owns ordinary Queue proposals and a CDC write. The
+  // endpoint resets are distinct inputs; neither array position owns the event.
+  void buildMixedCDCQueue(bool reverseResets) {
+    build(true);
+    package->getOperation()->setAttr("ac.stage", b.getStringAttr("routed"));
+    package->getOperation()->setAttr("ac.routed_contract", b.getI64IntegerAttr(7));
+    package->getOperation()->setAttr(
+        "ac.source_units", b.getArrayAttr({module->getAttr("source_owner")}));
+    module->setAttr("ac.domain_params", b.getStrArrayAttr({"D"}));
+    module->setAttr("ac.default_domain", b.getStringAttr("D"));
+    module->setAttr("ac.domain_clock_inputs",
+                    d({f("D", b.getI32IntegerAttr(3))}));
+    auto registry = compiler::SourceHeaderRegistry::create(
+        &context, {}, [&] { return emitError(loc()); });
+    ASSERT_TRUE(succeeded(registry));
+    auto builtin = registry->lookupBuiltin("async_fifo");
+    ASSERT_TRUE(builtin);
+    b.setInsertionPointToStart(package->getBody());
+    b.insert(builtin.declaration->clone());
+    auto &body = module.getBody().front();
+    b.setInsertionPoint(body.getTerminator());
+    auto fifo = cast<ac::InstanceOp>(op(
+        ac::InstanceOp::getOperationName(),
+        {body.getArgument(3), body.getArgument(3), body.getArgument(2), data,
+         rule.getResult(0), zero},
+        {data.getType(), bits(), bits()},
+        {f("instance_name", b.getStringAttr("cdc")),
+         f("callee", FlatSymbolRefAttr::get(
+                         &context, "pycircuit.__builtins__.async_fifo")),
+         f("parameters", b.getArrayAttr({literal(4)})),
+         f("type_arguments", b.getArrayAttr({TypeAttr::get(data.getType())})),
+         f("occurrence", occurrence(90)),
+         f("write_domain", b.getStringAttr("D")),
+         f("read_domain", b.getStringAttr("D")),
+         f("write_edge", b.getStringAttr("posedge")),
+         f("read_edge", b.getStringAttr("posedge")),
+         f("reset_polarity", b.getStringAttr("high")),
+         f("resource_contract", b.getI64IntegerAttr(1))}));
+    rule->insertOperands(rule.getNumOperands(), fifo.getOutputs()[1]);
+    auto available = rule.getBody().front().addArgument(bits(), loc());
+    for (Value enable : enables) {
+      b.setInsertionPoint(enable.getDefiningOp());
+      auto retained = enable.getDefiningOp()->getOperand(0);
+      enable.getDefiningOp()->setOperand(0, binary("and", retained, available));
+    }
+    auto yield = rule.getBody().front().getTerminator();
+    b.setInsertionPoint(yield);
+    yield->setOperand(0, binary("and", fire, available));
+    auto sync = d({f("capture", b.getI64IntegerAttr(1)),
+                   f("kind", b.getStringAttr("sync")),
+                   f("polarity", b.getStringAttr("high"))});
+    auto async = d({f("capture", b.getI64IntegerAttr(6)),
+                    f("kind", b.getStringAttr("async")),
+                    f("polarity", b.getStringAttr("high"))});
+    NamedAttrList metadata(
+        rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    metadata.erase("reset_capture");
+    metadata.set("edge", b.getStringAttr("posedge"));
+    metadata.set("resets", reverseResets ? b.getArrayAttr({async, sync})
+                                        : b.getArrayAttr({sync, async}));
+    rule->setAttr("ac.sampled_admission", metadata.getDictionary(&context));
+    for (auto expect : expects) {
+      expect->setOperand(3, body.getArgument(reverseResets ? 2 : 4));
+      expect->insertOperands(expect->getNumOperands(),
+                             body.getArgument(reverseResets ? 4 : 2));
+    }
+  }
   // Independent reconstruction of the pre-compact queue payload transport.
   // Do not call the lowerer's selection builder: this is its proof oracle.
   Value expandedSelection(Value guard, Value yes, Value no) {
@@ -621,6 +690,39 @@ protected:
     return value;
   }
 };
+
+TEST_F(HardwareQueueResourcesTest,
+       MixedQueueAndCDCAdmissionRefinesWithEitherResetOrder) {
+  for (bool reverseResets : {false, true}) {
+    SCOPED_TRACE(reverseResets);
+    buildMixedCDCQueue(reverseResets);
+    ASSERT_FALSE(HasFatalFailure());
+    ASSERT_TRUE(succeeded(capture([&] {
+      return ac::verifyRoutedPackage(*package);
+    }))) << diagnostics;
+    auto refined = capture([&] {
+      return acir::detail::refineRoutedHardware(*package);
+    });
+    ASSERT_TRUE(succeeded(refined)) << diagnostics;
+  }
+}
+
+TEST_F(HardwareQueueResourcesTest,
+       MixedQueueProposalCannotOmitOnlyCDCAdmission) {
+  buildMixedCDCQueue(false);
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_TRUE(succeeded(capture([&] {
+    return ac::verifyRoutedPackage(*package);
+  }))) << diagnostics;
+  // Keep final fire, the FIFO intent, ordinary admission and the authored path.
+  // Remove only FIFO availability from one ordinary Queue proposal.
+  auto enable = enables.front().getDefiningOp();
+  auto gated = cast<ac::BitsBinaryOp>(enable->getOperand(0).getDefiningOp());
+  enable->setOperand(0, gated.getLhs());
+  EXPECT_TRUE(failed(capture([&] {
+    return ac::verifyRoutedPackage(*package);
+  }))) << diagnostics;
+}
 
 TEST_F(HardwareQueueResourcesTest,
        SameQueueAggregatePushesAcceptCompactAndExpandedSelections) {

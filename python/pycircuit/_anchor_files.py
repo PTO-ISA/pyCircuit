@@ -398,7 +398,9 @@ def _validate_manifest(value: object) -> None:
                 raw, {"instance_path", "formal", "clock_input"}, "domain binding"
             )
             path = _array(row["instance_path"], "domain instance path")
-            if len(path) > _DEPTH_LIMIT or any(type(part) is not dict for part in path):
+            # Native validation owns hardware hierarchy depth. The directory
+            # traversal limit applies to files, while this list is manifest data.
+            if any(type(part) is not dict for part in path):
                 raise _PublicationError("anchor domain instance path is invalid")
             if not _text(row["formal"], "domain formal") or (
                 type(row["clock_input"]) is not int

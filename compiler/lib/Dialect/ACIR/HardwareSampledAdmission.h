@@ -89,9 +89,9 @@ struct SampledWriteDomainView {
 struct SampledAdmissionView {
   ModuleOp definition;
   RuleOp rule;
-  uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
+  uint64_t fireResult = 0;
   uint64_t checkBase = 0, totalResults = 0;
-  mlir::Value clock, reset, fire;
+  mlir::Value clock, legacyReset, fire;
   RegisterEdge edge = RegisterEdge::Posedge;
   llvm::SmallVector<HardwareSamplingReset> resets;
   llvm::SmallVector<SampledControlView> controls;
@@ -103,6 +103,10 @@ struct SampledAdmissionView {
   llvm::SmallVector<SampledMemoryProposalView> memoryProposals;
   llvm::SmallVector<SampledWriteDomainView> writeDomains;
 };
+/// Read the event pins shared by full admission and structural resource lookup.
+mlir::LogicalResult readSampledEvent(SampledAdmissionView &view,
+                                     mlir::DictionaryAttr row,
+                                     SourceCheckBudget &budget);
 // Keys must pass their closed identity grammar before lookup or insertion.
 class ClosedIdentityIndex {
 public:

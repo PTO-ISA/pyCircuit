@@ -3,6 +3,7 @@
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "mlir/IR/Builders.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -1487,34 +1488,12 @@ rootControlSource(HardwareEmitContext &context, Value value, uint64_t owner,
       // A dynamic or unknown index changes the selected payload, even when
       // the Table happens to have a uniform root-input origin. Retain direct
       // wiring only for a known, in-range constant selection.
-      bool staticSelection = false;
-      std::optional<llvm::APInt> constantIndex;
-      Value index = op->getOperand(1);
-      if (auto constant = index.getDefiningOp<ac::BitsConstantOp>()) {
-        auto number = context.analysis.evaluateStatic(
-            constant.getValue(), scope.bindings, constant);
-        auto width = context.analysis.getPackedWidth(index.getType(),
-                                                     scope.bindings, op);
-        if (failed(number) || failed(width))
-          return failure();
-        if (auto integer = dyn_cast<ac::MathIntAttr>(*number);
-            integer && *width <= std::numeric_limits<unsigned>::max())
-          constantIndex = llvm::APSInt(integer.getCanonicalValue())
-                              .extOrTrunc(static_cast<unsigned>(*width));
-      } else if (auto constant = index.getDefiningOp<ac::BitsConstant4Op>()) {
-        auto pattern = constant.getPattern();
-        if (!pattern.empty() &&
-            pattern.find_first_not_of("01") == StringRef::npos)
-          constantIndex = llvm::APInt(pattern.size(), pattern, 2);
-      }
-      if (constantIndex && constantIndex->getActiveBits() <= 64) {
-        auto size = context.analysis.getTableSize(
-            cast<ac::TableType>(op->getOperand(0).getType()), scope.bindings, op);
-        if (failed(size))
-          return failure();
-        staticSelection = constantIndex->getZExtValue() < *size;
-      }
-      if (!staticSelection)
+      auto selected = ac::isKnownInRangeTableSelection(
+          op->getOperand(0), op->getOperand(1), context.analysis,
+          scope.bindings, op);
+      if (failed(selected))
+        return failure();
+      if (!*selected)
         payload->direct.reset();
       return *payload;
     } else {

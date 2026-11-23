@@ -15,6 +15,13 @@ struct HardwareDomainPlan {
   llvm::SmallVector<unsigned> clockInputs;
   llvm::SmallVector<HardwareDomainOccurrence, 0> occurrences;
 };
+/// A table read can forward a control only when it selects an in-range lane
+/// for every runtime input, including X/Z on other signals.
+mlir::FailureOr<bool>
+isKnownInRangeTableSelection(mlir::Value table, mlir::Value index,
+                             const HardwareAnalysis &analysis,
+                             const HardwareBindings &bindings,
+                             mlir::Operation *site);
 mlir::FailureOr<HardwareDomainPlan>
 getHardwareDomainPlan(mlir::ModuleOp package,
                       HardwareSourceCheckLimits limits = {});

@@ -140,11 +140,14 @@ public:
     budget.setPhase("transaction wiring");
     if (failed(verifyTransactionWiring(analysis, scopes, validation, budget)))
       return failure();
-    // A closed system needs the complete managed commit tree even without
-    // source assertions: generated reset/prepare/commit must reach every leaf.
-    // Reusable modules without checks still avoid hypothetical expansion.
+    // The contract-7 final plan also describes every storage endpoint for
+    // port metadata and physical event batches, independently of assertions.
+    auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    bool finalEvents = policy.stageValue == "final" && contract &&
+                       contract.getInt() == 7;
     auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
-    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system"))
+    if (!finalEvents && !nodes[*rootIndex]->hasChecks &&
+        (!role || role.getValue() != "system"))
       return std::move(plan);
     budget.setPhase("occurrence summary");
     auto expansion = summarize(*rootIndex);
@@ -1358,15 +1361,11 @@ private:
         return failure();
       auto clock =
           makeIdentityEndpoint(sampled->clock, scope, analysis, budget);
-      auto reset =
-          makeIdentityEndpoint(sampled->reset, scope, analysis, budget);
-      if (failed(clock) || failed(reset))
+      if (failed(clock))
         return failure();
       auto normalizedClock =
           normalizeIdentityEndpoint(*clock, stops, analysis, budget);
-      auto normalizedReset =
-          normalizeIdentityEndpoint(*reset, stops, analysis, budget);
-      if (failed(normalizedClock) || failed(normalizedReset))
+      if (failed(normalizedClock))
         return failure();
       SmallVector<HardwareSamplingReset> resets;
       for (const auto &resetBinding : sampled->resets) {
@@ -1376,13 +1375,14 @@ private:
         if (failed(normalized)) return failure();
         resets.push_back({normalized->value, resetBinding.kind, resetBinding.polarity});
       }
+      Value legacyReset = sampled->legacyReset ? resets.front().value : Value{};
       std::optional<uint64_t> found;
       for (uint64_t index : indices) {
         if (failed(budget.debit(1, definition)))
           return failure();
         const auto &binding = plan.samplingBindings[index];
         if (binding.clock == normalizedClock->value &&
-            binding.reset == normalizedReset->value && binding.edge == sampled->edge &&
+            binding.reset == legacyReset && binding.edge == sampled->edge &&
             binding.resets.size() == resets.size() &&
             llvm::equal(binding.resets, resets, [](const auto &a, const auto &b) {
               return a.value == b.value && a.kind == b.kind && a.polarity == b.polarity;
@@ -1399,7 +1399,7 @@ private:
           return failure();
         found = plan.samplingBindings.size();
         plan.samplingBindings.push_back({definition, normalizedClock->value,
-                                         normalizedReset->value,
+                                         legacyReset,
                                          indices.size(), sampled->edge, std::move(resets)});
         indices.push_back(*found);
       }

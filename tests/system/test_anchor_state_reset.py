@@ -1370,3 +1370,74 @@ def test_fifo_external_payload_preserves_x_and_z(tmp_path, monkeypatch):
     assert original == {
         p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
     }
+
+
+def test_unchecked_reset_free_storage_exports_endpoints(tmp_path, monkeypatch):
+    producer = Path(os.environ["PYC_BUILD_DIR"]) / "bin/ACIRAnchorArtifactTests"
+    anchor = tmp_path / "anchor"
+    variable = "PYCIRCUIT_TEST_UNCHECKED_STORAGE_ANCHOR"
+    monkeypatch.setenv(variable, str(anchor))
+    _ok(
+        _run(
+            [
+                str(producer),
+                "--gtest_filter=StateResetValueTest.PublishUncheckedResetFreeStorageForConsumers",
+            ]
+        )
+    )
+    monkeypatch.delenv(variable)
+    final = tmp_path / "final.ac"
+    _ok(
+        _cli(
+            "link", "--from-anchor", str(anchor), "--target", "final", "-o", str(final)
+        )
+    )
+    for target, mode in (
+        ("cpp", "managed"),
+        ("verilog", "managed"),
+        ("verilog", "physical"),
+    ):
+        generated = tmp_path / f"{target}-{mode}"
+        options = ["--rtl-mode", mode] if target == "verilog" else []
+        _ok(
+            _cli("emit", str(final), "--target", target, *options, "-o", str(generated))
+        )
+        ports = json.loads((generated / "ports.json").read_text())
+        assert ports["schema_version"] == 2
+        endpoints = ports["domains"]["endpoints"]
+        assert len(endpoints) == 1
+        endpoint = endpoints[0]
+        assert endpoint["instance"] == "held"
+        assert (endpoint["clock_input"], endpoint["edge"], endpoint["resets"]) == (
+            1,
+            "posedge",
+            [],
+        )
+        if mode == "physical":
+            _compile_synthesis(generated, tmp_path / "unchecked-storage.vvp")
+
+
+def test_schema6_deep_hardware_path_reaches_native_link(tmp_path, monkeypatch):
+    producer = Path(os.environ["PYC_BUILD_DIR"]) / "bin/ACIRAnchorArtifactTests"
+    anchor = tmp_path / "anchor"
+    variable = "PYCIRCUIT_TEST_DEEP_HIERARCHY_ANCHOR"
+    monkeypatch.setenv(variable, str(anchor))
+    _ok(
+        _run(
+            [
+                str(producer),
+                "--gtest_filter=StateResetValueTest.PublishDeepHardwareHierarchyForTransport",
+            ]
+        )
+    )
+    monkeypatch.delenv(variable)
+    manifest = json.loads((anchor / "anchor.json").read_text())
+    assert (manifest["schema"], manifest["routed_contract"]) == (6, 7)
+    assert (
+        max(
+            len(row["instance_path"])
+            for row in manifest["configuration"]["domain_bindings"]
+        )
+        == 33
+    )
+    _ok(_cli("link", "--from-anchor", str(anchor), "--verify-only"))

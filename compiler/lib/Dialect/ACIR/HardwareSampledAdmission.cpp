@@ -396,6 +396,69 @@ LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
 }
 } // namespace
 
+LogicalResult readSampledEvent(SampledAdmissionView &view, DictionaryAttr row,
+                               SourceCheckBudget &budget) {
+  auto rule = view.rule;
+  auto capture = [&](DictionaryAttr record, StringRef field) -> FailureOr<Value> {
+    auto ordinal = index(record, field, rule);
+    if (failed(ordinal))
+      return failure();
+    if (uint64_t(*ordinal) >= rule.getCaptures().size())
+      return rule.emitOpError() << field << " is outside the sampled captures";
+    return rule.getCaptures()[*ordinal];
+  };
+  auto clock = capture(row, "clock_capture");
+  if (failed(clock))
+    return failure();
+  view.clock = *clock;
+  if (!row.get("resets")) {
+    auto reset = capture(row, "reset_capture");
+    if (failed(reset))
+      return failure();
+    view.legacyReset = *reset;
+    view.resets.push_back(
+        {*reset, RegisterResetKind::Sync, RegisterResetPolarity::High});
+    return success();
+  }
+  auto edge = row.getAs<StringAttr>("edge");
+  auto resets = row.getAs<ArrayAttr>("resets");
+  if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") ||
+      !resets || row.get("reset_capture"))
+    return rule.emitOpError("sampled event requires edge and a reset set");
+  view.edge = edge.getValue() == "posedge" ? RegisterEdge::Posedge
+                                          : RegisterEdge::Negedge;
+  if (failed(charge(budget, rule, resets.size(), sizeof(HardwareSamplingReset))))
+    return failure();
+  view.resets.reserve(resets.size());
+  for (Attribute raw : resets) {
+    auto entry = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(entry, {"capture", "kind", "polarity"}, rule, "sampled reset")))
+      return failure();
+    auto value = capture(entry, "capture");
+    auto kind = entry.getAs<StringAttr>("kind");
+    auto polarity = entry.getAs<StringAttr>("polarity");
+    if (failed(value) || !kind ||
+        (kind.getValue() != "sync" && kind.getValue() != "async") || !polarity ||
+        (polarity.getValue() != "high" && polarity.getValue() != "low"))
+      return rule.emitOpError("invalid sampled reset binding");
+    HardwareSamplingReset reset{
+        *value,
+        kind.getValue() == "sync" ? RegisterResetKind::Sync
+                                  : RegisterResetKind::Async,
+        polarity.getValue() == "high" ? RegisterResetPolarity::High
+                                      : RegisterResetPolarity::Low};
+    for (const auto &prior : view.resets) {
+      if (failed(budget.debit(1, rule)))
+        return failure();
+      if (prior.value == reset.value && prior.kind == reset.kind &&
+          prior.polarity == reset.polarity)
+        return rule.emitOpError("duplicate sampled reset binding");
+    }
+    view.resets.push_back(reset);
+  }
+  return success();
+}
+
 FailureOr<SampledAdmissionView>
 parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
                       const HardwareBindings &bindings,
@@ -427,12 +490,12 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto packageContract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
   if (eventPolicy != bool(packageContract && packageContract.getInt() == 7))
     return rule.emitOpError("sampled event schema must match routed contract");
-  if (eventPolicy) {
-    core.erase("edge");
-    core.erase("resets");
-    if (core.get("reset_capture")) return rule.emitOpError("event policy forbids legacy reset_capture");
-    core.set("reset_capture", core.get("clock_capture"));
-  }
+  SmallVector<StringRef, 7> fields{"clock_capture", "fire_result", "controls",
+                                    "body_checks", "observations"};
+  if (eventPolicy)
+    fields.append({"edge", "resets"});
+  else
+    fields.push_back("reset_capture");
   auto writeDomains = row ? row.getAs<ArrayAttr>("write_domains") : ArrayAttr();
   if (row && row.get("write_domains") && (!writeDomains || writeDomains.empty()))
     return rule->emitOpError() << "write_domains requires a nonempty array";
@@ -449,15 +512,11 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   if (row && row.get("requirements") && (!requirements || requirements.empty()))
     return rule->emitOpError() << "requirements requires a nonempty array";
   if (!module || rule->getNumRegions() != 1 || !rule.getBody().hasOneBlock() ||
-      failed(exact(core.getDictionary(rule.getContext()),
-                   {"clock_capture", "reset_capture", "fire_result", "controls",
-                    "body_checks", "observations"},
-                   rule, "ac.sampled_admission")))
+      failed(exact(core.getDictionary(rule.getContext()), fields, rule,
+                   "ac.sampled_admission")))
     return failure();
   if (failed(payAttribute(row, budget, rule)))
     return failure();
-  auto clock = index(row, "clock_capture", rule);
-  auto reset = index(eventPolicy ? core.getDictionary(rule.getContext()) : row, "reset_capture", rule);
   auto fire = index(row, "fire_result", rule);
   auto controls = row.getAs<ArrayAttr>("controls");
   auto bodyChecks = row.getAs<ArrayAttr>("body_checks");
@@ -465,11 +524,10 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   if (rule.getBody().front().empty())
     return rule->emitOpError() << "sampled Rule requires a yield terminator";
   auto yielded = dyn_cast<YieldOp>(rule.getBody().front().getTerminator());
-  if (failed(clock) || failed(reset) || failed(fire))
+  if (failed(fire))
     return failure();
   if (!controls || controls.empty() || !bodyChecks || !observations ||
-      !yielded || *clock >= rule->getNumOperands() ||
-      *reset >= rule->getNumOperands() || *fire >= rule->getNumResults())
+      !yielded || *fire >= rule->getNumResults())
     return rule->emitOpError()
            << "sampled admission captures/inventories are outside Rule layout";
   uint64_t checkBase = SourceCheckBudget::add(*fire, 1);
@@ -522,17 +580,20 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
                           rule)) ||
       failed(payAttribute(rule->getAttr("occurrence"), budget, rule)))
     return failure();
-  if (failed(
-          bitOne(rule->getOperand(*clock), analysis, bindings, rule, budget)) ||
-      failed(
-          bitOne(rule->getOperand(*reset), analysis, bindings, rule, budget)) ||
+  SampledAdmissionView result;
+  result.definition = module;
+  result.rule = rule;
+  if (failed(readSampledEvent(result, row, budget)) ||
+      failed(bitOne(result.clock, analysis, bindings, rule, budget)) ||
       failed(bitOne(yielded->getOperand(*fire), analysis, bindings, rule,
                     budget)) ||
       failed(verifyOccurrence(rule->getAttrOfType<DictionaryAttr>("occurrence"),
                               [&] { return rule->emitOpError(); })) ||
       failed(charge(budget, rule, controls.size(), sizeof(SampledControlView))))
     return failure();
-  SampledAdmissionView result;
+  for (const auto &reset : result.resets)
+    if (failed(bitOne(reset.value, analysis, bindings, rule, budget)))
+      return failure();
   // A lifted transaction starts in its original lexical allocation. Those
   // allocation frames authenticate provenance; they are not nested callable
   // guards. Verify the prefix before using its depth as the root invocation.
@@ -546,41 +607,9 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     rootInvocationDepth =
         rule->getAttrOfType<ArrayAttr>("ac.registration_path").size();
   }
-  result.definition = module;
-  result.rule = rule;
-  result.clockCapture = *clock;
-  result.resetCapture = *reset;
   result.fireResult = *fire;
   result.checkBase = checkBase;
   result.totalResults = total;
-  result.clock = rule->getOperand(*clock);
-  result.reset = rule->getOperand(*reset);
-  if (eventPolicy) {
-    auto edge = row.getAs<StringAttr>("edge");
-    auto resets = row.getAs<ArrayAttr>("resets");
-    if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") || !resets)
-      return rule.emitOpError("sampled event requires edge and reset set");
-    result.edge = edge.getValue() == "posedge" ? RegisterEdge::Posedge : RegisterEdge::Negedge;
-    for (Attribute raw : resets) {
-      auto resetRow = dyn_cast<DictionaryAttr>(raw);
-      if (failed(exact(resetRow, {"capture", "kind", "polarity"}, rule, "sampled reset"))) return failure();
-      auto capture = index(resetRow, "capture", rule);
-      auto kind = resetRow.getAs<StringAttr>("kind"), polarity = resetRow.getAs<StringAttr>("polarity");
-      if (failed(capture) || *capture >= rule->getNumOperands() || !kind ||
-          (kind.getValue() != "sync" && kind.getValue() != "async") || !polarity ||
-          (polarity.getValue() != "high" && polarity.getValue() != "low"))
-        return rule.emitOpError("invalid sampled reset binding");
-      Value value = rule->getOperand(*capture);
-      if (failed(bitOne(value, analysis, bindings, rule, budget))) return failure();
-      HardwareSamplingReset reset{value, kind.getValue() == "sync" ? RegisterResetKind::Sync : RegisterResetKind::Async,
-          polarity.getValue() == "high" ? RegisterResetPolarity::High : RegisterResetPolarity::Low};
-      for (const auto &prior : result.resets)
-        if (prior.value == reset.value && prior.kind == reset.kind && prior.polarity == reset.polarity)
-          return rule.emitOpError("duplicate sampled reset binding");
-      result.resets.push_back(reset);
-    }
-    if (!result.resets.empty()) result.reset = result.resets.front().value;
-  } else result.resets.push_back({result.reset, RegisterResetKind::Sync, RegisterResetPolarity::High});
   auto packageStage = analysis.getPackage()->getAttrOfType<StringAttr>("ac.stage");
   if ((masked && result.resets.empty()) ||
       (packageStage && packageStage.getValue() == "final" && eventPolicy && !result.resets.empty() && !masked))
@@ -2808,10 +2837,25 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
     return failure();
   OrderedPrefixProof proof(analysis, budget, prepared);
   auto cdcEffects = getAsyncFIFOEndpointEffects(view.rule);
-  if (failed(cdcEffects)) return failure();
+  if (failed(cdcEffects))
+    return failure();
   for (const auto &effect : *cdcEffects) {
-    if (isa<CDCRefinementOp>(effect.resource) && failed(verifyHardwareCDCComponent(effect.resource))) return failure();
-    if (failed(proof.admitPredicate(effect.availability, effect.availability, KnownTest::One))) return failure();
+    if (isa<CDCRefinementOp>(effect.resource) &&
+        failed(verifyHardwareCDCComponent(effect.resource)))
+      return failure();
+    if (failed(proof.admitPredicate(effect.availability, effect.availability,
+                                    KnownTest::One)))
+      return failure();
+  }
+  Prefix cdcAdmission;
+  for (const auto &effect : *cdcEffects) {
+    auto available = proof.parse(effect.availability);
+    if (failed(available))
+      return failure();
+    auto next = proof.conjunction(cdcAdmission, *available, view.rule);
+    if (failed(next))
+      return failure();
+    cdcAdmission = std::move(*next);
   }
   auto metadata = view.rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
   bool resetMasked = bool(metadata.getAs<BoolAttr>("reset_masked"));
@@ -2921,11 +2965,10 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
       return failure();
     expected = std::move(*next);
   }
-  for (const auto &effect : *cdcEffects) {
-    auto admitted = proof.parse(effect.availability);
-    if (failed(admitted)) return failure();
-    auto next = proof.conjunction(expected, *admitted, view.rule);
-    if (failed(next)) return failure();
+  if (!cdcEffects->empty()) {
+    auto next = proof.conjunction(expected, cdcAdmission, view.rule);
+    if (failed(next))
+      return failure();
     expected = std::move(*next);
   }
   if (resetMasked) {
@@ -2982,7 +3025,8 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   for (const auto &observation : view.observations)
     if (failed(effect(observation.path, observation.executionPath)))
       return failure();
-  return proveQueueProposalPrefixes(view, prepared, analysis, budget, proof, resetMask);
+  return proveQueueProposalPrefixes(view, analysis, budget, proof, cdcAdmission,
+                                    resetMask);
 }
 
 struct SampledAdmissionValidation::Entry {
@@ -4264,8 +4308,11 @@ private:
         if (failed(parsed))
           return failure();
         const auto *sampled = *parsed;
+        const bool eventPolicy = !sampled->legacyReset;
         auto clock = normal(sampled->clock, entry.scope);
-        auto reset = normal(sampled->reset, entry.scope);
+        FailureOr<HardwareIdentityEndpoint> reset = HardwareIdentityEndpoint{};
+        if (!eventPolicy)
+          reset = normal(sampled->legacyReset, entry.scope);
         if (failed(clock) || failed(reset))
           return failure();
         // A lifted callback's public values still belong to its lexical
@@ -4344,7 +4391,6 @@ private:
                    << "ordinary transaction results require structured final "
                       "admission proven true";
         }
-        bool eventPolicy = writer.rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission") .get("resets") ? true : false;
         if (writer.candidates.empty() && !eventPolicy) {
           auto domain =
               entry.module->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
@@ -4402,7 +4448,7 @@ private:
           if (failed(payScope(data->scope, budget, writer.rule)) ||
               failed(payScope(enable->scope, budget, writer.rule)) ||
               failed(payScope(clock->scope, budget, writer.rule)) ||
-              failed(payScope(reset->scope, budget, writer.rule)))
+              (!eventPolicy && failed(payScope(reset->scope, budget, writer.rule))))
             return failure();
           state.candidates.insert(state.candidates.begin() + position,
                                   StateCandidate{writer.rule, candidateOrdinal,
@@ -4412,7 +4458,8 @@ private:
           state.data = state.candidates.back().data;
           state.enable = state.candidates.back().enable;
           state.clock = *clock;
-          state.reset = *reset;
+          if (!eventPolicy)
+            state.reset = *reset;
           for (auto [ordinal, domain] : llvm::enumerate(sampled->writeDomains)) {
             if (domain.candidate != candidateOrdinal) continue;
             auto checked = finalWriteDomain(domain, writer.rule, entry.scope, *stateIndex);
