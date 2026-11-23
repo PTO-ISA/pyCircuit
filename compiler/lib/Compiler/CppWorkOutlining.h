@@ -42,13 +42,16 @@ public:
     parts.back() += pending;
     pending.clear();
   }
-  void emit(llvm::raw_ostream &out) {
+  void emit(llvm::raw_ostream &out, bool known = false,
+            llvm::StringRef guard = {}) {
+    std::string prefix = known ? "pyc_known_work" : "pyc_work";
+    std::string frame = prefix + "_frame";
     out << "private:\n  // Work statement target: " << partBytes
         << " bytes; largest indivisible group: " << maxStatementBytes
         << " bytes.\n";
     for (std::size_t start = 0; start < planes.size(); start += pageFields) {
       auto page = start / pageFields;
-      out << "  struct pyc_work_page_" << page << " {\n";
+      out << "  struct " << prefix << "_page_" << page << " {\n";
       for (std::size_t i = start;
            i < std::min(start + pageFields, planes.size()); ++i) {
         auto &plane = planes[i];
@@ -58,19 +61,20 @@ public:
       }
       // Each constructor initializes at most one page. A single large frame
       // constructor must not become the new unbounded generated function.
-      out << "    pyc_work_noinline pyc_work_page_" << page << "() {}\n  };\n";
+      out << "    pyc_work_noinline " << prefix << "_page_" << page
+          << "() {}\n  };\n";
     }
-    out << "  struct pyc_work_frame {\n";
+    out << "  struct " << frame << " {\n";
     for (std::size_t start = 0; start < planes.size(); start += pageFields) {
       auto page = start / pageFields;
-      out << "    pyc_work_page_" << page << " page_" << page << ";\n";
+      out << "    " << prefix << "_page_" << page << " page_" << page << ";\n";
     }
     out << "  };\n";
     std::vector<std::string> calls;
     for (std::size_t i = 0; i < parts.size(); ++i) {
-      auto name = "pyc_work_part_" + std::to_string(i);
-      out << "  pyc_work_noinline void " << name
-          << "(pyc_work_frame &pyc_values) {\n"
+      auto name = prefix + "_part_" + std::to_string(i);
+      out << "  pyc_work_noinline void " << name << "(" << frame
+          << " &pyc_values) {\n"
           << parts[i] << "  }\n";
       calls.push_back(name);
     }
@@ -79,10 +83,10 @@ public:
       std::vector<std::string> next;
       for (std::size_t start = 0; start < calls.size();
            start += dispatchFanout) {
-        auto name = "pyc_work_dispatch_" + std::to_string(level) + "_" +
+        auto name = prefix + "_dispatch_" + std::to_string(level) + "_" +
                     std::to_string(start / dispatchFanout);
-        out << "  pyc_work_noinline void " << name
-            << "(pyc_work_frame &pyc_values) {\n";
+        out << "  pyc_work_noinline void " << name << "(" << frame
+            << " &pyc_values) {\n";
         for (std::size_t i = start;
              i < std::min(start + dispatchFanout, calls.size()); ++i)
           out << "    " << calls[i] << "(pyc_values);\n";
@@ -91,12 +95,21 @@ public:
       }
       calls = std::move(next);
     }
-    out << "public:\n  void Work() {\n    pyc_clear_check_snapshots();\n    "
-           "try {\n"
-           "      auto pyc_values = std::make_unique_for_overwrite<pyc_work_frame>();\n";
+    if (known) {
+      out << "  void pyc_run_known_work() {\n";
+    } else {
+      out << "public:\n  void Work() {\n    pyc_clear_check_snapshots();\n"
+             "    try {\n";
+      if (!guard.empty())
+        out << "      if (" << guard << ") return pyc_run_known_work();\n";
+    }
+    out << "      auto pyc_values = std::make_unique_for_overwrite<" << frame
+        << ">();\n";
     for (auto &name : calls)
       out << "      " << name << "(*pyc_values);\n";
-    out << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
+    if (!known)
+      out << "    } catch (...) { DiscardNext(); throw; }\n";
+    out << "  }\n";
   }
 
 private:
@@ -150,7 +163,7 @@ auto pyc_work_select_lane(const Condition &condition, const True &whenTrue,
     return guard.value().toBool() ? whenTrue.element(lane)
                                   : whenFalse.element(lane);
   using Wire = std::remove_cvref_t<decltype(whenTrue.element(lane))>;
-  return Wire::fromPacked(gfsim::select(guard, whenTrue.element(lane).packed(),
+  return Wire::fromPacked(select(guard, whenTrue.element(lane).packed(),
                                         whenFalse.element(lane).packed()));
 }
 
@@ -167,7 +180,7 @@ void pyc_work_select(Output &out,
                      const pyc_work_broadcast_view<Group, 1, Condition> &condition,
                      const True &whenTrue, const False &whenFalse) noexcept {
   static_assert(Output::size % Group == 0);
-  using Wire = gfsim::wire<typename Output::element_type>;
+  using Wire = std::remove_cvref_t<decltype(out.element(0))>;
   for (std::size_t first = 0; first < Output::size; first += Group) {
     const auto guard = condition.source.element(first / Group).packed();
     if (guard.isFullyKnown()) {
@@ -182,7 +195,7 @@ void pyc_work_select(Output &out,
     } else {
       for (std::size_t lane = first; lane < first + Group; ++lane)
         out.element(lane) = Wire::fromPacked(
-            gfsim::select(guard, whenTrue.element(lane).packed(),
+            select(guard, whenTrue.element(lane).packed(),
                          whenFalse.element(lane).packed()));
     }
   }

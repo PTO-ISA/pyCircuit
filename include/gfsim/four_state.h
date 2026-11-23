@@ -13,6 +13,61 @@ public:
   using std::runtime_error::runtime_error;
 };
 
+namespace detail {
+
+// Walk each affected destination word once. All representation planes use
+// the same bit positions and masks.
+template <unsigned Width, unsigned N, class Apply>
+void assignPackedSlice(unsigned low, Apply apply) noexcept {
+  static_assert(N <= Width);
+  if (low > Width - N)
+    return;
+  if constexpr (N <= Bits<Width>::kWordBits) {
+    // A single source word touches at most two destination words.
+    const auto word = low / Bits<Width>::kWordBits;
+    const auto shift = low % Bits<Width>::kWordBits;
+    constexpr auto mask = Bits<N>::ones().word(0);
+    auto update = [&](Bits<Width> &target, const Bits<N> &input) {
+      const auto value = input.word(0);
+      const auto firstMask = mask << shift;
+      target.setWord(word, (target.word(word) & ~firstMask) |
+                               ((value & mask) << shift));
+      if (N > Bits<Width>::kWordBits - shift) {
+        const auto remaining = Bits<Width>::kWordBits - shift;
+        const auto secondMask = mask >> remaining;
+        target.setWord(word + 1, (target.word(word + 1) & ~secondMask) |
+                                     ((value & mask) >> remaining));
+      }
+    };
+    apply(update);
+    return;
+  }
+  unsigned position = 0;
+  while (position < N) {
+    unsigned destinationBit = low + position;
+    unsigned destinationWord = destinationBit / 64;
+    unsigned destinationOffset = destinationBit % 64;
+    unsigned count = N - position;
+    if (count > 64 - destinationOffset)
+      count = 64 - destinationOffset;
+    const std::uint64_t bits =
+        count == 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << count) - 1;
+    const std::uint64_t mask = bits << destinationOffset;
+    auto update = [&](Bits<Width> &target, const Bits<N> &input) {
+      unsigned sourceOffset = position % 64;
+      auto word = input.word(position / 64) >> sourceOffset;
+      if (sourceOffset && sourceOffset + count > 64)
+        word |= input.word(position / 64 + 1) << (64 - sourceOffset);
+      target.setWord(destinationWord, (target.word(destinationWord) & ~mask) |
+                                          ((word & bits) << destinationOffset));
+    };
+    apply(update);
+    position += count;
+  }
+}
+
+} // namespace detail
+
 template <unsigned Width> class FourState final {
 public:
   using Mask = Bits<Width>;
@@ -45,55 +100,11 @@ public:
   // value-buffer operation, never a write to a leaf's committed state.
   template <unsigned N>
   void assignSlice(unsigned low, const FourState<N> &source) noexcept {
-    static_assert(N <= Width);
-    if (low > Width - N)
-      return;
-    if constexpr (N <= Mask::kWordBits) {
-      // A single source word touches at most two destination words.
-      const auto word = low / Mask::kWordBits;
-      const auto shift = low % Mask::kWordBits;
-      constexpr auto mask = Bits<N>::ones().word(0);
-      auto update = [&](Mask &target, std::uint64_t value) {
-        const auto firstMask = mask << shift;
-        target.setWord(word, (target.word(word) & ~firstMask) |
-                                 ((value & mask) << shift));
-        if (N > Mask::kWordBits - shift) {
-          const auto remaining = Mask::kWordBits - shift;
-          const auto secondMask = mask >> remaining;
-          target.setWord(word + 1, (target.word(word + 1) & ~secondMask) |
-                                       ((value & mask) >> remaining));
-        }
-      };
-      update(value_, source.value().word(0));
-      update(knownMask_, source.knownMask().word(0));
-      update(zMask_, source.zMask().word(0));
-      return;
-    }
-    unsigned position = 0;
-    while (position < N) {
-      unsigned destinationBit = low + position;
-      unsigned destinationWord = destinationBit / 64;
-      unsigned destinationOffset = destinationBit % 64;
-      unsigned count = N - position;
-      if (count > 64 - destinationOffset)
-        count = 64 - destinationOffset;
-      const std::uint64_t bits =
-          count == 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << count) - 1;
-      const std::uint64_t mask = bits << destinationOffset;
-      auto update = [&](Mask &target, const auto &input) {
-        unsigned sourceOffset = position % 64;
-        auto word = input.word(position / 64) >> sourceOffset;
-        if (sourceOffset && sourceOffset + count > 64)
-          word |= input.word(position / 64 + 1) << (64 - sourceOffset);
-        target.setWord(destinationWord,
-                       (target.word(destinationWord) & ~mask) |
-                           ((word & bits) << destinationOffset));
-      };
+    detail::assignPackedSlice<Width, N>(low, [&](const auto &update) {
       update(value_, source.value());
       update(knownMask_, source.knownMask());
       update(zMask_, source.zMask());
-      position += count;
-    }
+    });
   }
 
   bool parityEquivalent(const FourState &other) const {

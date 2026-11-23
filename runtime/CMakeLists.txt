@@ -34,6 +34,7 @@ install(FILES
   "${PROJECT_SOURCE_DIR}/include/gfsim/SystemRunner.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/bits.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/four_state.h"
+  "${PROJECT_SOURCE_DIR}/include/gfsim/known_work.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/wire.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/collection.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/memory_detail.h"
