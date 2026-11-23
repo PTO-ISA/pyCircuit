@@ -48,6 +48,27 @@ public:
     static_assert(N <= Width);
     if (low > Width - N)
       return;
+    if constexpr (N <= Mask::kWordBits) {
+      // A single source word touches at most two destination words.
+      const auto word = low / Mask::kWordBits;
+      const auto shift = low % Mask::kWordBits;
+      constexpr auto mask = Bits<N>::ones().word(0);
+      auto update = [&](Mask &target, std::uint64_t value) {
+        const auto firstMask = mask << shift;
+        target.setWord(word, (target.word(word) & ~firstMask) |
+                                 ((value & mask) << shift));
+        if (N > Mask::kWordBits - shift) {
+          const auto remaining = Mask::kWordBits - shift;
+          const auto secondMask = mask >> remaining;
+          target.setWord(word + 1, (target.word(word + 1) & ~secondMask) |
+                                       ((value & mask) >> remaining));
+        }
+      };
+      update(value_, source.value().word(0));
+      update(knownMask_, source.knownMask().word(0));
+      update(zMask_, source.zMask().word(0));
+      return;
+    }
     unsigned position = 0;
     while (position < N) {
       unsigned destinationBit = low + position;

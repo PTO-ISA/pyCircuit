@@ -485,4 +485,22 @@ TEST(CollectionRuntimeTest, AssignSliceCrossesWordsAndPreservesAllOtherPlanes) {
   EXPECT_EQ(source.value(), (Part{0x8877665544332211ULL, 0x21ULL}));
   EXPECT_EQ(source.zMask(), (Part{0x80ULL, 1ULL}));
 }
+
+TEST(CollectionRuntimeTest, SingleWordSliceUpdatesBothDestinationWords) {
+  using Wide = gfsim::Bits<130>;
+  using Part = gfsim::Bits<16>;
+  const auto initial = gfsim::FourState<130>::known(Wide::ones());
+  const auto source = gfsim::FourState<16>::fromMasks(
+      Part{0x1234}, Part{0x0ff0}, Part{0xf003});
+  auto result = initial;
+  result.assignSlice(60, source);
+  const auto assigned = gfsim::extract<16>(result, 60);
+  EXPECT_EQ(assigned.value(), source.value());
+  EXPECT_EQ(assigned.knownMask(), source.knownMask());
+  EXPECT_EQ(assigned.zMask(), source.zMask());
+  EXPECT_TRUE(gfsim::extract<60>(result, 0).parityEquivalent(
+      gfsim::extract<60>(initial, 0)));
+  EXPECT_TRUE(gfsim::extract<54>(result, 76).parityEquivalent(
+      gfsim::extract<54>(initial, 76)));
+}
 } // namespace

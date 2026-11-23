@@ -117,7 +117,6 @@ private:
 
 inline llvm::StringRef cppWorkRuntimeSupport() {
   return R"cpp(
-#include <memory>
 #if defined(_MSC_VER)
 #define pyc_work_noinline __declspec(noinline)
 #else

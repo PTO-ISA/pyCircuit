@@ -883,8 +883,13 @@ private:
       auto low = ctx.staticValue(extract.getLow(), s.bindings, op);
       if (failed(low))
         return failure();
-      if (*low == "0" && op->getOperand(0).getType() == value.getType())
-        return operands[0];
+      if (*low == "0") {
+        auto inputWidth = width(op->getOperand(0).getType(), s, op);
+        if (failed(inputWidth))
+          return failure();
+        if (*inputWidth == *w)
+          return operands[0];
+      }
       return "gfsim::extract<" + *w + ">(" + operands[0] + ", " + *low + ")";
     }
     if (auto resize = dyn_cast<ac::BitsResizeOp>(op)) {
@@ -1156,7 +1161,8 @@ private:
       Value value;
       Path path;
       std::string plane, packed;
-      bool sameCount, sameLayout;
+      Type element;
+      bool sameCount;
     };
     SmallVector<ScalarInput> inputs;
     auto gather = [&](Value input, Path p) -> FailureOr<std::string> {
@@ -1175,20 +1181,25 @@ private:
                                   inputPlan->count + ") + pyc_lane % (" +
                                   inputPlan->count + "))";
       auto packed = *text + ".element(" + lane + ").packed()";
-      inputs.push_back(
-          {input, std::move(p), std::move(*text), packed, sameCount,
-           sameCount && resultPlan->element == inputPlan->element});
+      inputs.push_back({input, std::move(p), std::move(*text), packed,
+                        inputPlan->element, sameCount});
       return packed;
     };
     auto expr = scalarExpression(s, v, path, gather);
     if (failed(expr))
       return failure();
-    for (const auto &input : inputs)
-      if (input.sameLayout && *expr == input.packed)
-        return input.plane;
     auto p = payload(resultPlan->element, s, op);
     if (failed(p))
       return failure();
+    for (const auto &input : inputs) {
+      if (!input.sameCount || *expr != input.packed)
+        continue;
+      auto inputPayload = payload(input.element, s, op);
+      if (failed(inputPayload))
+        return failure();
+      if (*inputPayload == *p)
+        return input.plane;
+    }
     auto type = "gfsim::wire<gfsim::table<" + *p + ", " + *count + ">>";
     // Use the resolved plane references and lane layout. Distinct IR values
     // can denote the same calculation after field forwarding.
