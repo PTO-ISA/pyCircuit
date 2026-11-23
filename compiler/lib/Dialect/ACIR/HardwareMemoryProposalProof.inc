@@ -5,6 +5,15 @@
   for (const auto &proposal : view.memoryProposals) {
     auto actual = proof.normalize(proposal.path), raw = proof.normalize(proposal.rawPath);
     if (failed(actual) || failed(raw)) return failure();
+    if (resetMask) {
+      auto gate = actual->value.getDefiningOp<BitsBinaryOp>();
+      auto expectedMask = proof.normalize(resetMask);
+      auto actualMask = gate ? proof.normalize(gate.getRhs()) : FailureOr<HardwareIdentityEndpoint>(failure());
+      if (!gate || gate.getOpcode() != "and" || failed(expectedMask) || failed(actualMask) ||
+          !sameEndpoint(*expectedMask, *actualMask)) return view.rule->emitOpError("Memory proposal omits transaction reset mask");
+      actual = proof.normalize(gate.getLhs());
+      if (failed(actual)) return failure();
+    }
     auto combine = actual->value.getDefiningOp<BitsBinaryOp>();
     if (!combine || combine.getOpcode() != "and")
       return view.rule->emitOpError() << "Memory proposal requires admission AND raw path";

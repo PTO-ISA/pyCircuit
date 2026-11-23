@@ -40,6 +40,7 @@ public:
   bool isSystem();
   bool managesChecks();
   bool isPhysical() const { return physical_; }
+  bool batchesPhysicalEvents() const;
   const ac::HardwarePhysicalProjection &physicalProjection() const {
     return *physicalProjection_;
   }
@@ -49,6 +50,8 @@ public:
   const ac::HardwareSourceCheckPlan &sourceChecks() const;
   bool resetIfOne() const;
   std::string cppReset(llvm::StringRef expression) const;
+  mlir::FailureOr<llvm::SmallVector<std::string>>
+  cppRegisterPolicy(mlir::Operation *occurrence) const;
   std::string rtlReset(llvm::StringRef expression) const;
   const EmitNames &names(mlir::Operation *definition) const;
   mlir::FailureOr<std::string> cppFormalName(llvm::StringRef name,

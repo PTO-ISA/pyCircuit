@@ -301,6 +301,38 @@ LogicalResult relatedControls(HardwareEmitContext &context,
 LogicalResult emitPhysicalFaultReporter(HardwareEmitContext &context,
                                         StringRef clock, StringRef reset,
                                         raw_ostream &destination) {
+  if (context.batchesPhysicalEvents()) {
+    destination << "`ifndef SYNTHESIS\n"
+        "  task automatic pyc_report_physical_fault(input string root_instance);\n"
+        "    begin\n"
+        "      $display(\"PYCIRCUIT_FAULT_DETAIL {\\\"schema_version\\\":1,"
+        "\\\"event\\\":\\\"physical_fault\\\","
+        "\\\"kind\\\":\\\"event_batch\\\","
+        "\\\"reason\\\":\\\"completed_batch_rejected\\\","
+        "\\\"check_complete\\\":\\\"%b\\\","
+        "\\\"sampling_error\\\":\\\"%b\\\","
+        "\\\"local_error\\\":\\\"%b\\\","
+        "\\\"setup_error\\\":\\\"%b\\\"}\", "
+        "pyc_check_complete, pyc_sampling_error, pyc_local_error, "
+        "pyc_physical_setup_error);\n";
+    for (unsigned input : context.physicalProjection().clockInputs) {
+      destination << "      if ($isunknown(pyc_frozen_input_" << input
+          << ")) $display(\"PYCIRCUIT_FAULT_DETAIL {\\\"schema_version\\\":1,"
+             "\\\"event\\\":\\\"physical_fault\\\","
+             "\\\"kind\\\":\\\"root_clock\\\","
+             "\\\"reason\\\":\\\"clock_unknown\\\","
+             "\\\"input_ordinal\\\":" << input << "}\");\n";
+      destination << "      if (pyc_initial_batch && (pyc_frozen_input_"
+          << input << " === 1'b1)) $display(\"PYCIRCUIT_FAULT_DETAIL "
+             "{\\\"schema_version\\\":1,"
+             "\\\"event\\\":\\\"physical_fault\\\","
+             "\\\"kind\\\":\\\"root_clock\\\","
+             "\\\"reason\\\":\\\"initial_clock_not_zero\\\","
+             "\\\"input_ordinal\\\":" << input << "}\");\n";
+    }
+    destination << "    end\n  endtask\n`endif\n";
+    return success();
+  }
   MetadataPool pool;
   OwnerCache owners(context.sourceChecks().owners.size());
   TraceCache traces;

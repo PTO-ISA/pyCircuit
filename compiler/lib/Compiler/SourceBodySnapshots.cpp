@@ -28,6 +28,7 @@ LogicalResult verifyPublishedModule(ac::ModuleOp module,
   for (StringRef name :
        {"ac.root_kind", "ac.system_samples", "ac.return_form", "ac.parameters",
         "ac.result_constraints", "ac.domain_inputs", "ac.result_availability",
+        "ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs",
         "ac.reference_parameters", "ac.execution_model"})
     if (module->getAttr(name) != declaration->getAttr(name))
       return emitError()

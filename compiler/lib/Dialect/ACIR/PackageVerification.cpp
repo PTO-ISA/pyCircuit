@@ -1,6 +1,8 @@
 #include "PackageVerification.h"
 #include "ACIRSourceContracts.h"
 #include "EntryBoundary.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "HardwareSourceChecks.h"
 #include "HardwareValueAvailability.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
@@ -64,7 +66,7 @@ LogicalResult detail::verifyHardwarePackageStage(
   // re-validate it rather than trusting the routed pass.
   if ((policy.stageRequired || boundary || package->hasAttr("ac.routed_contract")) &&
       (!marker || !marker.getType().isSignlessInteger(64) ||
-       marker.getValue() != (boundary ? 5 : 4)))
+       (marker.getInt() != 7 && marker.getValue() != (boundary ? 5 : 4))))
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
   auto closed = package.walk([&](Operation *operation) {
@@ -77,6 +79,16 @@ LogicalResult detail::verifyHardwarePackageStage(
             acir::LogicalStateUpdateOpInterface>(operation)) {
       operation->emitOpError()
           << "logical state cannot cross into executable final hardware";
+      return WalkResult::interrupt();
+    }
+    // Native CDC declarations describe logical resources. Even an unused
+    // declaration cannot leak into the executable primitive catalog.
+    bool logicalCDC = isCDCPrimitive(operation) ||
+                      isCDCInstance(dyn_cast<InstanceOp>(operation));
+    if (logicalCDC && (!policy.admitRoutedLogicalStateByName || !marker ||
+                       marker.getInt() != 7)) {
+      operation->emitOpError()
+          << "logical CDC requires the current routed resource profile";
       return WalkResult::interrupt();
     }
     // A reference denotes a source allocation, never a runtime payload or an
@@ -115,7 +127,7 @@ LogicalResult detail::verifyHardwarePackageStage(
         operation == package.getOperation() ||
         isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, SystemOp, InstanceOp,
             CollectionOp, RuleOp, YieldOp, SourceExpectOp,
-            SourceObserveOp>(operation) ||
+            SourceObserveOp, CDCRefinementOp>(operation) ||
         isCombinationalHardwareOperation(operation))
       return WalkResult::advance();
     // Closed routed admission: exactly the two concrete operations the GFIR
@@ -140,7 +152,8 @@ LogicalResult detail::verifyHardwarePackageEnvelope(
   auto package = analysis.getPackage();
   if (!package)
     return failure();
-  if (failed(verifyEntryBoundary(analysis, false, debit)))
+  if (failed(verifyEntryBoundary(analysis, false, debit)) ||
+      failed(verifyHardwareDomains(package)))
     return failure();
   auto registrations = package.walk([&](Operation *operation) {
     if (!operation->hasAttr("ac.registration_path") &&

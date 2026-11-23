@@ -55,12 +55,14 @@ LogicalResult StateOp::verify() {
   }
   if (failed(ac::verifyLiteralControlWidth(getOperation(), getClk(),
                                              "state clock")) ||
-      failed(ac::verifyLiteralControlWidth(getOperation(), getRst(),
-                                             "state reset")))
+      (getRst() && failed(ac::verifyLiteralControlWidth(getOperation(), getRst(),
+                                             "state reset"))))
     return failure();
-  if (!ac::areEquivalentHardwareTypes(getInitial().getType(), getQ().getType()))
+  if (getInitial() && !ac::areEquivalentHardwareTypes(getInitial().getType(), getQ().getType()))
     return emitOpError()
            << "initial value and old-Q payload types must match";
+  if (getResetValue() && !ac::areEquivalentHardwareTypes(getResetValue().getType(), getQ().getType()))
+    return emitOpError("reset value must match the state payload type");
   // Test the raw attribute so a present-but-malformed constraint is still
   // rejected downstream; the interface getter alone would silently skip a
   // non-Dictionary attribute. The semantic SymbolicFixedBits and scope

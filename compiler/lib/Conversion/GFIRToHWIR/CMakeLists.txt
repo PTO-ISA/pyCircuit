@@ -7,6 +7,7 @@
 # HWIRValidation. pycircuit_verify_layering forbids any edge to the sibling
 # ACIRToGFIR conversion stage or to the emitters.
 add_acir_library(GFIRToHWIR SOURCES
+  LowerHardwareCDC.cpp
   LowerTransactions.cpp
   PassRegistration.cpp
   LINK_LIBRARIES

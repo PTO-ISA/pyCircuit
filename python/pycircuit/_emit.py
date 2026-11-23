@@ -196,6 +196,11 @@ def _target_files(payload: dict, target: str):
                     "entry_source": payload["entry_source"],
                     "source_checks": count,
                     "system_samples": sample_rows,
+                    **(
+                        {"system_sample_inputs": payload["system_sample_inputs"]}
+                        if "system_sample_inputs" in payload
+                        else {}
+                    ),
                     "needs_four_state": needs_four_state,
                     "reset_semantics": payload.get("reset_semantics", "strict"),
                 },
@@ -238,6 +243,8 @@ def _target_files(payload: dict, target: str):
         "system_samples": sample_rows,
         "needs_four_state": needs_four_state,
     }
+    if "system_sample_inputs" in payload:
+        receipt["system_sample_inputs"] = payload["system_sample_inputs"]
     if target == "verilog":
         receipt["root_rtl_name"] = payload["root_rtl_name"]
         receipt["rtl_mode"] = payload.get("rtl_mode", "managed")

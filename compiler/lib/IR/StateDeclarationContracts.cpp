@@ -1,4 +1,6 @@
 #include "IR/StateDeclarationContracts.h"
+#include "pycircuit/Dialect/ACIR/RegisterContracts.h"
+#include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 
 #include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "pycircuit/Interfaces/ModuleChildInterfaces.h"
@@ -165,7 +167,7 @@ LogicalResult verifyRoutedLogicalStatePlacement(Operation *operation) {
   if (!owner || !package || !stage || stage.getValue() != "routed" ||
       package->hasAttr("ac.unit_kind") || !contract ||
       !contract.getType().isSignlessInteger(64) ||
-      (contract.getValue() != 4 && contract.getValue() != 5))
+      (contract.getValue() != 4 && contract.getValue() != 5 && contract.getValue() != 7))
     return operation->emitOpError()
            << "requires direct module graph placement in a versioned routed "
               "package";
@@ -255,3 +257,93 @@ LogicalResult verifyPayloadConstraintShape(Operation *site, Attribute raw,
 }
 
 } // namespace acir::ac
+
+namespace acir::ac {
+mlir::FailureOr<unsigned> getRegisterContract(Operation *declaration) {
+  if (!declaration) return failure();
+  auto *imported = declaration->getName().getStringRef() == "ac.module.import" ? declaration : nullptr;
+  auto kind = imported ? imported->getAttrOfType<StringAttr>("primitive_kind") : StringAttr();
+  if (!imported || !kind || (kind.getValue() != "dff" && kind.getValue() != "dffe"))
+    return declaration->emitOpError("register contract requires a DFF/DFFE import");
+  Attribute raw = declaration->getAttr("ac.register_contract");
+  unsigned contract = 1;
+  if (raw) {
+    auto version = dyn_cast<IntegerAttr>(raw);
+    if (!version || !version.getType().isSignlessInteger(64) || version.getInt() != 3)
+      return declaration->emitOpError("register contract requires 3 : i64");
+    contract = version.getInt();
+  }
+  SmallVector<StringRef> names{"clk", "rst"};
+  if (kind.getValue() == "dffe") names.push_back("en");
+  names.append({"d", "init"});
+  if (contract == 3) names.push_back("reset_value");
+  auto pins = imported->getAttrOfType<ArrayAttr>("input_names");
+  auto outputs = imported->getAttrOfType<ArrayAttr>("output_names");
+  auto rawSignature = imported->getAttrOfType<TypeAttr>("function_type");
+  auto signature = rawSignature ? dyn_cast<FunctionType>(rawSignature.getValue()) : FunctionType();
+  if (!pins || pins.size() != names.size() || !outputs || outputs.size() != 1 ||
+      !signature || signature.getNumInputs() != names.size() || signature.getNumResults() != 1 ||
+      dyn_cast<StringAttr>(outputs[0]) != StringAttr::get(declaration->getContext(), "q"))
+    return declaration->emitOpError("register contract pin shape mismatch");
+  for (auto [pin, name] : llvm::zip(pins, names))
+    if (dyn_cast<StringAttr>(pin) != StringAttr::get(declaration->getContext(), name))
+      return declaration->emitOpError("register contract pin schema mismatch");
+  return contract;
+}
+mlir::FailureOr<RegisterPolicy> getRegisterPolicy(Operation *operation) {
+  if (!operation) return failure();
+  RegisterPolicy result;
+  bool explicitPolicy = false;
+  if (isa<LogicalStateOpInterface>(operation)) {
+    auto *state = operation;
+    auto package = state->getParentOfType<mlir::ModuleOp>();
+    auto contract = package ? package->getAttrOfType<IntegerAttr>("ac.routed_contract") : IntegerAttr();
+    explicitPolicy = contract && contract.getInt() == 7;
+  } else if (isa<ModuleChildOpInterface>(operation)) {
+    auto callee = operation->getAttrOfType<FlatSymbolRefAttr>("callee");
+    auto package = operation->getParentOfType<mlir::ModuleOp>();
+    auto *declaration = package && callee ? SymbolTable::lookupSymbolIn(package, callee) : nullptr;
+    if (!declaration) return operation->emitOpError("register instance cannot resolve its package primitive declaration");
+    auto version = getRegisterContract(declaration);
+    if (failed(version)) return failure();
+    explicitPolicy = *version == 3;
+  }
+  if (!explicitPolicy) {
+    for (StringRef name : {"edge", "reset_kind", "reset_polarity", "init_kind"})
+      if (operation->hasAttr(name))
+        return operation->emitOpError("state policy requires the current register contract");
+    return result;
+  }
+  auto string = [&](StringRef name) { return operation->getAttrOfType<StringAttr>(name); };
+  auto edge = string("edge"), kind = string("reset_kind"), polarity = string("reset_polarity");
+  if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") ||
+      !kind || (kind.getValue() != "sync" && kind.getValue() != "async" && kind.getValue() != "none"))
+    return operation->emitOpError("register requires explicit edge and reset kind");
+  result.edge = edge.getValue() == "posedge" ? RegisterEdge::Posedge : RegisterEdge::Negedge;
+  result.resetKind = kind.getValue() == "none" ? RegisterResetKind::None :
+      kind.getValue() == "async" ? RegisterResetKind::Async : RegisterResetKind::Sync;
+  if (result.resetKind == RegisterResetKind::None) {
+    if (operation->hasAttr("reset_polarity")) return operation->emitOpError("reset-free state forbids reset polarity");
+  } else {
+    if (!polarity || (polarity.getValue() != "high" && polarity.getValue() != "low"))
+      return operation->emitOpError("register requires explicit reset polarity");
+    result.resetPolarity = polarity.getValue() == "high" ? RegisterResetPolarity::High : RegisterResetPolarity::Low;
+  }
+  auto init = string("init_kind");
+  if (init) {
+    if (init.getValue() != "explicit" && init.getValue() != "unspecified")
+      return operation->emitOpError("invalid register initialization kind");
+    result.hasInitial = init.getValue() == "explicit";
+  } else if (isa<ModuleChildOpInterface>(operation) || operation->hasAttr("operandSegmentSizes"))
+    return operation->emitOpError("register requires explicit initialization kind");
+  return result;
+}
+mlir::FailureOr<RegisterPrimitiveLayout> getRegisterPrimitiveLayout(Operation *declaration) {
+  auto version = getRegisterContract(declaration);
+  if (failed(version)) return failure();
+  bool enabled = declaration->getAttrOfType<StringAttr>("primitive_kind").getValue() == "dffe";
+  unsigned data = enabled ? 3 : 2;
+  return RegisterPrimitiveLayout{*version, 0, 1, enabled ? std::optional<unsigned>(2) : std::nullopt,
+                                 data, data + 1, *version == 3 ? data + 2 : data + 1};
+}
+}

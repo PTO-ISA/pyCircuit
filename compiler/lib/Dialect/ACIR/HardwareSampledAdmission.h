@@ -92,6 +92,8 @@ struct SampledAdmissionView {
   uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
   uint64_t checkBase = 0, totalResults = 0;
   mlir::Value clock, reset, fire;
+  RegisterEdge edge = RegisterEdge::Posedge;
+  llvm::SmallVector<HardwareSamplingReset> resets;
   llvm::SmallVector<SampledControlView> controls;
   llvm::SmallVector<SampledBodyCheckView> bodyChecks;
   llvm::SmallVector<SampledObservationView> observations;
@@ -283,7 +285,8 @@ struct StateEndpoint {
   acir::LogicalStateUpdateOpInterface update;
   HardwareBindings ownerBindings, storageBindings;
   mlir::Type payloadType;
-  mlir::Value clock, reset, enable, data, initial, q;
+  mlir::Value clock, reset, enable, data, initial, resetValue, q;
+  RegisterPolicy policy;
 };
 
 mlir::FailureOr<SampledAdmissionView>

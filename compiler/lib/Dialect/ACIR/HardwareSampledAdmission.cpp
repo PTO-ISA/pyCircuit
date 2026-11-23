@@ -1,5 +1,7 @@
 #include "HardwareSampledAdmission.h"
 #include "HardwarePhysicalState.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "HardwareQueueResources.h"
 #include "HardwareValueAvailability.h"
 #include "HardwareGrantProof.h"
@@ -299,9 +301,8 @@ LogicalResult verifyStateAllocation(Operation *storage,
                                     const HardwareAnalysis &analysis) {
   if (!isa<acir::LogicalStateOpInterface>(storage))
     return verifyPhysicalStateAllocation(storage, analysis);
-  if (storage->getNumOperands() != 3 || storage->getNumResults() != 1)
-    return storage->emitOpError()
-           << "logical state requires clock, reset, initial and one Q result";
+  if (failed(getStateLayout(storage)) || storage->getNumResults() != 1)
+    return storage->emitOpError() << "invalid logical state layout";
   return success();
 }
 FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
@@ -358,11 +359,15 @@ LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
   result.payloadType = *payload;
   result.q = storage->getResult(0);
   if (auto logical = dyn_cast<acir::LogicalStateOpInterface>(storage)) {
+    auto layout = getStateLayout(storage);
+    if (failed(layout)) return failure();
+    result.policy = layout->policy;
     result.form = StateEndpointForm::Logical;
     result.storageBindings = bound;
     result.clock = logical.getStateClock();
     result.reset = logical.getStateReset();
     result.initial = logical.getStateInitial();
+    result.resetValue = layout->resetValue;
     for (auto update :
          owner.getBody().front().getOps<acir::LogicalStateUpdateOpInterface>()) {
       if (failed(budget.debit(1, update))) return failure();
@@ -413,6 +418,21 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   core.erase("queue_proposals");
   core.erase("memory_proposals");
   core.erase("write_domains");
+  auto masked = row ? row.getAs<BoolAttr>("reset_masked") : BoolAttr();
+  if (row && row.get("reset_masked") && (!masked || !masked.getValue()))
+    return rule.emitOpError("reset_masked requires true");
+  core.erase("reset_masked");
+  bool eventPolicy = row && row.get("resets");
+  if (masked && !eventPolicy) return rule.emitOpError("reset masks require the current event-context schema");
+  auto packageContract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  if (eventPolicy != bool(packageContract && packageContract.getInt() == 7))
+    return rule.emitOpError("sampled event schema must match routed contract");
+  if (eventPolicy) {
+    core.erase("edge");
+    core.erase("resets");
+    if (core.get("reset_capture")) return rule.emitOpError("event policy forbids legacy reset_capture");
+    core.set("reset_capture", core.get("clock_capture"));
+  }
   auto writeDomains = row ? row.getAs<ArrayAttr>("write_domains") : ArrayAttr();
   if (row && row.get("write_domains") && (!writeDomains || writeDomains.empty()))
     return rule->emitOpError() << "write_domains requires a nonempty array";
@@ -437,7 +457,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   if (failed(payAttribute(row, budget, rule)))
     return failure();
   auto clock = index(row, "clock_capture", rule);
-  auto reset = index(row, "reset_capture", rule);
+  auto reset = index(eventPolicy ? core.getDictionary(rule.getContext()) : row, "reset_capture", rule);
   auto fire = index(row, "fire_result", rule);
   auto controls = row.getAs<ArrayAttr>("controls");
   auto bodyChecks = row.getAs<ArrayAttr>("body_checks");
@@ -535,13 +555,75 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.totalResults = total;
   result.clock = rule->getOperand(*clock);
   result.reset = rule->getOperand(*reset);
+  if (eventPolicy) {
+    auto edge = row.getAs<StringAttr>("edge");
+    auto resets = row.getAs<ArrayAttr>("resets");
+    if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge") || !resets)
+      return rule.emitOpError("sampled event requires edge and reset set");
+    result.edge = edge.getValue() == "posedge" ? RegisterEdge::Posedge : RegisterEdge::Negedge;
+    for (Attribute raw : resets) {
+      auto resetRow = dyn_cast<DictionaryAttr>(raw);
+      if (failed(exact(resetRow, {"capture", "kind", "polarity"}, rule, "sampled reset"))) return failure();
+      auto capture = index(resetRow, "capture", rule);
+      auto kind = resetRow.getAs<StringAttr>("kind"), polarity = resetRow.getAs<StringAttr>("polarity");
+      if (failed(capture) || *capture >= rule->getNumOperands() || !kind ||
+          (kind.getValue() != "sync" && kind.getValue() != "async") || !polarity ||
+          (polarity.getValue() != "high" && polarity.getValue() != "low"))
+        return rule.emitOpError("invalid sampled reset binding");
+      Value value = rule->getOperand(*capture);
+      if (failed(bitOne(value, analysis, bindings, rule, budget))) return failure();
+      HardwareSamplingReset reset{value, kind.getValue() == "sync" ? RegisterResetKind::Sync : RegisterResetKind::Async,
+          polarity.getValue() == "high" ? RegisterResetPolarity::High : RegisterResetPolarity::Low};
+      for (const auto &prior : result.resets)
+        if (prior.value == reset.value && prior.kind == reset.kind && prior.polarity == reset.polarity)
+          return rule.emitOpError("duplicate sampled reset binding");
+      result.resets.push_back(reset);
+    }
+    if (!result.resets.empty()) result.reset = result.resets.front().value;
+  } else result.resets.push_back({result.reset, RegisterResetKind::Sync, RegisterResetPolarity::High});
+  auto packageStage = analysis.getPackage()->getAttrOfType<StringAttr>("ac.stage");
+  if ((masked && result.resets.empty()) ||
+      (packageStage && packageStage.getValue() == "final" && eventPolicy && !result.resets.empty() && !masked))
+    return rule.emitOpError("final sampled transactions require the verified common reset mask");
   result.fire = yielded->getOperand(*fire);
   if (!rule->getResult(*fire).use_empty()) {
     auto availabilityUses = getVerifiedValueAvailabilityUses(analysis);
     if (failed(availabilityUses)) return failure();
-    for (OpOperand &use : rule->getResult(*fire).getUses())
-      if (!availabilityUses->contains(&use))
+    auto effects = getAsyncFIFOEndpointEffects(rule);
+    if (failed(effects)) return failure();
+    std::optional<llvm::DenseMap<Operation *, Operation *>> componentOwners;
+    for (OpOperand &use : rule->getResult(*fire).getUses()) {
+      if (availabilityUses->contains(&use)) continue;
+      bool endpoint = false;
+      for (const auto &effect : *effects) {
+        if (effect.intent != use.get()) continue;
+        if (use.getOwner() == effect.resource &&
+            isCDCInstance(dyn_cast<InstanceOp>(effect.resource)))
+          endpoint |= use.getOperandNumber() == (effect.write ? 4u : 5u);
+        if (use.getOwner() == effect.resource && isa<CDCRefinementOp>(effect.resource)) {
+          if (failed(verifyHardwareCDCComponent(effect.resource))) return failure();
+          endpoint |= use.getOperandNumber() == (effect.write ? 4u : 5u);
+        }
+      }
+      if (endpoint) continue;
+      bool hasDerivedEndpoint = llvm::any_of(*effects, [](const auto &effect) {
+        return isa<CDCRefinementOp>(effect.resource);
+      });
+      if (hasDerivedEndpoint) {
+        if (!componentOwners) {
+          auto owners = getVerifiedCDCComponentOwners(analysis.getPackage());
+          if (failed(owners)) return failure();
+          componentOwners = std::move(*owners);
+        }
+        auto owner = componentOwners->find(use.getOwner());
+        if (owner != componentOwners->end())
+          endpoint = llvm::any_of(*effects, [&](const auto &effect) {
+            return effect.intent == use.get() && effect.resource == owner->second;
+          });
+      }
+      if (!endpoint)
         return rule->emitOpError() << "sampled external fire escapes availability routing";
+    }
   }
   auto parsePath = [&](DictionaryAttr row,
                        uint64_t before) -> FailureOr<SampledPathRef> {
@@ -1905,6 +1987,17 @@ struct ExpectedSelectionPaths {
 // nodes create DFS frames; raw operands and direct Known-OR children never do.
 class OrderedPrefixProof {
 public:
+  LogicalResult admitPredicate(Value value, Value raw, KnownTest test) {
+    auto leaf = identity.normalize(value, *fixedScope);
+    auto source = identity.normalize(raw, *fixedScope);
+    if (failed(leaf) || failed(source) ||
+        failed(charge(budget, valueSite(value), 1, sizeof(AdmittedPredicate))) ||
+        failed(payScope(leaf->scope, budget, valueSite(value))) ||
+        failed(payScope(source->scope, budget, valueSite(value)))) return failure();
+    predicates.push_back({*leaf, *source, test});
+    return success();
+  }
+
   OrderedPrefixProof(const HardwareAnalysis &analysis,
                      SourceCheckBudget &budget,
                      const PreparedSampledBoundaries &prepared)
@@ -1996,6 +2089,12 @@ public:
         result.impossible = !**known;
         return finish(position, std::move(result));
       }
+      for (const auto &predicate : predicates)
+        if (sameEndpoint(predicate.leaf, *endpoint)) {
+          auto result = knownValue(predicate.raw, predicate.test, site);
+          if (failed(result)) return failure();
+          return finish(position, std::move(*result));
+        }
       Operation *operation = endpoint->value.getDefiningOp();
       auto binary = dyn_cast_or_null<BitsBinaryOp>(operation);
       auto compare = dyn_cast_or_null<BitsCompareOp>(operation);
@@ -2361,6 +2460,8 @@ private:
   // fixed immutable scope and stop policy authenticate reuse within this proof.
   PrefixIndex inputIndex;
   SmallVector<ConditionalAtom, 0> pool;
+  struct AdmittedPredicate { HardwareIdentityEndpoint leaf, raw; KnownTest test; };
+  SmallVector<AdmittedPredicate, 0> predicates;
 };
 // One context fixes the immutable package, analysis, budget, definition, full
 // bindings, complete stop policy and Rule. Normalized SSA plus resolved type
@@ -2706,6 +2807,48 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
                         sizeof(PrefixIndex))))
     return failure();
   OrderedPrefixProof proof(analysis, budget, prepared);
+  auto cdcEffects = getAsyncFIFOEndpointEffects(view.rule);
+  if (failed(cdcEffects)) return failure();
+  for (const auto &effect : *cdcEffects) {
+    if (isa<CDCRefinementOp>(effect.resource) && failed(verifyHardwareCDCComponent(effect.resource))) return failure();
+    if (failed(proof.admitPredicate(effect.availability, effect.availability, KnownTest::One))) return failure();
+  }
+  auto metadata = view.rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  bool resetMasked = bool(metadata.getAs<BoolAttr>("reset_masked"));
+  Value resetMask;
+  if (resetMasked) {
+    auto verifiedMask = getVerifiedTransactionResetMask(view.rule);
+    if (failed(verifiedMask)) return failure();
+    if (view.resets.empty()) return view.rule->emitOpError("reset mask requires a nonempty reset context");
+    auto fireGate = view.fire.getDefiningOp<BitsBinaryOp>();
+    if (!fireGate || fireGate.getOpcode() != "and") return view.rule->emitOpError("masked fire requires an inactive-reset gate");
+    resetMask = fireGate.getRhs();
+    SmallVector<Value> leaves(view.resets.size());
+    Value cursor = resetMask;
+    for (unsigned i = view.resets.size(); i > 1; --i) {
+      auto join = cursor.getDefiningOp<BitsBinaryOp>();
+      if (!join || join.getOpcode() != "and") return view.rule->emitOpError("reset mask omits an endpoint reset");
+      leaves[i - 1] = join.getRhs(); cursor = join.getLhs();
+    }
+    leaves[0] = cursor;
+    for (auto [reset, leaf] : llvm::zip(view.resets, leaves)) {
+      auto invert = leaf.getDefiningOp<BitsUnaryOp>();
+      auto active = invert ? invert.getInput().getDefiningOp<BitsCompareOp>() : BitsCompareOp();
+      if (!invert || invert.getOpcode() != "not" || !active || active.getPredicate() != "case_eq")
+        return view.rule->emitOpError("reset mask must negate a known-active reset test");
+      auto actualReset = proof.normalize(active.getLhs());
+      auto expectedReset = proof.normalize(reset.value);
+      auto level = proof.normalize(active.getRhs());
+      if (failed(actualReset) || failed(expectedReset) || failed(level) || !sameEndpoint(*actualReset, *expectedReset))
+        return view.rule->emitOpError("reset mask uses a different raw reset");
+      auto known = literal(*level, analysis, budget);
+      bool high = reset.polarity == RegisterResetPolarity::High;
+      if (failed(known) || !known->has_value() || bool(**known) != high)
+        return view.rule->emitOpError("reset mask uses a different active polarity");
+      if (failed(proof.admitPredicate(leaf, active.getResult(), KnownTest::Zero))) return failure();
+    }
+  }
+
   auto orderedReaches = verifyResourceDemandReach(view, analysis, budget, proof);
   if (failed(orderedReaches)) return failure();
   Prefix expected, root;
@@ -2778,6 +2921,20 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
       return failure();
     expected = std::move(*next);
   }
+  for (const auto &effect : *cdcEffects) {
+    auto admitted = proof.parse(effect.availability);
+    if (failed(admitted)) return failure();
+    auto next = proof.conjunction(expected, *admitted, view.rule);
+    if (failed(next)) return failure();
+    expected = std::move(*next);
+  }
+  if (resetMasked) {
+    auto inactive = proof.parse(resetMask);
+    if (failed(inactive)) return failure();
+    auto next = proof.conjunction(expected, *inactive, view.rule);
+    if (failed(next)) return failure();
+    expected = std::move(*next);
+  }
   auto fire = proof.parse(view.fire);
   if (failed(fire) || failed(proof.equal(*fire, expected, view.rule)))
     return failure();
@@ -2789,6 +2946,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
     auto endpoint = proof.normalize(value);
     if (failed(endpoint))
       return failure();
+    if (!resetMasked) {
     if (executionPath.selectionControl) {
       auto binary = endpoint->value.getDefiningOp<BitsBinaryOp>();
       if (!binary || binary.getOpcode() != "and")
@@ -2804,6 +2962,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
     if (!sameEndpoint(*endpoint, *exactFire))
       return view.rule->emitOpError()
              << "sampled effect requires exact internal final fire";
+    }
     auto actual = proof.parse(value);
     if (failed(actual))
       return failure();
@@ -2823,7 +2982,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   for (const auto &observation : view.observations)
     if (failed(effect(observation.path, observation.executionPath)))
       return failure();
-  return proveQueueProposalPrefixes(view, prepared, analysis, budget, proof);
+  return proveQueueProposalPrefixes(view, prepared, analysis, budget, proof, resetMask);
 }
 
 struct SampledAdmissionValidation::Entry {
@@ -3614,6 +3773,46 @@ private:
     }
     return identity->normalize(value, scope);
   }
+  LogicalResult equalClocks(const HardwareIdentityEndpoint &left,
+                            const HardwareIdentityEndpoint &right) {
+    if (sameEndpoint(left, right)) return success();
+    auto contract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    if (!contract || contract.getInt() != 7 || left.scope.root != right.scope.root)
+      return failure();
+    if (!domainPlan) {
+      auto plan = getHardwareDomainPlan(analysis.getPackage());
+      if (failed(plan)) return failure();
+      domainPlan = std::move(*plan);
+    }
+    // A template's distinct clock arguments may alias in an actual instance.
+    // Correlate both endpoints under each occurrence of their common root;
+    // comparing sets or selecting one occurrence would lose instance identity.
+    auto resolve = [&](const HardwareIdentityEndpoint &endpoint,
+                       const HardwareDomainOccurrence &base) -> FailureOr<unsigned> {
+      auto argument = dyn_cast<BlockArgument>(endpoint.value);
+      auto owner = argument ? dyn_cast<ModuleOp>(argument.getOwner()->getParentOp()) : ModuleOp();
+      if (!owner) return failure();
+      SmallVector<DictionaryAttr> path(base.instancePath);
+      for (auto instance : endpoint.scope.path) path.push_back(instance.getOccurrence());
+      for (const auto &actual : domainPlan->occurrences) {
+        if (failed(budget.debit(1 + path.size(), owner))) return failure();
+        if (actual.definition != owner || !llvm::equal(actual.instancePath, path)) continue;
+        auto clock = actual.inputClocks.find(argument.getArgNumber());
+        if (clock == actual.inputClocks.end()) return failure();
+        return clock->second;
+      }
+      return failure();
+    };
+    bool matched = false;
+    for (const auto &base : domainPlan->occurrences) {
+      if (failed(budget.debit(1, left.scope.root))) return failure();
+      if (base.definition != left.scope.root) continue;
+      auto a = resolve(left, base), b = resolve(right, base);
+      if (failed(a) || failed(b) || *a != *b) return failure();
+      matched = true;
+    }
+    return success(matched);
+  }
   LogicalResult typeMatches(const HardwareIdentityEndpoint &endpoint, Type type,
                             Operation *site) {
     if (!areEquivalentHardwareTypes(endpoint.resolvedType, type))
@@ -3638,12 +3837,65 @@ private:
                              const ResolvedSourceEffectOwner &logical,
                              const HardwareIdentityEndpoint &clock,
                              const HardwareIdentityEndpoint &reset,
-                             Operation *terminal) {
+                             Operation *terminal, RuleOp endpointRule = {}) {
     auto receiver = copyScope(entry.scope, budget, terminal);
     if (failed(receiver) || failed(charge(budget, terminal, logical.path.size(),
                                           sizeof(InstanceOp))))
       return failure();
     receiver->path.append(logical.path.begin(), logical.path.end());
+    auto contract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    if (contract && contract.getInt() == 7) {
+      if (!domainPlan) {
+        auto plan = getHardwareDomainPlan(analysis.getPackage());
+        if (failed(plan)) return failure();
+        domainPlan = std::move(*plan);
+      }
+      bool resourceEndpointContext = false;
+      if (endpointRule) {
+        auto effects = getAsyncFIFOEndpointEffects(endpointRule);
+        if (failed(effects)) return failure();
+        resourceEndpointContext = !effects->empty();
+        for (const auto &effect : *effects) {
+          auto effectClock = normal(effect.clock, entry.scope);
+          if (failed(effectClock) || failed(equalClocks(*effectClock, clock)))
+            return terminal->emitOpError("resource endpoint sampling differs from actual effect clock");
+        }
+      }
+      SmallVector<DictionaryAttr> relativePath;
+      for (auto instance : receiver->path) relativePath.push_back(instance.getOccurrence());
+      auto defaultName = logical.terminal->getAttrOfType<StringAttr>("ac.default_domain");
+      auto argument = dyn_cast<BlockArgument>(clock.value);
+      if (!argument || argument.getOwner()->getParentOp() != clock.scope.root ||
+          !clock.scope.path.empty() || clock.scope.root != receiver->root)
+        return terminal->emitOpError("sampled effect clock lacks a definition-relative clock argument identity");
+      bool matched = false;
+      for (const auto &rootOccurrence : domainPlan->occurrences) {
+        if (rootOccurrence.definition != receiver->root) continue;
+        auto actualClock = rootOccurrence.inputClocks.find(argument.getArgNumber());
+        if (actualClock == rootOccurrence.inputClocks.end())
+          return terminal->emitOpError("sampled effect clock is not a bound domain clock input");
+        SmallVector<DictionaryAttr> actualPath(rootOccurrence.instancePath);
+        actualPath.append(relativePath);
+        bool ownerFound = false;
+        for (const auto &owner : domainPlan->occurrences) {
+          if (owner.definition != logical.terminal || !llvm::equal(owner.instancePath, actualPath)) continue;
+          ownerFound = true;
+          auto rootKind = logical.terminal->getAttrOfType<StringAttr>("ac.root_kind");
+          bool system = rootKind && rootKind.getValue() == "system";
+          bool matches = false;
+          if (system || resourceEndpointContext)
+            for (const auto &binding : owner.clocks) matches |= binding.second == actualClock->second;
+          else if (defaultName && owner.clocks.count(defaultName.getValue()))
+            matches = owner.clocks.lookup(defaultName.getValue()) == actualClock->second;
+          if (!matches)
+            return terminal->emitOpError("sampled effect owner has a different actual clock domain");
+        }
+        if (!ownerFound) return terminal->emitOpError("sampled effect owner occurrence is outside the resolved domain tree");
+        matched = true;
+      }
+      if (!matched) return terminal->emitOpError("sampled effect template has no selected actual domain binding");
+      return success();
+    }
     auto domain =
         logical.terminal->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
     auto clk = domain ? index(domain, "clock", terminal)
@@ -3831,7 +4083,7 @@ private:
           return error()
                  << "source effect span must match logical owner SourceOwner";
       }
-      return effectDomain(entry, proof.owner, clock, reset, terminal);
+      return effectDomain(entry, proof.owner, clock, reset, terminal, rule);
     }
     auto logical = effectOwner(entry, rule, terminal, invocation, [&] {
       return resolveSourceEffectOwner(analysis, entry.module, entry.bindings,
@@ -3844,7 +4096,7 @@ private:
     });
     if (failed(logical))
       return failure();
-    return effectDomain(entry, **logical, clock, reset, terminal);
+    return effectDomain(entry, **logical, clock, reset, terminal, rule);
   }
   LogicalResult allowUse(const HardwareIdentityScope &scope, Operation *operation,
                          unsigned operand, size_t state, PrivateRoute::Kind kind) {
@@ -3993,6 +4245,15 @@ private:
   }
   LogicalResult writers() {
     for (const auto &entry : occurrences) {
+      for (auto rule : entry.module->getRegion(0).front().getOps<RuleOp>()) {
+        auto effects = getAsyncFIFOEndpointEffects(rule);
+        if (failed(effects)) return failure();
+        if (effects->empty()) continue;
+        bool listed = false;
+        if (entry.wiring)
+          for (const auto &writer : entry.wiring->writers) listed |= writer.rule == rule;
+        if (!listed) return rule.emitOpError("CDC endpoint Rule requires authenticated transaction writer inventory");
+      }
       if (!entry.wiring)
         continue;
       auto terminals = effectTerminals(entry);
@@ -4083,7 +4344,8 @@ private:
                    << "ordinary transaction results require structured final "
                       "admission proven true";
         }
-        if (writer.candidates.empty()) {
+        bool eventPolicy = writer.rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission") .get("resets") ? true : false;
+        if (writer.candidates.empty() && !eventPolicy) {
           auto domain =
               entry.module->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
           auto clk = domain ? index(domain, "clock", entry.module)
@@ -4104,7 +4366,7 @@ private:
                      entry.scope);
           if (failed(physicalClock) || failed(physicalReset))
             return failure();
-          if (!sameEndpoint(*clock, *physicalClock) ||
+          if (failed(equalClocks(*clock, *physicalClock)) ||
               !sameEndpoint(*reset, *physicalReset))
             return writer.rule->emitOpError()
                    << "statefree sampled pins differ from its owning module "
@@ -4132,8 +4394,8 @@ private:
               return writer.rule->emitOpError() << "duplicate actual transaction contributor";
             state.unordered = true;
           }
-          if (state.clock && (!sameEndpoint(*state.clock, *clock) ||
-                              !sameEndpoint(*state.reset, *reset)))
+          if (state.clock && (failed(equalClocks(*state.clock, *clock)) ||
+                              (!eventPolicy && !sameEndpoint(*state.reset, *reset))))
             return writer.rule->emitOpError() << "independent writers have different physical domains";
           if (failed(typeMatches(*data, state.payload, writer.rule)))
             return failure();
@@ -4175,6 +4437,96 @@ private:
                                   PrivateRoute::Enable)))
             return failure();
         }
+        auto cdcEffects = getAsyncFIFOEndpointEffects(writer.rule);
+        if (failed(cdcEffects)) return failure();
+        if (eventPolicy && (!writer.candidates.empty() || !sampled->resources.empty() || !cdcEffects->empty())) {
+          struct ResetRequirement { HardwareIdentityEndpoint endpoint; RegisterResetKind kind; RegisterResetPolarity polarity; };
+          SmallVector<ResetRequirement> expectedResets;
+          for (const auto &candidate : writer.candidates) {
+            auto targetIndex = target(entry, candidate.stateID);
+            if (failed(targetIndex)) return failure();
+            const auto &state = states[*targetIndex];
+            const auto &endpoint = state.endpoint;
+            auto actualClock = normal(endpoint.clock, state.scope);
+            if (failed(actualClock)) return failure();
+            if (failed(equalClocks(*actualClock, *clock)) || endpoint.policy.edge != sampled->edge)
+              return writer.rule->emitOpError("transaction effect footprint has different clock or edge");
+            if (endpoint.policy.resetKind == RegisterResetKind::None) continue;
+            auto actualReset = normal(endpoint.reset, state.scope);
+            if (failed(actualReset)) return failure();
+            bool present = false;
+            for (const auto &prior : expectedResets)
+              present |= sameEndpoint(prior.endpoint, *actualReset) && prior.kind == endpoint.policy.resetKind &&
+                         prior.polarity == endpoint.policy.resetPolarity;
+            if (!present) expectedResets.push_back({*actualReset, endpoint.policy.resetKind, endpoint.policy.resetPolarity});
+          }
+          for (const auto &resource : sampled->resources) {
+            auto resourceScope = copyScope(entry.scope, budget, writer.rule);
+            if (failed(resourceScope)) return failure();
+            ModuleOp owner = entry.module;
+            auto path = resource.owner.getAs<ArrayAttr>("instance_path");
+            if (!path) return writer.rule->emitOpError("resource owner lacks instance path");
+            for (Attribute occurrence : path) {
+              InstanceOp child;
+              for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
+                if (failed(budget.debit(1, writer.rule))) return failure();
+                if (instance.getOccurrence() == occurrence) {
+                  if (child) return writer.rule->emitOpError("ambiguous resource owner");
+                  child = instance;
+                }
+              }
+              owner = child ? dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(child)) : ModuleOp();
+              if (!owner) return writer.rule->emitOpError("invalid resource owner path");
+              resourceScope->path.push_back(child);
+            }
+            InstanceOp allocation;
+            for (auto instance : owner.getBody().front().getOps<InstanceOp>()) {
+              if (failed(budget.debit(1, writer.rule))) return failure();
+              if (instance.getOccurrence() == resource.declaration) {
+                if (allocation) return writer.rule->emitOpError("ambiguous resource allocation");
+                allocation = instance;
+              }
+            }
+            auto kind = allocation ? analysis.getPrimitiveKind(analysis.resolveCallee(allocation)) : StringRef();
+            if (!allocation || allocation->getNumOperands() < 2 ||
+                (kind != "fifo_local" && kind != "fifo_downstream_pop" && kind != "sync_mem" && kind != "sync_mem_dp" && kind != "byte_mem"))
+              return writer.rule->emitOpError("resource effect must resolve an actual Queue or Memory");
+            auto resourceClock = normal(allocation->getOperand(0), *resourceScope);
+            auto resourceReset = normal(allocation->getOperand(1), *resourceScope);
+            if (failed(resourceClock) || failed(resourceReset)) return failure();
+            if (failed(equalClocks(*resourceClock, *clock)) || sampled->edge != RegisterEdge::Posedge)
+              return writer.rule->emitOpError("resource effect clock or edge differs from transaction");
+            bool present = false;
+            for (const auto &prior : expectedResets)
+              present |= sameEndpoint(prior.endpoint, *resourceReset) && prior.kind == RegisterResetKind::Sync &&
+                         prior.polarity == RegisterResetPolarity::High;
+            if (!present) expectedResets.push_back({*resourceReset, RegisterResetKind::Sync, RegisterResetPolarity::High});
+          }
+          for (const auto &effect : *cdcEffects) {
+            auto actualClock = normal(effect.clock, entry.scope);
+            auto actualReset = normal(effect.reset, entry.scope);
+            if (failed(actualClock) || failed(actualReset)) return failure();
+            if (failed(equalClocks(*actualClock, *clock)) || effect.edge != sampled->edge)
+              return writer.rule->emitOpError("CDC endpoint event differs from transaction");
+            bool present = false;
+            for (const auto &prior : expectedResets)
+              present |= sameEndpoint(prior.endpoint, *actualReset) && prior.kind == RegisterResetKind::Async &&
+                         prior.polarity == effect.polarity;
+            if (!present) expectedResets.push_back({*actualReset, RegisterResetKind::Async, effect.polarity});
+          }
+          if (expectedResets.size() != sampled->resets.size())
+            return writer.rule->emitOpError("sampled reset set differs from transitive effect footprint");
+          for (const auto &expectedReset : expectedResets) {
+            bool present = false;
+            for (const auto &actualReset : sampled->resets) {
+              auto normalizedReset = normal(actualReset.value, entry.scope);
+              if (failed(normalizedReset)) return failure();
+              present |= sameEndpoint(expectedReset.endpoint, *normalizedReset) &&
+                  expectedReset.kind == actualReset.kind && expectedReset.polarity == actualReset.polarity;
+            }
+            if (!present) return writer.rule->emitOpError("missing effect reset from sampled reset set");
+          }
+        }
         if (failed(indexedWriteRequirements(*sampled, entry.scope, indexedDomains)))
           return failure();
         for (const auto &guard : sampled->controls) {
@@ -4200,22 +4552,28 @@ private:
                   record.getAs<DictionaryAttr>("location") ||
               !sameEndpoint(*condition, *expectedCondition) ||
               !sameEndpoint(*reached, *expectedReached) ||
-              match.getSampling().size() != 2)
+              match.getSampling().size() != (eventPolicy ? 1 + sampled->resets.size() : 2))
             return match->emitOpError()
                    << "sampled expect differs from corresponding guard "
                       "suffix/kind/span";
           auto sampleClock = normal(match.getSampling()[0], entry.scope);
-          auto sampleReset = normal(match.getSampling()[1], entry.scope);
-          if (failed(sampleClock) || failed(sampleReset))
-            return failure();
-          if (!sameEndpoint(*sampleClock, *clock) ||
-              !sameEndpoint(*sampleReset, *reset))
-            return match->emitOpError()
-                   << "sampled expect pins differ from owning Rule captures";
-          if (failed(checkOwner(entry, guard.id, guard.invocation,
-                                match.getLocationAttr(), writer.rule, match,
-                                *clock, *reset)))
-            return failure();
+          if (failed(sampleClock) || failed(equalClocks(*sampleClock, *clock))) return match.emitOpError("sampled clock mismatch");
+          if (eventPolicy) {
+            if (failed(checkOwner(entry, guard.id, guard.invocation, match.getLocationAttr(),
+                                  writer.rule, match, *clock, *reset))) return failure();
+            for (auto [index, resetBinding] : llvm::enumerate(sampled->resets)) {
+              auto actual = normal(match.getSampling()[index + 1], entry.scope);
+              auto expected = normal(resetBinding.value, entry.scope);
+              if (failed(actual) || failed(expected) || !sameEndpoint(*actual, *expected))
+                return match.emitOpError("sampled reset operand mismatch");
+            }
+          } else {
+            auto sampleReset = normal(match.getSampling()[1], entry.scope);
+            if (failed(sampleReset) || !sameEndpoint(*sampleReset, *reset))
+              return match.emitOpError("sampled reset mismatch");
+            if (failed(checkOwner(entry, guard.id, guard.invocation,
+                                  match.getLocationAttr(), writer.rule, match, *clock, *reset))) return failure();
+          }
           if (failed(privateRoute(writer.rule->getResult(guard.rawResult),
                                   entry.scope, 0, PrivateRoute::EffectOperand,
                                   match, 0)) ||
@@ -4276,7 +4634,7 @@ private:
                                 });
                           });
           if (failed(logical) ||
-              failed(effectDomain(entry, **logical, *clock, *reset, match)))
+              failed(effectDomain(entry, **logical, *clock, *reset, match, writer.rule)))
             return failure();
           if (match->getNumOperands() != observation.valueCount + 1)
             return match->emitOpError()
@@ -4504,11 +4862,12 @@ private:
       }
       if (state.writer) {
         auto clock = normal(endpoint.clock, state.scope);
-        auto reset = normal(endpoint.reset, state.scope);
+        bool eventPolicy = state.writer->getAttrOfType<DictionaryAttr>("ac.sampled_admission") .get("resets") ? true : false;
+        auto reset = normal(endpoint.reset ? endpoint.reset : endpoint.clock, state.scope);
         if (failed(clock) || failed(reset))
           return failure();
-        if (!sameEndpoint(*clock, *state.clock) ||
-            !sameEndpoint(*reset, *state.reset))
+        if (failed(equalClocks(*clock, *state.clock)) ||
+            (!eventPolicy && !sameEndpoint(*reset, *state.reset)))
           return state.storage->emitOpError()
                  << "transaction sampled domain differs from target storage "
                     "physical pins";
@@ -4722,6 +5081,23 @@ private:
       if (failed(budget.debit(1, use.getOwner())))
         return failure();
       Operation *consumer = use.getOwner();
+      if ((route.kind == PrivateRoute::Enable || route.kind == PrivateRoute::Data) && route.state < states.size()) {
+        if (!cdcComponentOwners) {
+          auto owners = getVerifiedCDCComponentOwners(analysis.getPackage());
+          if (failed(owners)) return failure();
+          cdcComponentOwners = std::move(*owners);
+        }
+        auto owner = cdcComponentOwners->find(consumer);
+        if (owner != cdcComponentOwners->end()) {
+          bool approved = false;
+          for (const auto &candidate : states[route.state].candidates) {
+            auto effects = getAsyncFIFOEndpointEffects(candidate.rule);
+            if (failed(effects)) return failure();
+            approved |= llvm::any_of(*effects, [&](const auto &effect) { return effect.resource == owner->second; });
+          }
+          if (approved) continue;
+        }
+      }
       unsigned operand = use.getOperandNumber();
       bool sanctioned = false;
       if (route.kind != PrivateRoute::EffectOperand) {
@@ -4776,6 +5152,35 @@ private:
         if (failed(next) || failed(visitPrivate(*next, route, seen, currentOccurrence)))
           return failure();
         continue;
+      }
+      if (isCDCInstance(dyn_cast<InstanceOp>(consumer)) || isa<CDCRefinementOp>(consumer)) {
+        Operation *resource = consumer;
+        bool intentPin = false, dataPin = false;
+        if (auto instance = dyn_cast<InstanceOp>(consumer)) {
+          auto layout = getCDCPrimitiveLayout(instance, owner.bindings);
+          if (failed(layout)) return failure();
+          if (layout->isFIFO()) {
+            intentPin = operand == 4 || operand == 5;
+            dataPin = operand == 3;
+          }
+        } else {
+          auto kind = consumer->getAttrOfType<StringAttr>("logical_kind");
+          if (kind && kind.getValue() == "async_fifo") {
+            intentPin = operand == 4 || operand == 5;
+            dataPin = operand == 3;
+          }
+        }
+        bool approved = false;
+        if (((route.kind == PrivateRoute::Enable && intentPin) ||
+             (route.kind == PrivateRoute::Data && dataPin)) && route.state < states.size()) {
+          for (const auto &candidate : states[route.state].candidates) {
+            auto effects = getAsyncFIFOEndpointEffects(candidate.rule);
+            if (failed(effects)) return failure();
+            approved |= llvm::any_of(*effects, [&](const auto &effect) { return effect.resource == resource; });
+          }
+        }
+        if (approved) continue;
+        return consumer->emitOpError("private transaction value reaches an unrelated CDC endpoint");
       }
       if (auto update = dyn_cast<acir::LogicalStateUpdateOpInterface>(consumer)) {
         auto logical =
@@ -4951,6 +5356,8 @@ private:
   llvm::DenseMap<std::pair<size_t, Attribute>, size_t> stateTargetProofs;
   std::set<std::tuple<size_t, Operation *, unsigned, size_t, PrivateRoute::Kind>> allowedUses;
   EffectProofCache &effectProofCache;
+  std::optional<HardwareDomainPlan> domainPlan;
+  std::optional<llvm::DenseMap<Operation *, Operation *>> cdcComponentOwners;
   bool &provedAvailability;
   std::optional<IdentityMemo> identity;
   std::map<PrefixIndexKey, const SampledAdmissionView *, PrefixIndexLess> writerAdmissions;

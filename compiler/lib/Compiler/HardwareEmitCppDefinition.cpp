@@ -90,11 +90,16 @@ public:
       for (auto &leaf : storage) {
         StringRef kind = ctx.analysis.getPrimitiveKind(leaf.bindings.owner);
         if (kind == "dff" || kind == "dffe") {
-          unsigned index = kind == "dff" ? 3 : 4;
-          auto init = emit(*leaf.scope, leaf.op->getOperand(index));
-          if (failed(init) ||
-              failed(setPort(*leaf.scope, leaf.op, index, {}, *init)))
+          auto policy = ac::getRegisterPolicy(leaf.op);
+          if (failed(policy))
             return failure();
+          if (policy->hasInitial) {
+            unsigned index = kind == "dff" ? 3 : 4;
+            auto init = emit(*leaf.scope, leaf.op->getOperand(index));
+            if (failed(init) ||
+                failed(setPort(*leaf.scope, leaf.op, index, {}, *init)))
+              return failure();
+          }
         }
         auto inputs = kernelInputs(leaf, "pyc_lane");
         auto outputs = kernelOutputs(leaf, "pyc_lane");
@@ -453,7 +458,22 @@ private:
     // module connections retain raw pins; only the kernel consumes this view.
     // Host Reset does not sample physical reset. Its accessor returns borrowed
     // inputs, so retain persistent pin references rather than a temporary view.
-    if (!resetting)
+    bool policyRegister = false;
+    if (kind == "dff" || kind == "dffe") {
+      auto contract = ac::getRegisterContract(leaf.bindings.owner);
+      if (failed(contract))
+        return failure();
+      if (*contract == 3)
+        pins.back() = "&" + pins.back();
+      policyRegister = *contract == 3;
+      if (policyRegister) {
+        auto policy = ctx.cppRegisterPolicy(leaf.op);
+        if (failed(policy))
+          return failure();
+        pins.append(*policy);
+      }
+    }
+    if (!resetting && !policyRegister)
       pins[1] = ctx.cppReset(pins[1]);
     if (kind == "sync_mem")
       pins = {pins[0],
@@ -696,6 +716,17 @@ private:
     Operation *op = value.getDefiningOp();
     if (!op)
       return failure();
+    if (isa<ac::ValueZeroOp>(op)) {
+      auto plan = fieldPlane(value.getType(), path, s, op);
+      if (failed(plan))
+        return failure();
+      auto type = payload(plan->element, s, op);
+      if (failed(type))
+        return failure();
+      auto width = "gfsim::hardware_traits<" + *type + ">::width";
+      return "gfsim::FourState<" + width + ">::known(gfsim::Bits<" + width +
+             ">{0})";
+    }
     if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op))
       return constant4(pattern, s);
     if (auto constantOp = dyn_cast<ac::BitsConstantOp>(op))
@@ -999,6 +1030,8 @@ private:
     if (auto literal = dyn_cast<ac::BitsConstantOp>(op))
       return path.empty() &&
              ctx.isClosedStatic(literal.getValue(), scope->bindings);
+    if (isa<ac::ValueZeroOp>(op))
+      return true;
     if (auto enumeration = dyn_cast<ac::EnumCreateOp>(op)) {
       if (!path.empty())
         return false;

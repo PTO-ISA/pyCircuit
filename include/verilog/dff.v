@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Packed-payload positive-edge register with synchronous active-high reset.
+// Packed-payload register. Policy defaults preserve the original contract.
 module dff #(
     parameter type T = logic [0:0],
     parameter bit pyc_managed = 0,
     parameter bit pyc_physical = 0,
-    parameter T pyc_initial = 'x
+    parameter T pyc_initial = 'x,
+    parameter bit pyc_separate_reset_value = 0,
+    parameter bit pyc_negative_edge = 0,
+    parameter int unsigned pyc_reset_kind = 1, // 0 none, 1 sync, 2 async
+    parameter bit pyc_reset_low = 0,
+    parameter bit pyc_reset_if_one = 0,
+    parameter bit pyc_has_initial = 1
 ) (
     // Interface: direction belongs to the wire port, not the payload.
     input  wire clk,
@@ -21,7 +27,8 @@ module dff #(
 `else
     input  tri1 pyc_root_commit_ok,
 `endif
-    output wire pyc_local_error
+    output wire pyc_local_error,
+    input wire T reset_value
 );
     // Internal declarations: only q_current owns register state.
     localparam int unsigned PAYLOAD_BITS = $bits(T);
@@ -29,37 +36,41 @@ module dff #(
     // Physical export proves this typed elaboration value from the declared
     // initializer DAG. Default adapters retain their existing startup policy.
     generate if (pyc_physical) begin : physical_initialization
-        initial q_current = pyc_initial;
+        initial q_current = pyc_has_initial ? pyc_initial : 'x;
     end endgenerate
 `ifndef SYNTHESIS
     T payload_x_check;
     logic [PAYLOAD_BITS-1:0] packed_x_check;
 `endif
 
+    wire T effective_reset_value;
+    assign effective_reset_value = pyc_separate_reset_value ? reset_value : init;
+    wire normalized_reset = pyc_reset_low ? ~rst : rst;
+    wire effective_reset = (pyc_reset_kind == 0) ? 1'b0 :
+        pyc_reset_if_one ? (normalized_reset === 1'b1) : normalized_reset;
     assign q = q_current;
 
     // Both adapters use this sole state transition calculation.
     function automatic T next_q(input T current_q, input logic rising,
                                 input logic reset, input logic enabled,
-                                input T data, input T initial_data);
+                                input T data, input T reset_data);
         next_q = current_q;
-        if (rising) begin
-            if (reset)
-                next_q = initial_data;
-            else if (enabled)
-                next_q = data;
-        end
+        if (reset && ((pyc_reset_kind == 2) || rising))
+            next_q = reset_data;
+        else if (rising && enabled)
+            next_q = data;
     endfunction
 
 `ifndef SYNTHESIS
     function automatic bit edge_control_error(input logic rising,
                                                input logic reset);
-        return rising && $isunknown(reset);
+        return (pyc_reset_kind != 0)
+            && (rising || (pyc_reset_kind == 2)) && $isunknown(reset);
     endfunction
 
     // Read-only detail for the generated physical first-failure reporter.
     function automatic bit [1:0] pyc_physical_control_errors();
-        return {1'b0, edge_control_error(1'b1, rst)};
+        return {1'b0, edge_control_error(1'b1, effective_reset)};
     endfunction
 
     initial begin
@@ -85,7 +96,7 @@ module dff #(
         bit pending_valid = 1'b0;
         bit preparation_error = 1'b0;
         logic clock_sample, reset_sample, rising_sample;
-        T data_sample, init_sample;
+        T data_sample, reset_value_sample;
 
         assign pyc_local_error = preparation_error | !pending_valid;
 
@@ -97,18 +108,20 @@ module dff #(
                     q_pending = q_current;
                     clock_pending = clock_current;
                     clock_sample = clk;
-                    reset_sample = rst;
+                    reset_sample = effective_reset;
                     data_sample = d;
-                    init_sample = init;
+                    reset_value_sample = effective_reset_value;
                     if ($isunknown(clock_sample)) begin
                         preparation_error = 1'b1;
                     end else begin
-                        rising_sample = !clock_current && clock_sample;
+                        rising_sample = (pyc_negative_edge
+                            ? (clock_current && !clock_sample)
+                            : (!clock_current && clock_sample));
                         preparation_error = edge_control_error(
                             rising_sample, reset_sample);
                         if (!preparation_error) begin
                             q_pending = next_q(q_current, rising_sample,
-                                reset_sample, 1'b1, data_sample, init_sample);
+                                reset_sample, 1'b1, data_sample, reset_value_sample);
                             clock_pending = clock_sample;
                             pending_valid = 1'b1;
                         end
@@ -126,7 +139,7 @@ module dff #(
                     preparation_error = 1'b0;
                 end
                 3'd4: begin // RESET_PREPARE bypasses ordinary controls.
-                    q_pending = init;
+                    q_pending = pyc_has_initial ? init : 'x;
                     clock_pending = 1'b0;
                     preparation_error = 1'b0;
                     pending_valid = 1'b1;
@@ -134,28 +147,47 @@ module dff #(
                 default: begin end // IDLE has no lifecycle effects.
             endcase
         end
-    end else if (pyc_physical) begin : checked_physical
-        // Prospective errors are independent of clock, permission and history.
-        assign pyc_local_error = |edge_control_error(1'b1, rst);
-        always @(posedge clk) begin
-            if ((clk === 1'b1) && (pyc_root_commit_ok === 1'b1))
-                q_current <= next_q(q_current, 1'b1, rst, 1'b1, d, init);
-        end
     end else begin : autonomous
-        assign pyc_local_error = 1'b0;
-        always @(posedge clk) begin
-            if (edge_control_error(1'b1, rst))
-                $fatal(1, "dff: reset must be known at the rising edge");
-            if (pyc_root_commit_ok === 1'b1)
-                q_current <= next_q(q_current, 1'b1, rst, 1'b1, d, init);
+        assign pyc_local_error = pyc_physical
+            ? edge_control_error(1'b1, effective_reset) : 1'b0;
+        task automatic update_q;
+            if (!pyc_physical && ($isunknown(clk) ||
+                                 edge_control_error(1'b1, effective_reset)))
+                $fatal(1, "dff: unknown control at register event");
+            if (!$isunknown(clk) && (pyc_root_commit_ok === 1'b1))
+                q_current <= next_q(q_current, 1'b1, effective_reset,
+                                    1'b1, d, effective_reset_value);
+        endtask
+        if (pyc_reset_kind == 2) begin : asynchronous_reset
+            if (pyc_negative_edge) begin
+                always @(negedge clk or posedge effective_reset) update_q();
+            end else begin
+                always @(posedge clk or posedge effective_reset) update_q();
+            end
+        end else if (pyc_negative_edge) begin : negative_edge
+            always @(negedge clk) update_q();
+        end else begin : positive_edge
+            always @(posedge clk) update_q();
         end
     end endgenerate
 `else
     // Hardware retains physical-edge operation and complete-update permission.
     assign pyc_local_error = 1'b0;
-    always @(posedge clk) begin
+    task automatic update_q;
         if (pyc_root_commit_ok === 1'b1)
-            q_current <= next_q(q_current, 1'b1, rst, 1'b1, d, init);
-    end
+            q_current <= next_q(q_current, 1'b1, effective_reset, 1'b1, d,
+                                effective_reset_value);
+    endtask
+    generate if (pyc_reset_kind == 2) begin : asynchronous_reset
+        if (pyc_negative_edge) begin
+            always @(negedge clk or posedge effective_reset) update_q();
+        end else begin
+            always @(posedge clk or posedge effective_reset) update_q();
+        end
+    end else if (pyc_negative_edge) begin : negative_edge
+        always @(negedge clk) update_q();
+    end else begin : positive_edge
+        always @(posedge clk) update_q();
+    end endgenerate
 `endif
 endmodule

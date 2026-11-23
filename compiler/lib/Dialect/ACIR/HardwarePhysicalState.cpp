@@ -28,8 +28,11 @@ LogicalResult verifyPhysicalStateAllocation(
               ? analysis.resolveCallee(cast<InstanceOp>(storage))
               : analysis.resolveCallee(cast<CollectionOp>(storage)));
   bool dff = kind == "dff";
+  auto *declaration = isa<InstanceOp>(storage) ? analysis.resolveCallee(cast<InstanceOp>(storage)) : analysis.resolveCallee(cast<CollectionOp>(storage));
+  auto layout = getRegisterPrimitiveLayout(declaration);
+  if (failed(layout)) return failure();
   if ((!dff && kind != "dffe") ||
-      storage->getNumOperands() != (dff ? 4u : 5u) ||
+      storage->getNumOperands() != layout->resetValue + 1 ||
       storage->getNumResults() != 1)
     return storage->emitOpError()
            << "transaction inventory requires a direct verified DFF/DFFE";
@@ -52,19 +55,22 @@ LogicalResult bindPhysicalStateEndpoint(
   result.clock = *clock;
   result.reset = *reset;
   bool dff = analysis.getPrimitiveKind(result.storageBindings.owner) == "dff";
+  auto layout = getRegisterPrimitiveLayout(result.storageBindings.owner);
+  auto policy = getRegisterPolicy(storage);
+  if (failed(layout) || failed(policy)) return failure();
+  result.policy = *policy;
   result.form = dff ? StateEndpointForm::DFF
                    : isa<CollectionOp>(storage) ? StateEndpointForm::DFFECollection
                                                 : StateEndpointForm::DFFE;
-  if (dff) {
-    result.data = storage->getOperand(2);
-    result.initial = storage->getOperand(3);
-  } else {
-    auto enable = getPhysicalStateControl(storage, 2);
+  result.data = storage->getOperand(layout->data);
+  result.initial = storage->getOperand(layout->initial);
+  result.resetValue = storage->getOperand(layout->resetValue);
+  if (layout->enable) {
+    auto enable = getPhysicalStateControl(storage, *layout->enable);
     if (failed(enable)) return failure();
     result.enable = *enable;
-    result.data = storage->getOperand(3);
-    result.initial = storage->getOperand(4);
   }
+
   return success();
 }
 } // namespace acir::ac::detail

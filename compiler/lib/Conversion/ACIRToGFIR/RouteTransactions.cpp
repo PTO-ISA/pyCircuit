@@ -58,6 +58,7 @@ using detail::resourceLocation;
 // Conversion-common helpers shared with the GFIRToHWIR refinement stage;
 // routing call sites keep their original spelling.
 using detail::acceptTransactionCandidate;
+using detail::bitsLiteralAttribute;
 using detail::charge;
 using detail::knownTrue;
 using detail::prepayClone;
@@ -2546,9 +2547,6 @@ FailureOr<MaterializedBranchResult> materializeSelection(
 }
 
 
-ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
-                                        MLIRContext *context, bool one);
-
 class RuleMaterializer {
 public:
   RuleMaterializer(const TransactionPreparation &prepared,
@@ -3430,25 +3428,6 @@ private:
   SmallVector<SavedMaterializedObservation, 0> savedObservations;
 };
 
-ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
-                                        MLIRContext *context, bool one) {
-  Builder builder(context);
-  auto type = cast<ac::BitsType>(payload);
-  auto literal = ac::MathIntAttr::get(
-      context, llvm::APSInt(llvm::APInt(1, one ? 1 : 0), true));
-  auto tree = builder.getDictionaryAttr(
-      {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
-       builder.getNamedAttr(
-           "value",
-           builder.getDictionaryAttr(
-               {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-                builder.getNamedAttr("value", literal)})),
-       builder.getNamedAttr("origin", occurrence),
-       builder.getNamedAttr("location",
-                            type.getWidth().getTree().get("location"))});
-  return ac::StaticExprAttr::get(context, tree);
-}
-
 Value bitsLiteral(Type payload, DictionaryAttr occurrence, Location location,
                   bool one, OpBuilder &builder) {
   OperationState constant(location, ac::BitsConstantOp::getOperationName());
@@ -3937,8 +3916,8 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
     // retains the source class.
     OpBuilder builder(replaced);
     auto routed = builder.create<gfir::StateOp>(
-        original.getLoc(), replaced.getQ().getType(), replaced.getClk(),
-        replaced.getRst(), replaced.getInitial(),
+        original.getLoc(), replaced.getQ().getType(),
+        ValueRange{replaced.getClk(), replaced.getRst(), replaced.getInitial()},
         original.getInstanceNameAttr(), original.getOccurrence());
     if (auto constraint = replaced.getPayloadConstraint())
       routed->setAttr("ac.payload_constraint", constraint);
