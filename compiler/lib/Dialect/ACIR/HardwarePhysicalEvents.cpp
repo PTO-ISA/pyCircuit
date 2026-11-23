@@ -1,9 +1,11 @@
 #include "HardwarePhysicalEvents.h"
+#include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "pycircuit/Dialect/ACIR/HardwareDomains.h"
 #include "llvm/ADT/DenseSet.h"
 #include <algorithm>
 #include <functional>
+#include <utility>
 
 using namespace mlir;
 namespace acir::ac::detail {
@@ -107,17 +109,35 @@ FailureOr<HardwarePhysicalProjection> getBatchedPhysicalProjection(
       if (failed(trace(reset.value, sampling.ownerOccurrence, false, 0,
                        projection.resetInputs))) return failure();
   }
+  // Collection lanes share the same operand columns and owner bindings.
+  llvm::DenseSet<std::pair<uint64_t, Operation *>> checkedStorage;
   for (const auto &endpoint : plan.commits) {
     Operation *op = endpoint.allocation;
+    if (!checkedStorage.insert({endpoint.ownerOccurrence, op}).second)
+      continue;
     auto primitive = endpoint.primitiveKind.getValue();
     if (primitive != "dff" && primitive != "dffe")
       return op->emitOpError() << "physical event adapter requires publicly expanded storage";
+    auto *callee = isa<InstanceOp>(op)
+                       ? analysis.resolveCallee(cast<InstanceOp>(op))
+                       : analysis.resolveCallee(cast<CollectionOp>(op));
+    auto pins = getRegisterPrimitiveLayout(callee);
     auto policy = getRegisterPolicy(op);
-    if (failed(policy) || failed(clock(op->getOperand(0), endpoint.ownerOccurrence)))
+    if (failed(pins) || failed(policy) ||
+        failed(clock(op->getOperand(pins->clock), endpoint.ownerOccurrence)))
       return failure();
-    if (policy->resetKind != RegisterResetKind::None &&
-        failed(trace(op->getOperand(1), endpoint.ownerOccurrence, false, 0,
-                     projection.resetInputs))) return failure();
+    if (policy->resetKind == RegisterResetKind::None)
+      continue;
+    if (failed(trace(op->getOperand(pins->reset), endpoint.ownerOccurrence,
+                     false, 0, projection.resetInputs)))
+      return failure();
+    // A held asynchronous reset can be applied again by a simulation batch
+    // without firing the register's edge-triggered RTL.
+    if (pins->contract == 3 &&
+        failed(verifyClosedStateInitializer(
+            analysis, op->getOperand(pins->resetValue),
+            plan.owners[endpoint.ownerOccurrence].bindings, op, &budget)))
+      return failure();
   }
   for (auto &inputs : {&projection.clockInputs, &projection.resetInputs}) {
     llvm::sort(*inputs);

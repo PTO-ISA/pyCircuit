@@ -424,6 +424,56 @@ TEST_F(StateResetValueTest, PublishAsyncNegativeStateForIndependentConsumers) {
                "PYCIRCUIT_TEST_ASYNC_STATE_ANCHOR");
 }
 
+TEST_F(StateResetValueTest, PhysicalProjectionRequiresClosedResetValue) {
+  const auto scalar = stateIR(true);
+  auto text = scalar.substr(0, scalar.find("module attributes"));
+  text += R"ir(
+!T = !ac.type_param<@"pycircuit.__builtins__.dffe_policy", "T">
+module attributes {ac.stage = "final", ac.routed_contract = 7 : i64, ac.source_units = [#owner]} {
+  "ac.module.import"() {
+    sym_name = "pycircuit.__builtins__.dffe_policy", ac.register_contract = 3 : i64,
+    source_owner = {package = "pycircuit", path = "__builtins__.py"},
+    primitive_kind = "dffe", semantic_kind = "hardware", parameters = [], type_parameters = ["T"],
+    function_type = (!b1, !b1, !b1, !T, !T, !T) -> !T,
+    input_names = ["clk", "rst", "en", "d", "init", "reset_value"], output_names = ["q"],
+    dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]
+  } : () -> ()
+  "ac.module"() ({
+  ^bb0(%clk: !b1, %rst: !b1, %en: !b1, %d: !b9):
+    %init = "ac.bits.constant"() {value = #w5} : () -> !b9
+    %zero = "ac.bits.constant"() {value = #w0} : () -> !b9
+    %q = "ac.instance"(%clk, %rst, %en, %d, %init, %zero) {
+      callee = @"pycircuit.__builtins__.dffe_policy", occurrence = #occ,
+      instance_name = "reg", parameters = [], type_arguments = [!b9],
+      init_kind = "explicit", edge = "posedge", reset_kind = "async", reset_polarity = "high"
+    } : (!b1, !b1, !b1, !b9, !b9, !b9) -> !b9
+    "ac.yield"(%q) : (!b9) -> ()
+  }) {sym_name = "reset_value.fixture.Held", source_owner = #owner, parameters = [],
+      type_parameters = [], function_type = (!b1, !b1, !b1, !b9) -> !b9,
+      input_names = ["clk", "rst", "en", "d"], output_names = ["q"],
+      ac.domain_params = ["D"], ac.default_domain = "D", ac.domain_clock_inputs = {D = 0 : i32}} : () -> ()
+  "ac.system"() {entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+}
+)ir";
+  auto final = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
+  ASSERT_TRUE(final);
+  ac::HardwareAnalysis original(*final);
+  const auto staticPlan = original.getSourceCheckPlan();
+  ASSERT_TRUE(mlir::succeeded(staticPlan));
+  ASSERT_TRUE(mlir::succeeded(original.getPhysicalProjection(*staticPlan)));
+
+  auto root = *final->getOps<ac::ModuleOp>().begin();
+  auto &body = root.getBody().front();
+  auto reg = *body.getOps<ac::InstanceOp>().begin();
+  const auto pins = ac::getRegisterPrimitiveLayout(original.resolveCallee(reg));
+  ASSERT_TRUE(mlir::succeeded(pins));
+  reg->setOperand(pins->resetValue, body.getArgument(3));
+  ac::HardwareAnalysis modified(*final);
+  const auto dynamicPlan = modified.getSourceCheckPlan();
+  ASSERT_TRUE(mlir::succeeded(dynamicPlan));
+  EXPECT_TRUE(mlir::failed(modified.getPhysicalProjection(*dynamicPlan)));
+}
+
 // An ordinary module with no checks still owns physical storage endpoints.
 std::string resetFreeStorageIR(bool routed) {
   auto text = stateIR(routed);
