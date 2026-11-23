@@ -34,7 +34,7 @@ unsigned mixRounds(unsigned x, unsigned rounds) {
   return value;
 }
 unsigned mix(unsigned x) {
-  return (mixRounds(x, 320) + (x ^ 0x33u)) & 255u;
+  return (mixRounds(x, 480) + (x ^ 0x33u)) & 255u;
 }
 struct TestSystem final : gfsim::SimSystem {
   explicit TestSystem(pyc_root &r) : root(r) {}

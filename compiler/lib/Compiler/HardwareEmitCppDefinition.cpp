@@ -1156,7 +1156,7 @@ private:
       Value value;
       Path path;
       std::string plane, packed;
-      bool sameLayout;
+      bool sameCount, sameLayout;
     };
     SmallVector<ScalarInput> inputs;
     auto gather = [&](Value input, Path p) -> FailureOr<std::string> {
@@ -1175,8 +1175,9 @@ private:
                                   inputPlan->count + ") + pyc_lane % (" +
                                   inputPlan->count + "))";
       auto packed = *text + ".element(" + lane + ").packed()";
-      inputs.push_back({input, std::move(p), std::move(*text), packed,
-                        sameCount && resultPlan->element == inputPlan->element});
+      inputs.push_back(
+          {input, std::move(p), std::move(*text), packed, sameCount,
+           sameCount && resultPlan->element == inputPlan->element});
       return packed;
     };
     auto expr = scalarExpression(s, v, path, gather);
@@ -1195,9 +1196,14 @@ private:
     if (!inserted)
       return entry->second;
     auto result = planeDeclaration(type, name());
-    out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-        << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
-        << *p << ">::fromPacked(" << *expr << ");\n";
+    if (isa<ac::BitsSelectOp>(op) && inputs.size() == 3 &&
+        llvm::all_of(inputs, [](const auto &input) { return input.sameCount; }))
+      out << "    pyc_work_select(" << result << ", " << inputs[0].plane << ", "
+          << inputs[1].plane << ", " << inputs[2].plane << ");\n";
+    else
+      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
+          << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
+          << *p << ">::fromPacked(" << *expr << ");\n";
     entry->second = result;
     return result;
   }

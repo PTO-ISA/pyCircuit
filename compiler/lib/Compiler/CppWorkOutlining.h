@@ -136,6 +136,44 @@ template <std::size_t OutputLanes, std::size_t InputLanes, class Plane>
 auto pyc_work_broadcast(const Plane &source) noexcept {
   return pyc_work_broadcast_view<OutputLanes, InputLanes, Plane>{source};
 }
+
+template <class Output, class Condition, class True, class False>
+void pyc_work_select(Output &out, const Condition &condition,
+                     const True &whenTrue, const False &whenFalse) noexcept {
+  using Wire = gfsim::wire<typename Output::element_type>;
+  for (std::size_t lane = 0; lane < Output::size; ++lane)
+    out.element(lane) = Wire::fromPacked(
+        gfsim::select(condition.element(lane).packed(),
+                      whenTrue.element(lane).packed(),
+                      whenFalse.element(lane).packed()));
+}
+
+template <std::size_t Group, class Output, class Condition, class True,
+          class False>
+void pyc_work_select(Output &out,
+                     const pyc_work_broadcast_view<Group, 1, Condition> &condition,
+                     const True &whenTrue, const False &whenFalse) noexcept {
+  static_assert(Output::size % Group == 0);
+  using Wire = gfsim::wire<typename Output::element_type>;
+  for (std::size_t first = 0; first < Output::size; first += Group) {
+    const auto &guard = condition.source.element(first / Group).packed();
+    if (guard.isFullyKnown()) {
+      const auto copy = [&](const auto &source) {
+        for (std::size_t lane = first; lane < first + Group; ++lane)
+          out.element(lane) = source.element(lane);
+      };
+      if (guard.value().toBool())
+        copy(whenTrue);
+      else
+        copy(whenFalse);
+    } else {
+      for (std::size_t lane = first; lane < first + Group; ++lane)
+        out.element(lane) = Wire::fromPacked(
+            gfsim::select(guard, whenTrue.element(lane).packed(),
+                         whenFalse.element(lane).packed()));
+    }
+  }
+}
 )cpp";
 }
 } // namespace acir::compiler
