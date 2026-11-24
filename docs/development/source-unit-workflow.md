@@ -109,7 +109,8 @@ executing the body.
 
 The selected default-domain root can call direct, guard-free Methods on one
 statically bound child with a single Bits state. Repeated calls in one Rule
-share the child's candidate and preserve returned value snapshots. An independent
+and nested calls on that receiver share the child's candidate and preserve
+returned value snapshots. An independent
 Rule starts from the child's committed value. A late guard cancels the candidate.
 HWIR routes the accepted candidate to the actual child through private ports.
 The child stages it once under the same sample and commit barrier as the root.

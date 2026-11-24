@@ -1,4 +1,4 @@
-# Calls target one real child and reuse its candidate only within one Rule.
+# Nested and repeated calls reuse the actual child's candidate within one Rule.
 # Saved first/second results remain distinct; an independent Method snapshot
 # and ordinary child output both observe committed Q before whole-system Xfer.
 # Shared rows check late cancellation, X/Z discard, same-high retry and reset.

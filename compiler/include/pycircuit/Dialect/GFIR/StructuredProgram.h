@@ -94,6 +94,12 @@ struct StructuredObservation {
   unsigned firstSlot = 0;
 };
 
+struct StructuredMethodEffects {
+  uint64_t expandedWork;
+  unsigned depth;
+  bool writes;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -116,6 +122,7 @@ struct StructuredClocked {
   llvm::SmallVector<MethodOp> methods;
   llvm::SmallVector<unsigned> methodOrder;
   llvm::DenseSet<unsigned> sampledMethods;
+  llvm::DenseMap<unsigned, StructuredMethodEffects> directMethodEffects;
   llvm::SmallVector<StructuredFifo> fifos;
   llvm::SmallVector<StructuredMemory> memories;
   llvm::SmallVector<StructuredRule, 0> rules;

@@ -627,9 +627,31 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   if (order.size() != methodUses.size())
     return module.emitOpError("recursive GFIR methods are unsupported");
   plan.methodOrder = std::move(order);
-  for (auto [index, uses] : llvm::enumerate(methodUses))
-    if (uses.sampledControls != 0)
+  for (unsigned index : plan.methodOrder) {
+    const auto &uses = methodUses[index];
+    if (uses.sampledControls != 0) {
       plan.sampledMethods.insert(index);
+      continue;
+    }
+    auto method = plan.methods[index];
+    if (uses.hasFieldWrites || llvm::any_of(method.getBody().front(), [](Operation &op) {
+          return !isa<ReadOp, WriteOp, YieldOp, CallOp>(op) && !isCombinational(&op);
+        }))
+      continue;
+    unsigned depth = 1;
+    for (unsigned callee : uses.methods) {
+      auto effects = plan.directMethodEffects.find(callee);
+      if (effects == plan.directMethodEffects.end()) {
+        depth = 0;
+        break;
+      }
+      depth = std::max(depth, effects->second.depth + 1);
+    }
+    // Use the same source transaction call depth as the staged ownership proof.
+    if (depth && depth <= 128)
+      plan.directMethodEffects.try_emplace(
+          index, StructuredMethodEffects{uses.expandedWork, depth, !uses.writes.empty()});
+  }
   llvm::SmallDenseSet<unsigned> written;
   for (auto [index, body] : llvm::enumerate(ruleUses)) {
     auto &rule = plan.rules[index];

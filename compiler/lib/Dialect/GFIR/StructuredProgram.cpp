@@ -318,19 +318,19 @@ Analyzer::bindChildMethods(StructuredDefinition &definition) {
       MethodOp method = *found;
       if (!detail::matchesSignature(call, method.getFunctionType()))
         return call.emitOpError("child Method operands and results must match its signature");
-      for (Operation &op : method.getBody().front()) {
-        if (failed(budget.debit(1 + uint64_t(op.getNumOperands()) + op.getNumResults(), call)))
-          return failure();
-        if (isa<WriteOp>(op)) {
-          auto &writer = definition.childState->writer;
-          if (writer && *writer != index)
-            return call.emitOpError("child state write overlaps another Rule");
-          writer = index;
-        } else if (!isa<ReadOp, YieldOp>(op) && !isCombinational(&op)) {
-          return call.emitOpError("child Method requires direct, guard-free state and value operations");
-        }
+      unsigned methodIndex = found - child->methods.begin();
+      auto effects = child->directMethodEffects.find(methodIndex);
+      if (effects == child->directMethodEffects.end())
+        return call.emitOpError("child Method requires a bounded guard-free chain of state and value operations");
+      if (failed(budget.debit(effects->second.expandedWork, call)))
+        return failure();
+      if (effects->second.writes) {
+        auto &writer = definition.childState->writer;
+        if (writer && *writer != index)
+          return call.emitOpError("child state write overlaps another Rule");
+        writer = index;
       }
-      calls.try_emplace(call, unsigned(found - child->methods.begin()));
+      calls.try_emplace(call, methodIndex);
       usesChild = true;
     }
     if (usesChild)

@@ -17,6 +17,11 @@ module attributes {gfir.contract = 1 : i64} {
       %old = gfir.read @total : !b8
       gfir.yield %old : !b8
     }
+    gfir.method @add_and_read(%delta: !b8) -> (!b8) {
+      %sum = gfir.call self["add"](%delta) : (!b8) -> !b8
+      %candidate = gfir.call self["snapshot"]() : () -> !b8
+      gfir.yield %candidate : !b8
+    }
     %old = gfir.read @total : !b8
     gfir.yield %old : !b8
   }
@@ -27,7 +32,7 @@ module attributes {gfir.contract = 1 : i64} {
     gfir.rule @writer(%enabled = %allow : !b1) -> (!b8, !b8) {
       %three = "ac.bits.constant4"() {pattern = "00000011"} : () -> !b8
       %five = "ac.bits.constant4"() {pattern = "00000101"} : () -> !b8
-      %first = gfir.call @child["add"](%three) : (!b8) -> !b8
+      %first = gfir.call @child["add_and_read"](%three) : (!b8) -> !b8
       %second = gfir.call @child["add"](%five) : (!b8) -> !b8
       gfir.guard %enabled : !b1 loc("parent.py":20:1)
       gfir.yield %first, %second : !b8, !b8

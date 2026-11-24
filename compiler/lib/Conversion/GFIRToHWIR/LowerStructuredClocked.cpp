@@ -78,7 +78,7 @@ private:
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
   LogicalResult bindObservations();
-  FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call,
+  FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call, unsigned methodIndex,
       SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping);
   DictionaryAttr localStateID(Operation *storage);
   DictionaryAttr childStateID();
@@ -705,10 +705,10 @@ FailureOr<Value> ClockedMaterializer::indexedWrite(Value previous, Value index,
 }
 
 FailureOr<SmallVector<Value>>
-ClockedMaterializer::lowerChildMethod(gfir::CallOp call,
+ClockedMaterializer::lowerChildMethod(gfir::CallOp call, unsigned methodIndex,
     SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping) {
   const auto &child = program.definitions[definition.childState->definition];
-  auto method = child.clocked->methods[plan.childMethodCalls.lookup(call)];
+  auto method = child.clocked->methods[methodIndex];
   IRMapping nested;
   for (auto [argument, input] : llvm::zip(method.getBody().front().getArguments(), call.getInputs()))
     nested.map(argument, mapping.lookup(input));
@@ -728,6 +728,13 @@ ClockedMaterializer::lowerChildMethod(gfir::CallOp call,
         return write.emitOpError("child Method requires its verified whole Bits state");
       local[states.size()] = nested.lookup(write.getValue());
       localIntents[states.size()] = one;
+    } else if (auto invoke = dyn_cast<gfir::CallOp>(op)) {
+      auto results = lowerChildMethod(invoke, child.clocked->methodCalls.lookup(invoke),
+                                      local, localIntents, nested);
+      if (failed(results))
+        return failure();
+      for (auto [result, value] : llvm::zip(invoke.getOutputs(), *results))
+        nested.map(result, value);
     } else {
       builder.clone(op, nested);
     }
@@ -901,8 +908,8 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       for (auto [result, yes, no] : llvm::zip(branch.getResults(), *thenValues, *elseValues))
         mapping.map(result, merge(no, predicate, yes));
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
-      if (plan.childMethodCalls.contains(call)) {
-        auto results = lowerChildMethod(call, local, localIntents, mapping);
+      if (auto child = plan.childMethodCalls.find(call); child != plan.childMethodCalls.end()) {
+        auto results = lowerChildMethod(call, child->second, local, localIntents, mapping);
         if (failed(results)) return failure();
         for (auto [result, value] : llvm::zip(call.getOutputs(), *results))
           mapping.map(result, value);
