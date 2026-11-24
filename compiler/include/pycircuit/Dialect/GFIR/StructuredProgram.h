@@ -146,9 +146,11 @@ struct StructuredClockedCall {
   InstanceOp receiver;
   unsigned definition;
   llvm::SmallVector<unsigned> dependencies;
+  std::optional<std::pair<unsigned, unsigned>> domainInputs;
 };
 
 struct StructuredDefinition {
+  bool explicitDomains = false;
   ModuleOp module;
   llvm::SmallVector<StructuredWire, 0> wires;
   /// Wires, Rule evaluations, then clocked instance preparations.

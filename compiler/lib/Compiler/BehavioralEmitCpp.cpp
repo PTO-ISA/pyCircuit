@@ -170,10 +170,17 @@ void groupSignature(raw_ostream &out, const gfir::StructuredDefinition &definiti
 void preparationSignature(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
                           StringRef owner = {}) {
-  out << "void " << owner << "prepare(const gfsim::behavior::Level &pyc_clock, "
-         "const gfsim::behavior::Level &pyc_reset";
-  for (unsigned input : definition.preparationInputs)
-    out << ", const " << carrier(definition.wires[input].width) << " &" << wireName(input);
+  out << "void " << owner << "prepare(";
+  bool comma = !definition.explicitDomains;
+  if (comma)
+    out << "const gfsim::behavior::Level &pyc_clock, "
+           "const gfsim::behavior::Level &pyc_reset";
+  for (unsigned input : definition.preparationInputs) {
+    if (comma)
+      out << ", ";
+    out << "const " << carrier(definition.wires[input].width) << " &" << wireName(input);
+    comma = true;
+  }
   out << ')';
 }
 
@@ -1441,7 +1448,18 @@ LogicalResult BehavioralEmitter::emitClockedCall(
   auto member = instanceName(call.receiver);
   if (failed(member))
     return failure();
-  out << "    " << instancePrefix << *member << ".prepare(pyc_clock, pyc_reset";
+  out << "    " << instancePrefix << *member << ".prepare(";
+  if (call.domainInputs) {
+    auto entry = program.root;
+    auto policy = entry.getExecutionPolicyAttr();
+    bool ifOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
+    out << "gfsim::behavior::Level::fromPacked(" << wireName(call.domainInputs->first)
+        << "), gfsim::interpretReset(gfsim::behavior::Level::fromPacked("
+        << wireName(call.domainInputs->second) << "), gfsim::ResetSemantics::"
+        << (ifOne ? "IfOne" : "Strict") << ')';
+  } else {
+    out << "pyc_clock, pyc_reset";
+  }
   for (unsigned input : child.preparationInputs) {
     const auto &endpoint = child.wires[input].endpoint;
     unsigned argument = cast<BlockArgument>(endpoint.value).getArgNumber();
@@ -1821,7 +1839,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   }
   llvm::json::Object domains{{"clock", nullptr}, {"reset", nullptr}};
   std::string clock, reset;
-  if (isClocked(definition)) {
+  if (isClocked(definition) && !definition.explicitDomains) {
     for (auto [role, port] : {std::pair{"clock", "pyc_clk"}, {"reset", "pyc_rst"}}) {
       auto pin = legalizeIdentifier(port, [&] { return root.emitOpError(); });
       if (failed(pin))
@@ -1848,8 +1866,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   StringRef scopedName = StringRef(*name).drop_front(2);
   source << "void " << scopedName << "::Work() {\n";
   if (isClocked(definition)) {
-    source << "  try {\n"
-           << "    const auto pyc_reset = gfsim::interpretReset(" << reset
+    source << "  try {\n";
+    if (!definition.explicitDomains)
+      source << "    const auto pyc_reset = gfsim::interpretReset(" << reset
            << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
   }
 
@@ -1870,9 +1889,16 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
            << wire.width << ">(" << inputs[arg] << ".packed(), " << wire.low << ");\n";
   }
   if (isClocked(definition)) {
-    source << "    pyc_body.prepare(" << clock << ", pyc_reset";
-    for (unsigned input : definition.preparationInputs)
-      source << ", " << wireName(input);
+    source << "    pyc_body.prepare(";
+    bool comma = !definition.explicitDomains;
+    if (comma)
+      source << clock << ", pyc_reset";
+    for (unsigned input : definition.preparationInputs) {
+      if (comma)
+        source << ", ";
+      source << wireName(input);
+      comma = true;
+    }
     source << ");\n";
   }
   if (system)

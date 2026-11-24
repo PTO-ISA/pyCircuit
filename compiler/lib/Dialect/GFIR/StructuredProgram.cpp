@@ -52,7 +52,7 @@ LogicalResult verifyRoot(RootOp root) {
     return root.emitOpError("only a System can declare sample rows");
   if (Attribute raw = root->getAttr("domains")) {
     auto domains = dyn_cast<ArrayAttr>(raw);
-    if (!domains || (!domains.empty() && !detail::hasGeneratedDomain(root)))
+    if (!domains || (!domains.empty() && !detail::hasGeneratedDomain(root) && root.getKind() != "module"))
       return root.emitOpError("structured roots support a single generated rising default domain");
   }
   if (Attribute raw = root->getAttr("execution_policy")) {
@@ -89,6 +89,7 @@ public:
   FailureOr<StructuredProgram> run();
 
 private:
+  llvm::StringMap<std::pair<unsigned, unsigned>> explicitInputs;
   LogicalResult verifyDefinition(ModuleOp module, bool clocked);
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
   LogicalResult analyzeAvailability(StructuredDefinition &definition);
@@ -122,7 +123,20 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     return failure();
   Attribute rawDomains = module->getAttr("domains");
   auto domains = dyn_cast_if_present<ArrayAttr>(rawDomains);
-  if (clocked) {
+  bool explicitRoot = !explicitInputs.empty() && module.getSymName() == result.root.getCalleeAttr().getValue();
+  if (explicitRoot) {
+    if (!domains || domains.size() != explicitInputs.size())
+      return module.emitOpError("formal domains must match explicit root domains");
+    llvm::StringSet<> seen;
+    for (Attribute raw : domains) {
+      auto name = dyn_cast<StringAttr>(raw);
+      if (!name || !explicitInputs.count(name.getValue()) || !seen.insert(name.getValue()).second)
+        return module.emitOpError("unknown or repeated explicit domain");
+    }
+    for (Operation &op : *body)
+      if (isa<VarOp, MethodOp, RuleOp>(op))
+        return op.emitOpError("explicit domain wrapper cannot own local transactions");
+  } else if (clocked) {
     if (!domains || domains.size() != 1 ||
         domains[0] != StringAttr::get(module.getContext(), "default"))
       return module.emitOpError("clocked module requires the default formal domain");
@@ -144,16 +158,25 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     if (result.root.getKind() == "system" &&
         instance.getCalleeAttr() == result.root.getCalleeAttr())
       return instance.emitOpError("System cannot be used as a child module");
+    if (!explicitInputs.empty() && instance.getCalleeAttr() == result.root.getCalleeAttr())
+      return instance.emitOpError("explicit domain wrapper cannot be a child");
     const bool native = isa_and_nonnull<PrimitiveOp>(callee);
+    if (explicitRoot && native)
+      return instance.emitOpError("explicit domain wrapper cannot own native resources");
     if (native) {
       bound.insert(instance);
     } else if (!isa_and_nonnull<ModuleOp>(callee)) {
       return instance.emitOpError("callee must be a defined Module or native primitive");
     }
     const bool inheritsClock = native || clockedModules.contains(callee);
-    if (inheritsClock && !clocked)
+    if (inheritsClock && !clocked && !explicitRoot)
       return instance.emitOpError("clocked child requires the parent's default domain");
-    if (auto raw = instance->getAttr("domains")) {
+    if (explicitRoot && inheritsClock) {
+      auto binding = instance->getAttrOfType<DictionaryAttr>("domains");
+      auto name = binding ? binding.getAs<StringAttr>("default") : StringAttr();
+      if (!binding || binding.size() != 1 || !name || !explicitInputs.count(name.getValue()))
+        return instance.emitOpError("clocked child requires an explicit named domain binding");
+    } else if (auto raw = instance->getAttr("domains")) {
       auto binding = dyn_cast<DictionaryAttr>(raw);
       if (!binding ||
           (inheritsClock
@@ -444,6 +467,7 @@ LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
 FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   StructuredDefinition definition;
   definition.module = module;
+  definition.explicitDomains = !explicitInputs.empty() && module.getSymName() == result.root.getCalleeAttr().getValue();
   auto &body = module.getBody().front();
   llvm::StringMap<unsigned> rules;
   if (clockedModules.contains(module)) {
@@ -525,6 +549,17 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
         StructuredClockedCall{call, receiver, target, {}});
     clockedCallNodes.try_emplace(
         call, definition.firstClockedCallNode() + definition.clockedCalls.size() - 1);
+    if (definition.explicitDomains) {
+      auto name = receiver->getAttrOfType<DictionaryAttr>("domains").getAs<StringAttr>("default");
+      auto [clock, reset] = explicitInputs.lookup(name.getValue());
+      auto clockWire = findWire(definition, {body.getArgument(clock), {}}, call);
+      auto resetWire = findWire(definition, {body.getArgument(reset), {}}, call);
+      if (failed(clockWire) || failed(resetWire))
+        return failure();
+      prepare.domainInputs = std::pair<unsigned, unsigned>{*clockWire, *resetWire};
+      prepare.dependencies.push_back(*clockWire);
+      prepare.dependencies.push_back(*resetWire);
+    }
     for (unsigned input : child.preparationInputs) {
       auto parent = findWire(definition, parentInput(call, child, input), call);
       if (failed(parent))
@@ -734,6 +769,38 @@ FailureOr<StructuredProgram> Analyzer::run() {
       return failure();
     result.samples = *samples;
   }
+  if (auto domains = result.root->getAttrOfType<ArrayAttr>("domains");
+      domains && !domains.empty() && !detail::hasGeneratedDomain(result.root)) {
+    llvm::DenseSet<unsigned> pins;
+    for (Attribute raw : domains) {
+      if (failed(budget.debit(1, result.root)))
+        return failure();
+      auto domain = dyn_cast<DictionaryAttr>(raw);
+      auto name = domain ? domain.getAs<StringAttr>("name") : StringAttr();
+      auto edge = domain ? domain.getAs<StringAttr>("edge") : StringAttr();
+      if (!domain || domain.size() != 4 || !name || name.getValue().empty() ||
+          !edge || edge.getValue() != "rising" || explicitInputs.count(name.getValue()))
+        return result.root.emitOpError("expected unique named rising input domain");
+      SmallVector<unsigned> pair;
+      Type pinType;
+      for (StringRef key : {"clock", "reset"}) {
+        auto endpoint = domain.getAs<DictionaryAttr>(key);
+        auto input = endpoint ? endpoint.getAs<IntegerAttr>("input") : IntegerAttr();
+        if (!endpoint || endpoint.size() != 1 || !input || !input.getType().isSignlessInteger(64) ||
+            input.getInt() < 0 || uint64_t(input.getInt()) >= top.getFunctionType().getNumInputs())
+          return result.root.emitOpError("domain requires a scalar input ordinal");
+        unsigned ordinal = input.getInt();
+        Type type = top.getFunctionType().getInput(ordinal);
+        auto width = hardware.getPackedWidth(type, {}, result.root);
+        if (!isa<ac::BitsType>(type) || failed(width) || *width != 1 ||
+            (pinType && pinType != type) || !pins.insert(ordinal).second)
+          return result.root.emitOpError("domain requires distinct same-typed Bits1 inputs");
+        pinType = type;
+        pair.push_back(ordinal);
+      }
+      explicitInputs.try_emplace(name.getValue(), std::pair<unsigned, unsigned>{pair[0], pair[1]});
+    }
+  }
   SmallVector<ModuleOp> modules;
   budget.setPhase("structured GFIR field dependency verification");
   for (Operation &op : *package.getBody()) {
@@ -749,7 +816,7 @@ FailureOr<StructuredProgram> Analyzer::run() {
       if (failed(hardware.verifyResolvedOperation(&op, {})))
         return failure();
     } else if (auto primitive = dyn_cast<PrimitiveOp>(op)) {
-      if (!detail::hasGeneratedDomain(result.root))
+      if (!detail::hasGeneratedDomain(result.root) && explicitInputs.empty())
         return primitive.emitOpError("native declarations require a clocked root");
       if (primitive.getNativeKind() == "memory") {
         if (failed(detail::describeRawMemory(primitive, hardware)))
@@ -761,6 +828,8 @@ FailureOr<StructuredProgram> Analyzer::run() {
       return op.emitOpError("unexpected declaration in structured GFIR package");
     }
   }
+  if (!explicitInputs.empty())
+    clockedModules.erase(top);
   if (clockedModules.contains(top) != detail::hasGeneratedDomain(result.root))
     return result.root.emitOpError("generated domain must match the selected Module's domains");
   for (auto module : modules)

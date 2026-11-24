@@ -41,8 +41,9 @@ DictionaryAttr instanceOccurrence(gfir::ModuleOp parent,
       builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
 }
 
-LogicalResult materializeDefinition(gfir::ModuleOp source,
+LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
                                     mlir::ModuleOp package) {
+  auto source = facts.module;
   OpBuilder builder(package.getContext());
   builder.setInsertionPointToEnd(package.getBody());
   OperationState definition(source.getLoc(), ac::ModuleOp::getOperationName());
@@ -118,6 +119,18 @@ LogicalResult materializeDefinition(gfir::ModuleOp source,
                << "operand outside the verified structured module graph";
       operands.push_back(mapped);
     }
+    auto call = llvm::find_if(facts.clockedCalls, [&](const auto &call) {
+      return call.operation.getOperation() == sourceOp;
+    });
+    if (call != facts.clockedCalls.end() && call->domainInputs) {
+      for (unsigned wire : {call->domainInputs->first, call->domainInputs->second}) {
+        const auto &endpoint = facts.wires[wire].endpoint;
+        Value value = mapping.lookupOrNull(endpoint.value);
+        if (!value || !endpoint.path.empty())
+          return sourceOp->emitOpError("missing verified explicit domain input");
+        operands.push_back(value);
+      }
+    }
     targetOp->setOperands(operands);
     for (auto [sourceRegion, targetRegion] :
          llvm::zip(sourceOp->getRegions(), targetOp->getRegions()))
@@ -170,7 +183,7 @@ materializeStructuredHardware(mlir::ModuleOp package) {
   for (const auto &definition : program->definitions)
     if (failed(definition.clocked
                    ? materializeStructuredClocked(definition, *candidate)
-                   : materializeDefinition(definition.module, *candidate)))
+                   : materializeDefinition(definition, *candidate)))
       return failure();
   if (program->root.getKind() == "system") {
     Operation *root = SymbolTable::lookupSymbolIn(*candidate, program->root.getCalleeAttr());
@@ -187,7 +200,8 @@ materializeStructuredHardware(mlir::ModuleOp package) {
   system.addAttribute("domain", builder.getStringAttr("default"));
   if (auto policy = program->root.getExecutionPolicyAttr())
     system.addAttribute("ac.execution_policy", policy);
-  if (program->definitions[program->rootIndex].clocked)
+  const auto &root = program->definitions[program->rootIndex];
+  if (root.clocked || !root.clockedCalls.empty())
     system.addAttribute("ac.managed_sampling", builder.getUnitAttr());
   builder.create(system);
   if (failed(verify(*candidate)) || failed(ac::verifyHardwarePackage(*candidate)))
