@@ -14,6 +14,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
@@ -69,6 +70,10 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     if (auto instance = dyn_cast<gfir::InstanceOp>(operation))
       instances.try_emplace(instance.getSymName(),
                             Instance{instance, static_cast<unsigned>(ordinal)});
+  llvm::DenseMap<Operation *, std::pair<unsigned, unsigned>> domainInputs;
+  for (const auto &call : facts.clockedCalls)
+    if (call.domainInputs)
+      domainInputs.try_emplace(call.operation, *call.domainInputs);
 
   // Make every result before binding any operand. A legal field-level graph
   // can have forward references and even a cycle at whole-operation granularity;
@@ -119,11 +124,8 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
                << "operand outside the verified structured module graph";
       operands.push_back(mapped);
     }
-    auto call = llvm::find_if(facts.clockedCalls, [&](const auto &call) {
-      return call.operation.getOperation() == sourceOp;
-    });
-    if (call != facts.clockedCalls.end() && call->domainInputs) {
-      for (unsigned wire : {call->domainInputs->first, call->domainInputs->second}) {
+    if (auto domain = domainInputs.find(sourceOp); domain != domainInputs.end()) {
+      for (unsigned wire : {domain->second.first, domain->second.second}) {
         const auto &endpoint = facts.wires[wire].endpoint;
         Value value = mapping.lookupOrNull(endpoint.value);
         if (!value || !endpoint.path.empty())
