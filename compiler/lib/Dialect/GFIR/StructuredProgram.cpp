@@ -133,7 +133,7 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     if (native) {
       bound.insert(instance);
     } else if (!isa_and_nonnull<ModuleOp>(callee)) {
-      return instance.emitOpError("callee must be a defined Module or native FIFO");
+      return instance.emitOpError("callee must be a defined Module or native primitive");
     }
     const bool inheritsClock = native || clockedModules.contains(callee);
     if (inheritsClock && !clocked)
@@ -241,21 +241,21 @@ Analyzer::orderDefinitions(ArrayRef<ModuleOp> modules) {
 
 LogicalResult Analyzer::addValue(StructuredDefinition &definition, Value value) {
   auto *site = value.getParentRegion()->getParentOp();
-  if (!isa<ac::BitsType, ac::StructType>(value.getType()))
-    return site->emitOpError("structured combinational value must be Bits or a Struct of Bits");
+  if (!isa<ac::BitsType, ac::StructType, ac::EnumType>(value.getType()))
+    return site->emitOpError("structured combinational value requires a closed hardware type");
   auto leaves = hardware.getLeaves(value.getType(), {}, site);
   if (failed(leaves) || leaves->empty())
     return failure();
   auto &ids = definition.valueWires[value];
   for (const auto &leaf : *leaves) {
-    if (!isa<ac::BitsType>(leaf.type) || leaf.width == 0 ||
+    if (!isa<ac::BitsType, ac::EnumType>(leaf.type) || leaf.width == 0 ||
         leaf.width > std::numeric_limits<unsigned>::max() - leaf.low)
       return site->emitOpError("structured value has an unsupported packed leaf");
     if (failed(budget.debit(1 + leaf.path.size(), site)))
       return failure();
     ids.push_back(definition.wires.size());
     definition.wires.push_back(
-        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}, {}});
+        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}, {}, {}});
   }
   return success();
 }
@@ -381,9 +381,15 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     SmallVector<ac::WireEndpoint> edges;
     if (auto call = dyn_cast_or_null<CallOp>(op)) {
       if (call.getInterfaceAttr()) {
-        if (failed(describeFifoQuery(definition, wire, call,
-                                     definition.clocked->fifoCalls.lookup(call))))
+        const auto &plan = *definition.clocked;
+        if (auto memory = plan.memoryCalls.find(call); memory != plan.memoryCalls.end()) {
+          wire.memory = memory->second;
+          if (plan.memories[*wire.memory].asynchronous())
+            edges.push_back({call.getInputs().front(), {}});
+        } else if (failed(describeFifoQuery(definition, wire, call,
+                                            plan.fifoCalls.lookup(call)))) {
           return failure();
+        }
       } else {
         auto receiver = receivers.lookup(call);
         unsigned target = childDefinition(receiver);
@@ -513,19 +519,25 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     for (const auto &output : definition.outputs)
       if (output.requiresPreparation && failed(include(output.wire)))
         return failure();
-    for (const auto &fifo : definition.clocked->fifos)
-      for (CallOp binding : {fifo.rawInput, fifo.rawOutput}) {
-        if (!binding)
-          continue;
-        for (Value value : binding.getInputs()) {
-          auto wires = definition.valueWires.find(value);
-          if (wires == definition.valueWires.end())
-            return binding.emitOpError("FIFO input must have resolved graph fields");
-          for (unsigned wire : wires->second)
-            if (failed(include(wire)))
-              return failure();
-        }
+    auto includeRaw = [&](CallOp binding) -> LogicalResult {
+      if (!binding)
+        return success();
+      for (Value value : binding.getInputs()) {
+        auto wires = definition.valueWires.find(value);
+        if (wires == definition.valueWires.end())
+          return binding.emitOpError("native input must have resolved graph fields");
+        for (unsigned wire : wires->second)
+          if (failed(include(wire)))
+            return failure();
       }
+      return success();
+    };
+    for (const auto &fifo : definition.clocked->fifos)
+      if (failed(includeRaw(fifo.rawInput)) || failed(includeRaw(fifo.rawOutput)))
+        return failure();
+    for (const auto &memory : definition.clocked->memories)
+      if (failed(includeRaw(memory.raw)))
+        return failure();
     for (unsigned input : preparationInputs.set_bits())
       definition.preparationInputs.push_back(input);
   }
@@ -559,14 +571,18 @@ FailureOr<StructuredProgram> Analyzer::run() {
           domains && domains.size() == 1 &&
           domains[0] == StringAttr::get(module.getContext(), "default"))
         clockedModules.insert(module);
-    } else if (auto structure = dyn_cast<ac::StructOp>(op)) {
-      if (failed(hardware.verifyResolvedOperation(structure, {})))
+    } else if (isa<ac::StructOp, ac::EnumOp>(op)) {
+      if (failed(hardware.verifyResolvedOperation(&op, {})))
         return failure();
     } else if (auto primitive = dyn_cast<PrimitiveOp>(op)) {
       if (!detail::hasGeneratedDomain(result.root))
-        return primitive.emitOpError("native FIFO declarations require a clocked root");
-      if (failed(detail::verifyFifoPrimitive(primitive, hardware)))
+        return primitive.emitOpError("native declarations require a clocked root");
+      if (primitive.getNativeKind() == "memory") {
+        if (failed(detail::describeRawMemory(primitive, hardware)))
+          return failure();
+      } else if (failed(detail::verifyFifoPrimitive(primitive, hardware))) {
         return failure();
+      }
     } else if (!isa<RootOp>(op)) {
       return op.emitOpError("unexpected declaration in structured GFIR package");
     }

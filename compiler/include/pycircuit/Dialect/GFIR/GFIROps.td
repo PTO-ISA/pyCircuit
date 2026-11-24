@@ -51,10 +51,10 @@ def GFIR_CallOp : GFIR_Op<"call", [
 
 def GFIR_PrimitiveOp : GFIR_Op<"primitive", [Symbol]> {
   let summary = "Declare a versioned executable native module contract";
-  let arguments = (ins SymbolNameAttr:$sym_name, StrAttr:$kind,
+  let arguments = (ins SymbolNameAttr:$sym_name, StrAttr:$native_kind,
       I64Attr:$version);
   let assemblyFormat =
-      "$sym_name `native` $kind `version` $version attr-dict";
+      "$sym_name `native` $native_kind `version` $version attr-dict";
   let hasVerifier = 1;
 }
 
@@ -115,8 +115,18 @@ def GFIR_MethodOp : GFIR_Op<"method", [Symbol, IsolatedFromAbove,
   let hasRegionVerifier = 1;
 }
 
+def GFIR_IfOp : GFIR_Op<"if", [SingleBlock, RecursiveMemoryEffects]> {
+  let summary = "Select ordered values and transaction candidates";
+  let arguments = (ins AnyType:$predicate);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region AnyRegion:$thenBody, AnyRegion:$elseBody);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
 def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
-  let summary = "Connect the ordered outputs of a module graph";
+  let summary = "Return the outputs of a graph or ordered body";
   let arguments = (ins Variadic<AnyType>:$values);
   let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
   let hasVerifier = 1;

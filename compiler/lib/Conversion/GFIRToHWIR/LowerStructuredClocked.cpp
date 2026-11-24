@@ -37,6 +37,7 @@ private:
   LogicalResult lowerRules();
   FailureOr<SmallVector<Value>> lowerBody(Block &body, ValueRange inputs,
                                          SmallVector<Value> &candidates,
+                                         SmallVector<Value> &intents,
                                          IRMapping &mapping);
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
@@ -51,8 +52,8 @@ private:
   Type bit;
   Value clock, reset, one, none;
   IRMapping graph;
-  SmallVector<Operation *> fifos, states;
-  SmallVector<Value> grants, candidates, fifoData;
+  SmallVector<Operation *> fifos, memories, states;
+  SmallVector<Value> grants, candidates, intents, fifoData;
   SmallVector<std::pair<Operation *, Operation *>> graphOperations;
 };
 
@@ -120,17 +121,81 @@ LogicalResult ClockedMaterializer::addPrimitive(StringRef kind) {
   auto ref = FlatSymbolRefAttr::get(builder.getContext(), name);
   Type payload = ac::TypeParamType::get(builder.getContext(), ref,
                                        builder.getStringAttr("T"));
-  bool fifo = kind != "dffe";
+  bool memory = kind == "sync_mem" || kind == "sync_mem_dp" || kind == "byte_mem";
+  bool fifo = kind == "fifo_local" || kind == "fifo_downstream_pop";
   SmallVector<Type> inputs = fifo ? SmallVector<Type>{bit, bit, bit, payload, bit}
                                   : SmallVector<Type>{bit, bit, bit, payload, payload};
   SmallVector<Type> outputs = fifo ? SmallVector<Type>{bit, bit, payload, bit}
                                    : SmallVector<Type>{payload};
+  SmallVector<StringRef> inputNames = fifo
+      ? SmallVector<StringRef>{"clk", "rst", "in_valid", "in_data", "out_ready"}
+      : SmallVector<StringRef>{"clk", "rst", "en", "d", "init"};
+  SmallVector<StringRef> outputNames = fifo
+      ? SmallVector<StringRef>{"ready", "valid", "data", "local_capacity"}
+      : SmallVector<StringRef>{"q"};
+  if (memory) {
+    // Keep the canonical primitive's address and byte-mask widths symbolic.
+    auto provenance = literal(0).getTree();
+    auto expression = [&](StringRef kind, ArrayRef<NamedAttribute> fields) {
+      SmallVector<NamedAttribute> attrs(fields);
+      attrs.push_back(builder.getNamedAttr("kind", builder.getStringAttr(kind)));
+      attrs.push_back(builder.getNamedAttr("origin", provenance.get("origin")));
+      attrs.push_back(builder.getNamedAttr("location", provenance.get("location")));
+      return ac::StaticExprAttr::get(builder.getContext(), builder.getDictionaryAttr(attrs));
+    };
+    auto addressWidth = expression("reference", {
+        builder.getNamedAttr("ref", builder.getDictionaryAttr({
+            builder.getNamedAttr("kind", builder.getStringAttr("parameter")),
+            builder.getNamedAttr("owner", ref),
+            builder.getNamedAttr("name", builder.getStringAttr("ADDR_WIDTH"))}))});
+    auto payloadWidth = expression("type_width", {
+        builder.getNamedAttr("type", TypeAttr::get(payload))});
+    auto arithmetic = [&](StringRef opcode, ac::StaticExprAttr left,
+                           ac::StaticExprAttr right) {
+      return expression("binary", {
+          builder.getNamedAttr("operator", builder.getStringAttr(opcode)),
+          builder.getNamedAttr("lhs", left), builder.getNamedAttr("rhs", right)});
+    };
+    bool asynchronous = kind == "byte_mem";
+    bool dual = kind == "sync_mem_dp";
+    auto numerator = asynchronous ? payloadWidth : arithmetic("add", payloadWidth, literal(7));
+    Type address = ac::BitsType::get(builder.getContext(), addressWidth);
+    Type mask = ac::BitsType::get(builder.getContext(),
+                                  arithmetic("floordiv", numerator, literal(8)));
+    inputs = {bit, bit};
+    inputNames = {"clk", "rst"};
+    if (dual) {
+      inputs.append({bit, address, bit, address});
+      inputNames.append({"ren0", "raddr0", "ren1", "raddr1"});
+    } else if (asynchronous) {
+      inputs.push_back(address);
+      inputNames.push_back("raddr");
+    } else {
+      inputs.append({bit, address});
+      inputNames.append({"ren", "raddr"});
+    }
+    inputs.append({bit, address, payload, mask});
+    inputNames.append({"wvalid", "waddr", "wdata", "wstrb"});
+    outputs = {payload};
+    outputNames = {"rdata"};
+    if (dual) {
+      outputs.append({payload, bit, bit});
+      outputNames = {"rdata0", "rdata1", "rlive0", "rlive1"};
+    } else if (!asynchronous) {
+      outputs.push_back(bit);
+      outputNames.push_back("rlive");
+    }
+  }
   SmallVector<Attribute> dependencies;
   for (unsigned output = 0; output < outputs.size(); ++output) {
     SmallVector<Attribute> incoming;
     if (kind == "fifo_downstream_pop" && output == 0)
       incoming.push_back(builder.getDictionaryAttr({
           builder.getNamedAttr("port", builder.getI64IntegerAttr(4)),
+          builder.getNamedAttr("path", builder.getArrayAttr({}))}));
+    if (kind == "byte_mem")
+      incoming.push_back(builder.getDictionaryAttr({
+          builder.getNamedAttr("port", builder.getI64IntegerAttr(2)),
           builder.getNamedAttr("path", builder.getArrayAttr({}))}));
     dependencies.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("output", builder.getDictionaryAttr({
@@ -139,11 +204,15 @@ LogicalResult ClockedMaterializer::addPrimitive(StringRef kind) {
         builder.getNamedAttr("inputs", builder.getArrayAttr(incoming))}));
   }
   SmallVector<Attribute> parameters;
-  if (fifo)
-    for (StringRef parameter : {"DEPTH", "AVAILABILITY_LATENCY"})
+  if (fifo || memory) {
+    SmallVector<StringRef> names = memory
+        ? SmallVector<StringRef>{"ADDR_WIDTH", "DEPTH"}
+        : SmallVector<StringRef>{"DEPTH", "AVAILABILITY_LATENCY"};
+    for (StringRef parameter : names)
       parameters.push_back(builder.getDictionaryAttr({
           builder.getNamedAttr("name", builder.getStringAttr(parameter)),
           builder.getNamedAttr("type", TypeAttr::get(ac::MathIntType::get(builder.getContext())))}));
+  }
   make(ac::ModuleImportOp::getOperationName(), {}, {}, {
       builder.getNamedAttr("sym_name", builder.getStringAttr(name)),
       builder.getNamedAttr("semantic_kind", builder.getStringAttr("hardware")),
@@ -151,12 +220,8 @@ LogicalResult ClockedMaterializer::addPrimitive(StringRef kind) {
           builder.getNamedAttr("package", builder.getStringAttr("pycircuit")),
           builder.getNamedAttr("path", builder.getStringAttr("__builtins__.py"))})),
       builder.getNamedAttr("function_type", TypeAttr::get(builder.getFunctionType(inputs, outputs))),
-      builder.getNamedAttr("input_names", builder.getStrArrayAttr(
-          fifo ? ArrayRef<StringRef>{"clk", "rst", "in_valid", "in_data", "out_ready"}
-               : ArrayRef<StringRef>{"clk", "rst", "en", "d", "init"})),
-      builder.getNamedAttr("output_names", builder.getStrArrayAttr(
-          fifo ? ArrayRef<StringRef>{"ready", "valid", "data", "local_capacity"}
-               : ArrayRef<StringRef>{"q"})),
+      builder.getNamedAttr("input_names", builder.getStrArrayAttr(inputNames)),
+      builder.getNamedAttr("output_names", builder.getStrArrayAttr(outputNames)),
       builder.getNamedAttr("parameters", builder.getArrayAttr(parameters)),
       builder.getNamedAttr("type_parameters", builder.getStrArrayAttr({"T"})),
       builder.getNamedAttr("primitive_kind", builder.getStringAttr(kind)),
@@ -249,6 +314,20 @@ LogicalResult ClockedMaterializer::allocate() {
         builder.getNamedAttr("type_arguments", builder.getArrayAttr({TypeAttr::get(fifo.element)}))});
     fifos.push_back(instance);
   }
+  for (auto [index, memory] : llvm::enumerate(plan.memories)) {
+    auto instance = memory.instance;
+    SmallVector<Type> results(memory.readPorts(), memory.element);
+    if (!memory.asynchronous())
+      results.append(memory.readPorts(), bit);
+    auto name = ("pycircuit.__builtins__." + memory.kind).str();
+    memories.push_back(make(ac::InstanceOp::getOperationName(), {}, results, {
+        builder.getNamedAttr("instance_name", instance.getSymNameAttr()),
+        builder.getNamedAttr("occurrence", occurrence("memory", index)),
+        builder.getNamedAttr("callee", FlatSymbolRefAttr::get(builder.getContext(), name)),
+        builder.getNamedAttr("parameters", builder.getArrayAttr({
+            literal(memory.addressWidth), literal(memory.depth)})),
+        builder.getNamedAttr("type_arguments", builder.getArrayAttr({TypeAttr::get(memory.element)}))}));
+  }
   for (auto [index, declaration] : llvm::enumerate(plan.variables)) {
     auto var = declaration;
     Type type = var.getInitial().getType();
@@ -265,6 +344,7 @@ LogicalResult ClockedMaterializer::allocate() {
     states.push_back(make(table ? ac::CollectionOp::getOperationName()
                                  : ac::InstanceOp::getOperationName(), {}, {type}, attrs));
     candidates.push_back(states.back()->getResult(0));
+    intents.push_back(none);
   }
   fifoData.resize(fifos.size());
   return success();
@@ -280,6 +360,11 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       continue;
     }
     if (auto call = dyn_cast<gfir::CallOp>(op); call && call.getInterfaceAttr()) {
+      if (auto memory = plan.memoryCalls.find(call); memory != plan.memoryCalls.end()) {
+        for (auto [index, output] : llvm::enumerate(call.getOutputs()))
+          graph.map(output, memories[memory->second]->getResult(index));
+        continue;
+      }
       auto use = plan.fifoCalls.lookup(call);
       auto *fifo = fifos[use.fifo];
       unsigned result = use.access == gfir::StructuredFifoAccess::RawOut ? 1 : 0;
@@ -377,7 +462,9 @@ FailureOr<Value> ClockedMaterializer::indexedWrite(Value previous, Value index,
 
 FailureOr<SmallVector<Value>>
 ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
-                               SmallVector<Value> &local, IRMapping &mapping) {
+                               SmallVector<Value> &local,
+                               SmallVector<Value> &localIntents,
+                               IRMapping &mapping) {
   for (auto [argument, input] : llvm::zip(body.getArguments(), inputs))
     mapping.map(argument, input);
   for (Operation &op : body) {
@@ -399,6 +486,25 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         value = *next;
       }
       local[target] = value;
+      localIntents[target] = one;
+    } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
+      Value predicate = mapping.lookup(branch.getPredicate());
+      SmallVector<Value> thenState(local), thenIntents(localIntents);
+      auto thenValues = lowerBody(branch.getThenBody().front(), {}, thenState,
+                                  thenIntents, mapping);
+      if (failed(thenValues))
+        return failure();
+      SmallVector<Value> elseState(local), elseIntents(localIntents);
+      auto elseValues = lowerBody(branch.getElseBody().front(), {}, elseState,
+                                  elseIntents, mapping);
+      if (failed(elseValues))
+        return failure();
+      for (unsigned state : plan.branchWrites.find(branch)->second) {
+        local[state] = merge(elseState[state], predicate, thenState[state]);
+        localIntents[state] = merge(elseIntents[state], predicate, thenIntents[state]);
+      }
+      for (auto [result, yes, no] : llvm::zip(branch.getResults(), *thenValues, *elseValues))
+        mapping.map(result, merge(no, predicate, yes));
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       SmallVector<Value> results;
       if (!call.getReceiverAttr()) {
@@ -408,7 +514,7 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         IRMapping nested;
         auto method = plan.methods[plan.methodCalls.lookup(call)];
         auto values = lowerBody(method.getBody().front(),
-                                 arguments, local, nested);
+                                 arguments, local, localIntents, nested);
         if (failed(values))
           return failure();
         results = std::move(*values);
@@ -449,6 +555,7 @@ LogicalResult ClockedMaterializer::lowerRules() {
     }
     grants[index] = grant;
     SmallVector<Value> local;
+    SmallVector<Value> localIntents(states.size(), none);
     for (Operation *state : states)
       local.push_back(state->getResult(0));
     IRMapping mapping;
@@ -460,18 +567,28 @@ LogicalResult ClockedMaterializer::lowerRules() {
         return rule.emitOpError("missing verified Rule capture in clocked refinement");
       inputs.push_back(input);
     }
-    auto results = lowerBody(rule.getBody().front(), inputs, local, mapping);
+    auto results = lowerBody(rule.getBody().front(), inputs, local,
+                             localIntents, mapping);
     if (failed(results))
       return failure();
     for (gfir::ResultOp result : plan.rules[index].resultUses)
       graph.map(result.getValue(), (*results)[result.getOrdinalAttr().getInt()]);
-    for (unsigned state : plan.rules[index].writes)
+    for (unsigned state : plan.rules[index].writes) {
       candidates[state] = local[state];
+      intents[state] = localIntents[state];
+    }
   }
   return success();
 }
 
 LogicalResult ClockedMaterializer::bindStorage() {
+  for (auto [index, memory] : llvm::enumerate(plan.memories)) {
+    SmallVector<Value> inputs{clock, reset};
+    auto raw = memory.raw;
+    for (Value pin : raw.getInputs())
+      inputs.push_back(graph.lookup(pin));
+    memories[index]->setOperands(inputs);
+  }
   for (auto [index, fifo] : llvm::enumerate(plan.fifos)) {
     Value inputValid = fifo.producer ? grants[*fifo.producer] : none;
     Value inputData = fifoData[index];
@@ -498,6 +615,8 @@ LogicalResult ClockedMaterializer::bindStorage() {
     for (auto [rule, definition] : llvm::enumerate(plan.rules))
       if (llvm::is_contained(definition.writes, index))
         enable = grants[rule];
+    if (plan.conditionalWrites.contains(index))
+      enable = binary("and", enable, intents[index]);
     SmallVector<Value> inputs{clock, reset, enable, candidates[index],
                               graph.lookup(var.getInitial())};
     if (auto table = dyn_cast<ac::TableType>(var.getInitial().getType()))
@@ -520,6 +639,9 @@ LogicalResult ClockedMaterializer::run() {
     return failure();
   for (const auto &fifo : plan.fifos)
     if (failed(addPrimitive(fifo.downstreamPop ? "fifo_downstream_pop" : "fifo_local")))
+      return failure();
+  for (const auto &memory : plan.memories)
+    if (failed(addPrimitive(memory.kind)))
       return failure();
   if (failed(makeModule()) || failed(allocate()) || failed(cloneGraph()) ||
       failed(lowerRules()) || failed(bindGraph()) || failed(bindStorage()))

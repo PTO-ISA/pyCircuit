@@ -3,6 +3,7 @@
 
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/GFIR/GFIROps.h"
+#include "llvm/ADT/DenseSet.h"
 #include <optional>
 
 namespace acir::gfir {
@@ -33,6 +34,20 @@ struct StructuredFifo {
   std::optional<unsigned> consumer;
 };
 
+struct StructuredMemory {
+  InstanceOp instance;
+  mlir::Type element;
+  llvm::StringRef kind;
+  uint64_t depth;
+  unsigned addressWidth;
+  unsigned maskWidth;
+  CallOp raw;
+
+  bool asynchronous() const { return kind == "byte_mem"; }
+  unsigned readPorts() const { return kind == "sync_mem_dp" ? 2 : 1; }
+  unsigned writeOffset() const { return asynchronous() ? 1 : 2 * readPorts(); }
+};
+
 struct StructuredRequirement {
   unsigned fifo;
   bool requiresReady;
@@ -53,10 +68,15 @@ struct StructuredClocked {
   llvm::SmallVector<MethodOp> methods;
   llvm::SmallVector<unsigned> methodOrder;
   llvm::SmallVector<StructuredFifo> fifos;
+  llvm::SmallVector<StructuredMemory> memories;
   llvm::SmallVector<StructuredRule, 0> rules;
   llvm::DenseMap<mlir::Operation *, StructuredFifoUse> fifoCalls;
+  llvm::DenseMap<mlir::Operation *, unsigned> memoryCalls;
   llvm::DenseMap<mlir::Operation *, unsigned> stateAccesses;
   llvm::DenseMap<mlir::Operation *, unsigned> methodCalls;
+  /// Locally written state in either arm, including nested branches.
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<unsigned>> branchWrites;
+  llvm::DenseSet<unsigned> conditionalWrites;
 };
 
 struct StructuredWire {
@@ -68,6 +88,7 @@ struct StructuredWire {
   std::optional<std::pair<unsigned, StructuredFifoQuery>> fifoQuery;
   std::optional<unsigned> state;
   std::optional<std::pair<unsigned, unsigned>> ruleResult;
+  std::optional<unsigned> memory;
 };
 
 struct StructuredOutput {

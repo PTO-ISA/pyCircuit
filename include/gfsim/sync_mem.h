@@ -47,7 +47,8 @@ struct sync_mem_kernel {
     const wire<Bits<STRB_WIDTH>> &wstrb;
   };
   struct Outputs {
-    std::array<wire<T> *, READ_PORTS> rdata;
+    // Behavior owners can read the committed response directly.
+    std::array<wire<T> *, READ_PORTS> rdata{};
     // Optional committed response status, independent of payload knownness.
     std::array<wire<Bits<1>> *, READ_PORTS> rlive{};
   };
@@ -145,7 +146,8 @@ struct sync_mem_kernel {
     for (std::size_t port = 0; port < READ_PORTS; ++port) {
       if (pending.read[port] || pending.invalidate[port]) {
         current.q[port] = pending.q[port];
-        *outputs.rdata[port] = current.q[port];
+        if (outputs.rdata[port])
+          *outputs.rdata[port] = current.q[port];
         current.live[port] = pending.read[port];
       }
       if (outputs.rlive[port])

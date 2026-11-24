@@ -1,0 +1,18 @@
+# One independent oracle covers raw 1R1W, 2R1W and byte-addressed RAM.
+# Check read-first, response expiry, partial byte writes, non-power-of-two bounds,
+# reset retention, off-edge address failure and failed rising-edge rollback.
+# Rows share fixed independent expectations across native and managed RTL.
+# Columns: action(C commit/D discard/F fault), clk rst ren raddr other_addr
+# byte_addr write waddr data mask expected_single expected_dual1 expected_bytes.
+# All numeric tokens are hex; x/z fill the full carrier. Failed outputs are not
+# observed. Held and discarded idle samples must not advance response age.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-raw-memory.mlir --gfir-verify -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-raw-memory.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %inputs/structured-gfir-raw-memory.rows || exit; done
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/sync_mem.v %include/verilog/sync_mem_dp.v %include/verilog/byte_mem.v %inputs/structured-gfir-raw-memory.sv
+# RUN: %vvp %t.vvp +rows=%inputs/structured-gfir-raw-memory.rows

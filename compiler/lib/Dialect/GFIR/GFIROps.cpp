@@ -17,7 +17,7 @@ namespace acir::gfir {
 namespace {
 
 bool isOrderedOwner(Operation *op) {
-  return isa<RuleOp, MethodOp>(op);
+  return isa<RuleOp, MethodOp, IfOp>(op);
 }
 
 bool isValueOwner(Operation *op) {
@@ -198,6 +198,11 @@ LogicalResult YieldOp::verify() {
     return emitOpError("requires a module graph or ordered body");
   if (&(*this)->getBlock()->back() != getOperation())
     return emitOpError("must terminate its body");
+  if (auto branch = dyn_cast<IfOp>(owner)) {
+    if (!llvm::equal(getValues().getTypes(), branch.getResultTypes()))
+      return emitOpError("values must match the conditional results");
+    return success();
+  }
   auto type = cast<FunctionType>(
       owner->getAttrOfType<TypeAttr>("function_type").getValue());
   if (!llvm::equal(getValues().getTypes(), type.getResults()))
@@ -265,7 +270,7 @@ void CallOp::getEffects(
 LogicalResult PrimitiveOp::verify() {
   if (!isa<mlir::ModuleOp>((*this)->getParentOp()))
     return emitOpError("requires package placement");
-  if (getKind().empty() || getVersionAttr().getInt() <= 0)
+  if (getNativeKind().empty() || getVersionAttr().getInt() <= 0)
     return emitOpError("native kind and positive version are required");
   return success();
 }
@@ -391,6 +396,46 @@ LogicalResult MethodOp::verify() {
 
 LogicalResult MethodOp::verifyRegions() {
   return verifyOrderedTerminator(*this, getBody());
+}
+
+ParseResult IfOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand predicate;
+  Type type;
+  if (parser.parseOperand(predicate) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(type) || parser.parseArrowTypeList(result.types) ||
+      parser.resolveOperand(predicate, type, result.operands) ||
+      parser.parseRegion(*result.addRegion()) || parser.parseKeyword("else"))
+    return failure();
+  return parser.parseRegion(*result.addRegion());
+}
+
+void IfOp::print(OpAsmPrinter &printer) {
+  printer << ' ' << getPredicate();
+  printer.printOptionalAttrDict((*this)->getAttrs());
+  printer << " : " << getPredicate().getType() << " -> (";
+  llvm::interleaveComma(getResultTypes(), printer);
+  printer << ") ";
+  printer.printRegion(getThenBody(), false, true);
+  printer << " else ";
+  printer.printRegion(getElseBody(), false, true);
+}
+
+LogicalResult IfOp::verify() {
+  if (!isOrderedOwner((*this)->getParentOp()))
+    return emitOpError("requires an ordered body");
+  if (!isa<ac::BitsType>(getPredicate().getType()))
+    return emitOpError("condition requires a Bits type");
+  for (Region *arm : {&getThenBody(), &getElseBody()})
+    if (!arm->hasOneBlock() || arm->front().getNumArguments() != 0)
+      return emitOpError("each arm requires one block without arguments");
+  return success();
+}
+
+LogicalResult IfOp::verifyRegions() {
+  if (failed(verifyOrderedTerminator(*this, getThenBody())))
+    return failure();
+  return verifyOrderedTerminator(*this, getElseBody());
 }
 
 LogicalResult RootOp::verify() {

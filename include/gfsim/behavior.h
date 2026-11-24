@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
+#include "gfsim/byte_mem.h"
 #include "gfsim/dff.h"
 #include "gfsim/fifo.h"
+#include "gfsim/sync_mem.h"
 
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <optional>
@@ -54,6 +57,73 @@ private:
   typename Kernel::Pending pending_;
   Level unusedReady_, unusedValid_;
   wire<T> unusedData_;
+};
+
+template <class T, unsigned AddressWidth, std::size_t Depth, std::size_t Ports>
+class SyncMemory {
+  using Kernel = sync_mem_kernel<T, AddressWidth, Depth, Ports>;
+  using Address = wire<Bits<AddressWidth>>;
+  using Mask = wire<Bits<Kernel::STRB_WIDTH>>;
+
+public:
+  const wire<T> &result(unsigned port) const noexcept { return current_.q[port]; }
+
+  void prepare(const Level &clock, const Level &reset,
+               const std::array<Level, Ports> &readEnabled,
+               const std::array<Address, Ports> &readAddress,
+               const Level &writeEnabled, const Address &writeAddress,
+               const wire<T> &data, const Mask &mask) {
+    typename Kernel::Inputs inputs{clock, reset, {}, {}, writeEnabled,
+                                  writeAddress, data, mask};
+    for (std::size_t port = 0; port < Ports; ++port) {
+      inputs.ren[port] = &readEnabled[port];
+      inputs.raddr[port] = &readAddress[port];
+    }
+    Kernel::work(current_, inputs, pending_, {});
+  }
+  void reset() noexcept {
+    Kernel::reset(current_, {Level{}, Level{}, {}, {}, Level{}, Address{},
+                             wire<T>{}, Mask{}}, pending_);
+  }
+  void commit() noexcept { Kernel::xfer(current_, pending_, {}); }
+  void discard() noexcept { Kernel::discard(current_, pending_); }
+
+private:
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
+};
+
+template <class T, unsigned AddressWidth, std::size_t Depth>
+class ByteMemory {
+  using Kernel = byte_mem_kernel<T, AddressWidth, Depth>;
+  using Address = wire<Bits<AddressWidth>>;
+  using Mask = wire<Bits<Kernel::STRB_WIDTH>>;
+
+public:
+  wire<T> read(const Address &address) const noexcept {
+    wire<T> data;
+    Kernel::read(current_, address, {data});
+    return data;
+  }
+  void prepare(const Level &clock, const Level &reset, const Address &address,
+               const Level &writeEnabled, const Address &writeAddress,
+               const wire<T> &data, const Mask &mask) {
+    Kernel::prepare(current_, {clock, reset, address, writeEnabled, writeAddress,
+                               data, mask}, pending_);
+  }
+  void reset() noexcept {
+    Kernel::reset(current_, {Level{}, Level{}, Address{}, Level{}, Address{},
+                             wire<T>{}, Mask{}}, pending_);
+  }
+  void commit() noexcept {
+    wire<T> unused;
+    Kernel::xfer(current_, pending_, {unused});
+  }
+  void discard() noexcept { Kernel::discard(current_, pending_); }
+
+private:
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
 };
 
 // All logical state in a verified domain shares committed edge history.

@@ -72,8 +72,10 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
         {"source", sourceOwner(group.sourceOwner)},
         {"header_path", group.headerPath}, {"source_path", group.sourcePath},
         {"header", group.header}, {"implementation", group.source}});
-  const auto &clocked = program->definitions[program->rootIndex].clocked;
-  bool needsFourState = clocked && !clocked->fifos.empty();
+  bool needsFourState = llvm::any_of(program->definitions, [](const auto &definition) {
+    return definition.clocked &&
+           (!definition.clocked->fifos.empty() || !definition.clocked->memories.empty());
+  });
   package.walk([&](Operation *op) {
     needsFourState |= isa<acir::ac::TableGetOp>(op);
     if (auto pattern = dyn_cast<acir::ac::BitsConstant4Op>(op))

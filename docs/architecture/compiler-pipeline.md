@@ -74,21 +74,31 @@ pycircuit-emit final.mlir --target cpp > final-cpp.json
 pycircuit-emit final.mlir --target verilog > rtl.json
 ```
 
-The profile supports Bits and Struct combinational graphs. A clocked Module
+The profile supports Bits, Struct, and Enum transport in combinational graphs. A clocked Module
 root may declare one generated rising `default` domain. Clocked children
 inherit that domain through their instances. The verifier schedules early
 outputs from committed state and pure graph dependencies separately from
 outputs that require a child's Rule evaluation. A clocked child prepares
 once per Work and remains pending until the root commits the sample.
-Clocked modules support
-native FIFO v1, logical variables of Bits, Struct, or rank-one Table type,
-straight-line Rules, and local Methods called with
+Clocked modules support native FIFO v1 and raw Memory v1, logical variables
+of Bits, Struct, or rank-one Table type,
+ordered Rules, and local Methods called with
 `gfir.call self["interface"]`. A Rule explicitly captures a graph value with
 `%arg = %actual : T`. The verifier schedules captured graph fields before
 the Rule and exposes snapshots of its declared results as
 `gfir.result @rule[0] : T` when its resource admission is unconditional.
 An indexed write spells the index type inside
 the brackets, as in `gfir.write @entries[%i : !Index], %entry : !Entry`.
+The arms of `gfir.if %predicate : !Bit -> (T) { … } else { … }` can
+compute values and read or write local candidates. A known predicate runs
+its selected arm. An X or Z predicate merges both yielded values, candidate
+data, and write intent. A state write after the join replaces that state's
+intent with a definite write.
+Native Memory declares `kind`, `element`, `depth`, and `access = "raw"`.
+The `raw` call drives that instance's complete input interface. Synchronous
+`sync_mem` and `sync_mem_dp` results read committed responses. A `byte_mem`
+result depends on its read address. Both targets use the existing gfsim or
+RTL memory implementation for sampling and commit.
 The optional `execution_policy` on `gfir.root` selects `strict` or `if_one`
 reset interpretation and projects to `ac.execution_policy` on the HWIR root.
 

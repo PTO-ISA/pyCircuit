@@ -3,6 +3,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/MathExtras.h"
 #include <algorithm>
 #include <limits>
 
@@ -28,13 +29,13 @@ LogicalResult verifyValueType(const ac::HardwareAnalysis &hardware, Type type,
       return failure();
     return verifyValueType(hardware, table.getElementType(), site);
   }
-  if (!isa<ac::BitsType, ac::StructType>(type))
-    return site->emitOpError("clocked GFIR values require Bits or a Struct of Bits");
+  if (!isa<ac::BitsType, ac::StructType, ac::EnumType>(type))
+    return site->emitOpError("clocked GFIR requires a closed hardware value type");
   auto leaves = hardware.getLeaves(type, {}, site);
   if (failed(leaves))
     return failure();
   if (leaves->empty() || llvm::any_of(*leaves, [](const ac::PackedLeaf &leaf) {
-        return !isa<ac::BitsType>(leaf.type) || leaf.width == 0 ||
+        return !isa<ac::BitsType, ac::EnumType>(leaf.type) || leaf.width == 0 ||
                leaf.width > std::numeric_limits<unsigned>::max() - leaf.low;
       }))
     return site->emitOpError("clocked GFIR value has an unsupported layout");
@@ -79,6 +80,7 @@ private:
   LogicalResult bindMethod(CallOp call, BodyUses &body);
   LogicalResult bindFifo(CallOp call, std::optional<unsigned> rule,
                          llvm::SmallDenseSet<unsigned> &popped);
+  LogicalResult bindRawMemory(CallOp call, unsigned index);
   LogicalResult verifyBody(Operation *owner, Block &block, BodyUses &uses,
                            std::optional<unsigned> rule);
   LogicalResult resolveMethodEffects();
@@ -87,7 +89,7 @@ private:
   const ac::HardwareAnalysis &hardware;
   ac::detail::SourceCheckBudget &budget;
   StructuredClocked plan;
-  llvm::StringMap<unsigned> variables, fifos, methods;
+  llvm::StringMap<unsigned> variables, fifos, memories, methods;
   SmallVector<BodyUses> methodUses, ruleUses;
 };
 
@@ -105,6 +107,15 @@ LogicalResult ClockedAnalyzer::collect() {
           hardware.lookupDefinition(instance.getCalleeAttr().getValue()));
       if (!primitive)
         continue;
+      if (primitive.getNativeKind() == "memory") {
+        auto memory = describeRawMemory(primitive, hardware);
+        if (failed(memory))
+          return failure();
+        memory->instance = instance;
+        memories.try_emplace(instance.getSymName(), plan.memories.size());
+        plan.memories.push_back(*memory);
+        continue;
+      }
       auto *definition = primitive.getOperation();
       fifos.try_emplace(instance.getSymName(), plan.fifos.size());
       plan.fifos.push_back({
@@ -120,6 +131,43 @@ LogicalResult ClockedAnalyzer::collect() {
       plan.rules.push_back({rule, {}, {}, {}, {}, {}});
     }
   }
+  return success();
+}
+
+LogicalResult ClockedAnalyzer::bindRawMemory(CallOp call, unsigned index) {
+  auto &memory = plan.memories[index];
+  if (failed(verifyAttributes(call, {"receiver", "interface"})))
+    return failure();
+  if (call.getInterfaceAttr().getValue() != "raw" || memory.raw)
+    return call.emitOpError("Memory requires a single raw graph binding");
+  auto inputs = call.getInputs().getTypes();
+  auto outputs = call.getOutputs().getTypes();
+  if (inputs.size() != memory.writeOffset() + 4 ||
+      outputs.size() != memory.readPorts())
+    return call.emitOpError("raw Memory binding has the wrong port count");
+  auto bits = [&](unsigned argument, unsigned width) {
+    Type type = inputs[argument];
+    auto actual = hardware.getPackedWidth(type, {}, call);
+    return isa<ac::BitsType>(type) && succeeded(actual) && *actual == width;
+  };
+  if (memory.asynchronous()) {
+    if (!bits(0, memory.addressWidth))
+      return call.emitOpError("byte Memory read address must match the declared depth");
+  } else {
+    for (unsigned port = 0; port < memory.readPorts(); ++port)
+      if (!bits(2 * port, 1) || !bits(2 * port + 1, memory.addressWidth))
+        return call.emitOpError("Memory read pins must match the declared depth");
+  }
+  unsigned write = memory.writeOffset();
+  if (!bits(write, 1) || !bits(write + 1, memory.addressWidth) ||
+      !ac::areEquivalentHardwareTypes(inputs[write + 2], memory.element) ||
+      !bits(write + 3, memory.maskWidth) ||
+      !llvm::all_of(outputs, [&](Type type) {
+        return ac::areEquivalentHardwareTypes(type, memory.element);
+      }))
+    return call.emitOpError("Memory write pins and read payload must match its layout");
+  memory.raw = call;
+  plan.memoryCalls.try_emplace(call, index);
   return success();
 }
 
@@ -255,7 +303,8 @@ LogicalResult ClockedAnalyzer::bindFifo(CallOp call, std::optional<unsigned> rul
 LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
                                          BodyUses &uses,
                                          std::optional<unsigned> rule) {
-  if (failed(verifyAttributes(owner, {"sym_name", "function_type"})))
+  bool isArm = isa<IfOp>(owner);
+  if (!isArm && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
     return failure();
   llvm::SmallDenseSet<unsigned> popped;
   for (Type type : block.getArgumentTypes())
@@ -274,6 +323,8 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
                            write.getIndex(), &uses, true)))
         return failure();
     } else if (auto call = dyn_cast<CallOp>(op)) {
+      if (isArm)
+        return call.emitOpError("conditional calls require sampled admission");
       if (failed(verifyAttributes(call, {"receiver", "interface"})))
         return failure();
       if (call.getReceiverAttr()) {
@@ -284,16 +335,37 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       } else if (failed(bindMethod(call, uses))) {
         return failure();
       }
+    } else if (auto branch = dyn_cast<IfOp>(op)) {
+      if (failed(verifyAttributes(branch, {})))
+        return failure();
+      if (!isBitOne(hardware, branch.getPredicate().getType(), branch))
+        return branch.emitOpError("condition requires one bit");
+      for (Type type : branch.getResultTypes())
+        if (failed(verifyValueType(hardware, type, branch, /*allowTable=*/true)))
+          return failure();
+      unsigned firstWrite = uses.writes.size();
+      for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
+        if (failed(verifyBody(branch, arm->front(), uses, rule)))
+          return failure();
+      SmallVector<unsigned> written(uses.writes.begin() + firstWrite,
+                                    uses.writes.end());
+      if (failed(budget.debit(written.size(), branch)))
+        return failure();
+      llvm::sort(written);
+      written.erase(std::unique(written.begin(), written.end()), written.end());
+      plan.conditionalWrites.insert(written.begin(), written.end());
+      plan.branchWrites.try_emplace(branch, std::move(written));
     } else if (isa<YieldOp>(op)) {
       if (failed(verifyAttributes(&op, {})))
         return failure();
     } else {
-      if (!isCombinational(&op) && !isa<ac::TableGetOp>(op))
+      if (!isCombinational(&op) && !isa<ac::TableGetOp, ac::TableSplatOp>(op))
         return op.emitOpError("operation is unavailable in a clocked GFIR body");
       if (failed(hardware.verifyResolvedOperation(&op, {})))
         return failure();
       for (Type type : op.getResultTypes())
-        if (failed(verifyValueType(hardware, type, &op)))
+        if (failed(verifyValueType(hardware, type, &op,
+                                   /*allowTable=*/isa<ac::TableSplatOp>(op))))
           return failure();
     }
   }
@@ -364,14 +436,23 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
   llvm::SmallDenseSet<unsigned> popped;
   for (Operation &op : module.getBody().front()) {
     if (auto call = dyn_cast<CallOp>(op); call && call.getInterfaceAttr()) {
-      if (failed(verifyAttributes(call, {"receiver", "interface"})) ||
-          failed(bindFifo(call, std::nullopt, popped)))
+      auto receiver = call.getReceiverAttr();
+      auto memory = receiver ? memories.find(receiver.getValue()) : memories.end();
+      if (memory != memories.end()) {
+        if (failed(bindRawMemory(call, memory->second)))
+          return failure();
+      } else if (failed(verifyAttributes(call, {"receiver", "interface"})) ||
+                 failed(bindFifo(call, std::nullopt, popped))) {
         return failure();
+      }
     } else if (auto read = dyn_cast<ReadOp>(op)) {
       if (failed(bindState(read, read.getStateAttr(), read.getValue(), {}, nullptr, false)))
         return failure();
     }
   }
+  for (const auto &memory : plan.memories)
+    if (!memory.raw)
+      return memory.instance->emitOpError("raw Memory instance requires a graph binding");
   for (auto [index, method] : llvm::enumerate(plan.methods)) {
     for (Type type : method.getFunctionType().getResults())
       if (failed(verifyValueType(hardware, type, method)))
@@ -416,10 +497,10 @@ bool hasGeneratedDomain(RootOp root) {
 
 LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
                                    const ac::HardwareAnalysis &hardware) {
-  if (failed(verifyAttributes(primitive, {"sym_name", "kind", "version", "element",
-                                         "depth", "latency", "ready_policy"})))
+  if (failed(verifyAttributes(primitive, {"sym_name", "native_kind", "version",
+                                         "element", "depth", "latency", "ready_policy"})))
     return failure();
-  if (primitive.getKind() != "fifo" || primitive.getVersion() != 1)
+  if (primitive.getNativeKind() != "fifo" || primitive.getVersion() != 1)
     return primitive.emitOpError("clocked GFIR supports native FIFO version 1");
   auto element = primitive->getAttrOfType<TypeAttr>("element");
   auto policy = primitive->getAttrOfType<StringAttr>("ready_policy");
@@ -431,6 +512,36 @@ LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
       (policy.getValue() != "local_occupancy" && policy.getValue() != "downstream_pop"))
     return primitive.emitOpError("FIFO requires element, positive i64 depth/latency and ready_policy");
   return verifyValueType(hardware, element.getValue(), primitive);
+}
+
+FailureOr<StructuredMemory>
+describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
+  if (failed(verifyAttributes(primitive, {"sym_name", "native_kind", "version",
+                                         "element", "kind", "depth", "access"})))
+    return failure();
+  auto kind = primitive->getAttrOfType<StringAttr>("kind");
+  auto element = primitive->getAttrOfType<TypeAttr>("element");
+  auto access = primitive->getAttrOfType<StringAttr>("access");
+  auto depth = primitive->getAttrOfType<IntegerAttr>("depth");
+  if (primitive.getVersion() != 1 || !kind ||
+      (kind.getValue() != "sync_mem" && kind.getValue() != "sync_mem_dp" &&
+       kind.getValue() != "byte_mem") ||
+      !access || access.getValue() != "raw" || !element ||
+      !depth || !depth.getType().isSignlessInteger(64) || depth.getInt() <= 0)
+    return primitive.emitOpError("expected raw Memory v1 with kind, element and positive i64 depth");
+  auto type = element.getValue();
+  if (failed(verifyValueType(hardware, type, primitive)))
+    return failure();
+  auto width = hardware.getPackedWidth(type, {}, primitive);
+  if (failed(width))
+    return failure();
+  if (*width == 0 || *width > std::numeric_limits<unsigned>::max() ||
+      (kind.getValue() == "byte_mem" && *width % 8 != 0))
+    return primitive.emitOpError("Memory payload has an unsupported packed width");
+  uint64_t size = depth.getValue().getZExtValue();
+  return StructuredMemory{InstanceOp{}, type, kind.getValue(), size,
+                          std::max(1u, llvm::Log2_64_Ceil(size)),
+                          unsigned(*width / 8 + (*width % 8 != 0)), CallOp{}};
 }
 
 FailureOr<StructuredClocked>

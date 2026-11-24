@@ -26,6 +26,7 @@ std::string ruleName(unsigned index) { return "pyc_rule_" + std::to_string(index
 std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string(index); }
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
 std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
+std::string intentName(unsigned index) { return "pyc_intent_" + std::to_string(index); }
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
@@ -147,7 +148,12 @@ private:
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredClocked &clocked,
-                         bool ruleResults = false);
+                         bool ruleResults = false,
+                         const llvm::DenseMap<Value, std::string> *outer = nullptr);
+  LogicalResult emitBranch(raw_ostream &out, gfir::IfOp branch,
+                           const gfir::StructuredClocked &clocked,
+                           const llvm::DenseMap<Value, std::string> &values,
+                           ArrayRef<std::string> results);
   LogicalResult declareClocked(raw_ostream &out, const gfir::StructuredClocked &clocked);
   FailureOr<std::string> recipient(const gfir::StructuredDefinition &definition,
                                     const gfir::StructuredFifo &fifo,
@@ -161,6 +167,8 @@ private:
                                  const gfir::StructuredDefinition &definition);
   LogicalResult emitPreparation(raw_ostream &out, const gfir::StructuredDefinition &definition,
                                 StringRef clock);
+  LogicalResult prepareMemory(raw_ostream &out, const gfir::StructuredDefinition &definition,
+                              const gfir::StructuredMemory &memory, StringRef clock);
   LogicalResult emitLifecycle(raw_ostream &out, const gfir::StructuredDefinition &definition,
                               StringRef name);
 
@@ -169,6 +177,7 @@ private:
   HardwareEmitContext common;
   llvm::StringMap<unsigned> groups;
   FinalCppSourceParts parts;
+  unsigned nextBranch = 0;
 };
 
 FailureOr<std::string>
@@ -206,6 +215,25 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
     if (failed(ready))
       return failure();
     return read + ".ready(" + *ready + ").packed()";
+  }
+  if (wire.memory) {
+    const auto &memory = definition.clocked->memories[*wire.memory];
+    auto name = instanceName(memory.instance);
+    if (failed(name))
+      return failure();
+    std::string read = instancePrefix.str() + *name;
+    if (memory.asynchronous()) {
+      auto raw = memory.raw;
+      auto address = graphWire(raw.getInputs().front(), definition, raw);
+      if (failed(address))
+        return failure();
+      read += ".read(" + *address + ")";
+    } else {
+      unsigned port = cast<OpResult>(wire.endpoint.value).getResultNumber();
+      read += ".result(" + std::to_string(port) + ")";
+    }
+    return "gfsim::extract<" + std::to_string(wire.width) + ">(" + read +
+           ".packed(), " + std::to_string(wire.low) + ")";
   }
   if (wire.state)
     return "gfsim::extract<" + std::to_string(wire.width) + ">(" +
@@ -485,8 +513,9 @@ FailureOr<std::string> methodName(gfir::MethodOp method) {
 
 LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredClocked &clocked,
-                                          bool ruleResults) {
-  llvm::DenseMap<Value, std::string> values;
+                                          bool ruleResults,
+                                          const llvm::DenseMap<Value, std::string> *outer) {
+  llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
   for (Operation &op : body) {
@@ -498,7 +527,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       values.try_emplace(result, results.back());
     }
     std::string text;
-    if (auto call = dyn_cast<gfir::CallOp>(op)) {
+    if (auto branch = dyn_cast<gfir::IfOp>(op)) {
+      if (failed(emitBranch(out, branch, clocked, values, results)))
+        return failure();
+      continue;
+    } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       auto use = clocked.fifoCalls.find(call);
       if (use != clocked.fifoCalls.end()) {
         const auto &fifo = clocked.fifos[use->second.fifo];
@@ -522,8 +555,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       auto state = stateName(clocked.stateAccesses.lookup(read));
       text = "txn." + state + " ? *txn." + state + " : " + state + ".value()";
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
-      auto state = stateName(clocked.stateAccesses.lookup(write));
+      unsigned index = clocked.stateAccesses.lookup(write);
+      auto state = stateName(index);
       std::string frame = "txn." + state;
+      if (clocked.conditionalWrites.contains(index))
+        out << "    txn." << intentName(index) << " = " << levelName << "(true);\n";
       if (write.getIndex()) {
         out << "    if (!" << frame << ") " << frame << ".emplace(" << state
             << ".value());\n";
@@ -559,6 +595,87 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
   return success();
 }
 
+LogicalResult BehavioralEmitter::emitBranch(
+    raw_ostream &out, gfir::IfOp branch, const gfir::StructuredClocked &clocked,
+    const llvm::DenseMap<Value, std::string> &values,
+    ArrayRef<std::string> results) {
+  const auto suffix = std::to_string(nextBranch++);
+  const auto thenName = "pyc_then_" + suffix;
+  const auto elseName = "pyc_else_" + suffix;
+  const auto thenFrame = "pyc_then_frame_" + suffix;
+  const auto elseFrame = "pyc_else_frame_" + suffix;
+  const auto thenValue = "pyc_then_value_" + suffix;
+  const auto elseValue = "pyc_else_value_" + suffix;
+  const auto predicate = values.lookup(branch.getPredicate());
+  for (auto [arm, name] : {std::pair{&branch.getThenBody(), thenName},
+                          std::pair{&branch.getElseBody(), elseName}}) {
+    out << "    const auto " << name << " = [&](auto &txn) {\n";
+    if (failed(emitBody(out, arm->front(), clocked, false, &values)))
+      return failure();
+    out << "    };\n";
+  }
+  for (auto [index, result] : llvm::enumerate(branch.getResults())) {
+    auto type = typedWire(result.getType(), branch);
+    if (failed(type))
+      return failure();
+    out << "    " << *type << ' ' << results[index] << ";\n";
+  }
+  auto assign = [&](StringRef arm) {
+    out << "      ";
+    if (results.size() == 1)
+      out << results.front() << " = ";
+    else if (!results.empty())
+      out << "std::tie(" << join(results, ", ") << ") = ";
+    out << arm << "(txn);\n";
+  };
+  out << "    if (" << predicate << ".isFullyKnown()) {\n"
+      << "      if (" << predicate << ".value().toBool()) {\n";
+  assign(thenName);
+  out << "      } else {\n";
+  assign(elseName);
+  out << "      }\n    } else {\n"
+      << "      auto " << thenFrame << " = txn;\n"
+      << "      auto " << elseFrame << " = txn;\n"
+      << "      ";
+  if (!results.empty())
+    out << "const auto " << thenValue << " = ";
+  out << thenName << '(' << thenFrame << ");\n      ";
+  if (!results.empty())
+    out << "const auto " << elseValue << " = ";
+  out << elseName << '(' << elseFrame << ");\n";
+  for (unsigned state : clocked.branchWrites.find(branch)->second) {
+    auto variable = clocked.variables[state];
+    auto type = typedWire(variable.getInitial().getType(), variable);
+    if (failed(type))
+      return failure();
+    auto candidate = [&](StringRef frame) {
+      auto slot = frame.str() + '.' + stateName(state);
+      return "(" + slot + " ? *" + slot + " : " + stateName(state) + ".value()).packed()";
+    };
+    out << "      txn." << stateName(state) << " = " << *type
+        << "::fromPacked(gfsim::select(" << predicate << ".packed(), "
+        << candidate(thenFrame) << ", " << candidate(elseFrame) << "));\n"
+        << "      txn." << intentName(state)
+        << " = gfsim::behavior::Level::fromPacked(gfsim::select(" << predicate
+        << ".packed(), " << thenFrame << '.' << intentName(state) << ".packed(), "
+        << elseFrame << '.' << intentName(state) << ".packed()));\n";
+  }
+  for (auto [index, result] : llvm::enumerate(branch.getResults())) {
+    auto type = typedWire(result.getType(), branch);
+    if (failed(type))
+      return failure();
+    auto returned = [&](StringRef arm) {
+      return results.size() == 1 ? arm.str()
+          : "std::get<" + std::to_string(index) + ">(" + arm.str() + ")";
+    };
+    out << "      " << results[index] << " = " << *type
+        << "::fromPacked(gfsim::select(" << predicate << ".packed(), "
+        << returned(thenValue) << ".packed(), " << returned(elseValue) << ".packed()));\n";
+  }
+  out << "    }\n";
+  return success();
+}
+
 LogicalResult
 BehavioralEmitter::declareClocked(raw_ostream &out,
                                  const gfir::StructuredClocked &clocked) {
@@ -573,6 +690,17 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
         << ", gfsim::QueueReadyPolicy::"
         << (fifo.downstreamPop ? "DownstreamPop" : "LocalOccupancy") << ", "
         << fifo.latency << "> " << *name << ";\n";
+  }
+  for (const auto &memory : clocked.memories) {
+    auto name = instanceName(memory.instance);
+    auto type = common.cppType(memory.element, memory.instance);
+    if (failed(name) || failed(type))
+      return failure();
+    out << "  gfsim::behavior::" << (memory.asynchronous() ? "ByteMemory" : "SyncMemory")
+        << '<' << *type << ", " << memory.addressWidth << ", " << memory.depth;
+    if (!memory.asynchronous())
+      out << ", " << memory.readPorts();
+    out << "> " << *name << ";\n";
   }
   for (unsigned index = 0; index < clocked.variables.size(); ++index) {
     auto variable = clocked.variables[index];
@@ -613,6 +741,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       if (failed(wire))
         return failure();
       out << "    std::optional<" << *wire << "> " << stateName(state) << ";\n";
+      if (clocked.conditionalWrites.contains(state))
+        out << "    gfsim::behavior::Level " << intentName(state)
+            << " = " << levelName << "(false);\n";
     }
     for (auto [fifoId, fifo] : llvm::enumerate(clocked.fifos)) {
       if (fifo.producer != index)
@@ -753,11 +884,16 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
     }
     for (unsigned index = 0; index < plan.rules.size(); ++index)
       needed.push_back(definition.wires.size() + index);
+    auto needInputs = [&](gfir::CallOp call) {
+      if (call)
+        for (Value input : call.getInputs())
+          needed.append(definition.valueWires.find(input)->second);
+    };
     for (const auto &fifo : plan.fifos)
       for (auto call : {fifo.rawInput, fifo.rawOutput})
-        if (call)
-          for (Value input : call.getInputs())
-            needed.append(definition.valueWires.find(input)->second);
+        needInputs(call);
+    for (const auto &memory : plan.memories)
+      needInputs(memory.raw);
   }
   for (unsigned index = 0; index < definition.clockedCalls.size(); ++index)
     needed.push_back(definition.firstClockedCallNode() + index);
@@ -800,6 +936,9 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
     out << "    " << *name << ".prepare(" << clock << ", pyc_reset, "
         << enabled << ", " << data << ", " << *outReady << ");\n";
   }
+  for (const auto &memory : plan.memories)
+    if (failed(prepareMemory(out, definition, memory, clock)))
+      return failure();
   if (!hasState)
     return success();
 
@@ -817,13 +956,47 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
   for (unsigned index = 0; index < plan.variables.size(); ++index) {
     out << "        " << stateName(index);
     if (auto writer = writers.find(index); writer != writers.end()) {
-      out << ".prepare(" << wireName(definition.wires.size() + writer->second)
+      std::string enabled = wireName(definition.wires.size() + writer->second);
+      if (plan.conditionalWrites.contains(index))
+        enabled = "gfsim::behavior::Level::fromPacked(gfsim::bit_and(" + enabled +
+                  ".packed(), " + frameName(writer->second) + '.' + intentName(index) + ".packed()))";
+      out << ".prepare(" << enabled
           << ", " << frameName(writer->second) << '.' << stateName(index) << ");\n";
     } else {
       out << ".hold();\n";
     }
   }
   out << "      }\n    }\n";
+  return success();
+}
+
+LogicalResult BehavioralEmitter::prepareMemory(
+    raw_ostream &out, const gfir::StructuredDefinition &definition,
+    const gfir::StructuredMemory &memory, StringRef clock) {
+  auto name = instanceName(memory.instance);
+  if (failed(name))
+    return failure();
+  auto raw = memory.raw;
+  SmallVector<std::string> inputs;
+  for (Value value : raw.getInputs()) {
+    auto input = graphWire(value, definition, raw);
+    if (failed(input))
+      return failure();
+    inputs.push_back(std::move(*input));
+  }
+  out << "    " << *name << ".prepare(" << clock << ", pyc_reset, ";
+  if (memory.asynchronous()) {
+    out << inputs.front() << ", ";
+  } else {
+    SmallVector<std::string> enabled, addresses;
+    for (unsigned port = 0; port < memory.readPorts(); ++port) {
+      enabled.push_back(inputs[2 * port]);
+      addresses.push_back(inputs[2 * port + 1]);
+    }
+    out << '{' << join(enabled, ", ") << "}, {" << join(addresses, ", ") << "}, ";
+  }
+  out << join(ArrayRef<std::string>(inputs).drop_front(memory.writeOffset()), ", ")
+      << ");\n";
   return success();
 }
 
@@ -842,6 +1015,12 @@ LogicalResult BehavioralEmitter::emitLifecycle(
       const auto &plan = *definition.clocked;
       for (const auto &fifo : plan.fifos) {
         auto member = instanceName(fifo.instance);
+        if (failed(member))
+          return failure();
+        out << "  " << *member << '.' << action << "();\n";
+      }
+      for (const auto &memory : plan.memories) {
+        auto member = instanceName(memory.instance);
         if (failed(member))
           return failure();
         out << "  " << *member << '.' << action << "();\n";
@@ -1049,6 +1228,11 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   for (auto record : analysis.getStructs()) {
     auto name = qualifiedName(record.getSymName(), record);
     if (failed(name) || failed(names.insert(*name, record)))
+      return failure();
+  }
+  for (auto enumeration : analysis.getPackage().getOps<ac::EnumOp>()) {
+    auto name = qualifiedName(enumeration.getSymName(), enumeration);
+    if (failed(name) || failed(names.insert(*name, enumeration)))
       return failure();
   }
   for (const auto &definition : program.definitions) {
