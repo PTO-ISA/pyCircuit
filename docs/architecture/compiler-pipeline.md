@@ -77,8 +77,12 @@ pycircuit-emit final.mlir --target verilog > rtl.json
 The profile supports Bits and Struct combinational graphs. A clocked Module
 root may declare one generated rising `default` domain. The root supports
 native FIFO v1, logical variables of Bits, Struct, or rank-one Table type,
-straight-line Rules with signature `() -> ()`, and local Methods called with
-`gfir.call self["interface"]`. An indexed write spells the index type inside
+straight-line Rules, and local Methods called with
+`gfir.call self["interface"]`. A Rule explicitly captures a graph value with
+`%arg = %actual : T`. The verifier schedules captured graph fields before
+the Rule and exposes snapshots of its declared results as
+`gfir.result @rule[0] : T` when its resource admission is unconditional.
+An indexed write spells the index type inside
 the brackets, as in `gfir.write @entries[%i : !Index], %entry : !Entry`.
 The optional `execution_policy` on `gfir.root` selects `strict` or `if_one`
 reset interpretation and projects to `ac.execution_policy` on the HWIR root.
@@ -87,8 +91,9 @@ Both native branches verify the structured input. The hardware branch also
 verifies the generated HWIR and requests managed sampling for a clocked root.
 Behavior C++ derives admission from committed resource state and gives each
 Rule its own candidate frame. When the root owns logical variables, it samples
-their shared clock history once. Rule proposals in this profile are needed on
-non-reset rising edges. Held and falling samples still publish old-state
+their shared clock history once. A Rule whose result is used runs in Work so
+its snapshot is visible at each sample. Rules that only prepare effects can
+wait for a non-reset rising edge. Held and falling samples still publish
 outputs and advance committed clock history. FIFO drives go through the same
 gfsim kernel on every sample.
 
@@ -99,6 +104,6 @@ check before any commit. The hand-written
 `TableRule` package uses the original C++ driver against both generated
 models. It covers backpressure, four-state Table indices, rollback, and reset.
 
-RAM, System roots, cross-instance Methods, and Rule captures/results are
+RAM, System roots, cross-instance Methods, and resource-gated Rule results are
 subsequent work. Python source compilation uses the routed GFIR and saved-anchor
 contract. See [known limitations](../development/known-limitations.md).

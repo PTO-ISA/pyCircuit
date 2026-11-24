@@ -33,6 +33,7 @@ private:
   LogicalResult makeModule();
   LogicalResult allocate();
   LogicalResult cloneGraph();
+  LogicalResult bindGraph();
   LogicalResult lowerRules();
   FailureOr<SmallVector<Value>> lowerBody(Block &body, ValueRange inputs,
                                          SmallVector<Value> &candidates,
@@ -271,7 +272,8 @@ LogicalResult ClockedMaterializer::allocate() {
 
 LogicalResult ClockedMaterializer::cloneGraph() {
   for (Operation &op : source.getBody().front()) {
-    if (isa<gfir::InstanceOp, gfir::VarOp, gfir::RuleOp, gfir::MethodOp, gfir::YieldOp>(op))
+    if (isa<gfir::InstanceOp, gfir::VarOp, gfir::RuleOp, gfir::MethodOp,
+            gfir::ResultOp, gfir::YieldOp>(op))
       continue;
     if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       graph.map(read.getValue(), states[plan.stateAccesses.lookup(read)]->getResult(0));
@@ -306,6 +308,10 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     for (auto [from, to] : llvm::zip(op.getResults(), copy->getResults()))
       graph.map(from, to);
   }
+  return success();
+}
+
+LogicalResult ClockedMaterializer::bindGraph() {
   for (auto [original, copy] : graphOperations) {
     SmallVector<Value> operands;
     for (Value operand : original->getOperands()) {
@@ -440,8 +446,18 @@ LogicalResult ClockedMaterializer::lowerRules() {
       local.push_back(state->getResult(0));
     IRMapping mapping;
     auto rule = plan.rules[index].operation;
-    if (failed(lowerBody(rule.getBody().front(), {}, local, mapping)))
+    SmallVector<Value> inputs;
+    for (Value capture : rule.getCaptures()) {
+      Value input = graph.lookupOrNull(capture);
+      if (!input)
+        return rule.emitOpError("missing verified Rule capture in clocked refinement");
+      inputs.push_back(input);
+    }
+    auto results = lowerBody(rule.getBody().front(), inputs, local, mapping);
+    if (failed(results))
       return failure();
+    for (gfir::ResultOp result : plan.rules[index].resultUses)
+      graph.map(result.getValue(), (*results)[result.getOrdinalAttr().getInt()]);
     for (unsigned state : plan.rules[index].writes)
       candidates[state] = local[state];
   }
@@ -499,7 +515,7 @@ LogicalResult ClockedMaterializer::run() {
     if (failed(addPrimitive(fifo.downstreamPop ? "fifo_downstream_pop" : "fifo_local")))
       return failure();
   if (failed(makeModule()) || failed(allocate()) || failed(cloneGraph()) ||
-      failed(lowerRules()) || failed(bindStorage()))
+      failed(lowerRules()) || failed(bindGraph()) || failed(bindStorage()))
     return failure();
   return success();
 }

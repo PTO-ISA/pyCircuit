@@ -45,6 +45,7 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> states;
   llvm::SmallVector<unsigned> writes;
   llvm::SmallVector<unsigned> dependencies;
+  llvm::SmallVector<ResultOp> resultUses;
 };
 
 struct StructuredClocked {
@@ -66,6 +67,7 @@ struct StructuredWire {
   std::optional<StructuredCall> call;
   std::optional<std::pair<unsigned, StructuredFifoQuery>> fifoQuery;
   std::optional<unsigned> state;
+  std::optional<std::pair<unsigned, unsigned>> ruleResult;
 };
 
 struct StructuredOutput {
@@ -77,7 +79,7 @@ struct StructuredOutput {
 struct StructuredDefinition {
   ModuleOp module;
   llvm::SmallVector<StructuredWire, 0> wires;
-  /// Entries after the wire IDs (wires.size() + i) evaluate Rule i's grant.
+  /// Entries after the wire IDs (wires.size() + i) admit and evaluate Rule i.
   llvm::SmallVector<unsigned> order;
   llvm::SmallVector<StructuredOutput> outputs;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;

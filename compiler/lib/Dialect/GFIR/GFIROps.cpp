@@ -6,6 +6,7 @@
 #include "IR/StateDeclarationContracts.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 
@@ -23,14 +24,30 @@ bool isValueOwner(Operation *op) {
   return isa<ModuleOp>(op) || isOrderedOwner(op);
 }
 
-ParseResult parseOrderedCallable(OpAsmParser &parser, OperationState &result) {
+ParseResult parseOrderedCallable(OpAsmParser &parser, OperationState &result,
+                                 bool bindsCaptures = false) {
   StringAttr name;
   SmallVector<OpAsmParser::Argument> arguments;
   SmallVector<Type> resultTypes;
-  if (parser.parseSymbolName(name, "sym_name", result.attributes) ||
-      parser.parseArgumentList(arguments, OpAsmParser::Delimiter::Paren,
-                               /*allowType=*/true) ||
-      parser.parseArrowTypeList(resultTypes) ||
+  if (parser.parseSymbolName(name, "sym_name", result.attributes))
+    return failure();
+  if (bindsCaptures) {
+    if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&]() -> ParseResult {
+          OpAsmParser::Argument argument;
+          OpAsmParser::UnresolvedOperand capture;
+          if (parser.parseArgument(argument) || parser.parseEqual() ||
+              parser.parseOperand(capture) || parser.parseColonType(argument.type) ||
+              parser.resolveOperand(capture, argument.type, result.operands))
+            return failure();
+          arguments.push_back(argument);
+          return success();
+        }))
+      return failure();
+  } else if (parser.parseArgumentList(arguments, OpAsmParser::Delimiter::Paren,
+                                       /*allowType=*/true)) {
+    return failure();
+  }
+  if (parser.parseArrowTypeList(resultTypes) ||
       parser.parseOptionalAttrDictWithKeyword(result.attributes))
     return failure();
   SmallVector<Type> inputs;
@@ -43,13 +60,21 @@ ParseResult parseOrderedCallable(OpAsmParser &parser, OperationState &result) {
 }
 
 void printOrderedCallable(OpAsmPrinter &printer, Operation *op,
-                          StringRef name, FunctionType type, Region &body) {
+                          StringRef name, FunctionType type, Region &body,
+                          ValueRange captures = {}) {
   printer << ' ';
   printer.printSymbolName(name);
   printer << '(';
   llvm::interleaveComma(body.front().getArguments(), printer,
                         [&](BlockArgument argument) {
-                          printer.printRegionArgument(argument);
+                          if (argument.getArgNumber() < captures.size()) {
+                            printer.printOperand(argument);
+                            printer << " = ";
+                            printer.printOperand(captures[argument.getArgNumber()]);
+                            printer << " : " << argument.getType();
+                          } else {
+                            printer.printRegionArgument(argument);
+                          }
                         });
   printer << ") -> (";
   llvm::interleaveComma(type.getResults(), printer,
@@ -314,19 +339,42 @@ void WriteOp::getEffects(
 }
 
 ParseResult RuleOp::parse(OpAsmParser &parser, OperationState &result) {
-  return parseOrderedCallable(parser, result);
+  return parseOrderedCallable(parser, result, /*bindsCaptures=*/true);
 }
 
 void RuleOp::print(OpAsmPrinter &printer) {
-  printOrderedCallable(printer, *this, getSymName(), getFunctionType(), getBody());
+  printOrderedCallable(printer, *this, getSymName(), getFunctionType(), getBody(),
+                       getCaptures());
 }
 
 LogicalResult RuleOp::verify() {
+  if (!llvm::equal(getCaptures().getTypes(), getFunctionType().getInputs()))
+    return emitOpError("capture types must match the Rule inputs");
+  if (llvm::any_of(getCaptures(), [&](Value capture) {
+        return capture.getParentBlock() != (*this)->getBlock();
+      }))
+    return emitOpError("captures must be values in the owning Module graph");
   return verifyOrderedCallable(*this, getFunctionType(), getBody());
 }
 
 LogicalResult RuleOp::verifyRegions() {
   return verifyOrderedTerminator(*this, getBody());
+}
+
+LogicalResult ResultOp::verify() {
+  Operation *owner = (*this)->getParentOp();
+  if (!isa<ModuleOp>(owner))
+    return emitOpError("requires direct gfir.module placement");
+  auto rule = dyn_cast_or_null<RuleOp>(
+      SymbolTable::lookupSymbolIn(owner, getRuleAttr()));
+  if (!rule)
+    return emitOpError("requires a local autonomous Rule");
+  int64_t ordinal = getOrdinalAttr().getInt();
+  if (ordinal < 0 || uint64_t(ordinal) >= rule.getFunctionType().getNumResults())
+    return emitOpError("result ordinal is outside the Rule signature");
+  if (getValue().getType() != rule.getFunctionType().getResult(ordinal))
+    return emitOpError("result type must match the Rule signature");
+  return success();
 }
 
 ParseResult MethodOp::parse(OpAsmParser &parser, OperationState &result) {

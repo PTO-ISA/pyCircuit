@@ -89,11 +89,19 @@ def GFIR_RuleOp : GFIR_Op<"rule", [Symbol, IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Register an ordered autonomous transaction";
   let arguments = (ins SymbolNameAttr:$sym_name,
-      TypeAttrOf<FunctionType>:$function_type);
+      TypeAttrOf<FunctionType>:$function_type, Variadic<AnyType>:$captures);
   let regions = (region AnyRegion:$body);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
+}
+
+def GFIR_ResultOp : GFIR_Op<"result"> {
+  let summary = "Refer to a result of this module's autonomous Rule";
+  let arguments = (ins FlatSymbolRefAttr:$rule, I64Attr:$ordinal);
+  let results = (outs AnyType:$value);
+  let assemblyFormat = "$rule `[` $ordinal `]` attr-dict `:` type($value)";
+  let hasVerifier = 1;
 }
 
 def GFIR_MethodOp : GFIR_Op<"method", [Symbol, IsolatedFromAbove,

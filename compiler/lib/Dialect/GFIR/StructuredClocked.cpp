@@ -117,7 +117,7 @@ LogicalResult ClockedAnalyzer::collect() {
       methods.try_emplace(method.getSymName(), plan.methods.size());
       plan.methods.push_back(method);
     } else if (auto rule = dyn_cast<RuleOp>(op)) {
-      plan.rules.push_back({rule, {}, {}, {}, {}});
+      plan.rules.push_back({rule, {}, {}, {}, {}, {}});
     }
   }
   return success();
@@ -380,10 +380,11 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
       return failure();
   }
   for (auto [index, rule] : llvm::enumerate(plan.rules)) {
-    auto type = rule.operation.getFunctionType();
-    if (type.getNumInputs() || type.getNumResults())
-      return rule.operation.emitOpError("clocked GFIR Rules in this profile require () -> ()");
-    if (failed(verifyBody(rule.operation, rule.operation.getBody().front(),
+    auto operation = rule.operation;
+    for (Type type : operation.getFunctionType().getResults())
+      if (failed(verifyValueType(hardware, type, operation)))
+        return failure();
+    if (failed(verifyBody(operation, operation.getBody().front(),
                           ruleUses[index], unsigned(index))))
       return failure();
   }

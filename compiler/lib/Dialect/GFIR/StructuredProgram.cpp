@@ -141,6 +141,11 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     if (isa<InstanceOp>(op) ||
         (clocked && isa<VarOp, MethodOp, RuleOp, ReadOp>(op)))
       continue;
+    if (clocked && isa<ResultOp>(op)) {
+      if (failed(verifyAttributes(&op, {"rule", "ordinal"})))
+        return failure();
+      continue;
+    }
     if (isa<YieldOp>(op)) {
       if (failed(verifyAttributes(&op, {})))
         return failure();
@@ -237,7 +242,7 @@ LogicalResult Analyzer::addValue(StructuredDefinition &definition, Value value) 
       return failure();
     ids.push_back(definition.wires.size());
     definition.wires.push_back(
-        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}});
+        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}, {}});
   }
   return success();
 }
@@ -298,11 +303,20 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   StructuredDefinition definition;
   definition.module = module;
   auto &body = module.getBody().front();
+  llvm::StringMap<unsigned> rules;
   if (module == clockedModule) {
     auto plan = detail::analyzeClocked(module, hardware, budget);
     if (failed(plan))
       return failure();
     definition.clocked = std::move(*plan);
+    for (auto [index, rule] : llvm::enumerate(definition.clocked->rules))
+      rules.try_emplace(rule.operation.getSymName(), index);
+    for (auto output : body.getOps<ResultOp>()) {
+      auto &rule = definition.clocked->rules[rules.lookup(output.getRuleAttr().getValue())];
+      if (!rule.requirements.empty())
+        return output.emitOpError("resource-gated Rule results require availability lowering");
+      rule.resultUses.push_back(output);
+    }
   }
   for (Value value : body.getArguments())
     if (failed(addValue(definition, value)))
@@ -350,6 +364,10 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       }
     } else if (auto read = dyn_cast_or_null<ReadOp>(op)) {
       wire.state = definition.clocked->stateAccesses.lookup(read);
+    } else if (auto output = dyn_cast_or_null<ResultOp>(op)) {
+      unsigned rule = rules.lookup(output.getRuleAttr().getValue());
+      wire.ruleResult = std::pair(rule, unsigned(output.getOrdinalAttr().getInt()));
+      wire.dependencies.push_back(definition.wires.size() + rule);
     } else if (op) {
       auto computed = hardware.getDependencies(endpoint.value, endpoint.path, {}, debit);
       if (failed(computed))
@@ -369,6 +387,14 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   if (definition.clocked) {
     for (auto [index, rule] : llvm::enumerate(definition.clocked->rules)) {
       unsigned grant = definition.wires.size() + index;
+      for (Value capture : rule.operation.getCaptures()) {
+        auto fields = definition.valueWires.find(capture);
+        if (fields == definition.valueWires.end())
+          return rule.operation.emitOpError("capture must have graph field dependencies");
+        if (failed(budget.debit(fields->second.size(), rule.operation)))
+          return failure();
+        rule.dependencies.append(fields->second.begin(), fields->second.end());
+      }
       for (const auto &requirement : rule.requirements) {
         if (!requirement.requiresReady || requirement.ownPop)
           continue;
@@ -376,12 +402,16 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
             definition, definition.clocked->fifos[requirement.fifo], unsigned(index));
         if (failed(dependency))
           return failure();
-        if (*dependency) {
+        if (*dependency)
           rule.dependencies.push_back(**dependency);
-          dependents[**dependency].push_back(grant);
-          ++remaining[grant];
-        }
       }
+      llvm::sort(rule.dependencies);
+      rule.dependencies.erase(std::unique(rule.dependencies.begin(),
+                                           rule.dependencies.end()),
+                              rule.dependencies.end());
+      for (unsigned dependency : rule.dependencies)
+        dependents[dependency].push_back(grant);
+      remaining[grant] = rule.dependencies.size();
     }
   }
   auto order = getOrder(dependents, std::move(remaining), module,
