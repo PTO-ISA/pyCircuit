@@ -80,6 +80,13 @@ struct StructuredWritePath {
   unsigned width;
 };
 
+struct StructuredChildState {
+  InstanceOp receiver;
+  unsigned definition;
+  unsigned state;
+  std::optional<unsigned> writer;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -91,6 +98,7 @@ struct StructuredRule {
   llvm::SmallVector<EffectOp> assertions;
   bool sampled = false;
   bool readsByteMemory = false;
+  bool usesChildState = false;
   llvm::SmallVector<StructuredCheckSite> checks;
   mlir::Operation *afterSnapshot = nullptr;
 };
@@ -109,6 +117,7 @@ struct StructuredClocked {
   llvm::DenseMap<mlir::Operation *, unsigned> stateAccesses;
   llvm::DenseMap<mlir::Operation *, StructuredWritePath> writePaths;
   llvm::DenseMap<mlir::Operation *, unsigned> methodCalls;
+  llvm::DenseMap<mlir::Operation *, unsigned> childMethodCalls;
   /// Locally written state in either arm, including nested branches.
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<unsigned>> branchWrites;
   llvm::DenseSet<unsigned> conditionalWrites;
@@ -162,6 +171,8 @@ struct StructuredDefinition {
   llvm::SmallVector<StructuredOutputAvailability> outputAvailability;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;
   std::optional<StructuredClocked> clocked;
+  std::optional<StructuredChildState> childState;
+  std::optional<unsigned> incomingState;
   llvm::SmallVector<StructuredClockedCall> clockedCalls;
   llvm::SmallVector<unsigned> preparationInputs;
   uint64_t sourceCheckCount = 0;

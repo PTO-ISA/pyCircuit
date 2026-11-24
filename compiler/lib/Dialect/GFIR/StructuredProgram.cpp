@@ -36,6 +36,17 @@ bool isStructuredLeaf(Type type) {
   return isa<ac::BitsType, ac::EnumType>(type);
 }
 
+bool matchesSignature(CallOp call, FunctionType type) {
+  auto equivalent = [](TypeRange actual, TypeRange formal) {
+    return actual.size() == formal.size() &&
+           llvm::all_of(llvm::zip(actual, formal), [](auto pair) {
+             return ac::areEquivalentHardwareTypes(std::get<0>(pair), std::get<1>(pair));
+           });
+  };
+  return equivalent(call.getInputs().getTypes(), type.getInputs()) &&
+         equivalent(call.getOutputs().getTypes(), type.getResults());
+}
+
 } // namespace detail
 namespace {
 
@@ -92,6 +103,8 @@ private:
   llvm::StringMap<std::pair<unsigned, unsigned>> explicitInputs;
   LogicalResult verifyDefinition(ModuleOp module, bool clocked);
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
+  FailureOr<llvm::DenseMap<Operation *, unsigned>>
+  bindChildMethods(StructuredDefinition &definition);
   LogicalResult analyzeAvailability(StructuredDefinition &definition);
   FailureOr<SmallVector<unsigned>> orderDefinitions(ArrayRef<ModuleOp> modules);
   FailureOr<unsigned> findWire(const StructuredDefinition &definition,
@@ -112,6 +125,7 @@ private:
   ac::detail::SourceCheckBudget budget{{}};
   llvm::DenseMap<Operation *, unsigned> done;
   llvm::DenseMap<Operation *, InstanceOp> receivers;
+  llvm::DenseMap<Operation *, unsigned> allocations;
   llvm::DenseSet<Operation *> clockedModules;
   StructuredProgram result;
 };
@@ -167,6 +181,8 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
       bound.insert(instance);
     } else if (!isa_and_nonnull<ModuleOp>(callee)) {
       return instance.emitOpError("callee must be a defined Module or native primitive");
+    } else {
+      ++allocations[callee];
     }
     const bool inheritsClock = native || clockedModules.contains(callee);
     if (inheritsClock && !clocked && !explicitRoot)
@@ -243,18 +259,83 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
 
 LogicalResult Analyzer::bindCall(CallOp call,
                                  InstanceOp receiver, ModuleOp callee) {
-  auto type = callee.getFunctionType();
-  auto equivalent = [](TypeRange actual, TypeRange formal) {
-    return actual.size() == formal.size() &&
-           llvm::all_of(llvm::zip(actual, formal), [](auto pair) {
-             return ac::areEquivalentHardwareTypes(std::get<0>(pair), std::get<1>(pair));
-           });
-  };
-  if (!equivalent(call.getInputs().getTypes(), type.getInputs()) ||
-      !equivalent(call.getOutputs().getTypes(), type.getResults()))
+  if (!detail::matchesSignature(call, callee.getFunctionType()))
     return call.emitOpError("instance call type does not match callee signature");
   receivers.try_emplace(call, receiver);
   return success();
+}
+
+FailureOr<llvm::DenseMap<Operation *, unsigned>>
+Analyzer::bindChildMethods(StructuredDefinition &definition) {
+  llvm::DenseMap<Operation *, unsigned> calls;
+  auto module = definition.module;
+  if (module.getSymName() != result.root.getCalleeAttr().getValue())
+    return calls;
+  auto &body = module.getBody().front();
+  llvm::StringMap<InstanceOp> instances;
+  for (auto instance : body.getOps<InstanceOp>())
+    instances.try_emplace(instance.getSymName(), instance);
+  for (auto [index, rule] : llvm::enumerate(body.getOps<RuleOp>())) {
+    auto &ordered = rule.getBody().front();
+    bool usesChild = false;
+    for (auto call : ordered.getOps<CallOp>()) {
+      auto receiver = call.getReceiverAttr();
+      auto instance = receiver ? instances.lookup(receiver.getValue()) : InstanceOp();
+      if (!instance)
+        continue;
+      auto *callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
+      if (!isa_and_nonnull<ModuleOp>(callee))
+        continue;
+      if (!call.getInterfaceAttr())
+        return call.emitOpError("ordered instance call requires a Method name");
+      if (allocations.lookup(callee) != 1 || allocations.lookup(module) != 0 ||
+          (definition.childState && definition.childState->receiver != instance))
+        return call.emitOpError("child Method requires one directly allocated receiver on the selected root");
+      unsigned childIndex = done.lookup(callee);
+      const auto &child = result.definitions[childIndex].clocked;
+      if (!definition.childState) {
+        if (!child || child->variables.size() != 1)
+          return call.emitOpError("child Method requires one state on the default domain");
+        auto variable = child->variables.front();
+        if (!isa<ac::BitsType>(variable.getInitial().getType()))
+          return call.emitOpError("child Method requires Bits state");
+        if (llvm::any_of(child->rules, [](const StructuredRule &entry) {
+              return !entry.writes.empty();
+            }))
+          return call.emitOpError("child Method state overlaps a local Rule writer");
+        definition.childState = StructuredChildState{instance, childIndex, 0, {}};
+      }
+      if (failed(budget.debit(child->methods.size(), call)))
+        return failure();
+      auto found = llvm::find_if(child->methods, [&](MethodOp method) {
+        return method.getSymName() == call.getInterfaceAttr().getValue();
+      });
+      if (found == child->methods.end())
+        return call.emitOpError("interface must resolve to a Method on the actual receiver");
+      MethodOp method = *found;
+      if (!detail::matchesSignature(call, method.getFunctionType()))
+        return call.emitOpError("child Method operands and results must match its signature");
+      for (Operation &op : method.getBody().front()) {
+        if (failed(budget.debit(1 + uint64_t(op.getNumOperands()) + op.getNumResults(), call)))
+          return failure();
+        if (isa<WriteOp>(op)) {
+          auto &writer = definition.childState->writer;
+          if (writer && *writer != index)
+            return call.emitOpError("child state write overlaps another Rule");
+          writer = index;
+        } else if (!isa<ReadOp, YieldOp>(op) && !isCombinational(&op)) {
+          return call.emitOpError("child Method requires direct, guard-free state and value operations");
+        }
+      }
+      calls.try_emplace(call, unsigned(found - child->methods.begin()));
+      usesChild = true;
+    }
+    if (usesChild)
+      for (Operation &op : ordered)
+        if (isa<IfOp, LoopOp>(op) || (isa<CallOp>(op) && !calls.contains(&op)))
+          return op.emitOpError("child Method caller requires a direct ordered body");
+  }
+  return calls;
 }
 
 FailureOr<SmallVector<unsigned>>
@@ -475,7 +556,12 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   auto &body = module.getBody().front();
   llvm::StringMap<unsigned> rules;
   if (clockedModules.contains(module)) {
-    auto plan = detail::analyzeClocked(module, hardware, budget);
+    auto childMethods = bindChildMethods(definition);
+    if (failed(childMethods))
+      return failure();
+    auto writer = definition.childState ? definition.childState->writer : std::nullopt;
+    auto plan = detail::analyzeClocked(module, hardware, budget, std::move(*childMethods),
+                                       writer);
     if (failed(plan))
       return failure();
     definition.clocked = std::move(*plan);
@@ -575,6 +661,9 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
         return failure();
       prepare.dependencies.push_back(*parent);
     }
+    if (definition.childState && definition.childState->receiver == receiver &&
+        definition.childState->writer)
+      prepare.dependencies.push_back(definition.wires.size() + *definition.childState->writer);
   }
   size_t count = definition.firstClockedCallNode() + definition.clockedCalls.size();
   if (failed(budget.debit(definition.sourceCheckCount, module)))
@@ -750,6 +839,10 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
     for (unsigned input : preparationInputs.set_bits())
       definition.preparationInputs.push_back(input);
+  }
+  if (definition.childState) {
+    auto &child = *definition.childState;
+    result.definitions[child.definition].incomingState = child.state;
   }
   return definition;
 }

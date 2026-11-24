@@ -10,6 +10,7 @@ mlir::LogicalResult verifyAttributes(mlir::Operation *op,
                                      llvm::ArrayRef<llvm::StringRef> allowed);
 bool isCombinational(mlir::Operation *op);
 bool isStructuredLeaf(mlir::Type type);
+bool matchesSignature(CallOp call, mlir::FunctionType type);
 bool hasGeneratedDomain(RootOp root);
 mlir::LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
                                         const ac::HardwareAnalysis &hardware);
@@ -17,7 +18,9 @@ mlir::FailureOr<StructuredMemory>
 describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware);
 mlir::FailureOr<StructuredClocked>
 analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
-               ac::detail::SourceCheckBudget &budget);
+               ac::detail::SourceCheckBudget &budget,
+               llvm::DenseMap<mlir::Operation *, unsigned> childMethods,
+               std::optional<unsigned> childWriter);
 
 } // namespace acir::gfir::detail
 

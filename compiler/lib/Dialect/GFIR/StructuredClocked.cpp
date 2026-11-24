@@ -72,8 +72,12 @@ struct BodyUses {
 class ClockedAnalyzer {
 public:
   ClockedAnalyzer(ModuleOp module, const ac::HardwareAnalysis &hardware,
-                  ac::detail::SourceCheckBudget &budget)
-      : module(module), hardware(hardware), budget(budget) {}
+                  ac::detail::SourceCheckBudget &budget,
+                  llvm::DenseMap<Operation *, unsigned> childMethods,
+                  std::optional<unsigned> childWriter)
+      : module(module), hardware(hardware), budget(budget), childWriter(childWriter) {
+    plan.childMethodCalls = std::move(childMethods);
+  }
   FailureOr<StructuredClocked> run();
 
 private:
@@ -93,6 +97,7 @@ private:
   ModuleOp module;
   const ac::HardwareAnalysis &hardware;
   ac::detail::SourceCheckBudget &budget;
+  std::optional<unsigned> childWriter;
   StructuredClocked plan;
   llvm::StringMap<unsigned> variables, fifos, memories, methods;
   SmallVector<BodyUses> methodUses, ruleUses;
@@ -324,15 +329,7 @@ LogicalResult ClockedAnalyzer::bindMethod(CallOp call, BodyUses &body) {
   auto found = methods.find(interface.getValue());
   if (found == methods.end())
     return call.emitOpError("self interface must resolve to a local gfir.method");
-  auto type = plan.methods[found->second].getFunctionType();
-  auto equal = [](TypeRange actual, TypeRange formal) {
-    return actual.size() == formal.size() &&
-           llvm::all_of(llvm::zip(actual, formal), [](auto pair) {
-             return ac::areEquivalentHardwareTypes(std::get<0>(pair), std::get<1>(pair));
-           });
-  };
-  if (!equal(call.getInputs().getTypes(), type.getInputs()) ||
-      !equal(call.getOutputs().getTypes(), type.getResults()))
+  if (!matchesSignature(call, plan.methods[found->second].getFunctionType()))
     return call.emitOpError("method operands and results must match its signature");
   body.methods.push_back(found->second);
   plan.methodCalls.try_emplace(call, found->second);
@@ -475,7 +472,9 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
     } else if (auto call = dyn_cast<CallOp>(op)) {
       if (failed(verifyAttributes(call, {"receiver", "interface"})))
         return failure();
-      if (call.getReceiverAttr()) {
+      if (plan.childMethodCalls.contains(call)) {
+        plan.rules[*rule].usesChildState = true;
+      } else if (call.getReceiverAttr()) {
         if (isArm)
           return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
@@ -605,7 +604,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
         return rule.operation.emitOpError("state write overlaps another Rule in this profile");
     rule.states = std::move(body.states);
     rule.writes = std::move(body.writes);
-    rule.sampled = body.sampledControls != 0;
+    rule.sampled = body.sampledControls != 0 || childWriter == index;
     if (!rule.assertions.empty()) {
       if (rule.sampled || !body.methods.empty() || !rule.requirements.empty())
         return rule.operation.emitOpError("assertion Rule requires an unconditional local transaction");
@@ -893,8 +892,11 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
 
 FailureOr<StructuredClocked>
 analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
-               ac::detail::SourceCheckBudget &budget) {
-  return ClockedAnalyzer(module, hardware, budget).run();
+               ac::detail::SourceCheckBudget &budget,
+               llvm::DenseMap<Operation *, unsigned> childMethods,
+               std::optional<unsigned> childWriter) {
+  return ClockedAnalyzer(module, hardware, budget, std::move(childMethods),
+                         childWriter).run();
 }
 
 } // namespace acir::gfir::detail

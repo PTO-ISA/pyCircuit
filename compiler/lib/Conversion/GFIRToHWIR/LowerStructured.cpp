@@ -184,7 +184,7 @@ materializeStructuredHardware(mlir::ModuleOp package) {
       builder.clone(operation);
   for (const auto &definition : program->definitions)
     if (failed(definition.clocked
-                   ? materializeStructuredClocked(definition, *candidate)
+                   ? materializeStructuredClocked(definition, *program, *candidate)
                    : materializeDefinition(definition, *candidate)))
       return failure();
   if (program->root.getKind() == "system") {

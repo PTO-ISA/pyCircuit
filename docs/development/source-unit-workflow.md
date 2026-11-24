@@ -107,6 +107,19 @@ HWIR expands the same iterations into SSA within the shared expansion budget.
 A zero-trip loop returns its initial values and natural completion without
 executing the body.
 
+The selected default-domain root can call direct, guard-free Methods on one
+statically bound child with a single Bits state. Repeated calls in one Rule
+share the child's candidate and preserve returned value snapshots. An independent
+Rule starts from the child's committed value. A late guard cancels the candidate.
+HWIR routes the accepted candidate to the actual child through private ports.
+The child stages it once under the same sample and commit barrier as the root.
+
+A direct, guard-free Rule on the selected generated-default-domain root can
+use `gfir.effect assert`. The predicate is captured at the statement and checked
+on each Work with the interpreted reset mask. Sampling and guard checks precede
+assertions. A failed assertion leaves state and clock history at their previous
+committed values, including in generated System runs.
+
 ## Final artifact interfaces
 
 The C++ and Verilog representations differ, but element order, field identity,

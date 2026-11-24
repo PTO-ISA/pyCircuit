@@ -2,6 +2,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
 #include <memory>
@@ -14,8 +15,9 @@ namespace {
 class ClockedMaterializer {
 public:
   ClockedMaterializer(const gfir::StructuredDefinition &definition,
+                      const gfir::StructuredProgram &program,
                       mlir::ModuleOp package)
-      : definition(definition), plan(*definition.clocked), package(package),
+      : definition(definition), program(program), plan(*definition.clocked), package(package),
         source(definition.module), builder(package.getContext()),
         hardware(source->getParentOfType<mlir::ModuleOp>()) {}
   LogicalResult run();
@@ -74,8 +76,13 @@ private:
                                          std::optional<uint64_t> ordinal = {});
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
+  FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call,
+      SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping);
+  DictionaryAttr localStateID(Operation *storage);
+  DictionaryAttr childStateID();
 
   const gfir::StructuredDefinition &definition;
+  const gfir::StructuredProgram &program;
   const gfir::StructuredClocked &plan;
   mlir::ModuleOp package;
   gfir::ModuleOp source;
@@ -84,6 +91,8 @@ private:
   ac::ModuleOp target;
   Type bit;
   Value clock, reset, one, none;
+  Value incomingData, incomingEnable, childQ, childData, childEnable;
+  Operation *childInstance = nullptr, *childStorage = nullptr;
   IRMapping graph;
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
@@ -429,8 +438,23 @@ LogicalResult ClockedMaterializer::makeModule() {
     state.addAttribute(name, source->getAttr(name));
   SmallVector<Type> inputs(source.getFunctionType().getInputs());
   inputs.append({bit, bit});
+  unsigned sourceInputs = inputs.size();
+  Type incomingType;
+  if (definition.incomingState) {
+    auto variable = plan.variables[*definition.incomingState];
+    incomingType = variable.getInitial().getType();
+    inputs.append({incomingType, bit});
+  }
   SmallVector<Type> outputs(source.getFunctionType().getResults());
   SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
+  SmallVector<Attribute> names(source.getInputNames().getValue());
+  names.append({builder.getStringAttr("pyc_clk"), builder.getStringAttr("pyc_rst")});
+  auto privateName = [&](StringRef stem) {
+    std::string name = stem.str();
+    while (llvm::is_contained(names, builder.getStringAttr(name)) ||
+           llvm::is_contained(outputNames, builder.getStringAttr(name))) name += "_";
+    return builder.getStringAttr(name);
+  };
   if (!definition.outputAvailability.empty()) {
     SmallVector<Attribute> validity(outputs.size(), builder.getI64IntegerAttr(-1));
     for (const auto &output : definition.outputAvailability) {
@@ -444,17 +468,26 @@ LogicalResult ClockedMaterializer::makeModule() {
         builder.getNamedAttr("root_inputs", builder.getArrayAttr({}))}));
     state.addAttribute("ac.output_validity", builder.getArrayAttr(validity));
   }
+  if (definition.incomingState) {
+    outputs.push_back(incomingType);
+    outputNames.push_back(privateName("__ac_state_q"));
+    names.push_back(privateName("__ac_state_data"));
+    names.push_back(privateName("__ac_state_enable"));
+    state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
+        builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(sourceInputs)),
+        builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
+        builder.getNamedAttr("root_inputs", builder.getArrayAttr({
+            builder.getI64IntegerAttr(0), builder.getI64IntegerAttr(0)}))}));
+  }
   state.addAttribute("output_names", builder.getArrayAttr(outputNames));
   state.addAttribute("function_type", TypeAttr::get(
       builder.getFunctionType(inputs, outputs)));
-  SmallVector<Attribute> names(source.getInputNames().getValue());
-  names.append({builder.getStringAttr("pyc_clk"), builder.getStringAttr("pyc_rst")});
   state.addAttribute("input_names", builder.getArrayAttr(names));
   state.addAttribute("parameters", builder.getArrayAttr({}));
   state.addAttribute("type_parameters", builder.getArrayAttr({}));
   state.addAttribute("ac.domain_inputs", builder.getDictionaryAttr({
-      builder.getNamedAttr("clock", builder.getI64IntegerAttr(inputs.size() - 2)),
-      builder.getNamedAttr("reset", builder.getI64IntegerAttr(inputs.size() - 1))}));
+      builder.getNamedAttr("clock", builder.getI64IntegerAttr(sourceInputs - 2)),
+      builder.getNamedAttr("reset", builder.getI64IntegerAttr(sourceInputs - 1))}));
   state.addRegion();
   target = cast<ac::ModuleOp>(builder.create(state));
   auto *body = new Block;
@@ -464,8 +497,12 @@ LogicalResult ClockedMaterializer::makeModule() {
   for (auto [from, to] : llvm::zip(source.getBody().front().getArguments(),
                                    body->getArguments()))
     graph.map(from, to);
-  clock = body->getArgument(inputs.size() - 2);
-  reset = body->getArgument(inputs.size() - 1);
+  clock = body->getArgument(sourceInputs - 2);
+  reset = body->getArgument(sourceInputs - 1);
+  if (definition.incomingState) {
+    incomingData = body->getArgument(sourceInputs);
+    incomingEnable = body->getArgument(sourceInputs + 1);
+  }
   builder.setInsertionPointToEnd(body);
   one = constant(true);
   none = constant(false);
@@ -558,12 +595,36 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       state.addAttribute("parameters", builder.getArrayAttr({}));
       state.addAttribute("type_arguments", builder.getArrayAttr({}));
       state.addAttribute("occurrence", occurrence("child", graphOperations.size()));
+      if (definition.childState && instance == definition.childState->receiver) {
+        const auto &child = program.definitions[definition.childState->definition];
+        auto childSource = child.module;
+        auto variable = child.clocked->variables[definition.childState->state];
+        auto childModule = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package,
+            FlatSymbolRefAttr::get(childSource.getSymNameAttr())));
+        for (auto storage : childModule.getBody().front().getOps<ac::InstanceOp>())
+          if (storage.getInstanceName() == variable.getSymName())
+            childStorage = storage;
+        if (!childStorage)
+          return call.emitOpError("missing materialized child state allocation");
+        state.addTypes(childStorage->getResult(0).getType());
+      }
     } else {
       state.addAttributes(op.getAttrs());
     }
     for (unsigned index = 0; index < op.getNumRegions(); ++index)
       state.addRegion();
     auto *copy = builder.create(state);
+    auto childReceiver = definition.childState ? definition.childState->receiver : gfir::InstanceOp();
+    if (auto call = dyn_cast<gfir::CallOp>(op);
+        call && definition.childState &&
+        call.getReceiverAttr().getValue() == childReceiver.getSymName()) {
+      childInstance = copy;
+      childQ = copy->getResults().back();
+      childData = make(ac::BitsConstantOp::getOperationName(), {}, {childQ.getType()}, {
+          builder.getNamedAttr("value", literal(0))})->getResult(0);
+      childEnable = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+          builder.getNamedAttr("value", literal(0))})->getResult(0);
+    }
     graphOperations.push_back({&op, copy});
     for (auto [from, to] : llvm::zip(op.getResults(), copy->getResults()))
       graph.map(from, to);
@@ -586,6 +647,8 @@ LogicalResult ClockedMaterializer::bindGraph() {
       auto domains = child->getAttrOfType<ArrayAttr>("domains");
       if (domains && !domains.empty())
         operands.append({clock, reset});
+      if (copy == childInstance)
+        operands.append({childData, childEnable});
     }
     copy->setOperands(operands);
     for (auto [sourceRegion, targetRegion] :
@@ -636,6 +699,52 @@ FailureOr<Value> ClockedMaterializer::indexedWrite(Value previous, Value index,
   Value next = merge(old, equal, value);
   make(ac::YieldOp::getOperationName(), {next}, {});
   return mapped->getResult(0);
+}
+
+FailureOr<SmallVector<Value>>
+ClockedMaterializer::lowerChildMethod(gfir::CallOp call,
+    SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping) {
+  const auto &child = program.definitions[definition.childState->definition];
+  auto method = child.clocked->methods[plan.childMethodCalls.lookup(call)];
+  IRMapping nested;
+  for (auto [argument, input] : llvm::zip(method.getBody().front().getArguments(), call.getInputs()))
+    nested.map(argument, mapping.lookup(input));
+  for (Operation &op : method.getBody().front()) {
+    if (auto yield = dyn_cast<gfir::YieldOp>(op)) {
+      SmallVector<Value> results;
+      for (Value value : yield.getValues()) results.push_back(nested.lookup(value));
+      return results;
+    }
+    if (auto read = dyn_cast<gfir::ReadOp>(op)) {
+      if (child.clocked->stateAccesses.lookup(read) != definition.childState->state)
+        return read.emitOpError("child Method read differs from the verified state owner");
+      nested.map(read.getValue(), local[states.size()]);
+    } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
+      if (child.clocked->stateAccesses.lookup(write) != definition.childState->state ||
+          write.getIndex() || write->hasAttr("fields"))
+        return write.emitOpError("child Method requires its verified whole Bits state");
+      local[states.size()] = nested.lookup(write.getValue());
+      localIntents[states.size()] = one;
+    } else {
+      builder.clone(op, nested);
+    }
+  }
+  return method.emitOpError("verified child Method has no yield");
+}
+
+DictionaryAttr ClockedMaterializer::localStateID(Operation *storage) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("owner", builder.getDictionaryAttr({
+          builder.getNamedAttr("instance_path", builder.getArrayAttr({}))})),
+      builder.getNamedAttr("declaration", storage->getAttr("occurrence")),
+      builder.getNamedAttr("element", builder.getArrayAttr({}))});
+}
+
+DictionaryAttr ClockedMaterializer::childStateID() {
+  NamedAttrList id(localStateID(childStorage));
+  id.set("owner", builder.getDictionaryAttr({builder.getNamedAttr("instance_path",
+      builder.getArrayAttr({childInstance->getAttr("occurrence")}))}));
+  return id.getDictionary(builder.getContext());
 }
 
 FailureOr<SmallVector<Value>>
@@ -783,6 +892,13 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       for (auto [result, yes, no] : llvm::zip(branch.getResults(), *thenValues, *elseValues))
         mapping.map(result, merge(no, predicate, yes));
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
+      if (plan.childMethodCalls.contains(call)) {
+        auto results = lowerChildMethod(call, local, localIntents, mapping);
+        if (failed(results)) return failure();
+        for (auto [result, value] : llvm::zip(call.getOutputs(), *results))
+          mapping.map(result, value);
+        continue;
+      }
       if (auto memory = plan.transactionMemoryCalls.find(call);
           memory != plan.transactionMemoryCalls.end()) {
         if (failed(lowerMemory(call, memory->second, mapping)))
@@ -836,6 +952,12 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   captures.append({clock, reset});
   for (unsigned state : plan.rules[index].states)
     captures.push_back(states[state]->getResult(0));
+  std::optional<unsigned> childCapture;
+  if (plan.rules[index].usesChildState) {
+    if (!childQ) return rule.emitOpError("missing actual child Q route");
+    childCapture = captures.size();
+    captures.push_back(childQ);
+  }
   SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
   for (auto [capture, producer] : plan.rules[index].guardCaptures) {
     if (!grants[producer])
@@ -889,6 +1011,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   SmallVector<Value> local(states.size()), localIntents(states.size(), none);
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].states))
     local[state] = body->getArgument(clockCapture + 2 + ordinal);
+  if (childCapture) {
+    local.push_back(body->getArgument(*childCapture));
+    localIntents.push_back(none);
+  }
   IRMapping mapping;
   auto results = lowerBody(rule.getBody().front(),
       body->getArguments().take_front(clockCapture), local, localIntents, mapping);
@@ -910,15 +1036,21 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
     yielded.push_back(local[state]);
     yielded.push_back(binary("and", context.prefix, localIntents[state]));
-    auto stateID = builder.getDictionaryAttr({
-        builder.getNamedAttr("owner", builder.getDictionaryAttr({
-            builder.getNamedAttr("instance_path", builder.getArrayAttr({}))})),
-        builder.getNamedAttr("declaration", states[state]->getAttr("occurrence")),
-        builder.getNamedAttr("element", builder.getArrayAttr({}))});
+    auto stateID = localStateID(states[state]);
     candidateRows.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("state", stateID),
         builder.getNamedAttr("data", builder.getI64IntegerAttr(ordinaryResults + 2 * ordinal)),
         builder.getNamedAttr("enable", builder.getI64IntegerAttr(ordinaryResults + 2 * ordinal + 1))}));
+  }
+  std::optional<unsigned> childCandidate;
+  if (definition.childState && definition.childState->writer == index) {
+    childCandidate = yielded.size();
+    yielded.push_back(local[states.size()]);
+    yielded.push_back(binary("and", context.prefix, localIntents[states.size()]));
+    candidateRows.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("state", childStateID()),
+        builder.getNamedAttr("data", builder.getI64IntegerAttr(*childCandidate)),
+        builder.getNamedAttr("enable", builder.getI64IntegerAttr(*childCandidate + 1))}));
   }
   unsigned fireResult = yielded.size();
   yielded.push_back(context.prefix);
@@ -1027,6 +1159,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     candidates[state] = lowered->getResult(ordinaryResults + 2 * ordinal);
     sampledEnables[state] = lowered->getResult(ordinaryResults + 2 * ordinal + 1);
   }
+  if (childCandidate) {
+    childData = lowered->getResult(*childCandidate);
+    childEnable = lowered->getResult(*childCandidate + 1);
+  }
   for (auto [ordinal, raw] : llvm::enumerate(
            ArrayRef<Attribute>(context.checks).take_front(context.controls.size()))) {
     auto check = cast<DictionaryAttr>(raw);
@@ -1059,15 +1195,21 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
 }
 
 void ClockedMaterializer::bindTransactionWiring() {
-  if (transactionWriters.empty())
+  if (transactionWriters.empty() && !definition.incomingState)
     return;
   SmallVector<Attribute> declarations;
   for (auto [index, state] : llvm::enumerate(states))
-    if (sampledEnables[index])
+    if (sampledEnables[index] || definition.incomingState == index)
       declarations.push_back(state->getAttr("occurrence"));
+  SmallVector<Attribute> incoming;
+  if (definition.incomingState)
+    incoming.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("state", localStateID(states[*definition.incomingState])),
+        builder.getNamedAttr("data", builder.getI64IntegerAttr(cast<BlockArgument>(incomingData).getArgNumber())),
+        builder.getNamedAttr("enable", builder.getI64IntegerAttr(cast<BlockArgument>(incomingEnable).getArgNumber()))}));
   target->setAttr("ac.transaction_wiring", builder.getDictionaryAttr({
       builder.getNamedAttr("states", builder.getArrayAttr(declarations)),
-      builder.getNamedAttr("incoming", builder.getArrayAttr({})),
+      builder.getNamedAttr("incoming", builder.getArrayAttr(incoming)),
       builder.getNamedAttr("writers", builder.getArrayAttr(transactionWriters))}));
 }
 
@@ -1100,6 +1242,10 @@ LogicalResult ClockedMaterializer::lowerRules() {
     SmallVector<Value> localIntents(states.size(), none);
     for (Operation *state : states)
       local.push_back(state->getResult(0));
+    if (plan.rules[index].usesChildState) {
+      local.push_back(childQ);
+      localIntents.push_back(none);
+    }
     IRMapping mapping;
     auto rule = plan.rules[index].operation;
     SmallVector<Value> inputs;
@@ -1201,7 +1347,12 @@ LogicalResult ClockedMaterializer::bindStorage() {
       enable = sampledEnables[index];
     else if (plan.conditionalWrites.contains(index))
       enable = binary("and", enable, intents[index]);
-    SmallVector<Value> inputs{clock, reset, enable, candidates[index],
+    Value data = candidates[index];
+    if (definition.incomingState == index) {
+      enable = incomingEnable;
+      data = incomingData;
+    }
+    SmallVector<Value> inputs{clock, reset, enable, data,
                               graph.lookup(var.getInitial())};
     if (auto table = dyn_cast<ac::TableType>(var.getInitial().getType()))
       for (unsigned control = 0; control < 3; ++control)
@@ -1219,6 +1370,8 @@ LogicalResult ClockedMaterializer::bindStorage() {
       available = binary("and", available, grants[rule]);
     outputs.push_back(available);
   }
+  if (definition.incomingState)
+    outputs.push_back(states[*definition.incomingState]->getResult(0));
   make(ac::YieldOp::getOperationName(), outputs, {});
   return success();
 }
@@ -1244,8 +1397,9 @@ LogicalResult ClockedMaterializer::run() {
 
 LogicalResult
 materializeStructuredClocked(const gfir::StructuredDefinition &definition,
+                              const gfir::StructuredProgram &program,
                               mlir::ModuleOp package) {
-  return ClockedMaterializer(definition, package).run();
+  return ClockedMaterializer(definition, program, package).run();
 }
 
 } // namespace acir::detail

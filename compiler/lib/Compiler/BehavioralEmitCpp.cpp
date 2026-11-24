@@ -190,6 +190,8 @@ void preparationSignature(raw_ostream &out,
     out << "const " << carrier(definition.wires[input].width) << " &" << wireName(input);
     comma = true;
   }
+  if (definition.incomingState)
+    out << ", const ChildTxnState &pyc_incoming, bool pyc_incoming_enabled";
   out << ')';
 }
 
@@ -228,20 +230,20 @@ private:
                                            ArrayRef<std::string> args);
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
-                         const gfir::StructuredClocked &clocked,
+                         const gfir::StructuredDefinition &definition,
                          const gfir::StructuredRule *rule = nullptr,
                          const llvm::DenseMap<Value, std::string> *outer = nullptr,
                          ArrayRef<std::string> stepTargets = {});
   LogicalResult emitLoop(raw_ostream &out, gfir::LoopOp loop,
-                         const gfir::StructuredClocked &clocked,
+                         const gfir::StructuredDefinition &definition,
                          const llvm::DenseMap<Value, std::string> &values,
                          ArrayRef<std::string> results);
   LogicalResult emitBranch(raw_ostream &out, gfir::IfOp branch,
-                           const gfir::StructuredClocked &clocked,
+                           const gfir::StructuredDefinition &definition,
                            const llvm::DenseMap<Value, std::string> &values,
                            ArrayRef<std::string> results);
   LogicalResult emitBlockedReturn(raw_ostream &out, Block &body, bool ruleResults);
-  LogicalResult declareClocked(raw_ostream &out, const gfir::StructuredClocked &clocked);
+  LogicalResult declareClocked(raw_ostream &out, const gfir::StructuredDefinition &definition);
   FailureOr<std::string> recipient(const gfir::StructuredDefinition &definition,
                                     const gfir::StructuredFifo &fifo,
                                     std::optional<unsigned> rule = {}, bool ownPop = false);
@@ -591,6 +593,16 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   for (const auto &output : definition.outputAvailability)
     out << "  bool " << availabilityName(output.port) << " = false;\n";
+  if (definition.incomingState) {
+    unsigned state = *definition.incomingState;
+    auto variable = definition.clocked->variables[state];
+    auto type = typedWire(variable.getInitial().getType(), variable);
+    if (failed(type))
+      return failure();
+    out << "  struct ChildTxnState {\n"
+        << "    std::optional<" << *type << "> " << stateName(state) << ";\n"
+        << "  };\n";
+  }
   if (isClocked(definition)) {
     out << "  ";
     preparationSignature(out, definition);
@@ -620,7 +632,7 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
       return failure();
     out << "  " << moduleName(call.definition) << ' ' << *member << ";\n";
   }
-  if (definition.clocked && failed(declareClocked(out, *definition.clocked)))
+  if (definition.clocked && failed(declareClocked(out, definition)))
     return failure();
   if (isClocked(definition)) {
     out << "private:\n";
@@ -965,10 +977,11 @@ LogicalResult BehavioralEmitter::emitBlockedReturn(raw_ostream &out, Block &body
 }
 
 LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
-                                          const gfir::StructuredClocked &clocked,
+                                          const gfir::StructuredDefinition &definition,
                                           const gfir::StructuredRule *rule,
                                           const llvm::DenseMap<Value, std::string> *outer,
                                           ArrayRef<std::string> stepTargets) {
+  const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
@@ -996,7 +1009,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           << " = " << values.lookup(effect.getPredicate()) << ";\n";
       continue;
     } else if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
-      if (failed(emitLoop(out, loop, clocked, values, results)))
+      if (failed(emitLoop(out, loop, definition, values, results)))
         return failure();
       continue;
     } else if (auto ordinal = dyn_cast<gfir::OrdinalBitsOp>(op)) {
@@ -1040,7 +1053,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           return failure();
         out << "    }\n";
       }
-      if (failed(emitBranch(out, branch, clocked, values, results)))
+      if (failed(emitBranch(out, branch, definition, values, results)))
         return failure();
       if (clocked.checkedBranches.contains(branch)) {
         out << "    if (!txn.pyc_running) { ";
@@ -1049,6 +1062,17 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         out << "    }\n";
       }
       continue;
+    } else if (auto remote = clocked.childMethodCalls.find(&op);
+               remote != clocked.childMethodCalls.end()) {
+      const auto &binding = *definition.childState;
+      const auto &child = *program.definitions[binding.definition].clocked;
+      auto instance = instanceName(binding.receiver);
+      auto method = methodName(child.methods[remote->second]);
+      if (failed(instance) || failed(method))
+        return failure();
+      args.insert(args.begin(), "0");
+      args.insert(args.begin(), "txn.pyc_child");
+      text = *instance + "." + *method + "(" + join(args, ", ") + ")";
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       auto memoryUse = clocked.transactionMemoryCalls.find(call);
       if (memoryUse != clocked.transactionMemoryCalls.end()) {
@@ -1172,7 +1196,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
 }
 
 LogicalResult BehavioralEmitter::emitLoop(
-    raw_ostream &out, gfir::LoopOp loop, const gfir::StructuredClocked &clocked,
+    raw_ostream &out, gfir::LoopOp loop, const gfir::StructuredDefinition &definition,
     const llvm::DenseMap<Value, std::string> &values,
     ArrayRef<std::string> results) {
   for (auto [result, initial, name] :
@@ -1194,7 +1218,7 @@ LogicalResult BehavioralEmitter::emitLoop(
     for (auto [argument, name] :
          llvm::zip(body.getArguments().drop_front(), results.drop_back()))
       iteration.try_emplace(argument, name);
-    if (failed(emitBody(out, body, clocked, nullptr, &iteration,
+    if (failed(emitBody(out, body, definition, nullptr, &iteration,
                         results.drop_back())))
       return failure();
     out << "    }\n";
@@ -1204,9 +1228,10 @@ LogicalResult BehavioralEmitter::emitLoop(
 }
 
 LogicalResult BehavioralEmitter::emitBranch(
-    raw_ostream &out, gfir::IfOp branch, const gfir::StructuredClocked &clocked,
+    raw_ostream &out, gfir::IfOp branch, const gfir::StructuredDefinition &definition,
     const llvm::DenseMap<Value, std::string> &values,
     ArrayRef<std::string> results) {
+  const auto &clocked = *definition.clocked;
   const auto suffix = std::to_string(nextBranch++);
   const auto thenName = "pyc_then_" + suffix;
   const auto elseName = "pyc_else_" + suffix;
@@ -1218,7 +1243,7 @@ LogicalResult BehavioralEmitter::emitBranch(
   for (auto [arm, name] : {std::pair{&branch.getThenBody(), thenName},
                           std::pair{&branch.getElseBody(), elseName}}) {
     out << "    const auto " << name << " = [&](auto &txn) {\n";
-    if (failed(emitBody(out, arm->front(), clocked, nullptr, &values)))
+    if (failed(emitBody(out, arm->front(), definition, nullptr, &values)))
       return failure();
     out << "    };\n";
   }
@@ -1290,7 +1315,8 @@ LogicalResult BehavioralEmitter::emitBranch(
 
 LogicalResult
 BehavioralEmitter::declareClocked(raw_ostream &out,
-                                 const gfir::StructuredClocked &clocked) {
+                                 const gfir::StructuredDefinition &definition) {
+  const auto &clocked = *definition.clocked;
   if (needsDomain(clocked))
     out << "  gfsim::behavior::SampledDomain pyc_domain;\n";
   for (const auto &fifo : clocked.fifos) {
@@ -1341,13 +1367,16 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << ", const " << *wire << " &" << wireName(index);
     }
     out << ") {\n";
-    if (failed(emitBody(out, method.getBody().front(), clocked)))
+    if (failed(emitBody(out, method.getBody().front(), definition)))
       return failure();
     out << "  }\n";
   }
   for (auto [index, rule] : llvm::enumerate(clocked.rules)) {
     auto name = "TxnFrame" + std::to_string(index);
     out << "  struct " << name << " {\n";
+    if (rule.usesChildState)
+      out << "    " << moduleName(definition.childState->definition)
+          << "::ChildTxnState pyc_child;\n";
     for (auto [capture, producer] : rule.guardCaptures)
       out << "    bool pyc_capture_available_" << capture << " = false;\n";
     if (rule.sampled)
@@ -1412,7 +1441,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     }
     out << ") {\n";
     out << "    constexpr unsigned pyc_check_base = 0;\n";
-    if (failed(emitBody(out, operation.getBody().front(), clocked, &rule)))
+    if (failed(emitBody(out, operation.getBody().front(), definition, &rule)))
       return failure();
     out << "  }\n";
   }
@@ -1540,6 +1569,14 @@ LogicalResult BehavioralEmitter::emitClockedCall(
       return operation.emitOpError("clocked child preparation input is unresolved");
     out << ", " << wireName(*leaf);
   }
+  if (child.incomingState) {
+    if (auto writer = definition.childState->writer) {
+      auto frame = frameName(*writer);
+      out << ", " << frame << ".pyc_child, " << frame << ".pyc_running";
+    } else {
+      out << ", {}, false";
+    }
+  }
   out << ");\n";
   return success();
 }
@@ -1663,6 +1700,9 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
                   ".packed(), " + frameName(writer->second) + '.' + intentName(index) + ".packed()))";
       out << ".prepare(" << enabled
           << ", " << frameName(writer->second) << '.' << stateName(index) << ");\n";
+    } else if (definition.incomingState == index) {
+      out << ".prepare(" << levelName << "(pyc_incoming_enabled), pyc_incoming."
+          << stateName(index) << ");\n";
     } else {
       out << ".hold();\n";
     }
