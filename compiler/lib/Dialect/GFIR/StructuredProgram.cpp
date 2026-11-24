@@ -703,7 +703,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
   if (failed(analyzeAvailability(definition)))
     return failure();
-  if (definition.clocked) {
+  if (definition.clocked || !definition.clockedCalls.empty()) {
     llvm::BitVector preparationInputs(definition.wires.size());
     auto include = [&](unsigned node) -> LogicalResult {
       if (failed(budget.debit(inputs[node].size(), module)))
@@ -731,12 +731,14 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       }
       return success();
     };
-    for (const auto &fifo : definition.clocked->fifos)
-      if (failed(includeRaw(fifo.rawInput)) || failed(includeRaw(fifo.rawOutput)))
-        return failure();
-    for (const auto &memory : definition.clocked->memories)
-      if (failed(includeRaw(memory.raw)))
-        return failure();
+    if (definition.clocked) {
+      for (const auto &fifo : definition.clocked->fifos)
+        if (failed(includeRaw(fifo.rawInput)) || failed(includeRaw(fifo.rawOutput)))
+          return failure();
+      for (const auto &memory : definition.clocked->memories)
+        if (failed(includeRaw(memory.raw)))
+          return failure();
+    }
     for (unsigned input : preparationInputs.set_bits())
       definition.preparationInputs.push_back(input);
   }
@@ -771,7 +773,7 @@ FailureOr<StructuredProgram> Analyzer::run() {
   }
   if (auto domains = result.root->getAttrOfType<ArrayAttr>("domains");
       domains && !domains.empty() && !detail::hasGeneratedDomain(result.root)) {
-    llvm::DenseSet<unsigned> pins;
+    llvm::DenseSet<std::pair<unsigned, unsigned>> pairs;
     for (Attribute raw : domains) {
       if (failed(budget.debit(1, result.root)))
         return failure();
@@ -782,7 +784,6 @@ FailureOr<StructuredProgram> Analyzer::run() {
           !edge || edge.getValue() != "rising" || explicitInputs.count(name.getValue()))
         return result.root.emitOpError("expected unique named rising input domain");
       SmallVector<unsigned> pair;
-      Type pinType;
       for (StringRef key : {"clock", "reset"}) {
         auto endpoint = domain.getAs<DictionaryAttr>(key);
         auto input = endpoint ? endpoint.getAs<IntegerAttr>("input") : IntegerAttr();
@@ -792,13 +793,14 @@ FailureOr<StructuredProgram> Analyzer::run() {
         unsigned ordinal = input.getInt();
         Type type = top.getFunctionType().getInput(ordinal);
         auto width = hardware.getPackedWidth(type, {}, result.root);
-        if (!isa<ac::BitsType>(type) || failed(width) || *width != 1 ||
-            (pinType && pinType != type) || !pins.insert(ordinal).second)
-          return result.root.emitOpError("domain requires distinct same-typed Bits1 inputs");
-        pinType = type;
+        if (!isa<ac::BitsType>(type) || failed(width) || *width != 1)
+          return result.root.emitOpError("domain requires scalar Bits1 inputs");
         pair.push_back(ordinal);
       }
-      explicitInputs.try_emplace(name.getValue(), std::pair<unsigned, unsigned>{pair[0], pair[1]});
+      auto endpoints = std::make_pair(pair[0], pair[1]);
+      if (pair[0] == pair[1] || !pairs.insert(endpoints).second)
+        return result.root.emitOpError("named domains require distinct clock/reset pairs");
+      explicitInputs.try_emplace(name.getValue(), endpoints);
     }
   }
   SmallVector<ModuleOp> modules;

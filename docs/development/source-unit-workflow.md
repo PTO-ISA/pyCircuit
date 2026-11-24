@@ -90,7 +90,11 @@ pycircuit-emit final.mlir --target verilog > rtl.json
 Use the generated DUT interface and port metadata to apply the same samples to
 each result. The GFIR package declares logical bindings and ordered effects.
 Sampling, preparation, checks, and whole-system commit use the existing runtime
-contract. The native entry currently covers the generated default rising domain.
+contract. The native entry covers the generated default rising domain and Module
+wrappers with named scalar clock/reset input pairs. Each clocked child of an
+explicit wrapper receives its mapped pair and owns its clock history. Such
+wrappers use managed RTL, with the domain pins carried as ordinary public inputs
+and the legacy implicit domain pair recorded as null.
 The `structured-gfir-availability` compiler test exercises field-sensitive root
 output availability and failure rollback with gfsim and managed RTL. Published
 anchors use the public source-unit workflow.
