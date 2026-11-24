@@ -32,6 +32,7 @@
       if (!kind || !path || output >= yield.getNumOperands() || output + 1 >= yield.getNumOperands()) return failure();
       SampledControlView control;
       if (kind.getValue() == "callable_guard") control.kind = SampledControlKind::CallableGuard;
+      else if (kind.getValue() == "ordered_guard") control.kind = SampledControlKind::OrderedGuard;
       else if (kind.getValue() == "branch_select") control.kind = SampledControlKind::BranchSelect;
       else if (kind.getValue() == "value_available") control.kind = SampledControlKind::ValueAvailable;
       else if (kind.getValue() == "resource_available") control.kind = SampledControlKind::ResourceAvailable;

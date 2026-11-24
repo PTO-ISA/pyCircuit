@@ -125,6 +125,14 @@ def GFIR_IfOp : GFIR_Op<"if", [SingleBlock, RecursiveMemoryEffects]> {
   let hasRegionVerifier = 1;
 }
 
+def GFIR_GuardOp : GFIR_Op<"guard", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Require a known true predicate at this point in the transaction";
+  let arguments = (ins AnyType:$predicate);
+  let assemblyFormat = "$predicate attr-dict `:` type($predicate)";
+  let hasVerifier = 1;
+}
+
 def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
   let summary = "Return the outputs of a graph or ordered body";
   let arguments = (ins Variadic<AnyType>:$values);

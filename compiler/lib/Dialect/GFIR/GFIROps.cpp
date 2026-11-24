@@ -438,6 +438,19 @@ LogicalResult IfOp::verifyRegions() {
   return verifyOrderedTerminator(*this, getElseBody());
 }
 
+LogicalResult GuardOp::verify() {
+  if (!isOrderedOwner((*this)->getParentOp()))
+    return emitOpError("requires an ordered body");
+  if (!isa<ac::BitsType>(getPredicate().getType()))
+    return emitOpError("guard requires a Bits predicate");
+  return success();
+}
+
+void GuardOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(), ac::SourceCheckResource::get());
+}
+
 ParseResult RootOp::parse(OpAsmParser &parser, OperationState &result) {
   FlatSymbolRefAttr callee;
   StringAttr kind;

@@ -4,6 +4,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
+#include <memory>
 
 using namespace mlir;
 
@@ -20,6 +21,14 @@ public:
   LogicalResult run();
 
 private:
+  struct SampledContext {
+    DictionaryAttr registration;
+    SmallVector<Attribute> invocation, controls, checks;
+    SmallVector<Value> predicates, reaches;
+    Value prefix, path;
+    DictionaryAttr pathIdentity;
+  };
+
   Operation *make(StringRef name, ValueRange operands, TypeRange types,
                    ArrayRef<NamedAttribute> attributes = {});
   ac::StaticExprAttr literal(uint64_t value);
@@ -29,6 +38,12 @@ private:
   Value constant(bool one);
   Value binary(StringRef opcode, Value left, Value right);
   Value merge(Value base, Value guard, Value value);
+  Value known(Value value, bool high);
+  DictionaryAttr sourceLocation(Operation *operation);
+  DictionaryAttr lexicalOccurrence(Operation *operation);
+  unsigned addControl(StringRef kind, Operation *site, Value raw);
+  LogicalResult lowerSampled(unsigned index);
+  void bindTransactionWiring();
   FailureOr<Value> zero(Type type);
   LogicalResult makeModule();
   LogicalResult allocate();
@@ -54,6 +69,10 @@ private:
   IRMapping graph;
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
+  SmallVector<Value> sampledEnables;
+  SmallVector<Attribute> transactionWriters;
+  llvm::DenseMap<Operation *, unsigned> lexicalOrdinals;
+  SampledContext *sampled = nullptr;
   SmallVector<std::pair<Operation *, Operation *>> graphOperations;
 };
 
@@ -246,6 +265,58 @@ Value ClockedMaterializer::merge(Value base, Value guard, Value value) {
       builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))})->getResult(0);
 }
 
+Value ClockedMaterializer::known(Value value, bool high) {
+  return make(ac::BitsCompareOp::getOperationName(), {value, high ? one : none},
+              {bit}, {builder.getNamedAttr("predicate", builder.getStringAttr("case_eq"))})
+      ->getResult(0);
+}
+
+DictionaryAttr ClockedMaterializer::sourceLocation(Operation *operation) {
+  if (auto location = dyn_cast<FileLineColLoc>(operation->getLoc()))
+    return builder.getDictionaryAttr({
+        builder.getNamedAttr("path", source.getSourceOwner().getAs<StringAttr>("path")),
+        builder.getNamedAttr("line", builder.getI64IntegerAttr(location.getLine())),
+        builder.getNamedAttr("column", builder.getI64IntegerAttr(location.getColumn())),
+        builder.getNamedAttr("end_line", builder.getI64IntegerAttr(location.getLine())),
+        builder.getNamedAttr("end_column", builder.getI64IntegerAttr(location.getColumn() + 1))});
+  return cast<DictionaryAttr>(literal(0).getTree().get("location"));
+}
+
+DictionaryAttr ClockedMaterializer::lexicalOccurrence(Operation *operation) {
+  return occurrence("ordered", lexicalOrdinals.lookup(operation));
+}
+
+unsigned ClockedMaterializer::addControl(StringRef kind, Operation *site, Value raw) {
+  unsigned ordinal = sampled->controls.size();
+  auto id = builder.getDictionaryAttr({
+      builder.getNamedAttr("registration", sampled->registration),
+      builder.getNamedAttr("check", lexicalOccurrence(site)),
+      builder.getNamedAttr("obligation", builder.getI64IntegerAttr(ordinal))});
+  sampled->controls.push_back(builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr(kind)),
+      builder.getNamedAttr("id", id),
+      builder.getNamedAttr("invocation", builder.getArrayAttr(sampled->invocation)),
+      builder.getNamedAttr("predecessor", builder.getI64IntegerAttr(int64_t(ordinal) - 1)),
+      builder.getNamedAttr("path", sampled->pathIdentity)}));
+  sampled->checks.push_back(builder.getDictionaryAttr({
+      builder.getNamedAttr("id", id),
+      builder.getNamedAttr("kind", builder.getStringAttr("guard_known")),
+      builder.getNamedAttr("location", sourceLocation(site))}));
+  Value accepted = known(raw, true);
+  if (kind == "branch_select")
+    accepted = binary("or", known(raw, false), accepted);
+  Value reached = sampled->prefix;
+  if (sampled->path) {
+    reached = binary("and", reached, sampled->path);
+    accepted = make(ac::BitsSelectOp::getOperationName(),
+                    {sampled->path, accepted, one}, {bit})->getResult(0);
+  }
+  sampled->predicates.push_back(raw);
+  sampled->reaches.push_back(reached);
+  sampled->prefix = binary("and", sampled->prefix, accepted);
+  return ordinal;
+}
+
 FailureOr<Value> ClockedMaterializer::zero(Type type) {
   if (isa<ac::BitsType>(type)) {
     auto width = hardware.getPackedWidth(type, {}, source);
@@ -347,6 +418,7 @@ LogicalResult ClockedMaterializer::allocate() {
     intents.push_back(none);
   }
   fifoData.resize(fifos.size());
+  sampledEnables.resize(states.size());
   return success();
 }
 
@@ -487,18 +559,46 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       }
       local[target] = value;
       localIntents[target] = one;
+    } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
+      addControl("ordered_guard", guard, mapping.lookup(guard.getPredicate()));
     } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
       Value predicate = mapping.lookup(branch.getPredicate());
+      Value parentPath;
+      DictionaryAttr parentPathIdentity;
+      std::optional<unsigned> selection;
+      if (sampled && plan.checkedBranches.contains(branch)) {
+        parentPath = sampled->path;
+        parentPathIdentity = sampled->pathIdentity;
+        selection = addControl("branch_select", branch, predicate);
+        sampled->path = known(predicate, true);
+        if (parentPath)
+          sampled->path = binary("and", parentPath, sampled->path);
+        sampled->pathIdentity = builder.getDictionaryAttr({
+            builder.getNamedAttr("selection", builder.getI64IntegerAttr(*selection)),
+            builder.getNamedAttr("when_true", builder.getBoolAttr(true))});
+      }
       SmallVector<Value> thenState(local), thenIntents(localIntents);
       auto thenValues = lowerBody(branch.getThenBody().front(), {}, thenState,
                                   thenIntents, mapping);
       if (failed(thenValues))
         return failure();
+      if (selection) {
+        sampled->path = known(predicate, false);
+        if (parentPath)
+          sampled->path = binary("and", parentPath, sampled->path);
+        sampled->pathIdentity = builder.getDictionaryAttr({
+            builder.getNamedAttr("selection", builder.getI64IntegerAttr(*selection)),
+            builder.getNamedAttr("when_true", builder.getBoolAttr(false))});
+      }
       SmallVector<Value> elseState(local), elseIntents(localIntents);
       auto elseValues = lowerBody(branch.getElseBody().front(), {}, elseState,
                                   elseIntents, mapping);
       if (failed(elseValues))
         return failure();
+      if (selection) {
+        sampled->path = parentPath;
+        sampled->pathIdentity = parentPathIdentity;
+      }
       for (unsigned state : plan.branchWrites.find(branch)->second) {
         local[state] = merge(elseState[state], predicate, thenState[state]);
         localIntents[state] = merge(elseIntents[state], predicate, thenIntents[state]);
@@ -513,8 +613,17 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
           arguments.push_back(mapping.lookup(input));
         IRMapping nested;
         auto method = plan.methods[plan.methodCalls.lookup(call)];
+        if (sampled) {
+          sampled->invocation.push_back(builder.getDictionaryAttr({
+              builder.getNamedAttr("call", lexicalOccurrence(call)),
+              builder.getNamedAttr("receiver", builder.getDictionaryAttr({
+                  builder.getNamedAttr("instance_path", builder.getArrayAttr({}))}))}));
+          addControl("callable_guard", method, one);
+        }
         auto values = lowerBody(method.getBody().front(),
                                  arguments, local, localIntents, nested);
+        if (sampled)
+          sampled->invocation.pop_back();
         if (failed(values))
           return failure();
         results = std::move(*values);
@@ -534,12 +643,135 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
   return body.getParentOp()->emitOpError("ordered GFIR body has no yield");
 }
 
+LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
+  auto rule = plan.rules[index].operation;
+  SmallVector<Value> captures;
+  for (Value input : rule.getCaptures())
+    captures.push_back(graph.lookup(input));
+  unsigned clockCapture = captures.size();
+  captures.append({clock, reset});
+  for (unsigned state : plan.rules[index].states)
+    captures.push_back(states[state]->getResult(0));
+
+  auto region = std::make_unique<Region>();
+  auto *body = new Block;
+  region->push_back(body);
+  for (Value capture : captures)
+    body->addArgument(capture.getType(), rule.getLoc());
+  OpBuilder::InsertionGuard insertion(builder);
+  builder.setInsertionPointToEnd(body);
+  Value outerOne = one, outerNone = none;
+  auto controlLiteral = [&](uint64_t value) {
+    return make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+        builder.getNamedAttr("value", literal(value))})->getResult(0);
+  };
+  one = controlLiteral(1);
+  none = controlLiteral(0);
+  SampledContext context;
+  context.registration = lexicalOccurrence(rule);
+  context.pathIdentity = builder.getDictionaryAttr({});
+  context.prefix = one;
+  sampled = &context;
+  addControl("callable_guard", rule, one);
+
+  SmallVector<Value> local(states.size()), localIntents(states.size(), none);
+  for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].states))
+    local[state] = body->getArgument(clockCapture + 2 + ordinal);
+  IRMapping mapping;
+  auto results = lowerBody(rule.getBody().front(),
+      body->getArguments().take_front(clockCapture), local, localIntents, mapping);
+  if (failed(results)) {
+    sampled = nullptr;
+    one = outerOne;
+    none = outerNone;
+    return failure();
+  }
+  SmallVector<Value> yielded;
+  SmallVector<Attribute> candidateRows;
+  for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
+    yielded.push_back(local[state]);
+    yielded.push_back(binary("and", context.prefix, localIntents[state]));
+    auto stateID = builder.getDictionaryAttr({
+        builder.getNamedAttr("owner", builder.getDictionaryAttr({
+            builder.getNamedAttr("instance_path", builder.getArrayAttr({}))})),
+        builder.getNamedAttr("declaration", states[state]->getAttr("occurrence")),
+        builder.getNamedAttr("element", builder.getArrayAttr({}))});
+    candidateRows.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("state", stateID),
+        builder.getNamedAttr("data", builder.getI64IntegerAttr(2 * ordinal)),
+        builder.getNamedAttr("enable", builder.getI64IntegerAttr(2 * ordinal + 1))}));
+  }
+  unsigned fireResult = yielded.size();
+  yielded.push_back(context.prefix);
+  for (auto [raw, reached] : llvm::zip(context.predicates, context.reaches))
+    yielded.append({raw, reached});
+  make(ac::YieldOp::getOperationName(), yielded, {});
+  sampled = nullptr;
+  one = outerOne;
+  none = outerNone;
+
+  builder.setInsertionPointToEnd(&target.getBody().front());
+  OperationState operation(rule.getLoc(), ac::RuleOp::getOperationName());
+  operation.addOperands(captures);
+  for (Value value : yielded)
+    operation.addTypes(value.getType());
+  operation.addAttribute("name", rule.getSymNameAttr());
+  operation.addAttribute("occurrence", context.registration);
+  operation.addAttribute("ac.required_checks", builder.getArrayAttr(context.checks));
+  operation.addAttribute("ac.sampled_admission", builder.getDictionaryAttr({
+      builder.getNamedAttr("clock_capture", builder.getI64IntegerAttr(clockCapture)),
+      builder.getNamedAttr("reset_capture", builder.getI64IntegerAttr(clockCapture + 1)),
+      builder.getNamedAttr("fire_result", builder.getI64IntegerAttr(fireResult)),
+      builder.getNamedAttr("controls", builder.getArrayAttr(context.controls)),
+      builder.getNamedAttr("body_checks", builder.getArrayAttr({})),
+      builder.getNamedAttr("observations", builder.getArrayAttr({}))}));
+  operation.addRegion(std::move(region));
+  auto *lowered = builder.create(operation);
+  for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
+    candidates[state] = lowered->getResult(2 * ordinal);
+    sampledEnables[state] = lowered->getResult(2 * ordinal + 1);
+  }
+  for (auto [ordinal, raw] : llvm::enumerate(context.checks)) {
+    auto check = cast<DictionaryAttr>(raw);
+    make(ac::SourceExpectOp::getOperationName(), {
+        lowered->getResult(fireResult + 1 + 2 * ordinal),
+        lowered->getResult(fireResult + 2 + 2 * ordinal), clock, reset}, {}, {
+        builder.getNamedAttr("kind", builder.getStringAttr("guard_known")),
+        builder.getNamedAttr("location", check.get("location")),
+        builder.getNamedAttr("ac.check_id", check.get("id"))});
+  }
+  transactionWriters.push_back(builder.getDictionaryAttr({
+      builder.getNamedAttr("registration", context.registration),
+      builder.getNamedAttr("ordinary_results", builder.getI64IntegerAttr(0)),
+      builder.getNamedAttr("candidates", builder.getArrayAttr(candidateRows))}));
+  grants[index] = one;
+  return success();
+}
+
+void ClockedMaterializer::bindTransactionWiring() {
+  if (transactionWriters.empty())
+    return;
+  SmallVector<Attribute> declarations;
+  for (auto [index, state] : llvm::enumerate(states))
+    if (sampledEnables[index])
+      declarations.push_back(state->getAttr("occurrence"));
+  target->setAttr("ac.transaction_wiring", builder.getDictionaryAttr({
+      builder.getNamedAttr("states", builder.getArrayAttr(declarations)),
+      builder.getNamedAttr("incoming", builder.getArrayAttr({})),
+      builder.getNamedAttr("writers", builder.getArrayAttr(transactionWriters))}));
+}
+
 LogicalResult ClockedMaterializer::lowerRules() {
   grants.resize(plan.rules.size());
   for (unsigned node : definition.order) {
     if (node < definition.wires.size() || node >= definition.firstClockedCallNode())
       continue;
     unsigned index = node - definition.wires.size();
+    if (plan.rules[index].sampled) {
+      if (failed(lowerSampled(index)))
+        return failure();
+      continue;
+    }
     Value grant = one;
     for (const auto &required : plan.rules[index].requirements) {
       auto *fifo = fifos[required.fifo];
@@ -615,7 +847,9 @@ LogicalResult ClockedMaterializer::bindStorage() {
     for (auto [rule, definition] : llvm::enumerate(plan.rules))
       if (llvm::is_contained(definition.writes, index))
         enable = grants[rule];
-    if (plan.conditionalWrites.contains(index))
+    if (sampledEnables[index])
+      enable = sampledEnables[index];
+    else if (plan.conditionalWrites.contains(index))
       enable = binary("and", enable, intents[index]);
     SmallVector<Value> inputs{clock, reset, enable, candidates[index],
                               graph.lookup(var.getInitial())};
@@ -634,6 +868,9 @@ LogicalResult ClockedMaterializer::bindStorage() {
 }
 
 LogicalResult ClockedMaterializer::run() {
+  source.walk([&](Operation *operation) {
+    lexicalOrdinals.try_emplace(operation, lexicalOrdinals.size());
+  });
   bit = bits(1);
   if (!plan.variables.empty() && failed(addPrimitive("dffe")))
     return failure();
@@ -646,6 +883,7 @@ LogicalResult ClockedMaterializer::run() {
   if (failed(makeModule()) || failed(allocate()) || failed(cloneGraph()) ||
       failed(lowerRules()) || failed(bindGraph()) || failed(bindStorage()))
     return failure();
+  bindTransactionWiring();
   return success();
 }
 

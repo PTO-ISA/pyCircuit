@@ -144,6 +144,7 @@ FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
         return failure();
       for (const auto &control : view->controls)
         if (control.kind != detail::SampledControlKind::CallableGuard &&
+            control.kind != detail::SampledControlKind::OrderedGuard &&
             control.kind != detail::SampledControlKind::BranchSelect)
           return rule.emitOpError() << "physical RTL requires managed "
                                        "execution for non-guard controls";

@@ -330,10 +330,12 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     definition.clocked = std::move(*plan);
     for (auto [index, rule] : llvm::enumerate(definition.clocked->rules))
       rules.try_emplace(rule.operation.getSymName(), index);
+    definition.hasChecks = llvm::any_of(definition.clocked->rules,
+        [](const StructuredRule &rule) { return rule.sampled; });
     for (auto output : body.getOps<ResultOp>()) {
       auto &rule = definition.clocked->rules[rules.lookup(output.getRuleAttr().getValue())];
-      if (!rule.requirements.empty())
-        return output.emitOpError("resource-gated Rule results require availability lowering");
+      if (rule.sampled || !rule.requirements.empty())
+        return output.emitOpError("gated Rule results require availability lowering");
       rule.resultUses.push_back(output);
     }
   }
@@ -366,6 +368,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     const auto &child = result.definitions[target];
     if (!child.clocked)
       continue;
+    definition.hasChecks |= child.hasChecks;
     auto &prepare = definition.clockedCalls.emplace_back(
         StructuredClockedCall{call, receiver, target, {}});
     clockedCallNodes.try_emplace(

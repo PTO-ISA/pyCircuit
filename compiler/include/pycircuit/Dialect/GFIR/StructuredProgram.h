@@ -61,12 +61,14 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> writes;
   llvm::SmallVector<unsigned> dependencies;
   llvm::SmallVector<ResultOp> resultUses;
+  bool sampled = false;
 };
 
 struct StructuredClocked {
   llvm::SmallVector<VarOp> variables;
   llvm::SmallVector<MethodOp> methods;
   llvm::SmallVector<unsigned> methodOrder;
+  llvm::DenseSet<unsigned> sampledMethods;
   llvm::SmallVector<StructuredFifo> fifos;
   llvm::SmallVector<StructuredMemory> memories;
   llvm::SmallVector<StructuredRule, 0> rules;
@@ -77,6 +79,7 @@ struct StructuredClocked {
   /// Locally written state in either arm, including nested branches.
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<unsigned>> branchWrites;
   llvm::DenseSet<unsigned> conditionalWrites;
+  llvm::DenseSet<mlir::Operation *> checkedBranches;
 };
 
 struct StructuredWire {
@@ -115,6 +118,7 @@ struct StructuredDefinition {
   std::optional<StructuredClocked> clocked;
   llvm::SmallVector<StructuredClockedCall> clockedCalls;
   llvm::SmallVector<unsigned> preparationInputs;
+  bool hasChecks = false;
 
   unsigned firstClockedCallNode() const {
     return wires.size() + (clocked ? clocked->rules.size() : 0);

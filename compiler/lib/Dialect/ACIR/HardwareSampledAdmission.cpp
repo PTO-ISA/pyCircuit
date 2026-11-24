@@ -654,11 +654,13 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       return failure();
     auto kindAttr = guard.getAs<StringAttr>("kind");
     if (!kindAttr || !llvm::is_contained(
-                         ArrayRef<StringRef>{"callable_guard", "branch_select", "value_available", "resource_available"},
+                         ArrayRef<StringRef>{"callable_guard", "ordered_guard", "branch_select", "value_available", "resource_available"},
                          kindAttr.getValue()))
       return rule->emitOpError() << "sampled control has an invalid role";
     auto role = kindAttr.getValue() == "callable_guard"
                     ? SampledControlKind::CallableGuard
+                    : kindAttr.getValue() == "ordered_guard"
+                          ? SampledControlKind::OrderedGuard
                     : kindAttr.getValue() == "branch_select"
                           ? SampledControlKind::BranchSelect
                           : kindAttr.getValue() == "value_available"
@@ -680,7 +682,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (*predecessor != static_cast<int64_t>(ordinal) - 1 ||
         *obligation != static_cast<int64_t>(ordinal) || !invocation ||
         (ordinal == 0 && (invocation.size() != rootInvocationDepth || path->selectionControl ||
-                          role == SampledControlKind::BranchSelect)) ||
+                          role == SampledControlKind::BranchSelect ||
+                          role == SampledControlKind::OrderedGuard)) ||
         !identical(id.get("registration"), rule->getAttr("occurrence")))
       return rule->emitOpError() << "sampled control has inconsistent ordinal, "
                                     "registration or invocation";
@@ -693,6 +696,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     // ordinals and the same verified registration. Only role-specific
     // invocation/site uniqueness still needs a pairwise comparison here.
     if (role == SampledControlKind::CallableGuard ||
+        role == SampledControlKind::OrderedGuard ||
         role == SampledControlKind::BranchSelect) {
       for (const auto &prior : result.controls) {
         if (failed(budget.debit(1, rule)))
@@ -704,7 +708,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
         bool sameInvocation = identical(prior.invocation, invocation);
         if (role == SampledControlKind::CallableGuard && sameInvocation)
           return rule->emitOpError() << "duplicate sampled callable identity";
-        if (role == SampledControlKind::BranchSelect && sameInvocation) {
+        if ((role == SampledControlKind::BranchSelect ||
+             role == SampledControlKind::OrderedGuard) && sameInvocation) {
           if (failed(payComparison(prior.id.get("check"), id.get("check"), budget,
                                    rule)))
             return failure();

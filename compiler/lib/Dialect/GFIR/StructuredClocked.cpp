@@ -64,6 +64,7 @@ LogicalResult verifyInitializer(Value root, Operation *site,
 struct BodyUses {
   SmallVector<unsigned> methods, states, writes;
   uint64_t expandedWork = 0;
+  uint64_t sampledControls = 0;
 };
 
 class ClockedAnalyzer {
@@ -323,11 +324,11 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
                            write.getIndex(), &uses, true)))
         return failure();
     } else if (auto call = dyn_cast<CallOp>(op)) {
-      if (isArm)
-        return call.emitOpError("conditional calls require sampled admission");
       if (failed(verifyAttributes(call, {"receiver", "interface"})))
         return failure();
       if (call.getReceiverAttr()) {
+        if (isArm)
+          return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
           return call.emitOpError("native resource access is limited to a Rule in this profile");
         if (failed(bindFifo(call, rule, popped)))
@@ -335,6 +336,12 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       } else if (failed(bindMethod(call, uses))) {
         return failure();
       }
+    } else if (auto guard = dyn_cast<GuardOp>(op)) {
+      if (failed(verifyAttributes(guard, {})))
+        return failure();
+      if (!isBitOne(hardware, guard.getPredicate().getType(), guard))
+        return guard.emitOpError("guard requires one bit");
+      ++uses.sampledControls;
     } else if (auto branch = dyn_cast<IfOp>(op)) {
       if (failed(verifyAttributes(branch, {})))
         return failure();
@@ -344,9 +351,15 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         if (failed(verifyValueType(hardware, type, branch, /*allowTable=*/true)))
           return failure();
       unsigned firstWrite = uses.writes.size();
+      size_t firstCall = uses.methods.size();
+      uint64_t earlierControls = uses.sampledControls;
       for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
         if (failed(verifyBody(branch, arm->front(), uses, rule)))
           return failure();
+      if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls) {
+        plan.checkedBranches.insert(branch);
+        ++uses.sampledControls;
+      }
       SmallVector<unsigned> written(uses.writes.begin() + firstWrite,
                                     uses.writes.end());
       if (failed(budget.debit(written.size(), branch)))
@@ -388,6 +401,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     append(into.writes, from.writes);
     into.expandedWork =
         ac::detail::SourceCheckBudget::add(into.expandedWork, from.expandedWork);
+    into.sampledControls =
+        ac::detail::SourceCheckBudget::add(into.sampledControls, from.sampledControls);
     return success();
   };
   for (auto [index, body] : llvm::enumerate(methodUses)) {
@@ -409,6 +424,9 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   if (order.size() != methodUses.size())
     return module.emitOpError("recursive GFIR methods are unsupported");
   plan.methodOrder = std::move(order);
+  for (auto [index, uses] : llvm::enumerate(methodUses))
+    if (uses.sampledControls != 0)
+      plan.sampledMethods.insert(index);
   llvm::SmallDenseSet<unsigned> written;
   for (auto [index, body] : llvm::enumerate(ruleUses)) {
     auto &rule = plan.rules[index];
@@ -424,6 +442,15 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
         return rule.operation.emitOpError("state write overlaps another Rule in this profile");
     rule.states = std::move(body.states);
     rule.writes = std::move(body.writes);
+    rule.sampled = body.sampledControls != 0;
+    if (rule.sampled) {
+      if (!rule.requirements.empty())
+        return rule.operation.emitOpError("sampled guards cannot yet combine with resource admission");
+      if (llvm::any_of(rule.states, [&](unsigned index) {
+            return isa<ac::TableType>(plan.variables[index].getInitial().getType());
+          }))
+        return rule.operation.emitOpError("sampled guards require scalar or Struct state");
+    }
   }
   return success();
 }

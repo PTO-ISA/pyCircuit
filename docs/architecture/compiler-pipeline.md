@@ -94,6 +94,12 @@ compute values and read or write local candidates. A known predicate runs
 its selected arm. An X or Z predicate merges both yielded values, candidate
 data, and write intent. A state write after the join replaces that state's
 intent with a definite write.
+In a sampled Rule using local Bits or Struct state, `gfir.guard %p : !Bit`
+requires known true at that point in the Rule or Method. False holds the
+transaction and skips later checks. An unknown reached guard or a selector
+that controls a Method call fails validation on a non-reset rising sample.
+The HWIR projection records each reached sample separately from its final
+grant. The entire root commits only after all checks succeed.
 Native Memory declares `kind`, `element`, `depth`, and `access = "raw"`.
 The `raw` call drives that instance's complete input interface. Synchronous
 `sync_mem` and `sync_mem_dp` results read committed responses. A `byte_mem`
