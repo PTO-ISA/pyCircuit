@@ -491,6 +491,13 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       } else if (failed(bindMethod(call, uses))) {
         return failure();
       }
+    } else if (auto effect = dyn_cast<EffectOp>(op)) {
+      if (!rule || owner != plan.rules[*rule].operation ||
+          failed(verifyAttributes(effect, {"message"})))
+        return effect.emitOpError("assertion requires a direct Rule body");
+      if (!isBitOne(hardware, effect.getPredicate().getType(), effect))
+        return effect.emitOpError("assertion requires Bits1");
+      plan.rules[*rule].assertions.push_back(effect);
     } else if (auto guard = dyn_cast<GuardOp>(op)) {
       if (failed(verifyAttributes(guard, {})))
         return failure();
@@ -599,6 +606,14 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     rule.states = std::move(body.states);
     rule.writes = std::move(body.writes);
     rule.sampled = body.sampledControls != 0;
+    if (!rule.assertions.empty()) {
+      if (rule.sampled || !body.methods.empty() || !rule.requirements.empty())
+        return rule.operation.emitOpError("assertion Rule requires an unconditional local transaction");
+      for (Operation &op : rule.operation.getBody().front())
+        if (isa<CallOp, IfOp, LoopOp, GuardOp>(op))
+          return op.emitOpError("assertion Rule requires a direct ordered body");
+      rule.sampled = true;
+    }
     if (rule.sampled) {
       if (body.hasFieldWrites)
         return rule.operation.emitOpError("sampled guards do not yet support field writes");
@@ -682,6 +697,7 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
     auto registration = plan.orderedOccurrences.lookup(rule.operation);
     auto &body = rule.operation.getBody().front();
     auto count = assignOffsets(body);
+    count = Budget::add(count, rule.assertions.size());
     if (failed(budget.debit(count, rule.operation)))
       return failure();
     rule.checks.reserve(count);
@@ -710,6 +726,10 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
     };
     visit(visit, body, add,
           [&](Operation *call, unsigned method) { expand(expand, call, method); });
+    for (auto assertion : rule.assertions) {
+      plan.checkOffsets.try_emplace(assertion, rule.checks.size());
+      add(assertion);
+    }
   }
   return success();
 }

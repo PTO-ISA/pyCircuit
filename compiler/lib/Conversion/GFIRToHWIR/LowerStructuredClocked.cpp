@@ -39,6 +39,7 @@ private:
     SmallVector<MemoryProposal> memoryProposals;
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
+    llvm::DenseMap<Operation *, Value> assertionConditions;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -707,6 +708,8 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
                     ->getResult(0);
       local[target] = value;
       localIntents[target] = one;
+    } else if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
+      sampled->assertionConditions.try_emplace(effect, mapping.lookup(effect.getPredicate()));
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto captured = plan.guardedCaptureUses.find(guard);
           captured != plan.guardedCaptureUses.end()) {
@@ -895,7 +898,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     none = outerNone;
     return failure();
   }
-  if (context.controls.size() != context.plannedChecks.size())
+  const auto &assertions = plan.rules[index].assertions;
+  if (context.controls.size() + assertions.size() != context.plannedChecks.size())
     return rule.emitOpError("sampled refinement did not emit all verified checks");
   SmallVector<Value> yielded;
   const auto &resultUses = plan.rules[index].resultUses;
@@ -931,6 +935,23 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   for (auto [raw, reached] : llvm::zip(context.predicates, context.reaches))
     yielded.append({raw, reached});
+  SmallVector<Attribute> bodyChecks;
+  for (auto assertion : assertions) {
+    unsigned ordinal = context.checks.size();
+    const auto &check = context.plannedChecks[ordinal];
+    Value condition = context.assertionConditions.lookup(assertion);
+    if (!condition)
+      return assertion.emitOpError("missing ordered assertion condition");
+    context.checks.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("id", check.id),
+        builder.getNamedAttr("kind", builder.getStringAttr("assert")),
+        builder.getNamedAttr("location", check.location)}));
+    bodyChecks.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("id", check.id),
+        builder.getNamedAttr("invocation", builder.getArrayAttr({})),
+        builder.getNamedAttr("path", builder.getDictionaryAttr({}))}));
+    yielded.append({condition, context.prefix});
+  }
   SmallVector<Attribute> memoryProposals;
   for (auto &proposal : context.memoryProposals) {
     unsigned rawResult = yielded.size();
@@ -982,7 +1003,7 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       builder.getNamedAttr("reset_capture", builder.getI64IntegerAttr(clockCapture + 1)),
       builder.getNamedAttr("fire_result", builder.getI64IntegerAttr(fireResult)),
       builder.getNamedAttr("controls", builder.getArrayAttr(context.controls)),
-      builder.getNamedAttr("body_checks", builder.getArrayAttr({})),
+      builder.getNamedAttr("body_checks", builder.getArrayAttr(bodyChecks)),
       builder.getNamedAttr("observations", builder.getArrayAttr({}))});
   if (!context.requirements.empty())
     admission.append("requirements", builder.getArrayAttr(context.requirements));
@@ -1006,7 +1027,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     candidates[state] = lowered->getResult(ordinaryResults + 2 * ordinal);
     sampledEnables[state] = lowered->getResult(ordinaryResults + 2 * ordinal + 1);
   }
-  for (auto [ordinal, raw] : llvm::enumerate(context.checks)) {
+  for (auto [ordinal, raw] : llvm::enumerate(
+           ArrayRef<Attribute>(context.checks).take_front(context.controls.size()))) {
     auto check = cast<DictionaryAttr>(raw);
     make(ac::SourceExpectOp::getOperationName(), {
         lowered->getResult(fireResult + 1 + 2 * ordinal),
@@ -1014,6 +1036,19 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
         builder.getNamedAttr("kind", builder.getStringAttr("guard_known")),
         builder.getNamedAttr("location", check.get("location")),
         builder.getNamedAttr("ac.check_id", check.get("id"))});
+  }
+  for (auto [index, assertion] : llvm::enumerate(assertions)) {
+    unsigned ordinal = context.controls.size() + index;
+    const auto &check = context.plannedChecks[ordinal];
+    SmallVector<NamedAttribute> attrs{
+        builder.getNamedAttr("kind", builder.getStringAttr("assert")),
+        builder.getNamedAttr("location", check.location),
+        builder.getNamedAttr("ac.check_id", check.id)};
+    if (auto message = assertion.getMessageAttr())
+      attrs.push_back(builder.getNamedAttr("ac.message", message));
+    make(ac::SourceExpectOp::getOperationName(), {
+        lowered->getResult(fireResult + 1 + 2 * ordinal),
+        lowered->getResult(fireResult + 2 + 2 * ordinal)}, {}, attrs);
   }
   transactionWriters.push_back(builder.getDictionaryAttr({
       builder.getNamedAttr("registration", context.registration),

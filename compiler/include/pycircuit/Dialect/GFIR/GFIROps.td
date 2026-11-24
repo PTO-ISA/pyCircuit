@@ -158,6 +158,14 @@ def GFIR_GuardOp : GFIR_Op<"guard", [
   let hasVerifier = 1;
 }
 
+def GFIR_EffectOp : GFIR_Op<"effect", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Check a total assertion during every simulation sample";
+  let arguments = (ins AnyType:$predicate, OptionalAttr<StrAttr>:$message);
+  let assemblyFormat = "`assert` $predicate attr-dict `:` type($predicate)";
+  let hasVerifier = 1;
+}
+
 def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
   let summary = "Return the outputs of a graph or ordered body";
   let arguments = (ins Variadic<AnyType>:$values);

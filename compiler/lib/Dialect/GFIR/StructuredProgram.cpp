@@ -479,6 +479,11 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     if (failed(plan))
       return failure();
     definition.clocked = std::move(*plan);
+    for (const auto &rule : definition.clocked->rules)
+      if (!rule.assertions.empty() &&
+          (module.getSymName() != result.root.getCalleeAttr().getValue() ||
+           !detail::hasGeneratedDomain(result.root)))
+        return rule.operation.emitOpError("assertions require the selected generated-default-domain root");
     for (auto [index, rule] : llvm::enumerate(definition.clocked->rules))
       rules.try_emplace(rule.operation.getSymName(), index);
     for (const auto &rule : definition.clocked->rules)

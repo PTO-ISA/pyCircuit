@@ -539,6 +539,19 @@ LogicalResult OrdinalBitsOp::verify() {
   return success();
 }
 
+LogicalResult EffectOp::verify() {
+  if (!isa<RuleOp>((*this)->getParentOp()))
+    return emitOpError("assertion requires a direct Rule body");
+  if (!isa<ac::BitsType>(getPredicate().getType()))
+    return emitOpError("assertion requires a Bits predicate");
+  return success();
+}
+
+void EffectOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(), ac::SourceCheckResource::get());
+}
+
 LogicalResult GuardOp::verify() {
   if (!isOrderedOwner((*this)->getParentOp()))
     return emitOpError("requires an ordered body");

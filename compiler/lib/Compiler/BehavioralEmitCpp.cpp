@@ -38,6 +38,15 @@ bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
 }
 
+bool hasAssertions(const gfir::StructuredDefinition &definition) {
+  return definition.clocked && llvm::any_of(definition.clocked->rules,
+      [](const gfir::StructuredRule &rule) { return !rule.assertions.empty(); });
+}
+
+std::string assertionName(unsigned rule, unsigned check) {
+  return "pyc_assert_failed_" + std::to_string(rule) + "_" + std::to_string(check);
+}
+
 bool needsDomain(const gfir::StructuredClocked &clocked) {
   return !clocked.variables.empty() || llvm::any_of(clocked.rules,
       [](const gfir::StructuredRule &rule) { return rule.sampled; });
@@ -592,6 +601,8 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     out << "  void configure_checks(std::string instance);\n"
            "  bool validate_sampling(gfsim::SimFailureInfo &failure) const noexcept;\n"
            "  bool validate_checks(gfsim::SimFailureInfo &failure) const noexcept;\n";
+  if (hasAssertions(definition))
+    out << "  bool validate_assertions(gfsim::SimFailureInfo &failure) const noexcept;\n";
   llvm::SmallDenseSet<Operation *> seen;
   for (const auto &wire : definition.wires) {
     if (!wire.call || !seen.insert(wire.call->receiver).second)
@@ -619,6 +630,11 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
              "  std::string pyc_check_instance;\n"
           << "  unsigned pyc_failed_rule = " << noCheck << ";\n"
           << "  unsigned pyc_failed_check = " << noCheck << ";\n";
+    if (hasAssertions(definition))
+      for (auto [ruleIndex, rule] : llvm::enumerate(definition.clocked->rules))
+        for (auto assertion : rule.assertions)
+          out << "  bool " << assertionName(ruleIndex,
+              definition.clocked->checkOffsets.lookup(assertion)) << " = false;\n";
     for (auto [result, output] : llvm::enumerate(definition.outputs)) {
       if (!output.requiresPreparation)
         continue;
@@ -695,7 +711,9 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
         out << "  if (pyc_failed_rule == " << ruleIndex << ") {\n"
                "    switch (pyc_failed_check) {\n";
         auto operation = rule.operation;
-        for (auto [ordinal, check] : llvm::enumerate(rule.checks)) {
+        for (auto [ordinal, check] : llvm::enumerate(
+                 ArrayRef<gfir::StructuredCheckSite>(rule.checks)
+                     .drop_back(rule.assertions.size()))) {
           auto id = emissionMetadataJson(check.id, operation);
           auto location = emissionMetadataJson(check.location, operation);
           if (failed(id) || failed(location))
@@ -716,6 +734,26 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
         return failure();
       out << "  if (!" << *member << ".validate_checks(failure)) return false;\n";
     }
+    out << "  return true;\n}\n";
+  }
+
+  if (hasAssertions(definition)) {
+    out << "bool " << moduleName(index)
+        << "::validate_assertions(gfsim::SimFailureInfo &failure) const noexcept {\n";
+    for (auto [ruleIndex, rule] : llvm::enumerate(definition.clocked->rules))
+      for (auto assertion : rule.assertions) {
+        unsigned ordinal = definition.clocked->checkOffsets.lookup(assertion);
+        const auto &check = rule.checks[ordinal];
+        auto id = emissionMetadataJson(check.id, assertion);
+        auto location = emissionMetadataJson(check.location, assertion);
+        if (failed(id) || failed(location)) return failure();
+        auto message = assertion.getMessageAttr();
+        out << "  if (" << assertionName(ruleIndex, ordinal) << ") {\n"
+               "    failure = {gfsim::SimFailurePhase::Check, \"source_check_failed\", "
+            << cppString(message ? message.getValue() : "source assert check failed")
+            << ", pyc_check_instance, " << cppString(*location) << ", "
+            << cppString(*id) << "};\n    return false;\n  }\n";
+      }
     out << "  return true;\n}\n";
   }
 
@@ -941,7 +979,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       out << "    txn." << resultName(index) << " = " << values.lookup(value) << ";\n";
   };
   for (Operation &op : body) {
-    if (rule && rule->afterSnapshot == &op) {
+    if (rule && rule->assertions.empty() && rule->afterSnapshot == &op) {
       snapshot();
       out << "    if (!pyc_active) return;\n";
     }
@@ -953,7 +991,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       values.try_emplace(result, results.back());
     }
     std::string text;
-    if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
+    if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
+      out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
+          << " = " << values.lookup(effect.getPredicate()) << ";\n";
+      continue;
+    } else if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
       if (failed(emitLoop(out, loop, clocked, values, results)))
         return failure();
       continue;
@@ -1096,7 +1138,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       }
     } else if (isa<gfir::YieldOp>(op)) {
       if (ruleResults) {
-        if (!rule->afterSnapshot)
+        if (!rule->afterSnapshot || !rule->assertions.empty())
           snapshot();
       } else if (args.size() == 1)
         out << "    return " << args.front() << ";\n";
@@ -1312,6 +1354,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
           << "    bool pyc_check_active = false;\n";
+    for (auto assertion : rule.assertions)
+      out << "    gfsim::behavior::Level pyc_assert_condition_"
+          << clocked.checkOffsets.lookup(assertion) << ";\n";
     for (unsigned state : rule.states) {
       auto variable = clocked.variables[state];
       auto wire = typedWire(variable.getInitial().getType(), variable);
@@ -1429,7 +1474,8 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     out << "    " << frameName(index) << ".pyc_capture_available_" << capture
         << " = " << frameName(producer) << ".pyc_running;\n";
   out << "    if (";
-  if (needsDomain(*definition.clocked) && rule.resultUses.empty() && !rule.readsByteMemory)
+  if (needsDomain(*definition.clocked) && rule.resultUses.empty() &&
+      !rule.readsByteMemory && rule.assertions.empty())
     out << "pyc_active && ";
   out << "gfsim::behavior::isOne(" << wireName(grant) << ")) "
       << instancePrefix << ruleName(index) << '(' << frameName(index);
@@ -1443,6 +1489,15 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     out << ", " << *value;
   }
   out << ");\n";
+  for (auto assertion : rule.assertions) {
+    unsigned ordinal = definition.clocked->checkOffsets.lookup(assertion);
+    out << "    {\n      const auto pyc_error = gfsim::bit_and(gfsim::bit_and("
+        << levelName << '(' << frameName(index) << ".pyc_running).packed(), "
+           "gfsim::bit_not(pyc_reset.packed())), gfsim::bit_not("
+        << frameName(index) << ".pyc_assert_condition_" << ordinal << ".packed()));\n"
+        << "      " << assertionName(index, ordinal)
+        << " = !pyc_error.isFullyKnown() || pyc_error.value() != gfsim::Bits<1>{0};\n    }\n";
+  }
   if (rule.sampled)
     out << "    if (" << frameName(index) << ".pyc_failed_check != " << noCheck
         << " && " << index << " < pyc_failed_rule) {\n"
@@ -1958,11 +2013,15 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     }
   }
 
-  if (definition.hasChecks())
+  if (definition.hasChecks()) {
     source << "bool " << scopedName
            << "::pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept {\n"
               "  failure = {};\n"
-              "  return pyc_body.validate_sampling(failure) && pyc_body.validate_checks(failure);\n}\n";
+              "  return pyc_body.validate_sampling(failure) && pyc_body.validate_checks(failure)";
+    if (hasAssertions(definition))
+      source << " && pyc_body.validate_assertions(failure)";
+    source << ";\n}\n";
+  }
 
   parts.systemHeader = "#pragma once\n#include \"" + parts.rootHeaderPath +
                        "\"\nusing pyc_root = " + *name + ";\n";

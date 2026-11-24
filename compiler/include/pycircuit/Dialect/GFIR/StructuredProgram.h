@@ -88,6 +88,7 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> dependencies;
   llvm::SmallVector<ResultOp> resultUses;
   llvm::SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
+  llvm::SmallVector<EffectOp> assertions;
   bool sampled = false;
   bool readsByteMemory = false;
   llvm::SmallVector<StructuredCheckSite> checks;
