@@ -7,12 +7,16 @@ module attributes {gfir.contract = 1 : i64} {
       attributes {source_owner = {package = "", path = "assertions.py"}, input_names = ["predicate", "allow"], output_names = ["count"], domains = ["default"]} {
     %zero = "ac.bits.constant4"() {pattern = "00000000"} : () -> !b8
     gfir.var @ticks init %zero : !b8
-    gfir.rule @advance(%condition = %predicate : !b1) -> () {
+    gfir.rule @advance(%condition = %predicate : !b1, %filter = %allow : !b1) -> () {
       %old = gfir.read @ticks : !b8
       %one = "ac.bits.constant4"() {pattern = "00000001"} : () -> !b8
       %next = "ac.bits.binary"(%old, %one) {opcode = "add"} : (!b8, !b8) -> !b8
       gfir.write @ticks, %next : !b8
       gfir.effect assert %condition {message = "cycle assertion"} : !b1 loc("assertions.py":10:1)
+      %zero_bit = "ac.bits.constant4"() {pattern = "0"} : () -> !b1
+      %blocked = "ac.bits.compare"(%filter, %zero_bit) {predicate = "case_eq"} : (!b1, !b1) -> !b1
+      %admit = "ac.bits.unary"(%blocked) {opcode = "not"} : (!b1) -> !b1
+      gfir.guard %admit : !b1
       gfir.yield
     }
     // This later Rule's reached guard fault precedes the earlier assertion.

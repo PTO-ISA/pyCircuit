@@ -114,11 +114,12 @@ Rule starts from the child's committed value. A late guard cancels the candidate
 HWIR routes the accepted candidate to the actual child through private ports.
 The child stages it once under the same sample and commit barrier as the root.
 
-A direct, guard-free Rule on the selected generated-default-domain root can
-use `gfir.effect assert`. The predicate is captured at the statement and checked
-on each Work with the interpreted reset mask. Sampling and guard checks precede
-assertions. A failed assertion leaves state and clock history at their previous
-committed values, including in generated System runs.
+A direct Rule on the selected generated-default-domain root can use
+`gfir.effect assert`. The predicate is captured at the statement. Each Work
+uses final Rule admission and the interpreted reset mask to activate it.
+Sampling and guard checks precede assertions. A failed assertion leaves state
+and clock history at their previous committed values, including in generated
+System runs.
 
 Direct Rules on a closed System root can use `gfir.effect log` and
 `gfir.effect report` with the shared observation spec. The effects preserve

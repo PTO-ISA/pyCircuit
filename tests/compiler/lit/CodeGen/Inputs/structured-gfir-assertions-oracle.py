@@ -36,16 +36,25 @@ stimuli = [
     (0, "0", "1", "1"),
     (1, "0", "1", "1"),
     (0, "0", "1", "1"),
+    (1, "0", "0", "0"),  # late false guard suppresses the earlier assertion
+    (1, "0", "x", "0"),
+    (0, "0", "z", "0"),
 ]
 for clock, reset, predicate, allow in stimuli:
     rising = bool(clock and not history)
     guard_fault = rising and reset == "0" and allow in ("x", "z")
-    # Assertion path is final admission of its own guard-free Rule: true.
-    error = conjunction(invert(reset), invert(predicate))
+    # The writer admits every value except a case-equal zero. Any X/Z in
+    # the independent guard still follows the ordinary edge checks.
+    fire = allow != "0"
+    error = conjunction(
+        "1" if fire else "0", conjunction(invert(reset), invert(predicate))
+    )
     outcome = "G" if guard_fault else "A" if error != "0" else "C"
     print(clock, reset, predicate, allow, f"{count:x}", outcome)
     if outcome != "C":
         continue
-    if rising:
-        count = 0 if reset == "1" else (count + 1) % 256
+    if rising and reset == "1":
+        count = 0
+    elif rising and fire:
+        count = (count + 1) % 256
     history = clock

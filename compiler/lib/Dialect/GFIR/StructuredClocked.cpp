@@ -646,9 +646,6 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     rule.states = std::move(body.states);
     rule.writes = std::move(body.writes);
     rule.sampled = body.sampledControls != 0 || childWriter == index;
-    if (!rule.assertions.empty() &&
-        (rule.sampled || !body.methods.empty() || !rule.requirements.empty()))
-      return rule.operation.emitOpError("assertion Rule requires an unconditional local transaction");
     if (!rule.assertions.empty() || !rule.observations.empty()) {
       for (Operation &op : rule.operation.getBody().front())
         if (isa<CallOp, IfOp, LoopOp>(op))
