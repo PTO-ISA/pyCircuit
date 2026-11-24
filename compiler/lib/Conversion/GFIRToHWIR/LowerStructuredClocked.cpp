@@ -1044,7 +1044,7 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
         builder.getNamedAttr("kind", builder.getStringAttr("assert")),
         builder.getNamedAttr("location", check.location),
         builder.getNamedAttr("ac.check_id", check.id)};
-    if (auto message = assertion.getMessageAttr())
+    if (auto message = assertion->getAttr("message"))
       attrs.push_back(builder.getNamedAttr("ac.message", message));
     make(ac::SourceExpectOp::getOperationName(), {
         lowered->getResult(fireResult + 1 + 2 * ordinal),
