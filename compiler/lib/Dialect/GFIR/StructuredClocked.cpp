@@ -66,6 +66,7 @@ struct BodyUses {
   SmallVector<unsigned> methods, states, writes;
   uint64_t expandedWork = 0;
   uint64_t sampledControls = 0;
+  bool hasFieldWrites = false;
 };
 
 class ClockedAnalyzer {
@@ -178,17 +179,61 @@ LogicalResult ClockedAnalyzer::bindRawMemory(CallOp call, unsigned index) {
 LogicalResult ClockedAnalyzer::bindState(Operation *op, FlatSymbolRefAttr target,
                                           Value value, Value index,
                                           BodyUses *body, bool write) {
-  if (failed(verifyAttributes(op, {"state"})))
+  if (failed(verifyAttributes(op, write ? ArrayRef<StringRef>{"state", "fields"}
+                                       : ArrayRef<StringRef>{"state"})))
     return failure();
   auto found = variables.find(target.getValue());
   if (found == variables.end())
     return op->emitOpError("state reference must resolve to a local gfir.var");
   auto ordinal = found->second;
   Type type = plan.variables[ordinal].getInitial().getType();
+  if (auto fields = op->getAttrOfType<ArrayAttr>("fields")) {
+    StructuredWritePath path{fields, {}, 0, 0};
+    uint64_t low = 0;
+    for (Attribute raw : fields) {
+      auto structure = dyn_cast<ac::StructType>(type);
+      auto declaration = structure ? hardware.lookupStruct(structure) : ac::StructOp();
+      if (!declaration)
+        return op->emitOpError("field path requires a declared Struct at every step");
+      if (failed(budget.debit(declaration.getFields().size(), op)))
+        return failure();
+      Type selected;
+      uint64_t offset = 0;
+      for (Attribute item : llvm::reverse(declaration.getFields())) {
+        auto field = cast<DictionaryAttr>(item);
+        Type fieldType = field.getAs<TypeAttr>("type").getValue();
+        if (field.getAs<StringAttr>("name") == raw) {
+          selected = fieldType;
+          break;
+        }
+        auto width = hardware.getPackedWidth(fieldType, {}, op);
+        if (failed(width) || *width > std::numeric_limits<unsigned>::max() - offset)
+          return op->emitOpError("field path exceeds the supported packed width");
+        offset += *width;
+      }
+      if (!selected)
+        return op->emitOpError("field path names an undeclared Struct field");
+      if (offset > std::numeric_limits<unsigned>::max() - low)
+        return op->emitOpError("field path exceeds the supported packed width");
+      low += offset;
+      type = selected;
+      path.types.push_back(type);
+    }
+    auto width = hardware.getPackedWidth(type, {}, op);
+    if (failed(width) || *width > std::numeric_limits<unsigned>::max() - low)
+      return op->emitOpError("field path exceeds the supported packed width");
+    path.low = low;
+    path.width = *width;
+    plan.writePaths.try_emplace(op, std::move(path));
+    body->hasFieldWrites = true;
+  }
   if (index) {
     auto table = dyn_cast<ac::TableType>(type);
     if (!table || !isa<ac::BitsType>(index.getType()))
       return op->emitOpError("indexed state write requires Table and Bits index");
+    if (plan.writePaths.contains(op) &&
+        (table.getShape().size() != 1 || !isa<ac::BitsType>(table.getElementType())))
+      return op->emitOpError("indexed field writes require a rank-one Bits Table");
     if (failed(hardware.verifySourceIndex(index, table, {}, op)))
       return failure();
     type = table.getElementType();
@@ -406,6 +451,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
         ac::detail::SourceCheckBudget::add(into.expandedWork, from.expandedWork);
     into.sampledControls =
         ac::detail::SourceCheckBudget::add(into.sampledControls, from.sampledControls);
+    into.hasFieldWrites |= from.hasFieldWrites;
     return success();
   };
   for (auto [index, body] : llvm::enumerate(methodUses)) {
@@ -447,6 +493,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     rule.writes = std::move(body.writes);
     rule.sampled = body.sampledControls != 0;
     if (rule.sampled) {
+      if (body.hasFieldWrites)
+        return rule.operation.emitOpError("sampled guards do not yet support field writes");
       if (!rule.requirements.empty())
         return rule.operation.emitOpError("sampled guards cannot yet combine with resource admission");
       if (llvm::any_of(rule.states, [&](unsigned index) {

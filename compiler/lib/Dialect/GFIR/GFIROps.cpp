@@ -305,10 +305,26 @@ ParseResult WriteOp::parse(OpAsmParser &parser, OperationState &result) {
   Type valueType, indexType;
   if (parser.parseAttribute(state, "state", result.attributes))
     return failure();
-  bool indexed = succeeded(parser.parseOptionalLSquare());
-  if (indexed && (parser.parseOperand(index) || parser.parseColonType(indexType) ||
-                  parser.parseRSquare()))
-    return failure();
+  SmallVector<Attribute> fields;
+  bool indexed = false;
+  while (succeeded(parser.parseOptionalLSquare())) {
+    std::string field;
+    if (succeeded(parser.parseOptionalString(&field))) {
+      if (field.empty())
+        return parser.emitError(parser.getCurrentLocation(), "field name must be nonempty");
+      if (parser.parseRSquare())
+        return failure();
+      fields.push_back(parser.getBuilder().getStringAttr(field));
+      continue;
+    }
+    if (parser.parseOperand(index) || parser.parseColonType(indexType) ||
+        parser.parseRSquare())
+      return failure();
+    indexed = true;
+    break;
+  }
+  if (!fields.empty())
+    result.addAttribute("fields", parser.getBuilder().getArrayAttr(fields));
   if (parser.parseComma() || parser.parseOperand(value) ||
       parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseColonType(valueType) ||
@@ -322,10 +338,16 @@ ParseResult WriteOp::parse(OpAsmParser &parser, OperationState &result) {
 void WriteOp::print(OpAsmPrinter &printer) {
   printer << ' ';
   printer.printAttributeWithoutType(getStateAttr());
+  if (auto fields = getFieldsAttr())
+    for (Attribute field : fields) {
+      printer << '[';
+      printer.printAttributeWithoutType(field);
+      printer << ']';
+    }
   if (auto index = getIndex())
     printer << '[' << index << " : " << index.getType() << ']';
   printer << ", " << getValue();
-  printer.printOptionalAttrDict((*this)->getAttrs(), {"state"});
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"state", "fields"});
   printer << " : " << getValue().getType();
 }
 
@@ -334,6 +356,11 @@ LogicalResult WriteOp::verify() {
     return emitOpError("requires an ordered Rule or Method body");
   if (getIndex() && !isa<ac::BitsType>(getIndex().getType()))
     return emitOpError("dynamic table index must have a Bits type");
+  if (auto fields = getFieldsAttr())
+    if (fields.empty() || llvm::any_of(fields, [](Attribute field) {
+          return cast<StringAttr>(field).getValue().empty();
+        }))
+      return emitOpError("field path must contain nonempty names");
   return success();
 }
 

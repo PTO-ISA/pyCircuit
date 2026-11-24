@@ -59,6 +59,13 @@ struct StructuredCheckSite {
   mlir::DictionaryAttr location;
 };
 
+struct StructuredWritePath {
+  mlir::ArrayAttr fields;
+  llvm::SmallVector<mlir::Type> types;
+  unsigned low;
+  unsigned width;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -82,6 +89,7 @@ struct StructuredClocked {
   llvm::DenseMap<mlir::Operation *, StructuredFifoUse> fifoCalls;
   llvm::DenseMap<mlir::Operation *, unsigned> memoryCalls;
   llvm::DenseMap<mlir::Operation *, unsigned> stateAccesses;
+  llvm::DenseMap<mlir::Operation *, StructuredWritePath> writePaths;
   llvm::DenseMap<mlir::Operation *, unsigned> methodCalls;
   /// Locally written state in either arm, including nested branches.
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<unsigned>> branchWrites;

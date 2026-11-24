@@ -78,9 +78,9 @@ def GFIR_ReadOp : GFIR_Op<"read", [
 
 def GFIR_WriteOp : GFIR_Op<"write", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-  let summary = "Update one transaction candidate or indexed table row";
+  let summary = "Update a transaction candidate, nested field or indexed row";
   let arguments = (ins FlatSymbolRefAttr:$state, AnyType:$value,
-      Optional<AnyType>:$index);
+      Optional<AnyType>:$index, OptionalAttr<StrArrayAttr>:$fields);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }

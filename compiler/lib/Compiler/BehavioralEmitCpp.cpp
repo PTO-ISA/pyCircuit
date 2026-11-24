@@ -809,6 +809,26 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       std::string frame = "txn." + state;
       if (clocked.conditionalWrites.contains(index))
         out << "    txn." << intentName(index) << " = " << levelName << "(true);\n";
+      if (auto path = clocked.writePaths.find(write); path != clocked.writePaths.end()) {
+        out << "    {\n      if (!" << frame << ") " << frame << ".emplace(" << state
+            << ".value());\n";
+        std::string replacement = values.lookup(write.getValue()) + ".packed()";
+        if (write.getIndex()) {
+          auto type = typedWire(path->second.types.back(), write);
+          if (failed(type))
+            return failure();
+          out << "      auto pyc_field = " << *type << "::fromPacked(gfsim::extract<"
+              << path->second.width << ">(" << frame << "->packed(), "
+              << path->second.low << "));\n"
+              << "      gfsim::behavior::replace(pyc_field, "
+              << values.lookup(write.getIndex()) << ", "
+              << values.lookup(write.getValue()) << ");\n";
+          replacement = "pyc_field.packed()";
+        }
+        out << "      " << frame << "->assignSlice(" << path->second.low << ", "
+            << replacement << ");\n    }\n";
+        continue;
+      }
       if (write.getIndex()) {
         out << "    if (!" << frame << ") " << frame << ".emplace(" << state
             << ".value());\n";

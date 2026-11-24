@@ -557,12 +557,24 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
       unsigned target = plan.stateAccesses.lookup(write);
       Value value = mapping.lookup(write.getValue());
+      Value previous = local[target];
+      auto path = plan.writePaths.find(write);
+      if (path != plan.writePaths.end())
+        for (auto [field, type] : llvm::zip(path->second.fields, path->second.types))
+          previous = make(ac::StructGetOp::getOperationName(), {previous}, {type}, {
+              builder.getNamedAttr("field", field)})->getResult(0);
       if (write.getIndex()) {
-        auto next = indexedWrite(local[target], mapping.lookup(write.getIndex()), value);
+        auto next = indexedWrite(previous, mapping.lookup(write.getIndex()), value);
         if (failed(next))
           return failure();
         value = *next;
       }
+      if (path != plan.writePaths.end())
+        value = make(ac::ValueMergeOp::getOperationName(), {local[target], one, value},
+            {local[target].getType(), bit}, {
+            builder.getNamedAttr("paths", builder.getArrayAttr({path->second.fields})),
+            builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))})
+                    ->getResult(0);
       local[target] = value;
       localIntents[target] = one;
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
