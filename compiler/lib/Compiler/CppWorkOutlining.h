@@ -69,7 +69,10 @@ public:
       auto page = start / pageFields;
       out << "    " << prefix << "_page_" << page << " page_" << page << ";\n";
     }
-    out << "  };\n";
+    // Each invocation defines the planes before consuming them. Keep only the
+    // scratch allocation across calls, owned by this generated module instance.
+    out << "  };\n  std::unique_ptr<" << frame << "> " << frame
+        << "_storage;\n";
     std::vector<std::string> calls;
     for (std::size_t i = 0; i < parts.size(); ++i) {
       auto name = prefix + "_part_" + std::to_string(i);
@@ -103,10 +106,11 @@ public:
       if (!guard.empty())
         out << "      if (" << guard << ") return pyc_run_known_work();\n";
     }
-    out << "      auto pyc_values = std::make_unique_for_overwrite<" << frame
-        << ">();\n";
+    out << "      if (!" << frame << "_storage) " << frame
+        << "_storage = std::make_unique_for_overwrite<" << frame << ">();\n"
+        << "      auto &pyc_values = *" << frame << "_storage;\n";
     for (auto &name : calls)
-      out << "      " << name << "(*pyc_values);\n";
+      out << "      " << name << "(pyc_values);\n";
     if (!known)
       out << "    } catch (...) { DiscardNext(); throw; }\n";
     out << "  }\n";
