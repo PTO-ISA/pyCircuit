@@ -3,6 +3,8 @@
 #include "HardwareEmitCommon.h"
 #include "HardwareEmitCppChecks.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
@@ -89,6 +91,25 @@ public:
   bool needsOutlining() const { return exceededSize; }
   std::string knownGuard() const {
     return llvm::join(knownConditions.begin(), knownConditions.end(), " && ");
+  }
+  // IR use counts precede flattened port and field forwarding. Schedule once
+  // with named planes to discover shared producers before deciding to inline.
+  static FailureOr<std::string> emitOutlined(HardwareEmitContext &ctx,
+                                             ac::ModuleOp definition,
+                                             CppWorkOutlining &outline,
+                                             bool known = false) {
+    llvm::DenseSet<Value> shared;
+    llvm::raw_null_ostream discard;
+    WorkEmitter plan(ctx, definition, discard, false, nullptr, false, known);
+    plan.sharedScalars = &shared;
+    if (failed(plan.run()))
+      return failure();
+    WorkEmitter emit(ctx, definition, outline.stream, false, &outline, false,
+                     known);
+    emit.sharedScalars = &shared;
+    if (failed(emit.run()))
+      return failure();
+    return emit.knownGuard();
   }
   LogicalResult run() {
     if (failed(collect(scopes.front())))
@@ -592,8 +613,10 @@ private:
     // value. Capture that code even when this request hits the memo.
     statement();
     for (auto &n : memo)
-      if (n.scope == &s && n.value == v && n.path == path)
+      if (n.scope == &s && n.value == v && n.path == path) {
+        recordReuse(n.name);
         return n.name;
+      }
     for (auto &n : active)
       if (n.scope == &s && n.value == v && n.path == path)
         return s.definition.emitOpError()
@@ -802,7 +825,7 @@ private:
     if (auto merge = dyn_cast<ac::ValueMergeOp>(op)) {
       unsigned result = cast<OpResult>(value).getResultNumber();
       if (result) {
-        std::string en = wordType("1") + "::known(gfsim::Bits<1>{0})";
+        std::string en = "pyc_work_bit<" + wordType("1") + ", false>()";
         for (auto guard : merge.getGuards()) {
           auto g = operand(guard, {});
           if (failed(g))
@@ -863,8 +886,42 @@ private:
       auto path = operand(require.getPath(), {});
       if (failed(available) || failed(path))
         return failure();
-      return valueApi() + "select(" + *path + ", " + *available + ", " +
-             wordType("1") + "::known(gfsim::Bits<1>{1}))";
+      return valueApi() + "select(" + *path + ", " + *available +
+             ", pyc_work_bit<" + wordType("1") + ", true>())";
+    }
+    auto w = width(value.getType(), s, op);
+    if (failed(w))
+      return failure();
+    if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
+      auto low = ctx.staticValue(extract.getLow(), s.bindings, op);
+      auto input = extract.getInput();
+      if (failed(low))
+        return failure();
+      if (*low == "0") {
+        auto inputWidth = width(input.getType(), s, op);
+        if (failed(inputWidth))
+          return failure();
+        if (*inputWidth == *w)
+          return operand(input, {});
+      }
+      // Request the original operands before scheduling a full-width shift.
+      auto shift = input.getDefiningOp<ac::BitsBinaryOp>();
+      if (shift && shift.getOpcode() == "lshr") {
+        Value amount = shift.getRhs();
+        if (auto extend = amount.getDefiningOp<ac::BitsResizeOp>();
+            extend && extend.getMode() == "zext")
+          amount = extend.getInput();
+        auto row = operand(shift.getLhs(), {});
+        auto offset = operand(amount, {});
+        if (failed(row) || failed(offset))
+          return failure();
+        return valueApi() + "extract_lshr<" + *w + ">(" + *row + ", " +
+               *offset + ", " + *low + ")";
+      }
+      auto source = operand(input, {});
+      if (failed(source))
+        return failure();
+      return valueApi() + "extract<" + *w + ">(" + *source + ", " + *low + ")";
     }
     SmallVector<std::string> operands;
     for (auto v : op->getOperands()) {
@@ -873,9 +930,6 @@ private:
         return failure();
       operands.push_back(*e);
     }
-    auto w = width(value.getType(), s, op);
-    if (failed(w))
-      return failure();
     if (isa<ac::BitsUnaryOp>(op))
       return valueApi() + "bit_not(" + operands[0] + ")";
     if (auto binary = dyn_cast<ac::BitsBinaryOp>(op)) {
@@ -920,20 +974,6 @@ private:
       for (unsigned i = 1; i < operands.size(); ++i)
         text = valueApi() + "concat(" + text + ", " + operands[i] + ")";
       return text;
-    }
-    if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
-      auto low = ctx.staticValue(extract.getLow(), s.bindings, op);
-      if (failed(low))
-        return failure();
-      if (*low == "0") {
-        auto inputWidth = width(op->getOperand(0).getType(), s, op);
-        if (failed(inputWidth))
-          return failure();
-        if (*inputWidth == *w)
-          return operands[0];
-      }
-      return valueApi() + "extract<" + *w + ">(" + operands[0] + ", " + *low +
-             ")";
     }
     if (auto resize = dyn_cast<ac::BitsResizeOp>(op)) {
       auto mode = llvm::StringSwitch<StringRef>(resize.getMode())
@@ -1172,14 +1212,19 @@ private:
     auto result = name();
     // Only the completed static name enters the outer memo through emit().
     // Initializer temporaries belong solely to this capture-free lambda.
-    out << "    static const " << *exactType << " " << result << " = [] {\n"
-        << initializerText << "      return " << *constructed
-        << ";\n    }();\n";
+    std::string declaration;
+    llvm::raw_string_ostream init(declaration);
+    raw_ostream &dest = outline ? init : out;
+    dest << "    static const " << *exactType << " " << result << " = [] {\n"
+         << initializerText << "      return " << *constructed
+         << ";\n    }();\n";
     if (outline) {
       auto borrowed = outline->plane(*exactType, result, true);
-      out << "    " << borrowed.storage << " = &" << result << ";\n";
-      return borrowed.value;
+      dest << "    " << borrowed.storage << " = &" << result << ";\n";
+      outline->initialize(init.str());
+      result = borrowed.value;
     }
+    constantScalars.insert(result);
     return result;
   }
   FailureOr<std::string> declarePlane(Scope &s, Value v, Path path = {}) {
@@ -1189,10 +1234,19 @@ private:
       return failure();
     return planeDeclaration(*p, name());
   }
+  void recordReuse(StringRef plane) {
+    auto found = scalarProducers.find(plane);
+    if (found != scalarProducers.end())
+      sharedScalars->insert(found->second);
+  }
   std::string broadcastPlane(StringRef source, StringRef outputLanes,
                              StringRef inputLanes) {
-    return "pyc_work_broadcast<(" + outputLanes.str() + "), (" +
-           inputLanes.str() + ")>(" + source.str() + ")";
+    recordReuse(source); // Broadcast lanes may read the same element repeatedly.
+    auto view = "pyc_work_broadcast<(" + outputLanes.str() + "), (" +
+                inputLanes.str() + ")>(" + source.str() + ")";
+    if (constantScalars.contains(source))
+      constantScalars.insert(view);
+    return view;
   }
   FailureOr<std::string> scalarPlane(Scope &s, Value v, Path path) {
     Operation *op = v.getDefiningOp();
@@ -1210,8 +1264,10 @@ private:
     SmallVector<ScalarInput> inputs;
     auto gather = [&](Value input, Path p) -> FailureOr<std::string> {
       for (const auto &entry : inputs)
-        if (entry.value == input && entry.path == p)
+        if (entry.value == input && entry.path == p) {
+          recordReuse(entry.plane);
           return entry.packed;
+        }
       auto inputPlan = fieldPlane(input.getType(), p, s, op);
       if (failed(inputPlan))
         return failure();
@@ -1219,6 +1275,8 @@ private:
       if (failed(text))
         return failure();
       bool sameCount = resultPlan->count == inputPlan->count;
+      if (!sameCount || isa<ac::EnumFromBitsOp>(op))
+        recordReuse(*text);
       auto lane = sameCount ? std::string("pyc_lane")
                             : "((pyc_lane / (" + resultPlan->count + ")) * (" +
                                   inputPlan->count + ") + pyc_lane % (" +
@@ -1247,14 +1305,23 @@ private:
     // Use the resolved plane references and lane layout. Distinct IR values
     // can denote the same calculation after field forwarding.
     auto [entry, inserted] = scalarPlanes.try_emplace(type + "\n" + *expr);
-    if (!inserted)
+    if (!inserted) {
+      recordReuse(entry->second);
       return entry->second;
+    }
+    // scalarExpression admits only pure computations. Literal roots and
+    // already-proved inputs cannot observe any port, storage or per-Step state.
+    bool constant = promoteConstantPlanes && !resetting &&
+                    llvm::all_of(inputs, [&](const auto &in) {
+                      return constantScalars.contains(in.plane);
+                    });
     bool selectPlanes =
         isa<ac::BitsSelectOp>(op) && inputs.size() == 3 &&
         llvm::all_of(inputs, [](const auto &input) { return input.sameCount; });
     // Keep small, single-use calculations inside the consumer's lane loop.
     // All independent reads have already been scheduled by gather().
-    if (outline && v.hasOneUse() && expr->size() <= 1024) {
+    if (outline && !constant && !sharedScalars->contains(v) && v.hasOneUse() &&
+        expr->size() <= 1024) {
       if (selectPlanes)
         *expr = "pyc_work_select_lane(" + inputs[0].plane + ", " +
                 inputs[1].plane + ", " + inputs[2].plane + ", pyc_lane).packed()";
@@ -1263,15 +1330,33 @@ private:
                       wireType(*p) + "::fromPacked(" + *expr + "); }}";
       return entry->second;
     }
-    auto result = planeDeclaration(type, name());
+    bool localConstant = constant && !outline;
+    auto result = localConstant ? "pyc_scalar_" + std::to_string(nextName++)
+                                : planeDeclaration(type, name());
+    std::string initialization;
+    llvm::raw_string_ostream init(initialization);
+    raw_ostream &dest = constant && outline ? init : out;
+    if (localConstant)
+      dest << "    static const " << type << " " << result << " = [] {\n"
+           << "      " << type << " plane;\n";
+    StringRef destination = localConstant ? StringRef("plane") : StringRef(result);
     if (selectPlanes)
-      out << "    pyc_work_select(" << result << ", " << inputs[0].plane << ", "
+      dest << "    pyc_work_select(" << destination << ", " << inputs[0].plane << ", "
           << inputs[1].plane << ", " << inputs[2].plane << ");\n";
     else
-      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-          << "; ++pyc_lane) " << result
+      dest << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
+          << "; ++pyc_lane) " << destination
           << ".element(pyc_lane) = " << wireType(*p) << "::fromPacked(" << *expr
           << ");\n";
+    if (localConstant)
+      dest << "      return plane;\n    }();\n";
+    if (constant) {
+      constantScalars.insert(result);
+      if (outline)
+        outline->initialize(init.str());
+    }
+    if (sharedScalars && !outline)
+      scalarProducers.try_emplace(result, v);
     entry->second = result;
     return result;
   }
@@ -1855,6 +1940,9 @@ private:
   bool promoteConstantPlanes = true;
   llvm::DenseMap<ConstantKey, ConstantState> constantMemo;
   llvm::StringMap<std::string> scalarPlanes;
+  llvm::DenseSet<Value> *sharedScalars = nullptr;
+  llvm::StringMap<Value> scalarProducers;
+  llvm::StringSet<> constantScalars;
   bool tasksFinished = false;
   SmallVector<Operation *> delegated;
   std::deque<Scope> scopes, regionScopes;
@@ -2115,16 +2203,14 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (work.needsOutlining() ||
       workBody.size() > CppWorkOutlining::outlineTriggerBytes) {
     CppWorkOutlining outline;
-    WorkEmitter outlined(ctx, definition, outline.stream, false, &outline);
-    if (failed(outlined.run()))
+    if (failed(WorkEmitter::emitOutlined(ctx, definition, outline)))
       return failure();
     std::string guard;
     if (!observes) {
       CppWorkOutlining knownOutline;
-      WorkEmitter known(ctx, definition, knownOutline.stream, false,
-                        &knownOutline, false, true);
-      if (succeeded(known.run())) {
-        guard = known.knownGuard();
+      auto known = WorkEmitter::emitOutlined(ctx, definition, knownOutline, true);
+      if (succeeded(known)) {
+        guard = *known;
         if (guard.empty())
           guard = "true";
         knownOutline.emit(out, true);

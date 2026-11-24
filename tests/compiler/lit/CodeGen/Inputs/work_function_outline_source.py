@@ -18,18 +18,23 @@ def MediumMix(x: ac.u8) -> ac.u8:  # noqa: N802
 
 
 @ac.module
-def MixingLeaf(packet: Payload) -> tuple[ac.u8, ac.u8]:  # noqa: N802
+def MixingLeaf(  # noqa: N802
+    packet: Payload, row: ac.bits[73], shift: ac.bits[73]
+) -> tuple[ac.u8, ac.u8, ac.u9]:
     mixed = packet.lanes[0]
-    for _round in range(480):
-        mixed = (mixed + packet.raw) ^ 0x5A
-    return mixed + packet.lanes[1], packet.raw
+    for _round in range(448):
+        mixed = (mixed + ~packet.raw) ^ 0x5A
+    shifted = row >> shift
+    return mixed + packet.lanes[1], packet.raw, shifted[3:12]
 
 
 @ac.module
-def MixingBranch(x: ac.u8) -> tuple[ac.u8, ac.u8]:  # noqa: N802
+def MixingBranch(  # noqa: N802
+    x: ac.u8, row: ac.bits[73], shift: ac.bits[73]
+) -> tuple[ac.u8, ac.u8, ac.u9]:
     packet = Payload(lanes=(x, x ^ 0x33), raw=x)
-    mixed, raw = MixingLeaf(packet)
-    return mixed, raw
+    mixed, raw, window = MixingLeaf(packet, row, shift)
+    return mixed, raw, window
 
 
 @ac.module
@@ -46,8 +51,8 @@ def CheckedHistory(mixed: ac.u8, allow: bool) -> ac.u8:  # noqa: N802
 
 @ac.module
 def OutlineTop(  # noqa: N802
-    x: ac.u8, allow: bool
-) -> tuple[ac.u8, ac.u8, ac.u8, ac.u8]:
-    mixed, raw = MixingBranch(x)
+    x: ac.u8, allow: bool, row: ac.bits[73], shift: ac.bits[73]
+) -> tuple[ac.u8, ac.u8, ac.u8, ac.u8, ac.u9]:
+    mixed, raw, window = MixingBranch(x, row, shift)
     saved = CheckedHistory(mixed, allow)
-    return mixed, saved, raw, MediumMix(x)
+    return mixed, saved, raw, MediumMix(x), window

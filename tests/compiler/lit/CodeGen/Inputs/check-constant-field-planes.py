@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 STATIC = re.compile(
-    r"static const\s+([^;=]+)\s+(pyc_value_[0-9]+)\s*=\s*\[\]\s*\{(.*?)\n\s*\}\(\);",
+    r"static const\s+([^;=]+)\s+(pyc_(?:value|scalar)_[0-9]+)\s*=\s*\[\]\s*\{(.*?)\n\s*\}\(\);",
     re.S,
 )
 
@@ -34,7 +34,11 @@ def validate(text):
     )
     require(constant_definition is not None, "constant child definition missing")
     constant_blocks = list(STATIC.finditer(constant_definition.group(0)))
-    types = [block.group(1) for block in constant_blocks]
+    types = [
+        block.group(1)
+        for block in constant_blocks
+        if block.group(2).startswith("pyc_value_")
+    ]
     for width in ("1", "65", "130"):
         require(
             any(f"Bits<{width}>" in plane_type for plane_type in types),
@@ -74,13 +78,23 @@ def validate(text):
     )
     require(generic is not None, "generic negative definition missing")
     require(
-        "static const" not in generic.group(0), "unbound demanded shape was promoted"
+        not re.search(r"static const[^;{]*\bpyc_formal_N\b", generic.group(0)),
+        "unbound demanded shape was promoted",
     )
     excluded = re.search(
         r"class pyc_family_ExcludedNegative.*?class ExcludedNegative", text, re.S
     )
     require(excluded is not None, "excluded-operation definition missing")
-    excluded_blocks = list(STATIC.finditer(excluded.group(0)))
+    excluded_body = excluded.group(0)
+    require(
+        "gfsim::add(" not in STATIC.sub("", excluded_body),
+        "constant-only sum remains in Work",
+    )
+    excluded_blocks = [
+        block
+        for block in STATIC.finditer(excluded_body)
+        if block.group(2).startswith("pyc_value_")
+    ]
     require(
         len(excluded_blocks) == 1 and "Bits<8>" in excluded_blocks[0].group(1),
         "excluded definition must promote only its literal source table",
@@ -115,7 +129,7 @@ def self_test():
     generic_promoted = (
         good.replace(
             "class pyc_family_GenericNegative { void Work() {} }",
-            "class pyc_family_GenericNegative { void Work() { static const Plane cached{}; } }",
+            "class pyc_family_GenericNegative { void Work() { static const Plane<pyc_formal_N> cached{}; } }",
         ),
         "unbound demanded shape",
     )
