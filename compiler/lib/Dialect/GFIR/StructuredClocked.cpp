@@ -185,7 +185,9 @@ LogicalResult ClockedAnalyzer::bindTransactionMemory(CallOp call, unsigned index
   StringRef name = call.getInterfaceAttr().getValue();
   StructuredMemoryAccess access;
   unsigned port = 0;
-  if (name == "request0" || name == "request1") {
+  if (name == "read" && memory.asynchronous()) {
+    access = StructuredMemoryAccess::Read;
+  } else if (name == "request0" || name == "request1") {
     access = StructuredMemoryAccess::Request;
     port = name == "request1";
   } else if (name == "result0" || name == "result1") {
@@ -196,6 +198,9 @@ LogicalResult ClockedAnalyzer::bindTransactionMemory(CallOp call, unsigned index
   } else {
     return call.emitOpError("unknown transaction Memory interface");
   }
+  if (memory.asynchronous() && access != StructuredMemoryAccess::Read &&
+      access != StructuredMemoryAccess::Write)
+    return call.emitOpError("byte Memory requires read or write");
   if (port >= memory.readPorts())
     return call.emitOpError("Memory read port is not declared");
   auto inputs = call.getInputs().getTypes();
@@ -206,7 +211,15 @@ LogicalResult ClockedAnalyzer::bindTransactionMemory(CallOp call, unsigned index
     auto actual = hardware.getPackedWidth(inputs[i], {}, call);
     return succeeded(actual) && *actual == width;
   };
-  if (access == StructuredMemoryAccess::Result) {
+  if (access == StructuredMemoryAccess::Read) {
+    if (inputs.size() != 1 || !bits(0, memory.addressWidth) || outputs.size() != 1 ||
+        !ac::areEquivalentHardwareTypes(outputs.front(), memory.element))
+      return call.emitOpError("Memory read requires (address) -> element");
+    if (memory.reader)
+      return call.emitOpError("Memory read port has multiple contributors");
+    memory.reader = call;
+    plan.rules[rule].readsByteMemory = true;
+  } else if (access == StructuredMemoryAccess::Result) {
     if (!inputs.empty() || outputs.size() != 1 ||
         !ac::areEquivalentHardwareTypes(outputs.front(), memory.element))
       return call.emitOpError("Memory result requires () -> element");
@@ -801,8 +814,8 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
     return primitive.emitOpError("expected Memory v1 with access, kind, element and positive i64 depth");
   auto type = element.getValue();
   bool transactional = access.getValue() == "transaction";
-  if (transactional && (kind.getValue() == "byte_mem" || !isa<ac::BitsType>(type)))
-    return primitive.emitOpError("transaction Memory requires synchronous Bits storage");
+  if (transactional && !isa<ac::BitsType>(type))
+    return primitive.emitOpError("transaction Memory requires Bits storage");
   if (failed(verifyValueType(hardware, type, primitive)))
     return failure();
   auto width = hardware.getPackedWidth(type, {}, primitive);

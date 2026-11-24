@@ -35,7 +35,7 @@ struct StructuredFifo {
   std::optional<unsigned> consumer;
 };
 
-enum class StructuredMemoryAccess { Request, Result, Write };
+enum class StructuredMemoryAccess { Request, Result, Write, Read };
 
 struct StructuredMemoryUse {
   unsigned memory;
@@ -55,6 +55,7 @@ struct StructuredMemory {
   bool transactional = false;
   std::array<CallOp, 2> requests{};
   CallOp writer;
+  CallOp reader;
 
   bool asynchronous() const { return kind == "byte_mem"; }
   unsigned readPorts() const { return kind == "sync_mem_dp" ? 2 : 1; }
@@ -87,6 +88,7 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> dependencies;
   llvm::SmallVector<ResultOp> resultUses;
   bool sampled = false;
+  bool readsByteMemory = false;
   llvm::SmallVector<StructuredCheckSite> checks;
   mlir::Operation *afterSnapshot = nullptr;
 };

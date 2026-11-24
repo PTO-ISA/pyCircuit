@@ -1000,7 +1000,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         auto name = instanceName(memory.instance);
         if (failed(name))
           return failure();
-        if (use.access == gfir::StructuredMemoryAccess::Result) {
+        if (use.access == gfir::StructuredMemoryAccess::Read) {
+          out << "    txn." << memoryPinName(use.memory, 0, 0) << " = " << args.front() << ";\n"
+              << "    txn." << memoryPinName(use.memory, 0, 3) << " = true;\n";
+          text = *name + ".read(" + args.front() + ")";
+        } else if (use.access == gfir::StructuredMemoryAccess::Result) {
           out << "    if (!gfsim::behavior::isOne(" << *name << ".live(" << use.port
               << "))) { txn.pyc_running = false; ";
           if (failed(emitBlockedReturn(out, body, ruleResults)))
@@ -1325,7 +1329,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       for (unsigned port = 0; port < memory.readPorts(); ++port)
         if (failed(declare(memory.requests[port], port)))
           return failure();
-      if (failed(declare(memory.writer, 2)))
+      if (failed(declare(memory.reader, 0)) || failed(declare(memory.writer, 2)))
         return failure();
     }
     auto operation = rule.operation;
@@ -1405,7 +1409,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   if (rule.sampled)
     out << "    " << frameName(index) << ".pyc_check_active = pyc_active;\n";
   out << "    if (";
-  if (needsDomain(*definition.clocked) && rule.resultUses.empty())
+  if (needsDomain(*definition.clocked) && rule.resultUses.empty() && !rule.readsByteMemory)
     out << "pyc_active && ";
   out << "gfsim::behavior::isOne(" << wireName(grant) << ")) "
       << instancePrefix << ruleName(index) << '(' << frameName(index);
@@ -1614,6 +1618,20 @@ LogicalResult BehavioralEmitter::prepareMemory(
     auto width = analysis.getPackedWidth(memory.element, {}, memory.instance);
     if (failed(width))
       return failure();
+    if (memory.asynchronous()) {
+      std::string address = zero(memory.addressWidth);
+      if (memory.reader) {
+        auto frame = frameName(plan.transactionMemoryCalls.lookup(memory.reader).rule);
+        address = "(" + frame + "." + memoryPinName(memoryIndex, 0, 3) + " ? " +
+                  frame + "." + memoryPinName(memoryIndex, 0, 0) + " : " + address + ")";
+      }
+      out << "    " << *name << ".prepare(" << clock << ", pyc_reset, " << address
+          << ", " << levelName << '(' << enabled(memory.writer, 2) << "), "
+          << pin(memory.writer, 2, 0, memory.addressWidth) << ", "
+          << pin(memory.writer, 2, 1, *width) << ", " << pin(memory.writer, 2, 2, memory.maskWidth)
+          << ");\n";
+      return success();
+    }
     out << "    " << *name << ".prepare(" << clock << ", pyc_reset, {" << join(reads, ", ")
         << "}, {" << join(addresses, ", ") << "}, " << levelName << '(' << enabled(memory.writer, 2)
         << "), " << pin(memory.writer, 2, 0, memory.addressWidth) << ", "

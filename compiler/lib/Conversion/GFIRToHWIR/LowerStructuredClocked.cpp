@@ -26,6 +26,7 @@ private:
     gfir::StructuredMemoryUse use;
     Value rawPath;
     SmallVector<Value> arguments;
+    Value reachedPrefix = {};
     unsigned pathResult = 0;
   };
 
@@ -370,7 +371,7 @@ LogicalResult ClockedMaterializer::lowerMemory(
       return call.emitOpError("missing verified Memory argument obligation");
     const auto &check = sampled->plannedChecks[control];
     // Primitive responses and the admitted ordinary captures have total
-    // availability. A response's live prerequisite was admitted separately at
+    // availability. A synchronous response's live prerequisite was admitted at
     // its result call. Payload X/Z remains intact for native enabled-pin checks.
     Value available = make(ac::ValueRequireOp::getOperationName(),
         {payload, one, rawPath}, {bit}, {
@@ -385,6 +386,15 @@ LogicalResult ClockedMaterializer::lowerMemory(
         builder.getNamedAttr("occurrence", check.id.get("check")),
         builder.getNamedAttr("location", check.location)}));
     proposal.arguments.push_back(payload);
+  }
+  if (use.access == gfir::StructuredMemoryAccess::Read) {
+    // The asynchronous address belongs to this reached point, before loaded
+    // data can influence a later guard or final atomic write admission.
+    proposal.reachedPrefix = sampled->prefix;
+    auto outputs = sampled->memoryOutputs.find(use.memory);
+    if (outputs == sampled->memoryOutputs.end())
+      return call.emitOpError("missing canonical asynchronous Memory data capture");
+    mapping.map(call.getOutputs().front(), outputs->second[0]);
   }
   sampled->memoryProposals.push_back(std::move(proposal));
   return success();
@@ -804,7 +814,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   for (Operation &operation : rule.getBody().front()) {
     auto use = plan.transactionMemoryCalls.find(&operation);
     if (use == plan.transactionMemoryCalls.end() ||
-        use->second.access != gfir::StructuredMemoryAccess::Result ||
+        (use->second.access != gfir::StructuredMemoryAccess::Result &&
+         use->second.access != gfir::StructuredMemoryAccess::Read) ||
         llvm::any_of(memoryCaptures, [&](const auto &capture) {
           return capture.first == use->second.memory;
         }))
@@ -893,7 +904,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     unsigned rawResult = yielded.size();
     yielded.push_back(proposal.rawPath);
     proposal.pathResult = yielded.size();
-    yielded.push_back(binary("and", context.prefix, proposal.rawPath));
+    Value prefix = proposal.reachedPrefix ? proposal.reachedPrefix : context.prefix;
+    yielded.push_back(binary("and", prefix, proposal.rawPath));
     SmallVector<Attribute> arguments;
     for (Value argument : proposal.arguments) {
       arguments.push_back(builder.getI64IntegerAttr(yielded.size()));
@@ -905,10 +917,14 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
                              memories[proposal.use.memory]->getAttr("occurrence"))});
     unsigned firstCheck = plan.checkOffsets.lookup(proposal.operation);
     const auto &check = context.plannedChecks[firstCheck];
+    StringRef kind = "request";
+    if (proposal.use.access == gfir::StructuredMemoryAccess::Write)
+      kind = "write";
+    else if (proposal.use.access == gfir::StructuredMemoryAccess::Read)
+      kind = "read";
     memoryProposals.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("memory", memory),
-        builder.getNamedAttr("kind", builder.getStringAttr(
-            proposal.use.access == gfir::StructuredMemoryAccess::Write ? "write" : "request")),
+        builder.getNamedAttr("kind", builder.getStringAttr(kind)),
         builder.getNamedAttr("port", builder.getI64IntegerAttr(proposal.use.port)),
         builder.getNamedAttr("occurrence", check.id.get("check")),
         builder.getNamedAttr("location", check.location),
@@ -1060,13 +1076,19 @@ LogicalResult ClockedMaterializer::bindStorage() {
         return make(ac::BitsSelectOp::getOperationName(), {path, payload, idle},
                     {payload.getType()})->getResult(0);
       };
-      for (unsigned port = 0; port < memory.readPorts(); ++port) {
-        auto issue = memoryIssues.find(memory.requests[port]);
-        if (issue == memoryIssues.end()) {
-          inputs.append({pinZero, addressZero});
-        } else {
-          inputs.append({select(issue->second.path, pinOne, pinZero),
-                         select(issue->second.path, issue->second.arguments[0], addressZero)});
+      if (memory.asynchronous()) {
+        auto read = memoryIssues.find(memory.reader);
+        inputs.push_back(read == memoryIssues.end() ? addressZero :
+            select(read->second.path, read->second.arguments[0], addressZero));
+      } else {
+        for (unsigned port = 0; port < memory.readPorts(); ++port) {
+          auto issue = memoryIssues.find(memory.requests[port]);
+          if (issue == memoryIssues.end()) {
+            inputs.append({pinZero, addressZero});
+          } else {
+            inputs.append({select(issue->second.path, pinOne, pinZero),
+                           select(issue->second.path, issue->second.arguments[0], addressZero)});
+          }
         }
       }
       auto writer = memoryIssues.find(memory.writer);
