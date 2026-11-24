@@ -174,6 +174,8 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
     blocked: bool = False
     blocked_source: ac.u6 = 0
     scan: ac.u6 = 0
+    dispatch_pc: ac.u16 = 0
+    dispatch_count: ac.u4 = 0
     first_ub_ticks: ac.u64 = 200
     ub_numerator: ac.u64 = 10
     ub_denominator: ac.u64 = 7
@@ -903,67 +905,11 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                 memory_value_31_raw = queue_head.read(row_address(source % 40))
                 memory_value_31 = memory_value_31_raw[0:16]
                 next_pc = memory_value_31
-                current_bits = program.read(next_pc * 64)
-                command = decode(current_bits)
-                current = command
-                opcode = command.opcode[0:3]
-                next_address_wide = next_pc % 1024 * 2
-                next_address: ac.u11 = next_address_wide[0:11]
-                next_head = queue_next.read(next_address)
-                memory_write_32: ac.u64 = next_head
-                queue_head.write(row_address(source % 40), memory_write_32)
-                memory_write_34: ac.u64 = memory_value_30 - 1
-                queue_count.write(row_address(source % 40), memory_write_34)
-                queued_total = queued_total - 1
-                memory_write_35: ac.u64 = 1
-                busy.write(row_address(source % 40), memory_write_35)
-                inflight = inflight + 1
-                source_end: ac.u33 = command.src
-                destination_end: ac.u33 = command.dst
-                source_start: ac.u33 = command.src
-                destination_start: ac.u33 = command.dst
-                length: ac.u33 = command.nbytes
-                source_end = source_end + length
-                destination_end = destination_end + length
-                overlap = (
-                    source_start < destination_end
-                    and destination_start < source_end
-                    and (command.src != command.dst)
-                )
-                if (
-                    command.source >= 40
-                    or command.epoch == 0
-                    or command.epoch > 255
-                    or (command.seq > 65535)
-                    or (command.route_high > 65535)
-                    or (command.src[0:3] != 0)
-                    or (command.dst[0:3] != 0)
-                    or (command.nbytes == 0)
-                    or (command.nbytes[0:3] != 0)
-                    or (source_end > 65536)
-                    or (destination_end > 65536)
-                    or (command.flags == 1 and overlap)
-                ):
-                    fault_code = 7
-                    stage = 7
-                else:
-                    source_admission = configuration.process(
-                        command.source[0:6], CalRegRequest(kind=3, opcode=opcode, drained=False)
-                    )
-                    source_epoch = epochs.process(
-                        command.source[0:6],
-                        EpochRequest(advance=False, opcode=opcode, drained=False),
-                    )
-                    if source_admission.fault or source_epoch.value != command.epoch[0:8]:
-                        fault_code = 5
-                        stage = 7
-                    else:
-                        selected = command.source[0:6]
-                        offset = 0
-                        frontier = 0
-                        visited = 0
-                        targets = 0
-                        stage = 2
+                # Break the shared program/queue_count read-port dependency.
+                # Resume from committed state without advancing model_time.
+                dispatch_pc = next_pc
+                dispatch_count = memory_value_30
+                stage = 11
             else:
                 scan = scan + 1
         elif not queue_empty:
@@ -974,6 +920,73 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
             stage = 7
         else:
             stage = 1
+
+    @ac.method
+    def stage_11() -> None:
+        source = scan
+        next_pc = dispatch_pc
+        memory_value_30 = dispatch_count
+        current_bits = program.read(next_pc * 64)
+        command = decode(current_bits)
+        current = command
+        opcode = command.opcode[0:3]
+        next_address_wide = next_pc % 1024 * 2
+        next_address: ac.u11 = next_address_wide[0:11]
+        next_head = queue_next.read(next_address)
+        memory_write_32: ac.u64 = next_head
+        queue_head.write(row_address(source % 40), memory_write_32)
+        memory_write_34: ac.u64 = memory_value_30 - 1
+        queue_count.write(row_address(source % 40), memory_write_34)
+        queued_total = queued_total - 1
+        memory_write_35: ac.u64 = 1
+        busy.write(row_address(source % 40), memory_write_35)
+        inflight = inflight + 1
+        source_end: ac.u33 = command.src
+        destination_end: ac.u33 = command.dst
+        source_start: ac.u33 = command.src
+        destination_start: ac.u33 = command.dst
+        length: ac.u33 = command.nbytes
+        source_end = source_end + length
+        destination_end = destination_end + length
+        overlap = (
+            source_start < destination_end
+            and destination_start < source_end
+            and (command.src != command.dst)
+        )
+        if (
+            command.source >= 40
+            or command.epoch == 0
+            or command.epoch > 255
+            or (command.seq > 65535)
+            or (command.route_high > 65535)
+            or (command.src[0:3] != 0)
+            or (command.dst[0:3] != 0)
+            or (command.nbytes == 0)
+            or (command.nbytes[0:3] != 0)
+            or (source_end > 65536)
+            or (destination_end > 65536)
+            or (command.flags == 1 and overlap)
+        ):
+            fault_code = 7
+            stage = 7
+        else:
+            source_admission = configuration.process(
+                command.source[0:6], CalRegRequest(kind=3, opcode=opcode, drained=False)
+            )
+            source_epoch = epochs.process(
+                command.source[0:6],
+                EpochRequest(advance=False, opcode=opcode, drained=False),
+            )
+            if source_admission.fault or source_epoch.value != command.epoch[0:8]:
+                fault_code = 5
+                stage = 7
+            else:
+                selected = command.source[0:6]
+                offset = 0
+                frontier = 0
+                visited = 0
+                targets = 0
+                stage = 2
 
     @ac.method
     def stage_10() -> None:
@@ -1105,6 +1118,8 @@ def TimedWseMachine(host: HostRequest) -> TimedResult:
                 stage_8()
             elif active_stage == 10:
                 stage_10()
+            elif active_stage == 11:
+                stage_11()
         data: ac.bits[512] = 0
         if host_read:
             narrow_data: ac.bits[512] = memory[0:64]
