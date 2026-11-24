@@ -1944,7 +1944,7 @@ FailureOr<std::string> BehavioralEmitter::emitObservationMetadata(
         appendCppObservationDescriptor(descriptorStream,
             {slot, 0, registration, site, gauge ? 1u : 0u}, index, count, width);
         if (failed(appendCppObservationMetadata(metadataStream, effect, observation.id,
-                effect.getSpec(), effect.getKind(), "root", slot, carriesValue, index, count)))
+                effect.getSpecAttr(), effect.getKind(), "root", slot, carriesValue, index, count)))
           return failure();
       }
       slots += count;

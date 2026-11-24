@@ -517,11 +517,11 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         record.assertions.push_back(effect);
       } else {
         auto error = [&] { return effect.emitOpError(); };
-        if (auto items = effect.getSpec().getAs<ArrayAttr>("items");
+        if (auto items = effect.getSpecAttr().getAs<ArrayAttr>("items");
             items && failed(budget.debit(items.size(), effect)))
           return failure();
         if (failed(ac::detail::verifySourceObservationSpec(
-                effect.getKindAttr(), effect.getSpec(), effect.getValues().size(), error)))
+                effect.getKindAttr(), effect.getSpecAttr(), effect.getValues().size(), error)))
           return failure();
         for (Value value : effect.getValues()) {
           Type type = value.getType();
@@ -778,7 +778,7 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
     for (auto [ordinal, observation] : llvm::enumerate(rule.observations)) {
       auto effect = observation.operation;
       if (effect.getKind() == "report" &&
-          !reportNames.insert(effect.getSpec().getAs<StringAttr>("name").getValue()).second)
+          !reportNames.insert(effect.getSpecAttr().getAs<StringAttr>("name").getValue()).second)
         return effect.emitOpError("report name is already used for this logical owner");
       uint64_t slots = std::max<std::size_t>(1, effect.getValues().size());
       if (slots > std::numeric_limits<unsigned>::max() - firstSlot)
