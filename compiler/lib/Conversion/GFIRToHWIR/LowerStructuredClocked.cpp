@@ -1350,7 +1350,15 @@ LogicalResult ClockedMaterializer::bindStorage() {
     Value data = candidates[index];
     if (definition.incomingState == index) {
       enable = incomingEnable;
-      data = incomingData;
+      // Each incoming stage closes its proposal over the actual local old Q.
+      // The whole Bits owner has the same literal-one leaf mask used by
+      // materializeDomainCommit; keep AND(enable, mask) explicit for the
+      // independent staged-commit proof. The raw D/E pair remains the declared
+      // incoming route and the parent's exact sampled writer candidate.
+      Value mask = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+          builder.getNamedAttr("value", literal(1))})->getResult(0);
+      data = merge(states[index]->getResult(0),
+                   binary("and", incomingEnable, mask), incomingData);
     }
     SmallVector<Value> inputs{clock, reset, enable, data,
                               graph.lookup(var.getInitial())};
