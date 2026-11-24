@@ -1,6 +1,6 @@
 """Independent committed scalar and two ordered candidate snapshots."""
 
-value, history = 0, 0
+value, other, history = 0, 0, 0
 # Repeated high samples after failures must still be the original rising edge.
 stimuli = [
     (0, 0, "1"),
@@ -46,7 +46,8 @@ for clock, reset, allow in stimuli:
         continue
     if rising:
         if reset:
-            value = 0
+            value = other = 0
         elif available:
             value = second
+            other = (other + 1) % 256
     history = clock

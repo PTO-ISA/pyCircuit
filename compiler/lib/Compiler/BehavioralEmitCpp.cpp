@@ -33,6 +33,9 @@ std::string memoryPinName(unsigned memory, unsigned port, unsigned argument) {
   return "pyc_memory_" + std::to_string(memory) + "_" + std::to_string(port) + "_" + std::to_string(argument);
 }
 std::string intentName(unsigned index) { return "pyc_intent_" + std::to_string(index); }
+std::string childCandidateName(unsigned receiver) {
+  return "pyc_child_candidate_" + std::to_string(receiver);
+}
 std::string observationName(unsigned slot) {
   return "pyc_observation_" + std::to_string(slot);
 }
@@ -1083,14 +1086,15 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       continue;
     } else if (auto remote = clocked.childMethodCalls.find(&op);
                remote != clocked.childMethodCalls.end()) {
-      const auto &binding = *definition.childState;
+      unsigned receiver = remote->second.receiver;
+      const auto &binding = definition.childStates[receiver];
       const auto &child = *program.definitions[binding.definition].clocked;
       auto instance = instanceName(binding.receiver);
-      auto method = methodName(child.methods[remote->second]);
+      auto method = methodName(child.methods[remote->second.method]);
       if (failed(instance) || failed(method))
         return failure();
       args.insert(args.begin(), "0");
-      args.insert(args.begin(), "txn.pyc_child");
+      args.insert(args.begin(), "txn." + childCandidateName(receiver));
       text = *instance + "." + *method + "(" + join(args, ", ") + ")";
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       auto memoryUse = clocked.transactionMemoryCalls.find(call);
@@ -1393,9 +1397,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
   for (auto [index, rule] : llvm::enumerate(clocked.rules)) {
     auto name = "TxnFrame" + std::to_string(index);
     out << "  struct " << name << " {\n";
-    if (rule.usesChildState)
-      out << "    " << moduleName(definition.childState->definition)
-          << "::ChildTxnState pyc_child;\n";
+    for (unsigned receiver : rule.childStates)
+      out << "    " << moduleName(definition.childStates[receiver].definition)
+          << "::ChildTxnState " << childCandidateName(receiver) << ";\n";
     for (auto [capture, producer] : rule.guardCaptures)
       out << "    bool pyc_capture_available_" << capture << " = false;\n";
     if (rule.sampled)
@@ -1625,9 +1629,12 @@ LogicalResult BehavioralEmitter::emitClockedCall(
     out << ", " << wireName(*leaf);
   }
   if (child.incomingState) {
-    if (auto writer = definition.childState->writer) {
+    auto writer = call.childState ? definition.childStates[*call.childState].writer
+                                 : std::nullopt;
+    if (writer) {
       auto frame = frameName(*writer);
-      out << ", " << frame << ".pyc_child, " << frame << ".pyc_running";
+      out << ", " << frame << '.' << childCandidateName(*call.childState)
+          << ", " << frame << ".pyc_running";
     } else {
       out << ", {}, false";
     }

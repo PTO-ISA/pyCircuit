@@ -19,8 +19,8 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware);
 mlir::FailureOr<StructuredClocked>
 analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
                ac::detail::SourceCheckBudget &budget,
-               llvm::DenseMap<mlir::Operation *, unsigned> childMethods,
-               std::optional<unsigned> childWriter);
+               llvm::DenseMap<mlir::Operation *, StructuredChildMethod> childMethods,
+               llvm::ArrayRef<StructuredChildState> childStates);
 
 } // namespace acir::gfir::detail
 

@@ -21,12 +21,13 @@ int main(int argc, char **argv) {
   root.pyc_7079635f727374 = bits<1>("0");
   root.Reset(); root.Xfer();
   std::string clock, reset, allow;
-  unsigned old, available, first, second, accepted, samples = 0;
-  while (rows >> clock >> reset >> allow >> std::hex >> old >> available >> first >> second >> accepted) {
+  unsigned other, old, available, first, second, accepted, samples = 0;
+  while (rows >> clock >> reset >> allow >> std::hex >> old >> available >> first >> second >> accepted >> other) {
     root.pyc_7079635f636c6b = bits<1>(clock);
     root.pyc_7079635f727374 = bits<1>(reset);
     root.allow = bits<1>(allow);
     root.Work();
+    expect(root.q_b, other); expect(root.observed_b, other); expect(root.untouched, 0);
     expect(root.q, old); expect(root.observed, old);
     expect(root.PYC_FIRST_VALID, available); expect(root.PYC_SECOND_VALID, available);
     if (available) { expect(root.first, first); expect(root.second, second); }

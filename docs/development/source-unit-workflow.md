@@ -107,13 +107,13 @@ HWIR expands the same iterations into SSA within the shared expansion budget.
 A zero-trip loop returns its initial values and natural completion without
 executing the body.
 
-The selected default-domain root can call direct, guard-free Methods on one
-statically bound child with a single Bits state. Repeated calls in one Rule
-and nested calls on that receiver share the child's candidate and preserve
-returned value snapshots. An independent
-Rule starts from the child's committed value. A late guard cancels the candidate.
-HWIR routes the accepted candidate to the actual child through private ports.
-The child stages it once under the same sample and commit barrier as the root.
+The selected default-domain root can call guard-free Methods on directly bound
+children with one Bits state each. Repeated and nested calls on the same receiver
+share its candidate and preserve returned value snapshots. Each Rule begins with
+committed state, and each actual receiver has a separate candidate even when the
+children share a definition. A late guard cancels all of that Rule's candidates.
+HWIR routes admitted candidates to the owning instances through private ports.
+Each child stages its own candidate once under the common commit barrier.
 
 A direct Rule on the selected generated-default-domain root can use
 `gfir.effect assert`. The predicate is captured at the statement. Each Work

@@ -25,15 +25,21 @@ module attributes {gfir.contract = 1 : i64} {
     %old = gfir.read @total : !b8
     gfir.yield %old : !b8
   }
-  gfir.module @Parent(%allow: !b1) -> (!b8, !b8, !b8, !b8)
-      attributes {source_owner = {package = "", path = "parent.py"}, input_names = ["allow"], output_names = ["q", "observed", "first", "second"], domains = ["default"]} {
+  gfir.module @Parent(%allow: !b1) -> (!b8, !b8, !b8, !b8, !b8, !b8, !b8)
+      attributes {source_owner = {package = "", path = "parent.py"}, input_names = ["allow"], output_names = ["q", "observed", "first", "second", "q_b", "observed_b", "untouched"], domains = ["default"]} {
     gfir.instance @child of @Accumulator {domains = {default = "default"}}
+    gfir.instance @other of @Accumulator {domains = {default = "default"}}
+    gfir.instance @idle of @Accumulator {domains = {default = "default"}}
+    %q_b = gfir.call @other() : () -> !b8
+    %untouched = gfir.call @idle() : () -> !b8
     %q = gfir.call @child() : () -> !b8
     gfir.rule @writer(%enabled = %allow : !b1) -> (!b8, !b8) {
       %three = "ac.bits.constant4"() {pattern = "00000011"} : () -> !b8
       %five = "ac.bits.constant4"() {pattern = "00000101"} : () -> !b8
       %first = gfir.call @child["add_and_read"](%three) : (!b8) -> !b8
       %second = gfir.call @child["add"](%five) : (!b8) -> !b8
+      %one = "ac.bits.constant4"() {pattern = "00000001"} : () -> !b8
+      %other = gfir.call @other["add"](%one) : (!b8) -> !b8
       gfir.guard %enabled : !b1 loc("parent.py":20:1)
       gfir.yield %first, %second : !b8, !b8
     }
@@ -41,10 +47,15 @@ module attributes {gfir.contract = 1 : i64} {
       %old = gfir.call @child["snapshot"]() : () -> !b8
       gfir.yield %old : !b8
     }
+    gfir.rule @inspect_b() -> (!b8) {
+      %old = gfir.call @other["snapshot"]() : () -> !b8
+      gfir.yield %old : !b8
+    }
+    %observed_b = gfir.result @inspect_b[0] : !b8
     %observed = gfir.result @inspect[0] : !b8
     %first = gfir.result @writer[0] : !b8
     %second = gfir.result @writer[1] : !b8
-    gfir.yield %q, %observed, %first, %second : !b8, !b8, !b8, !b8
+    gfir.yield %q, %observed, %first, %second, %q_b, %observed_b, %untouched : !b8, !b8, !b8, !b8, !b8, !b8, !b8
   }
   gfir.root @Parent kind "module" {domains = [{name = "default", edge = "rising", clock = {generated = "pyc_clk"}, reset = {generated = "pyc_rst"}}]}
 }

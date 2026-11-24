@@ -76,6 +76,7 @@ LogicalResult verifyInitializer(Value root, Operation *site,
 
 struct BodyUses {
   SmallVector<unsigned> methods, states, writes;
+  llvm::SmallDenseSet<unsigned> childStates;
   uint64_t expandedWork = 0;
   uint64_t sampledControls = 0;
   bool hasFieldWrites = false;
@@ -85,9 +86,9 @@ class ClockedAnalyzer {
 public:
   ClockedAnalyzer(ModuleOp module, const ac::HardwareAnalysis &hardware,
                   ac::detail::SourceCheckBudget &budget,
-                  llvm::DenseMap<Operation *, unsigned> childMethods,
-                  std::optional<unsigned> childWriter)
-      : module(module), hardware(hardware), budget(budget), childWriter(childWriter) {
+                  llvm::DenseMap<Operation *, StructuredChildMethod> childMethods,
+                  ArrayRef<StructuredChildState> childStates)
+      : module(module), hardware(hardware), budget(budget), childStates(childStates) {
     plan.childMethodCalls = std::move(childMethods);
   }
   FailureOr<StructuredClocked> run();
@@ -109,7 +110,7 @@ private:
   ModuleOp module;
   const ac::HardwareAnalysis &hardware;
   ac::detail::SourceCheckBudget &budget;
-  std::optional<unsigned> childWriter;
+  ArrayRef<StructuredChildState> childStates;
   StructuredClocked plan;
   llvm::StringMap<unsigned> variables, fifos, memories, methods;
   SmallVector<BodyUses> methodUses, ruleUses;
@@ -488,8 +489,11 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
     } else if (auto call = dyn_cast<CallOp>(op)) {
       if (failed(verifyAttributes(call, {"receiver", "interface"})))
         return failure();
-      if (plan.childMethodCalls.contains(call)) {
-        plan.rules[*rule].usesChildState = true;
+      if (auto child = plan.childMethodCalls.find(call);
+          child != plan.childMethodCalls.end()) {
+        unsigned receiver = child->second.receiver;
+        if (uses.childStates.insert(receiver).second)
+          plan.rules[*rule].childStates.push_back(receiver);
       } else if (call.getReceiverAttr()) {
         if (isArm)
           return call.emitOpError("conditional resource calls require selected admission");
@@ -667,7 +671,10 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
         return rule.operation.emitOpError("state write overlaps another Rule in this profile");
     rule.states = std::move(body.states);
     rule.writes = std::move(body.writes);
-    rule.sampled = body.sampledControls != 0 || childWriter == index;
+    rule.sampled = body.sampledControls != 0 ||
+        llvm::any_of(rule.childStates, [&](unsigned receiver) {
+          return childStates[receiver].writer == index;
+        });
     if (!rule.assertions.empty() || !rule.observations.empty()) {
       for (Operation &op : rule.operation.getBody().front())
         if (isa<CallOp, IfOp, LoopOp>(op))
@@ -982,10 +989,10 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
 FailureOr<StructuredClocked>
 analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
                ac::detail::SourceCheckBudget &budget,
-               llvm::DenseMap<Operation *, unsigned> childMethods,
-               std::optional<unsigned> childWriter) {
+               llvm::DenseMap<Operation *, StructuredChildMethod> childMethods,
+               ArrayRef<StructuredChildState> childStates) {
   return ClockedAnalyzer(module, hardware, budget, std::move(childMethods),
-                         childWriter).run();
+                         childStates).run();
 }
 
 } // namespace acir::gfir::detail

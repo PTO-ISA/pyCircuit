@@ -78,10 +78,10 @@ private:
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
   LogicalResult bindObservations();
-  FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call, unsigned methodIndex,
+  FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call, unsigned receiver, unsigned methodIndex,
       SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping);
   DictionaryAttr localStateID(Operation *storage);
-  DictionaryAttr childStateID();
+  DictionaryAttr childStateID(unsigned receiver);
 
   const gfir::StructuredDefinition &definition;
   const gfir::StructuredProgram &program;
@@ -93,8 +93,15 @@ private:
   ac::ModuleOp target;
   Type bit;
   Value clock, reset, one, none;
-  Value incomingData, incomingEnable, childQ, childData, childEnable;
-  Operation *childInstance = nullptr, *childStorage = nullptr;
+  Value incomingData, incomingEnable;
+  struct ChildRoute {
+    Operation *instance = nullptr, *storage = nullptr;
+    Value q, data, enable;
+  };
+  SmallVector<ChildRoute> childRoutes;
+  llvm::DenseMap<Operation *, std::pair<Value, Value>> childIdleInputs;
+  llvm::DenseMap<Operation *, unsigned> childRouteInstances;
+  llvm::DenseMap<unsigned, unsigned> childSlots;
   IRMapping graph;
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
@@ -564,6 +571,10 @@ LogicalResult ClockedMaterializer::allocate() {
 }
 
 LogicalResult ClockedMaterializer::cloneGraph() {
+  childRoutes.resize(definition.childStates.size());
+  llvm::DenseMap<Operation *, const gfir::StructuredClockedCall *> plannedCalls;
+  for (const auto &call : definition.clockedCalls)
+    plannedCalls.try_emplace(call.operation, &call);
   for (Operation &op : source.getBody().front()) {
     if (isa<gfir::InstanceOp, gfir::VarOp, gfir::RuleOp, gfir::MethodOp,
             gfir::ResultOp, gfir::YieldOp>(op))
@@ -587,6 +598,8 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     }
     OperationState state(op.getLoc(), op.getName().getStringRef());
     state.addTypes(op.getResultTypes());
+    Operation *childStorage = nullptr;
+    std::optional<unsigned> childRoute;
     if (auto call = dyn_cast<gfir::CallOp>(op)) {
       gfir::InstanceOp instance;
       for (auto candidate : source.getBody().front().getOps<gfir::InstanceOp>())
@@ -598,10 +611,11 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       state.addAttribute("parameters", builder.getArrayAttr({}));
       state.addAttribute("type_arguments", builder.getArrayAttr({}));
       state.addAttribute("occurrence", occurrence("child", graphOperations.size()));
-      if (definition.childState && instance == definition.childState->receiver) {
-        const auto &child = program.definitions[definition.childState->definition];
+      const auto *planned = plannedCalls.lookup(&op);
+      if (planned && program.definitions[planned->definition].incomingState) {
+        const auto &child = program.definitions[planned->definition];
         auto childSource = child.module;
-        auto variable = child.clocked->variables[definition.childState->state];
+        auto variable = child.clocked->variables[*child.incomingState];
         auto childModule = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package,
             FlatSymbolRefAttr::get(childSource.getSymNameAttr())));
         for (auto storage : childModule.getBody().front().getOps<ac::InstanceOp>())
@@ -610,6 +624,7 @@ LogicalResult ClockedMaterializer::cloneGraph() {
         if (!childStorage)
           return call.emitOpError("missing materialized child state allocation");
         state.addTypes(childStorage->getResult(0).getType());
+        childRoute = planned->childState;
       }
     } else {
       state.addAttributes(op.getAttrs());
@@ -617,16 +632,17 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     for (unsigned index = 0; index < op.getNumRegions(); ++index)
       state.addRegion();
     auto *copy = builder.create(state);
-    auto childReceiver = definition.childState ? definition.childState->receiver : gfir::InstanceOp();
-    if (auto call = dyn_cast<gfir::CallOp>(op);
-        call && definition.childState &&
-        call.getReceiverAttr().getValue() == childReceiver.getSymName()) {
-      childInstance = copy;
-      childQ = copy->getResults().back();
-      childData = make(ac::BitsConstantOp::getOperationName(), {}, {childQ.getType()}, {
+    if (childStorage) {
+      Value q = copy->getResults().back();
+      Value data = make(ac::BitsConstantOp::getOperationName(), {}, {q.getType()}, {
           builder.getNamedAttr("value", literal(0))})->getResult(0);
-      childEnable = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+      Value enable = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
           builder.getNamedAttr("value", literal(0))})->getResult(0);
+      childIdleInputs.try_emplace(copy, data, enable);
+      if (childRoute) {
+        childRoutes[*childRoute] = ChildRoute{copy, childStorage, q, data, enable};
+        childRouteInstances.try_emplace(copy, *childRoute);
+      }
     }
     graphOperations.push_back({&op, copy});
     for (auto [from, to] : llvm::zip(op.getResults(), copy->getResults()))
@@ -650,8 +666,12 @@ LogicalResult ClockedMaterializer::bindGraph() {
       auto domains = child->getAttrOfType<ArrayAttr>("domains");
       if (domains && !domains.empty())
         operands.append({clock, reset});
-      if (copy == childInstance)
-        operands.append({childData, childEnable});
+      if (auto route = childRouteInstances.find(copy); route != childRouteInstances.end()) {
+        const auto &child = childRoutes[route->second];
+        operands.append({child.data, child.enable});
+      } else if (auto idle = childIdleInputs.find(copy); idle != childIdleInputs.end()) {
+        operands.append({idle->second.first, idle->second.second});
+      }
     }
     copy->setOperands(operands);
     for (auto [sourceRegion, targetRegion] :
@@ -705,9 +725,14 @@ FailureOr<Value> ClockedMaterializer::indexedWrite(Value previous, Value index,
 }
 
 FailureOr<SmallVector<Value>>
-ClockedMaterializer::lowerChildMethod(gfir::CallOp call, unsigned methodIndex,
+ClockedMaterializer::lowerChildMethod(gfir::CallOp call, unsigned receiver, unsigned methodIndex,
     SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping) {
-  const auto &child = program.definitions[definition.childState->definition];
+  const auto &route = definition.childStates[receiver];
+  const auto &child = program.definitions[route.definition];
+  auto slot = childSlots.find(receiver);
+  if (slot == childSlots.end())
+    return call.emitOpError("missing verified child candidate slot in this Rule");
+  unsigned stateSlot = slot->second;
   auto method = child.clocked->methods[methodIndex];
   IRMapping nested;
   for (auto [argument, input] : llvm::zip(method.getBody().front().getArguments(), call.getInputs()))
@@ -719,17 +744,17 @@ ClockedMaterializer::lowerChildMethod(gfir::CallOp call, unsigned methodIndex,
       return results;
     }
     if (auto read = dyn_cast<gfir::ReadOp>(op)) {
-      if (child.clocked->stateAccesses.lookup(read) != definition.childState->state)
+      if (child.clocked->stateAccesses.lookup(read) != route.state)
         return read.emitOpError("child Method read differs from the verified state owner");
-      nested.map(read.getValue(), local[states.size()]);
+      nested.map(read.getValue(), local[stateSlot]);
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
-      if (child.clocked->stateAccesses.lookup(write) != definition.childState->state ||
+      if (child.clocked->stateAccesses.lookup(write) != route.state ||
           write.getIndex() || write->hasAttr("fields"))
         return write.emitOpError("child Method requires its verified whole Bits state");
-      local[states.size()] = nested.lookup(write.getValue());
-      localIntents[states.size()] = one;
+      local[stateSlot] = nested.lookup(write.getValue());
+      localIntents[stateSlot] = one;
     } else if (auto invoke = dyn_cast<gfir::CallOp>(op)) {
-      auto results = lowerChildMethod(invoke, child.clocked->methodCalls.lookup(invoke),
+      auto results = lowerChildMethod(invoke, receiver, child.clocked->methodCalls.lookup(invoke),
                                       local, localIntents, nested);
       if (failed(results))
         return failure();
@@ -750,10 +775,11 @@ DictionaryAttr ClockedMaterializer::localStateID(Operation *storage) {
       builder.getNamedAttr("element", builder.getArrayAttr({}))});
 }
 
-DictionaryAttr ClockedMaterializer::childStateID() {
-  NamedAttrList id(localStateID(childStorage));
+DictionaryAttr ClockedMaterializer::childStateID(unsigned receiver) {
+  const auto &route = childRoutes[receiver];
+  NamedAttrList id(localStateID(route.storage));
   id.set("owner", builder.getDictionaryAttr({builder.getNamedAttr("instance_path",
-      builder.getArrayAttr({childInstance->getAttr("occurrence")}))}));
+      builder.getArrayAttr({route.instance->getAttr("occurrence")}))}));
   return id.getDictionary(builder.getContext());
 }
 
@@ -909,7 +935,8 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         mapping.map(result, merge(no, predicate, yes));
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       if (auto child = plan.childMethodCalls.find(call); child != plan.childMethodCalls.end()) {
-        auto results = lowerChildMethod(call, child->second, local, localIntents, mapping);
+        auto results = lowerChildMethod(call, child->second.receiver, child->second.method,
+                                        local, localIntents, mapping);
         if (failed(results)) return failure();
         for (auto [result, value] : llvm::zip(call.getOutputs(), *results))
           mapping.map(result, value);
@@ -968,11 +995,12 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   captures.append({clock, reset});
   for (unsigned state : plan.rules[index].states)
     captures.push_back(states[state]->getResult(0));
-  std::optional<unsigned> childCapture;
-  if (plan.rules[index].usesChildState) {
-    if (!childQ) return rule.emitOpError("missing actual child Q route");
-    childCapture = captures.size();
-    captures.push_back(childQ);
+  SmallVector<std::pair<unsigned, unsigned>> childCaptures;
+  for (unsigned receiver : plan.rules[index].childStates) {
+    Value q = childRoutes[receiver].q;
+    if (!q) return rule.emitOpError("missing actual child Q route");
+    childCaptures.emplace_back(receiver, captures.size());
+    captures.push_back(q);
   }
   SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
   for (auto [capture, producer] : plan.rules[index].guardCaptures) {
@@ -1027,8 +1055,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   SmallVector<Value> local(states.size()), localIntents(states.size(), none);
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].states))
     local[state] = body->getArgument(clockCapture + 2 + ordinal);
-  if (childCapture) {
-    local.push_back(body->getArgument(*childCapture));
+  childSlots.clear();
+  for (auto [receiver, capture] : childCaptures) {
+    childSlots.try_emplace(receiver, local.size());
+    local.push_back(body->getArgument(capture));
     localIntents.push_back(none);
   }
   IRMapping mapping;
@@ -1058,15 +1088,18 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
         builder.getNamedAttr("data", builder.getI64IntegerAttr(ordinaryResults + 2 * ordinal)),
         builder.getNamedAttr("enable", builder.getI64IntegerAttr(ordinaryResults + 2 * ordinal + 1))}));
   }
-  std::optional<unsigned> childCandidate;
-  if (definition.childState && definition.childState->writer == index) {
-    childCandidate = yielded.size();
-    yielded.push_back(local[states.size()]);
-    yielded.push_back(binary("and", context.prefix, localIntents[states.size()]));
+  SmallVector<std::pair<unsigned, unsigned>> childCandidates;
+  for (unsigned receiver : plan.rules[index].childStates) {
+    if (definition.childStates[receiver].writer != index) continue;
+    unsigned childCandidate = yielded.size();
+    unsigned slot = childSlots.lookup(receiver);
+    childCandidates.emplace_back(receiver, childCandidate);
+    yielded.push_back(local[slot]);
+    yielded.push_back(binary("and", context.prefix, localIntents[slot]));
     candidateRows.push_back(builder.getDictionaryAttr({
-        builder.getNamedAttr("state", childStateID()),
-        builder.getNamedAttr("data", builder.getI64IntegerAttr(*childCandidate)),
-        builder.getNamedAttr("enable", builder.getI64IntegerAttr(*childCandidate + 1))}));
+        builder.getNamedAttr("state", childStateID(receiver)),
+        builder.getNamedAttr("data", builder.getI64IntegerAttr(childCandidate)),
+        builder.getNamedAttr("enable", builder.getI64IntegerAttr(childCandidate + 1))}));
   }
   unsigned fireResult = yielded.size();
   yielded.push_back(context.prefix);
@@ -1190,9 +1223,9 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     candidates[state] = lowered->getResult(ordinaryResults + 2 * ordinal);
     sampledEnables[state] = lowered->getResult(ordinaryResults + 2 * ordinal + 1);
   }
-  if (childCandidate) {
-    childData = lowered->getResult(*childCandidate);
-    childEnable = lowered->getResult(*childCandidate + 1);
+  for (auto [receiver, candidate] : childCandidates) {
+    childRoutes[receiver].data = lowered->getResult(candidate);
+    childRoutes[receiver].enable = lowered->getResult(candidate + 1);
   }
   for (auto [ordinal, raw] : llvm::enumerate(
            ArrayRef<Attribute>(context.checks).take_front(context.controls.size()))) {
@@ -1274,8 +1307,12 @@ LogicalResult ClockedMaterializer::lowerRules() {
     SmallVector<Value> localIntents(states.size(), none);
     for (Operation *state : states)
       local.push_back(state->getResult(0));
-    if (plan.rules[index].usesChildState) {
-      local.push_back(childQ);
+    childSlots.clear();
+    for (unsigned receiver : plan.rules[index].childStates) {
+      if (!childRoutes[receiver].q)
+        return source.emitOpError("missing actual child Q route");
+      childSlots.try_emplace(receiver, local.size());
+      local.push_back(childRoutes[receiver].q);
       localIntents.push_back(none);
     }
     IRMapping mapping;

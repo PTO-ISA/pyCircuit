@@ -1,7 +1,7 @@
 `include "child_method_ports.svh"
 module tb;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=0,allow=1;
-  wire [7:0] q,observed,first,second;
+  wire [7:0] q,observed,first,second,q_b,observed_b,untouched;
   wire first_valid,second_valid;
   logic [2:0] pyc_phase=0;
   logic pyc_root_commit_ok=0;
@@ -9,7 +9,7 @@ module tb;
   pyc_root dut(.`PYC_FIRST_VALID(first_valid), .`PYC_SECOND_VALID(second_valid), .*);
   string path;
   integer fd,n,samples=0;
-  logic [7:0] expected_old,expected_first,expected_second;
+  logic [7:0] expected_old,expected_first,expected_second,expected_other;
   logic expected_available,expected_acceptance;
   bit accepted;
   initial begin
@@ -18,9 +18,11 @@ module tb;
     #1;pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
     pyc_phase=0;pyc_root_commit_ok=0;#1;
     while(!$feof(fd))begin
-      n=$fscanf(fd,"%h %h %h %h %h %h %h %h\n",pyc_7079635f636c6b,pyc_7079635f727374,allow,expected_old,expected_available,expected_first,expected_second,expected_acceptance);
-      if(n!=8)$fatal(1,"invalid row");
+      n=$fscanf(fd,"%h %h %h %h %h %h %h %h %h\n",pyc_7079635f636c6b,pyc_7079635f727374,allow,expected_old,expected_available,expected_first,expected_second,expected_acceptance,expected_other);
+      if(n!=9)$fatal(1,"invalid row");
       #1;pyc_phase=1;#1;
+      if(q_b!==expected_other || observed_b!==expected_other || untouched!==0)
+        $fatal(1,"instance identity mismatch row %0d",samples);
       if(q!==expected_old || observed!==expected_old)$fatal(1,"candidate leaked row %0d",samples);
       if(first_valid!==expected_available || second_valid!==expected_available)
         $fatal(1,"availability mismatch row %0d",samples);
