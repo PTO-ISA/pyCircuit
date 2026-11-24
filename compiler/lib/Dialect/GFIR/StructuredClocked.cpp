@@ -35,7 +35,7 @@ LogicalResult verifyValueType(const ac::HardwareAnalysis &hardware, Type type,
   if (failed(leaves))
     return failure();
   if (leaves->empty() || llvm::any_of(*leaves, [](const ac::PackedLeaf &leaf) {
-        return !isa<ac::BitsType, ac::EnumType>(leaf.type) || leaf.width == 0 ||
+        return !isStructuredLeaf(leaf.type) || leaf.width == 0 ||
                leaf.width > std::numeric_limits<unsigned>::max() - leaf.low;
       }))
     return site->emitOpError("clocked GFIR value has an unsupported layout");

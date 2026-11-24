@@ -460,6 +460,8 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     } else {
       state.addAttributes(op.getAttrs());
     }
+    for (unsigned index = 0; index < op.getNumRegions(); ++index)
+      state.addRegion();
     auto *copy = builder.create(state);
     graphOperations.push_back({&op, copy});
     for (auto [from, to] : llvm::zip(op.getResults(), copy->getResults()))
@@ -485,6 +487,9 @@ LogicalResult ClockedMaterializer::bindGraph() {
         operands.append({clock, reset});
     }
     copy->setOperands(operands);
+    for (auto [sourceRegion, targetRegion] :
+         llvm::zip(original->getRegions(), copy->getRegions()))
+      sourceRegion.cloneInto(&targetRegion, graph);
   }
   return success();
 }

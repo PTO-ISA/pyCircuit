@@ -29,6 +29,12 @@ bool isCombinational(Operation *op) {
              ac::StructCreateOp, ac::StructGetOp>(op);
 }
 
+bool isStructuredLeaf(Type type) {
+  if (auto table = dyn_cast<ac::TableType>(type))
+    return table.getShape().size() == 1 && isa<ac::BitsType>(table.getElementType());
+  return isa<ac::BitsType, ac::EnumType>(type);
+}
+
 } // namespace detail
 namespace {
 
@@ -88,6 +94,7 @@ private:
   FailureOr<unsigned> findWire(const StructuredDefinition &definition,
                                const ac::WireEndpoint &endpoint, Operation *site);
   LogicalResult addValue(StructuredDefinition &definition, Value value);
+  FailureOr<SmallVector<ac::WireEndpoint>> dependencies(ac::WireEndpoint endpoint);
   LogicalResult bindCall(CallOp call, InstanceOp receiver,
                          ModuleOp callee);
   LogicalResult describeFifoQuery(StructuredDefinition &definition,
@@ -190,16 +197,18 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
         return failure();
       continue;
     }
-    if (clocked && isa<ac::TableSplatOp>(op)) {
-      if (!llvm::all_of(op.getResult(0).getUsers(), [](Operation *user) {
-            return isa<VarOp>(user);
-          }))
-        return op.emitOpError("graph Table splats are available for state initialization");
-    } else if (!isCombinational(&op)) {
+    if (!isCombinational(&op) &&
+        !isa<ac::TableGetOp, ac::TableSplatOp, ac::TableMapOp>(op))
       return op.emitOpError("operation is unavailable in the structured GFIR graph");
-    }
     if (failed(hardware.verifyResolvedOperation(&op, {})))
       return failure();
+    if (auto map = dyn_cast<ac::TableMapOp>(op))
+      for (Operation &row : map.getBody().front().without_terminator()) {
+        if (!isCombinational(&row))
+          return row.emitOpError("GFIR Table map rows require pure scalar operations");
+        if (failed(hardware.verifyResolvedOperation(&row, {})))
+          return failure();
+      }
   }
   for (auto instance : body->getOps<InstanceOp>())
     if (!bound.contains(instance))
@@ -247,14 +256,14 @@ Analyzer::orderDefinitions(ArrayRef<ModuleOp> modules) {
 
 LogicalResult Analyzer::addValue(StructuredDefinition &definition, Value value) {
   auto *site = value.getParentRegion()->getParentOp();
-  if (!isa<ac::BitsType, ac::StructType, ac::EnumType>(value.getType()))
+  if (!isa<ac::BitsType, ac::StructType, ac::EnumType, ac::TableType>(value.getType()))
     return site->emitOpError("structured combinational value requires a closed hardware type");
   auto leaves = hardware.getLeaves(value.getType(), {}, site);
   if (failed(leaves) || leaves->empty())
     return failure();
   auto &ids = definition.valueWires[value];
   for (const auto &leaf : *leaves) {
-    if (!isa<ac::BitsType, ac::EnumType>(leaf.type) || leaf.width == 0 ||
+    if (!detail::isStructuredLeaf(leaf.type) || leaf.width == 0 ||
         leaf.width > std::numeric_limits<unsigned>::max() - leaf.low)
       return site->emitOpError("structured value has an unsupported packed leaf");
     if (failed(budget.debit(1 + leaf.path.size(), site)))
@@ -264,6 +273,37 @@ LogicalResult Analyzer::addValue(StructuredDefinition &definition, Value value) 
         {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}, {}, {}});
   }
   return success();
+}
+
+FailureOr<SmallVector<ac::WireEndpoint>>
+Analyzer::dependencies(ac::WireEndpoint endpoint) {
+  auto debit = [&](uint64_t units, Operation *op) { return budget.debit(units, op); };
+  auto edges = hardware.getDependencies(endpoint.value, endpoint.path, {}, debit);
+  auto map = endpoint.value.getDefiningOp<ac::TableMapOp>();
+  if (failed(edges) || !map)
+    return edges;
+  // The shared dependency query follows TableMap results to the row SSA.
+  // Walk those endpoints until reaching the enclosing module graph again.
+  SmallVector<ac::WireEndpoint> result;
+  llvm::DenseMap<Value, SmallVector<ac::FieldPath>> visited;
+  while (!edges->empty()) {
+    auto edge = edges->pop_back_val();
+    auto &paths = visited[edge.value];
+    if (failed(budget.debit(1 + paths.size() + edge.path.size(), map)))
+      return failure();
+    if (llvm::is_contained(paths, edge.path))
+      continue;
+    paths.push_back(edge.path);
+    if (edge.value.getParentBlock() == map->getBlock()) {
+      result.push_back(std::move(edge));
+      continue;
+    }
+    auto nested = hardware.getDependencies(edge.value, edge.path, {}, debit);
+    if (failed(nested))
+      return failure();
+    edges->append(nested->begin(), nested->end());
+  }
+  return result;
 }
 
 FailureOr<unsigned> Analyzer::findWire(const StructuredDefinition &definition,
@@ -343,7 +383,9 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     if (failed(addValue(definition, value)))
       return failure();
   for (Operation &op : body) {
-    if (isa<ac::TableSplatOp>(op))
+    if (isa<ac::TableSplatOp>(op) &&
+        llvm::all_of(op.getResult(0).getUsers(),
+                     [](Operation *use) { return isa<VarOp>(use); }))
       continue;
     for (Value value : op.getResults())
       if (failed(addValue(definition, value)))
@@ -380,7 +422,6 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       prepare.dependencies.push_back(*parent);
     }
   }
-  auto debit = [&](uint64_t units, Operation *op) { return budget.debit(units, op); };
   size_t count = definition.firstClockedCallNode() + definition.clockedCalls.size();
   SmallVector<SmallVector<unsigned>> dependents(count);
   SmallVector<unsigned> remaining(count);
@@ -425,7 +466,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       wire.ruleResult = std::pair(rule, unsigned(output.getOrdinalAttr().getInt()));
       wire.dependencies.push_back(definition.wires.size() + rule);
     } else if (op) {
-      auto computed = hardware.getDependencies(endpoint.value, endpoint.path, {}, debit);
+      auto computed = dependencies(endpoint);
       if (failed(computed))
         return failure();
       edges = std::move(*computed);

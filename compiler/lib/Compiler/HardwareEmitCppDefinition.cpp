@@ -2196,9 +2196,14 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   out << "  }\n  bool HasWork() const "
          "noexcept "
          "override { return true; }\n";
-  if (cppHasRootChecks(ctx, definition) &&
-      failed(emitCppRootCheckValidator(ctx, out)))
-    return failure();
+  if (cppHasRootChecks(ctx, definition)) {
+    if (failed(emitCppRootCheckValidator(ctx, out)))
+      return failure();
+  } else if (!ctx.sourceChecks().owners.empty() &&
+             ctx.sourceChecks().owners.front().definition == definition) {
+    out << "  bool pyc_validate_checks(gfsim::SimFailureInfo &) const noexcept "
+           "{ return true; }\n";
+  }
   out << "private:\n";
   if (bindRootInputs) {
     out << "  void pyc_bind_root_inputs() noexcept {\n";

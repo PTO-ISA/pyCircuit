@@ -74,7 +74,10 @@ pycircuit-emit final.mlir --target cpp > final-cpp.json
 pycircuit-emit final.mlir --target verilog > rtl.json
 ```
 
-The profile supports Bits, Struct, and Enum transport in combinational graphs.
+The profile supports Bits, Struct, Enum and rank-one Tables of Bits in
+combinational graphs. A Table stays one packed field across a module
+boundary. Table reads preserve the full index, and a pure Table map
+derives its graph dependencies from the row expression.
 A clocked Module root may declare one generated rising `default` domain. Clocked children
 inherit that domain through their instances. The verifier schedules early
 outputs from committed state and pure graph dependencies separately from

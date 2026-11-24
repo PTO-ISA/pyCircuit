@@ -9,6 +9,7 @@ namespace acir::gfir::detail {
 mlir::LogicalResult verifyAttributes(mlir::Operation *op,
                                      llvm::ArrayRef<llvm::StringRef> allowed);
 bool isCombinational(mlir::Operation *op);
+bool isStructuredLeaf(mlir::Type type);
 bool hasGeneratedDomain(RootOp root);
 mlir::LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
                                         const ac::HardwareAnalysis &hardware);

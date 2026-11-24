@@ -148,8 +148,11 @@ private:
   FailureOr<std::string> typedWire(Type type, Operation *site);
   FailureOr<std::string> graphWire(Value value,
                                    const gfir::StructuredDefinition &definition,
-                                   Operation *site);
+                                   Operation *site,
+                                   std::optional<ArrayRef<unsigned>> available = {});
   FailureOr<std::string> valueExpression(Value result, ArrayRef<std::string> args);
+  FailureOr<std::string> tableMapExpression(ac::TableMapOp map, unsigned result,
+                                           ArrayRef<std::string> args);
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredClocked &clocked,
@@ -250,6 +253,20 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
     return "gfsim::extract<" + std::to_string(wire.width) + ">(" +
            frameName(rule) + "." + resultName(result) + ".packed(), " +
            std::to_string(wire.low) + ")";
+  }
+  if (isa<ac::TableSplatOp, ac::TableGetOp, ac::TableMapOp>(op)) {
+    SmallVector<std::string> operands;
+    for (Value value : op->getOperands()) {
+      auto operand = graphWire(value, definition, op, wire.dependencies);
+      if (failed(operand))
+        return failure();
+      operands.push_back(std::move(*operand));
+    }
+    auto value = valueExpression(wire.endpoint.value, operands);
+    if (failed(value))
+      return failure();
+    return "gfsim::extract<" + std::to_string(wire.width) + ">(" + *value +
+           ".packed(), " + std::to_string(wire.low) + ")";
   }
   if (isa<ac::StructCreateOp, ac::StructGetOp>(op))
     return args.front();
@@ -440,7 +457,8 @@ FailureOr<std::string> BehavioralEmitter::typedWire(Type type, Operation *site) 
 FailureOr<std::string>
 BehavioralEmitter::graphWire(Value value,
                              const gfir::StructuredDefinition &definition,
-                             Operation *site) {
+                             Operation *site,
+                             std::optional<ArrayRef<unsigned>> available) {
   auto type = typedWire(value.getType(), site);
   auto values = definition.valueWires.find(value);
   if (failed(type) || values == definition.valueWires.end())
@@ -451,7 +469,9 @@ BehavioralEmitter::graphWire(Value value,
   });
   SmallVector<std::string> fields;
   for (unsigned at : ordered)
-    fields.push_back(wireName(at));
+    fields.push_back(!available || llvm::is_contained(*available, at)
+                        ? wireName(at)
+                        : carrier(definition.wires[at].width) + "::unknown()");
   return *type + "::fromPacked(" + concatenate(fields) + ")";
 }
 
@@ -464,6 +484,18 @@ BehavioralEmitter::valueExpression(Value result, ArrayRef<std::string> args) {
     if (failed(size))
       return failure();
     return "gfsim::behavior::splat<" + std::to_string(*size) + ">(" + args.front() + ")";
+  }
+  if (auto map = dyn_cast<ac::TableMapOp>(op))
+    return tableMapExpression(map, cast<OpResult>(result).getResultNumber(), args);
+  if (isa<ac::TableGetOp>(op)) {
+    unsigned ordinal = cast<OpResult>(result).getResultNumber();
+    if (ordinal == 0)
+      return "std::get<0>(gfsim::behavior::lookup(" + join(args, ", ") + "))";
+    auto size = analysis.getTableSize(cast<ac::TableType>(op->getOperand(0).getType()), {}, op);
+    if (failed(size))
+      return failure();
+    return "gfsim::behavior::Level::fromPacked(gfsim::behavior::inRange<" +
+           std::to_string(*size) + ">(" + args[1] + "))";
   }
   auto wire = typedWire(type, op);
   auto width = analysis.getPackedWidth(type, {}, op);
@@ -491,6 +523,72 @@ BehavioralEmitter::valueExpression(Value result, ArrayRef<std::string> args) {
   if (failed(computed))
     return failure();
   return prefix + *computed + ")";
+}
+
+FailureOr<std::string> BehavioralEmitter::tableMapExpression(
+    ac::TableMapOp map, unsigned result, ArrayRef<std::string> args) {
+  auto type = typedWire(map.getResult(result).getType(), map);
+  auto size = analysis.getTableSize(cast<ac::TableType>(map.getResult(result).getType()), {}, map);
+  if (failed(type) || failed(size))
+    return failure();
+  auto &body = map.getBody().front();
+  auto yielded = cast<ac::YieldOp>(body.getTerminator()).getValues()[result];
+  llvm::SmallDenseSet<Value> needed;
+  SmallVector<Value> pending{yielded};
+  while (!pending.empty()) {
+    auto value = pending.pop_back_val();
+    if (!needed.insert(value).second)
+      continue;
+    if (auto *op = value.getDefiningOp())
+      pending.append(op->getOperands().begin(), op->getOperands().end());
+  }
+  std::string text;
+  llvm::raw_string_ostream out(text);
+  out << "([&]() {\n    " << *type << " pyc_mapped;\n";
+  for (auto [index, argument] : llvm::enumerate(body.getArguments().drop_front()))
+    if (needed.contains(argument))
+      out << "    const auto pyc_map_input_" << index << " = " << args[index] << ";\n";
+  out << "    for (std::size_t pyc_row = 0; pyc_row < " << *size << "; ++pyc_row) {\n";
+  llvm::DenseMap<Value, std::string> values;
+  for (auto [index, argument] : llvm::enumerate(body.getArguments())) {
+    if (!needed.contains(argument))
+      continue;
+    auto name = "pyc_map_arg_" + std::to_string(index);
+    out << "      const auto " << name << " = ";
+    if (index == 0) {
+      auto wire = typedWire(argument.getType(), map);
+      auto width = analysis.getPackedWidth(argument.getType(), {}, map);
+      if (failed(wire) || failed(width))
+        return failure();
+      out << *wire << "::known(gfsim::Bits<" << *width << ">{pyc_row})";
+    } else {
+      out << "pyc_map_input_" << index - 1;
+      if (index <= map.getTables().size())
+        out << ".element(pyc_row)";
+    }
+    out << ";\n";
+    values.try_emplace(argument, std::move(name));
+  }
+  for (Operation &op : body) {
+    if (isa<ac::YieldOp>(op))
+      break;
+    for (Value value : op.getResults()) {
+      if (!needed.contains(value))
+        continue;
+      SmallVector<std::string> operands;
+      for (Value input : op.getOperands())
+        operands.push_back(values.lookup(input));
+      auto expression = valueExpression(value, operands);
+      if (failed(expression))
+        return failure();
+      auto name = "pyc_map_value_" + std::to_string(values.size());
+      out << "      const auto " << name << " = " << *expression << ";\n";
+      values.try_emplace(value, std::move(name));
+    }
+  }
+  out << "      pyc_mapped.element(pyc_row) = " << values.lookup(yielded)
+      << ";\n    }\n    return pyc_mapped;\n  }())";
+  return text;
 }
 
 LogicalResult BehavioralEmitter::emitInitial(raw_ostream &out, gfir::VarOp variable,
@@ -1194,6 +1292,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
          << "  void Work() override;\n";
   if (definition.hasChecks)
     header << "  bool pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept;\n";
+  else
+    header << "  bool pyc_validate_checks(gfsim::SimFailureInfo &) const noexcept "
+              "{ return true; }\n";
   if (isClocked(definition))
     header << "  void Reset() noexcept override;\n"
            << "  void DiscardNext() noexcept override;\n"
@@ -1309,8 +1410,13 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     if (!output.requiresPreparation)
       for (unsigned input : output.inputs)
         actuals.push_back(wireName(input));
-    source << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
-           << ", pyc_body." << functionName(index) << '(' << join(actuals, ", ") << "));\n";
+    if (isa<ac::TableType>(type.getResult(output.port.port)))
+      source << "    " << outputs[output.port.port] << " = decltype("
+             << outputs[output.port.port] << ")::fromPacked(pyc_body." << functionName(index)
+             << '(' << join(actuals, ", ") << "));\n";
+    else
+      source << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
+             << ", pyc_body." << functionName(index) << '(' << join(actuals, ", ") << "));\n";
   }
   if (isClocked(definition))
     source << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
@@ -1376,7 +1482,15 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
                         "#include <gfsim/SimModule.h>\n#include <gfsim/WorkExecutor.h>\n";
   if (program.definitions[program.rootIndex].hasChecks)
     parts.supportHeader += "#include <gfsim/SimSystem.h>\n";
-  if (llvm::any_of(program.definitions, isClocked))
+  else
+    parts.supportHeader += "namespace gfsim { struct SimFailureInfo; }\n";
+  if (llvm::any_of(program.definitions, [](const gfir::StructuredDefinition &definition) {
+        return isClocked(definition) || llvm::any_of(definition.wires,
+            [](const gfir::StructuredWire &wire) {
+              return isa_and_nonnull<ac::TableSplatOp, ac::TableGetOp, ac::TableMapOp>(
+                  wire.endpoint.value.getDefiningOp());
+            });
+      }))
     parts.supportHeader += "#include <gfsim/behavior.h>\n#include <optional>\n";
   llvm::raw_string_ostream support(parts.supportHeader);
   if (failed(emitCppRecords(common, support)))

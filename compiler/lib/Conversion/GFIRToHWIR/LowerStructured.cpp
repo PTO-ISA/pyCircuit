@@ -101,6 +101,8 @@ LogicalResult materializeDefinition(gfir::ModuleOp source,
     } else if (!isa<gfir::YieldOp>(operation)) {
       state.addAttributes(operation.getAttrs());
     }
+    for (unsigned index = 0; index < operation.getNumRegions(); ++index)
+      state.addRegion();
     Operation *lowered = builder.create(state);
     operations.emplace_back(&operation, lowered);
     for (auto [original, result] :
@@ -117,6 +119,9 @@ LogicalResult materializeDefinition(gfir::ModuleOp source,
       operands.push_back(mapped);
     }
     targetOp->setOperands(operands);
+    for (auto [sourceRegion, targetRegion] :
+         llvm::zip(sourceOp->getRegions(), targetOp->getRegions()))
+      sourceRegion.cloneInto(&targetRegion, mapping);
   }
   return success();
 }
