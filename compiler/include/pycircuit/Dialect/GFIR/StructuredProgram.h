@@ -4,6 +4,7 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/GFIR/GFIROps.h"
 #include "llvm/ADT/DenseSet.h"
+#include <array>
 #include <optional>
 
 namespace acir::gfir {
@@ -34,6 +35,15 @@ struct StructuredFifo {
   std::optional<unsigned> consumer;
 };
 
+enum class StructuredMemoryAccess { Request, Result, Write };
+
+struct StructuredMemoryUse {
+  unsigned memory;
+  StructuredMemoryAccess access;
+  unsigned port;
+  unsigned rule;
+};
+
 struct StructuredMemory {
   InstanceOp instance;
   mlir::Type element;
@@ -42,6 +52,9 @@ struct StructuredMemory {
   unsigned addressWidth;
   unsigned maskWidth;
   CallOp raw;
+  bool transactional = false;
+  std::array<CallOp, 2> requests{};
+  CallOp writer;
 
   bool asynchronous() const { return kind == "byte_mem"; }
   unsigned readPorts() const { return kind == "sync_mem_dp" ? 2 : 1; }
@@ -88,6 +101,7 @@ struct StructuredClocked {
   llvm::SmallVector<StructuredRule, 0> rules;
   llvm::DenseMap<mlir::Operation *, StructuredFifoUse> fifoCalls;
   llvm::DenseMap<mlir::Operation *, unsigned> memoryCalls;
+  llvm::DenseMap<mlir::Operation *, StructuredMemoryUse> transactionMemoryCalls;
   llvm::DenseMap<mlir::Operation *, unsigned> stateAccesses;
   llvm::DenseMap<mlir::Operation *, StructuredWritePath> writePaths;
   llvm::DenseMap<mlir::Operation *, unsigned> methodCalls;

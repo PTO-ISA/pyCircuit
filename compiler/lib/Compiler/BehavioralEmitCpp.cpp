@@ -27,6 +27,9 @@ std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
 std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
 std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
+std::string memoryPinName(unsigned memory, unsigned port, unsigned argument) {
+  return "pyc_memory_" + std::to_string(memory) + "_" + std::to_string(port) + "_" + std::to_string(argument);
+}
 std::string intentName(unsigned index) { return "pyc_intent_" + std::to_string(index); }
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
@@ -780,25 +783,50 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       }
       continue;
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
-      auto use = clocked.fifoCalls.find(call);
-      if (use != clocked.fifoCalls.end()) {
-        const auto &fifo = clocked.fifos[use->second.fifo];
-        auto name = instanceName(fifo.instance);
+      auto memoryUse = clocked.transactionMemoryCalls.find(call);
+      if (memoryUse != clocked.transactionMemoryCalls.end()) {
+        const auto &use = memoryUse->second;
+        const auto &memory = clocked.memories[use.memory];
+        auto name = instanceName(memory.instance);
         if (failed(name))
           return failure();
-        // The caller has already admitted this Rule using all requirements.
-        // The call reads old Q or records the payload in the caller's frame.
-        if (use->second.access == gfir::StructuredFifoAccess::In)
-          text = "txn." + payloadName(use->second.fifo) + " = " + args.front();
-        else
-          text = *name + ".data()";
+        if (use.access == gfir::StructuredMemoryAccess::Result) {
+          out << "    if (!gfsim::behavior::isOne(" << *name << ".live(" << use.port
+              << "))) { txn.pyc_running = false; ";
+          if (failed(emitBlockedReturn(out, body, ruleResults)))
+            return failure();
+          out << " }\n";
+          text = *name + ".result(" + std::to_string(use.port) + ")";
+        } else {
+          // Typed local arguments are total. Payload knownness belongs to the
+          // kernel, after the entire transaction has admitted these pins.
+          unsigned port = use.access == gfir::StructuredMemoryAccess::Write ? 2 : use.port;
+          for (auto [argument, value] : llvm::enumerate(args))
+            out << "    txn." << memoryPinName(use.memory, port, argument) << " = " << value << ";\n";
+          out << "    txn." << memoryPinName(use.memory, port, 3) << " = true;\n";
+          continue;
+        }
       } else {
-        auto callee = methodName(clocked.methods[clocked.methodCalls.lookup(call)]);
-        if (failed(callee))
-          return failure();
-        args.insert(args.begin(), "pyc_check_base + " + std::to_string(clocked.checkOffsets.lookup(call)));
-        args.insert(args.begin(), "txn");
-        text = *callee + "(" + join(args, ", ") + ")";
+        auto use = clocked.fifoCalls.find(call);
+        if (use != clocked.fifoCalls.end()) {
+          const auto &fifo = clocked.fifos[use->second.fifo];
+          auto name = instanceName(fifo.instance);
+          if (failed(name))
+            return failure();
+          // The caller has already admitted this Rule using all requirements.
+          // The call reads old Q or records the payload in the caller's frame.
+          if (use->second.access == gfir::StructuredFifoAccess::In)
+            text = "txn." + payloadName(use->second.fifo) + " = " + args.front();
+          else
+            text = *name + ".data()";
+        } else {
+          auto callee = methodName(clocked.methods[clocked.methodCalls.lookup(call)]);
+          if (failed(callee))
+            return failure();
+          args.insert(args.begin(), "pyc_check_base + " + std::to_string(clocked.checkOffsets.lookup(call)));
+          args.insert(args.begin(), "txn");
+          text = *callee + "(" + join(args, ", ") + ")";
+        }
       }
     } else if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       auto state = stateName(clocked.stateAccesses.lookup(read));
@@ -1038,6 +1066,25 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       if (failed(type))
         return failure();
       out << "    " << *type << " " << payloadName(fifoId) << ";\n";
+    }
+    for (auto [memoryIndex, memory] : llvm::enumerate(clocked.memories)) {
+      auto declare = [&](gfir::CallOp call, unsigned port) -> LogicalResult {
+        if (!call || clocked.transactionMemoryCalls.lookup(call).rule != index)
+          return success();
+        for (auto [argument, type] : llvm::enumerate(call.getInputs().getTypes())) {
+          auto wire = typedWire(type, call);
+          if (failed(wire))
+            return failure();
+          out << "    " << *wire << ' ' << memoryPinName(memoryIndex, port, argument) << ";\n";
+        }
+        out << "    bool " << memoryPinName(memoryIndex, port, 3) << " = false;\n";
+        return success();
+      };
+      for (unsigned port = 0; port < memory.readPorts(); ++port)
+        if (failed(declare(memory.requests[port], port)))
+          return failure();
+      if (failed(declare(memory.writer, 2)))
+        return failure();
     }
     auto operation = rule.operation;
     for (auto [result, type] : llvm::enumerate(operation.getFunctionType().getResults())) {
@@ -1298,6 +1345,40 @@ LogicalResult BehavioralEmitter::prepareMemory(
   auto name = instanceName(memory.instance);
   if (failed(name))
     return failure();
+  if (memory.transactional) {
+    const auto &plan = *definition.clocked;
+    unsigned memoryIndex = &memory - plan.memories.data();
+    auto zero = [&](unsigned width) {
+      return "gfsim::wire<gfsim::Bits<" + std::to_string(width) + ">>::known(gfsim::Bits<" + std::to_string(width) + ">{0})";
+    };
+    auto enabled = [&](gfir::CallOp call, unsigned port) {
+      if (!call)
+        return std::string("false");
+      auto frame = frameName(plan.transactionMemoryCalls.lookup(call).rule);
+      return "(" + frame + ".pyc_running && " + frame + "." + memoryPinName(memoryIndex, port, 3) + ")";
+    };
+    auto pin = [&](gfir::CallOp call, unsigned port, unsigned argument, unsigned width) {
+      if (!call)
+        return zero(width);
+      auto frame = frameName(plan.transactionMemoryCalls.lookup(call).rule);
+      return "(" + enabled(call, port) + " ? " + frame + "." +
+             memoryPinName(memoryIndex, port, argument) + " : " + zero(width) + ")";
+    };
+    SmallVector<std::string> reads, addresses;
+    for (unsigned port = 0; port < memory.readPorts(); ++port) {
+      reads.push_back(levelName.str() + "(" + enabled(memory.requests[port], port) + ")");
+      addresses.push_back(pin(memory.requests[port], port, 0, memory.addressWidth));
+    }
+    auto width = analysis.getPackedWidth(memory.element, {}, memory.instance);
+    if (failed(width))
+      return failure();
+    out << "    " << *name << ".prepare(" << clock << ", pyc_reset, {" << join(reads, ", ")
+        << "}, {" << join(addresses, ", ") << "}, " << levelName << '(' << enabled(memory.writer, 2)
+        << "), " << pin(memory.writer, 2, 0, memory.addressWidth) << ", "
+        << pin(memory.writer, 2, 1, *width) << ", " << pin(memory.writer, 2, 2, memory.maskWidth)
+        << ");\n";
+    return success();
+  }
   auto raw = memory.raw;
   SmallVector<std::string> inputs;
   for (Value value : raw.getInputs()) {

@@ -67,6 +67,7 @@ class SyncMemory {
 
 public:
   const wire<T> &result(unsigned port) const noexcept { return current_.q[port]; }
+  Level live(unsigned port) const noexcept { return level(current_.live[port]); }
 
   void prepare(const Level &clock, const Level &reset,
                const std::array<Level, Ports> &readEnabled,

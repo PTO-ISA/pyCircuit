@@ -84,6 +84,7 @@ private:
   LogicalResult bindFifo(CallOp call, std::optional<unsigned> rule,
                          llvm::SmallDenseSet<unsigned> &popped);
   LogicalResult bindRawMemory(CallOp call, unsigned index);
+  LogicalResult bindTransactionMemory(CallOp call, unsigned index, unsigned rule);
   LogicalResult verifyBody(Operation *owner, Block &block, BodyUses &uses,
                            std::optional<unsigned> rule);
   LogicalResult resolveMethodEffects();
@@ -143,7 +144,7 @@ LogicalResult ClockedAnalyzer::bindRawMemory(CallOp call, unsigned index) {
   auto &memory = plan.memories[index];
   if (failed(verifyAttributes(call, {"receiver", "interface"})))
     return failure();
-  if (call.getInterfaceAttr().getValue() != "raw" || memory.raw)
+  if (memory.transactional || call.getInterfaceAttr().getValue() != "raw" || memory.raw)
     return call.emitOpError("Memory requires a single raw graph binding");
   auto inputs = call.getInputs().getTypes();
   auto outputs = call.getOutputs().getTypes();
@@ -173,6 +174,58 @@ LogicalResult ClockedAnalyzer::bindRawMemory(CallOp call, unsigned index) {
     return call.emitOpError("Memory write pins and read payload must match its layout");
   memory.raw = call;
   plan.memoryCalls.try_emplace(call, index);
+  return success();
+}
+
+LogicalResult ClockedAnalyzer::bindTransactionMemory(CallOp call, unsigned index,
+                                                    unsigned rule) {
+  auto &memory = plan.memories[index];
+  if (!memory.transactional || !call.getInterfaceAttr())
+    return call.emitOpError("Rule Memory access requires a transaction declaration");
+  StringRef name = call.getInterfaceAttr().getValue();
+  StructuredMemoryAccess access;
+  unsigned port = 0;
+  if (name == "request0" || name == "request1") {
+    access = StructuredMemoryAccess::Request;
+    port = name == "request1";
+  } else if (name == "result0" || name == "result1") {
+    access = StructuredMemoryAccess::Result;
+    port = name == "result1";
+  } else if (name == "write") {
+    access = StructuredMemoryAccess::Write;
+  } else {
+    return call.emitOpError("unknown transaction Memory interface");
+  }
+  if (port >= memory.readPorts())
+    return call.emitOpError("Memory read port is not declared");
+  auto inputs = call.getInputs().getTypes();
+  auto outputs = call.getOutputs().getTypes();
+  auto bits = [&](unsigned i, unsigned width) {
+    if (i >= inputs.size() || !isa<ac::BitsType>(inputs[i]))
+      return false;
+    auto actual = hardware.getPackedWidth(inputs[i], {}, call);
+    return succeeded(actual) && *actual == width;
+  };
+  if (access == StructuredMemoryAccess::Result) {
+    if (!inputs.empty() || outputs.size() != 1 ||
+        !ac::areEquivalentHardwareTypes(outputs.front(), memory.element))
+      return call.emitOpError("Memory result requires () -> element");
+  } else if (access == StructuredMemoryAccess::Request) {
+    if (inputs.size() != 1 || !outputs.empty() || !bits(0, memory.addressWidth))
+      return call.emitOpError("Memory request requires (address) -> ()");
+    if (memory.requests[port])
+      return call.emitOpError("Memory read port has multiple contributors");
+    memory.requests[port] = call;
+  } else {
+    if (inputs.size() != 3 || !outputs.empty() || !bits(0, memory.addressWidth) ||
+        !ac::areEquivalentHardwareTypes(inputs[1], memory.element) ||
+        !bits(2, memory.maskWidth))
+      return call.emitOpError("Memory write requires (address, element, mask) -> ()");
+    if (memory.writer)
+      return call.emitOpError("Memory write port has multiple contributors");
+    memory.writer = call;
+  }
+  plan.transactionMemoryCalls.try_emplace(call, StructuredMemoryUse{index, access, port, rule});
   return success();
 }
 
@@ -379,8 +432,14 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
           return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
           return call.emitOpError("native resource access is limited to a Rule in this profile");
-        if (failed(bindFifo(call, rule, popped)))
+        auto memory = memories.find(call.getReceiverAttr().getValue());
+        if (memory != memories.end()) {
+          if (failed(bindTransactionMemory(call, memory->second, *rule)))
+            return failure();
+          uses.sampledControls += std::max<unsigned>(1, call.getInputs().size());
+        } else if (failed(bindFifo(call, rule, popped))) {
           return failure();
+        }
       } else if (failed(bindMethod(call, uses))) {
         return failure();
       }
@@ -538,6 +597,10 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
     for (Operation &op : body) {
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))
         onCheck(&op);
+      if (auto memory = plan.transactionMemoryCalls.find(&op);
+          memory != plan.transactionMemoryCalls.end())
+        for (unsigned i = 0, count = std::max<unsigned>(1, op.getNumOperands()); i < count; ++i)
+          onCheck(&op);
       if (auto method = plan.methodCalls.find(&op); method != plan.methodCalls.end())
         onCall(&op, method->second);
       if (auto branch = dyn_cast<IfOp>(op)) {
@@ -621,7 +684,7 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
     }
   }
   for (const auto &memory : plan.memories)
-    if (!memory.raw)
+    if (!memory.transactional && !memory.raw)
       return memory.instance->emitOpError("raw Memory instance requires a graph binding");
   for (auto [index, method] : llvm::enumerate(plan.methods)) {
     for (Type type : method.getFunctionType().getResults())
@@ -639,6 +702,8 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
                           ruleUses[index], unsigned(index))))
       return failure();
   }
+  if (!plan.transactionMemoryCalls.empty() && !plan.fifos.empty())
+    return module.emitOpError("transaction Memory cannot yet combine with native FIFO");
   if (failed(resolveMethodEffects()) || failed(buildCheckPlan()))
     return failure();
   return std::move(plan);
@@ -696,10 +761,13 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
   if (primitive.getVersion() != 1 || !kind ||
       (kind.getValue() != "sync_mem" && kind.getValue() != "sync_mem_dp" &&
        kind.getValue() != "byte_mem") ||
-      !access || access.getValue() != "raw" || !element ||
+      !access || (access.getValue() != "raw" && access.getValue() != "transaction") || !element ||
       !depth || !depth.getType().isSignlessInteger(64) || depth.getInt() <= 0)
-    return primitive.emitOpError("expected raw Memory v1 with kind, element and positive i64 depth");
+    return primitive.emitOpError("expected Memory v1 with access, kind, element and positive i64 depth");
   auto type = element.getValue();
+  bool transactional = access.getValue() == "transaction";
+  if (transactional && (kind.getValue() == "byte_mem" || !isa<ac::BitsType>(type)))
+    return primitive.emitOpError("transaction Memory requires synchronous Bits storage");
   if (failed(verifyValueType(hardware, type, primitive)))
     return failure();
   auto width = hardware.getPackedWidth(type, {}, primitive);
@@ -711,7 +779,7 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
   uint64_t size = depth.getValue().getZExtValue();
   return StructuredMemory{InstanceOp{}, type, kind.getValue(), size,
                           std::max(1u, llvm::Log2_64_Ceil(size)),
-                          unsigned(*width / 8 + (*width % 8 != 0)), CallOp{}};
+                          unsigned(*width / 8 + (*width % 8 != 0)), CallOp{}, transactional};
 }
 
 FailureOr<StructuredClocked>

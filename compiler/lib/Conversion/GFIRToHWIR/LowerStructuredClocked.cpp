@@ -21,11 +21,22 @@ public:
   LogicalResult run();
 
 private:
+  struct MemoryProposal {
+    gfir::CallOp operation;
+    gfir::StructuredMemoryUse use;
+    Value rawPath;
+    SmallVector<Value> arguments;
+    unsigned pathResult = 0;
+  };
+
   struct SampledContext {
     DictionaryAttr registration;
     ArrayRef<gfir::StructuredCheckSite> plannedChecks;
     SmallVector<Attribute> invocation, controls, checks;
     SmallVector<Value> predicates, reaches;
+    SmallVector<Attribute> requirements, resources;
+    SmallVector<MemoryProposal> memoryProposals;
+    llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -41,6 +52,10 @@ private:
   Value merge(Value base, Value guard, Value value);
   Value known(Value value, bool high);
   FailureOr<unsigned> addControl(StringRef kind, Operation *site, Value raw);
+  LogicalResult lowerMemory(gfir::CallOp call,
+                            const gfir::StructuredMemoryUse &use,
+                            IRMapping &mapping);
+  DictionaryAttr memoryOwner();
   LogicalResult lowerSampled(unsigned index);
   void bindTransactionWiring();
   FailureOr<Value> zero(Type type);
@@ -70,6 +85,11 @@ private:
   SmallVector<Value> grants, candidates, intents, fifoData;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
+  struct MemoryIssue {
+    Value path;
+    SmallVector<Value> arguments;
+  };
+  llvm::DenseMap<Operation *, MemoryIssue> memoryIssues;
   SampledContext *sampled = nullptr;
   SmallVector<std::pair<Operation *, Operation *>> graphOperations;
 };
@@ -300,6 +320,73 @@ FailureOr<unsigned> ClockedMaterializer::addControl(StringRef kind, Operation *s
   sampled->reaches.push_back(reached);
   sampled->prefix = binary("and", sampled->prefix, accepted);
   return ordinal;
+}
+
+DictionaryAttr ClockedMaterializer::memoryOwner() {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("instance_path", builder.getArrayAttr({}))});
+}
+
+LogicalResult ClockedMaterializer::lowerMemory(
+    gfir::CallOp call, const gfir::StructuredMemoryUse &use,
+    IRMapping &mapping) {
+  if (!sampled)
+    return call.emitOpError("transaction Memory requires sampled Rule refinement");
+  // This slice has direct ordered calls, without branch ancestry or an
+  // additional authored path. Retain the canonical raw-statement path shape
+  // required by the independent resource and pin proofs.
+  Value rawPath = binary("and", one, one);
+  const auto &memory = plan.memories[use.memory];
+  if (use.access == gfir::StructuredMemoryAccess::Result) {
+    auto outputs = sampled->memoryOutputs.find(use.memory);
+    if (outputs == sampled->memoryOutputs.end())
+      return call.emitOpError("missing canonical Memory response captures");
+    Value data = outputs->second[use.port];
+    Value live = outputs->second[memory.readPorts() + use.port];
+    Value selected = make(ac::BitsSelectOp::getOperationName(),
+                          {rawPath, live, one}, {bit})->getResult(0);
+    auto control = addControl("resource_available", call, selected);
+    if (failed(control))
+      return failure();
+    const auto &check = sampled->plannedChecks[*control];
+    sampled->resources.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("control", builder.getI64IntegerAttr(*control)),
+        builder.getNamedAttr("kind", builder.getStringAttr("memory_live")),
+        builder.getNamedAttr("owner", memoryOwner()),
+        builder.getNamedAttr("declaration", memories[use.memory]->getAttr("occurrence")),
+        builder.getNamedAttr("occurrence", check.id.get("check")),
+        builder.getNamedAttr("location", check.location),
+        builder.getNamedAttr("port", builder.getI64IntegerAttr(use.port))}));
+    mapping.map(call.getOutputs().front(), data);
+    return success();
+  }
+
+  MemoryProposal proposal{call, use, rawPath, {}};
+  for (auto [ordinal, input] : llvm::enumerate(call.getInputs())) {
+    Value payload = mapping.lookup(input);
+    unsigned control = sampled->controls.size();
+    if (control >= sampled->plannedChecks.size())
+      return call.emitOpError("missing verified Memory argument obligation");
+    const auto &check = sampled->plannedChecks[control];
+    // Primitive responses and the admitted ordinary captures have total
+    // availability. A response's live prerequisite was admitted separately at
+    // its result call. Payload X/Z remains intact for native enabled-pin checks.
+    Value available = make(ac::ValueRequireOp::getOperationName(),
+        {payload, one, rawPath}, {bit}, {
+        builder.getNamedAttr("occurrence", check.id.get("check")),
+        builder.getNamedAttr("source_location", check.location)})->getResult(0);
+    if (failed(addControl("value_available", call, available)))
+      return failure();
+    sampled->requirements.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("control", builder.getI64IntegerAttr(control)),
+        builder.getNamedAttr("kind", builder.getStringAttr("memory_argument")),
+        builder.getNamedAttr("operand", builder.getI64IntegerAttr(ordinal)),
+        builder.getNamedAttr("occurrence", check.id.get("check")),
+        builder.getNamedAttr("location", check.location)}));
+    proposal.arguments.push_back(payload);
+  }
+  sampled->memoryProposals.push_back(std::move(proposal));
+  return success();
 }
 
 FailureOr<Value> ClockedMaterializer::zero(Type type) {
@@ -628,6 +715,12 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       for (auto [result, yes, no] : llvm::zip(branch.getResults(), *thenValues, *elseValues))
         mapping.map(result, merge(no, predicate, yes));
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
+      if (auto memory = plan.transactionMemoryCalls.find(call);
+          memory != plan.transactionMemoryCalls.end()) {
+        if (failed(lowerMemory(call, memory->second, mapping)))
+          return failure();
+        continue;
+      }
       SmallVector<Value> results;
       if (!call.getReceiverAttr()) {
         SmallVector<Value> arguments;
@@ -675,6 +768,19 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   captures.append({clock, reset});
   for (unsigned state : plan.rules[index].states)
     captures.push_back(states[state]->getResult(0));
+  SmallVector<std::pair<unsigned, unsigned>> memoryCaptures;
+  for (Operation &operation : rule.getBody().front()) {
+    auto use = plan.transactionMemoryCalls.find(&operation);
+    if (use == plan.transactionMemoryCalls.end() ||
+        use->second.access != gfir::StructuredMemoryAccess::Result ||
+        llvm::any_of(memoryCaptures, [&](const auto &capture) {
+          return capture.first == use->second.memory;
+        }))
+      continue;
+    unsigned memory = use->second.memory;
+    memoryCaptures.emplace_back(memory, captures.size());
+    llvm::append_range(captures, memories[memory]->getResults());
+  }
 
   auto region = std::make_unique<Region>();
   auto *body = new Block;
@@ -695,6 +801,9 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   context.plannedChecks = plan.rules[index].checks;
   context.pathIdentity = builder.getDictionaryAttr({});
   context.prefix = one;
+  for (auto [memory, first] : memoryCaptures)
+    for (unsigned result = 0; result < memories[memory]->getNumResults(); ++result)
+      context.memoryOutputs[memory].push_back(body->getArgument(first + result));
   sampled = &context;
   if (failed(addControl("callable_guard", rule, one)))
     return failure();
@@ -734,8 +843,47 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   unsigned fireResult = yielded.size();
   yielded.push_back(context.prefix);
+  if (!context.resources.empty()) {
+    // Memory snapshots do not suppress previously reached diagnostics. With
+    // no Queue demands or resource branches, the existing demand forest folds
+    // to H=one. Keep its private canonical possible-execution wrapper on every
+    // reached check, independently of transaction fire and physical proposals.
+    Value mayExecute = make(ac::BitsUnaryOp::getOperationName(),
+        {known(one, false)}, {bit}, {
+        builder.getNamedAttr("opcode", builder.getStringAttr("not"))})->getResult(0);
+    for (Value &reached : context.reaches)
+      reached = binary("and", reached, mayExecute);
+  }
   for (auto [raw, reached] : llvm::zip(context.predicates, context.reaches))
     yielded.append({raw, reached});
+  SmallVector<Attribute> memoryProposals;
+  for (auto &proposal : context.memoryProposals) {
+    unsigned rawResult = yielded.size();
+    yielded.push_back(proposal.rawPath);
+    proposal.pathResult = yielded.size();
+    yielded.push_back(binary("and", context.prefix, proposal.rawPath));
+    SmallVector<Attribute> arguments;
+    for (Value argument : proposal.arguments) {
+      arguments.push_back(builder.getI64IntegerAttr(yielded.size()));
+      yielded.push_back(argument);
+    }
+    auto memory = builder.getDictionaryAttr({
+        builder.getNamedAttr("owner", memoryOwner()),
+        builder.getNamedAttr("declaration",
+                             memories[proposal.use.memory]->getAttr("occurrence"))});
+    unsigned firstCheck = plan.checkOffsets.lookup(proposal.operation);
+    const auto &check = context.plannedChecks[firstCheck];
+    memoryProposals.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("memory", memory),
+        builder.getNamedAttr("kind", builder.getStringAttr(
+            proposal.use.access == gfir::StructuredMemoryAccess::Write ? "write" : "request")),
+        builder.getNamedAttr("port", builder.getI64IntegerAttr(proposal.use.port)),
+        builder.getNamedAttr("occurrence", check.id.get("check")),
+        builder.getNamedAttr("location", check.location),
+        builder.getNamedAttr("raw_path", builder.getI64IntegerAttr(rawResult)),
+        builder.getNamedAttr("path", builder.getI64IntegerAttr(proposal.pathResult)),
+        builder.getNamedAttr("arguments", builder.getArrayAttr(arguments))}));
+  }
   make(ac::YieldOp::getOperationName(), yielded, {});
   sampled = nullptr;
   one = outerOne;
@@ -749,15 +897,29 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   operation.addAttribute("name", rule.getSymNameAttr());
   operation.addAttribute("occurrence", context.registration);
   operation.addAttribute("ac.required_checks", builder.getArrayAttr(context.checks));
-  operation.addAttribute("ac.sampled_admission", builder.getDictionaryAttr({
+  NamedAttrList admission({
       builder.getNamedAttr("clock_capture", builder.getI64IntegerAttr(clockCapture)),
       builder.getNamedAttr("reset_capture", builder.getI64IntegerAttr(clockCapture + 1)),
       builder.getNamedAttr("fire_result", builder.getI64IntegerAttr(fireResult)),
       builder.getNamedAttr("controls", builder.getArrayAttr(context.controls)),
       builder.getNamedAttr("body_checks", builder.getArrayAttr({})),
-      builder.getNamedAttr("observations", builder.getArrayAttr({}))}));
+      builder.getNamedAttr("observations", builder.getArrayAttr({}))});
+  if (!context.requirements.empty())
+    admission.append("requirements", builder.getArrayAttr(context.requirements));
+  if (!context.resources.empty())
+    admission.append("resources", builder.getArrayAttr(context.resources));
+  if (!memoryProposals.empty())
+    admission.append("memory_proposals", builder.getArrayAttr(memoryProposals));
+  operation.addAttribute("ac.sampled_admission", admission.getDictionary(builder.getContext()));
   operation.addRegion(std::move(region));
   auto *lowered = builder.create(operation);
+  for (auto &proposal : context.memoryProposals) {
+    MemoryIssue issue;
+    issue.path = lowered->getResult(proposal.pathResult);
+    for (unsigned argument = 0; argument < proposal.arguments.size(); ++argument)
+      issue.arguments.push_back(lowered->getResult(proposal.pathResult + 1 + argument));
+    memoryIssues.try_emplace(proposal.operation, std::move(issue));
+  }
   for (auto result : resultUses)
     graph.map(result.getValue(), lowered->getResult(result.getOrdinalAttr().getInt()));
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
@@ -849,9 +1011,43 @@ LogicalResult ClockedMaterializer::lowerRules() {
 LogicalResult ClockedMaterializer::bindStorage() {
   for (auto [index, memory] : llvm::enumerate(plan.memories)) {
     SmallVector<Value> inputs{clock, reset};
-    auto raw = memory.raw;
-    for (Value pin : raw.getInputs())
-      inputs.push_back(graph.lookup(pin));
+    if (!memory.transactional) {
+      auto raw = memory.raw;
+      for (Value pin : raw.getInputs())
+        inputs.push_back(graph.lookup(pin));
+    } else {
+      auto pinLiteral = [&](Type type, unsigned value) {
+        return make(ac::BitsConstantOp::getOperationName(), {}, {type}, {
+            builder.getNamedAttr("value", literal(value))})->getResult(0);
+      };
+      Value pinZero = pinLiteral(bit, 0), pinOne = pinLiteral(bit, 1);
+      Value addressZero = pinLiteral(bits(memory.addressWidth), 0);
+      Value dataZero = pinLiteral(memory.element, 0);
+      Value maskZero = pinLiteral(bits(memory.maskWidth), 0);
+      auto select = [&](Value path, Value payload, Value idle) {
+        return make(ac::BitsSelectOp::getOperationName(), {path, payload, idle},
+                    {payload.getType()})->getResult(0);
+      };
+      for (unsigned port = 0; port < memory.readPorts(); ++port) {
+        auto issue = memoryIssues.find(memory.requests[port]);
+        if (issue == memoryIssues.end()) {
+          inputs.append({pinZero, addressZero});
+        } else {
+          inputs.append({select(issue->second.path, pinOne, pinZero),
+                         select(issue->second.path, issue->second.arguments[0], addressZero)});
+        }
+      }
+      auto writer = memoryIssues.find(memory.writer);
+      if (writer == memoryIssues.end()) {
+        inputs.append({pinZero, addressZero, dataZero, maskZero});
+      } else {
+        const auto &issue = writer->second;
+        inputs.append({select(issue.path, pinOne, pinZero),
+                       select(issue.path, issue.arguments[0], addressZero),
+                       select(issue.path, issue.arguments[1], dataZero),
+                       select(issue.path, issue.arguments[2], maskZero)});
+      }
+    }
     memories[index]->setOperands(inputs);
   }
   for (auto [index, fifo] : llvm::enumerate(plan.fifos)) {
