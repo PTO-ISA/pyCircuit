@@ -75,7 +75,12 @@ pycircuit-emit final.mlir --target verilog > rtl.json
 ```
 
 The profile supports Bits and Struct combinational graphs. A clocked Module
-root may declare one generated rising `default` domain. The root supports
+root may declare one generated rising `default` domain. Clocked children
+inherit that domain through their instances. The verifier schedules early
+outputs from committed state and pure graph dependencies separately from
+outputs that require a child's Rule evaluation. A clocked child prepares
+once per Work and remains pending until the root commits the sample.
+Clocked modules support
 native FIFO v1, logical variables of Bits, Struct, or rank-one Table type,
 straight-line Rules, and local Methods called with
 `gfir.call self["interface"]`. A Rule explicitly captures a graph value with
@@ -103,6 +108,8 @@ directly. Additional roots or active observation slots use the whole-system
 check before any commit. The hand-written
 `TableRule` package uses the original C++ driver against both generated
 models. It covers backpressure, four-state Table indices, rollback, and reset.
+The clocked-feedback fixture checks separate instance state, bidirectional
+old-state feedback and a late resource failure before root commit.
 
 RAM, System roots, cross-instance Methods, and resource-gated Rule results are
 subsequent work. Python source compilation uses the routed GFIR and saved-anchor

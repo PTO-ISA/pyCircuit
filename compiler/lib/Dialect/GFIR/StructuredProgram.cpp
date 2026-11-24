@@ -3,6 +3,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
 #include <algorithm>
 #include <iterator>
@@ -98,7 +99,7 @@ private:
   ac::detail::SourceCheckBudget budget{{}};
   llvm::DenseMap<Operation *, unsigned> done;
   llvm::DenseMap<Operation *, InstanceOp> receivers;
-  ModuleOp clockedModule;
+  llvm::DenseSet<Operation *> clockedModules;
   StructuredProgram result;
 };
 
@@ -125,15 +126,27 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
   llvm::StringMap<InstanceOp> instances;
   llvm::SmallDenseSet<Operation *> bound;
   for (auto instance : body->getOps<InstanceOp>()) {
-    if (failed(verifyAttributes(instance, {"sym_name", "callee"})))
+    if (failed(verifyAttributes(instance, {"sym_name", "callee", "domains"})))
       return failure();
     auto *callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
-    if (isa_and_nonnull<PrimitiveOp>(callee)) {
-      if (!clocked)
-        return instance.emitOpError("native FIFO instances require a clocked root");
+    const bool native = isa_and_nonnull<PrimitiveOp>(callee);
+    if (native) {
       bound.insert(instance);
-    } else if (!isa_and_nonnull<ModuleOp>(callee) || callee == clockedModule.getOperation()) {
-      return instance.emitOpError("callee must be a defined combinational Module or native FIFO");
+    } else if (!isa_and_nonnull<ModuleOp>(callee)) {
+      return instance.emitOpError("callee must be a defined Module or native FIFO");
+    }
+    const bool inheritsClock = native || clockedModules.contains(callee);
+    if (inheritsClock && !clocked)
+      return instance.emitOpError("clocked child requires the parent's default domain");
+    if (auto raw = instance->getAttr("domains")) {
+      auto binding = dyn_cast<DictionaryAttr>(raw);
+      if (!binding ||
+          (inheritsClock
+               ? (binding.size() != 1 ||
+                  binding.getAs<StringAttr>("default") !=
+                      StringAttr::get(module.getContext(), "default"))
+               : !binding.empty()))
+        return instance.emitOpError("unsupported structured instance domain binding");
     }
     instances.try_emplace(instance.getSymName(), instance);
   }
@@ -304,7 +317,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   definition.module = module;
   auto &body = module.getBody().front();
   llvm::StringMap<unsigned> rules;
-  if (module == clockedModule) {
+  if (clockedModules.contains(module)) {
     auto plan = detail::analyzeClocked(module, hardware, budget);
     if (failed(plan))
       return failure();
@@ -329,9 +342,37 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
         return failure();
   }
 
+  auto childDefinition = [&](InstanceOp instance) -> unsigned {
+    return done.lookup(hardware.lookupDefinition(instance.getCalleeAttr().getValue()));
+  };
+  auto parentInput = [&](CallOp call, const StructuredDefinition &child,
+                         unsigned input) -> ac::WireEndpoint {
+    const auto &source = child.wires[input].endpoint;
+    auto arg = cast<BlockArgument>(source.value).getArgNumber();
+    return {call.getInputs()[arg], source.path};
+  };
+  llvm::DenseMap<Operation *, unsigned> clockedCallNodes;
+  for (auto call : body.getOps<CallOp>()) {
+    if (call.getInterfaceAttr())
+      continue;
+    auto receiver = receivers.lookup(call);
+    unsigned target = childDefinition(receiver);
+    const auto &child = result.definitions[target];
+    if (!child.clocked)
+      continue;
+    auto &prepare = definition.clockedCalls.emplace_back(
+        StructuredClockedCall{call, receiver, target, {}});
+    clockedCallNodes.try_emplace(
+        call, definition.firstClockedCallNode() + definition.clockedCalls.size() - 1);
+    for (unsigned input : child.preparationInputs) {
+      auto parent = findWire(definition, parentInput(call, child, input), call);
+      if (failed(parent))
+        return failure();
+      prepare.dependencies.push_back(*parent);
+    }
+  }
   auto debit = [&](uint64_t units, Operation *op) { return budget.debit(units, op); };
-  size_t count = definition.wires.size() +
-                 (definition.clocked ? definition.clocked->rules.size() : 0);
+  size_t count = definition.firstClockedCallNode() + definition.clockedCalls.size();
   SmallVector<SmallVector<unsigned>> dependents(count);
   SmallVector<unsigned> remaining(count);
   for (auto [index, wire] : llvm::enumerate(definition.wires)) {
@@ -345,7 +386,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
           return failure();
       } else {
         auto receiver = receivers.lookup(call);
-        auto target = done.lookup(hardware.lookupDefinition(receiver.getCalleeAttr().getValue()));
+        unsigned target = childDefinition(receiver);
         const auto &child = result.definitions[target];
         unsigned port = cast<OpResult>(endpoint.value).getResultNumber();
         if (failed(budget.debit(child.outputs.size(), op)))
@@ -356,11 +397,11 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
         if (match == child.outputs.end())
           return call.emitOpError("callee output field is unresolved");
         wire.call = StructuredCall{receiver, target, unsigned(match - child.outputs.begin())};
-        for (unsigned input : match->inputs) {
-          const auto &source = child.wires[input].endpoint;
-          auto arg = cast<BlockArgument>(source.value).getArgNumber();
-          edges.push_back({call.getInputs()[arg], source.path});
-        }
+        if (match->requiresPreparation)
+          wire.dependencies.push_back(clockedCallNodes.lookup(call));
+        else
+          for (unsigned input : match->inputs)
+            edges.push_back(parentInput(call, child, input));
       }
     } else if (auto read = dyn_cast_or_null<ReadOp>(op)) {
       wire.state = definition.clocked->stateAccesses.lookup(read);
@@ -414,8 +455,16 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       remaining[grant] = rule.dependencies.size();
     }
   }
+  for (auto [index, call] : llvm::enumerate(definition.clockedCalls)) {
+    unsigned node = definition.firstClockedCallNode() + index;
+    for (unsigned dependency : call.dependencies)
+      dependents[dependency].push_back(node);
+    remaining[node] = call.dependencies.size();
+  }
   auto order = getOrder(dependents, std::move(remaining), module,
-                        "structured GFIR combinational cycle in field dependencies");
+                        definition.clockedCalls.empty()
+                            ? "structured GFIR combinational cycle in field dependencies"
+                            : "structured GFIR field and child preparation dependencies cannot be scheduled");
   if (failed(order))
     return failure();
   definition.order = std::move(*order);
@@ -423,14 +472,16 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   // Collapse immediate dependencies to the input leaves each exported value
   // requires. Keep argument order stable across printing and reloading.
   SmallVector<SmallVector<unsigned>> inputs(count);
+  llvm::BitVector prepared(count);
   for (unsigned index : definition.order) {
     const bool isWire = index < definition.wires.size();
     if (isWire && isa<BlockArgument>(definition.wires[index].endpoint.value))
       inputs[index].push_back(index);
-    ArrayRef<unsigned> dependencies = isWire
-        ? ArrayRef<unsigned>(definition.wires[index].dependencies)
-        : ArrayRef<unsigned>(definition.clocked->rules[index - definition.wires.size()].dependencies);
-    for (unsigned dep : dependencies) {
+    if (!isWire)
+      prepared.set(index);
+    for (unsigned dep : definition.dependencies(index)) {
+      if (prepared.test(dep))
+        prepared.set(index);
       SmallVector<unsigned> combined;
       if (failed(budget.debit(inputs[index].size() + inputs[dep].size(), module)))
         return failure();
@@ -444,8 +495,40 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       if (failed(budget.debit(1 + inputs[index].size(), module)))
         return failure();
       definition.outputs.push_back(
-          {{unsigned(port), definition.wires[index].endpoint.path}, index, inputs[index]});
+          {{unsigned(port), definition.wires[index].endpoint.path}, index,
+           inputs[index], prepared.test(index)});
     }
+  if (definition.clocked) {
+    llvm::BitVector preparationInputs(definition.wires.size());
+    auto include = [&](unsigned node) -> LogicalResult {
+      if (failed(budget.debit(inputs[node].size(), module)))
+        return failure();
+      for (unsigned input : inputs[node])
+        preparationInputs.set(input);
+      return success();
+    };
+    for (unsigned node = definition.wires.size(); node < count; ++node)
+      if (failed(include(node)))
+        return failure();
+    for (const auto &output : definition.outputs)
+      if (output.requiresPreparation && failed(include(output.wire)))
+        return failure();
+    for (const auto &fifo : definition.clocked->fifos)
+      for (CallOp binding : {fifo.rawInput, fifo.rawOutput}) {
+        if (!binding)
+          continue;
+        for (Value value : binding.getInputs()) {
+          auto wires = definition.valueWires.find(value);
+          if (wires == definition.valueWires.end())
+            return binding.emitOpError("FIFO input must have resolved graph fields");
+          for (unsigned wire : wires->second)
+            if (failed(include(wire)))
+              return failure();
+        }
+      }
+    for (unsigned input : preparationInputs.set_bits())
+      definition.preparationInputs.push_back(input);
+  }
   return definition;
 }
 
@@ -465,9 +548,6 @@ FailureOr<StructuredProgram> Analyzer::run() {
       hardware.lookupDefinition(result.root.getCalleeAttr().getValue()));
   if (!top)
     return result.root.emitOpError("root must select a defined structured module");
-  if (detail::hasGeneratedDomain(result.root))
-    clockedModule = top;
-
   SmallVector<ModuleOp> modules;
   budget.setPhase("structured GFIR field dependency verification");
   for (Operation &op : *package.getBody()) {
@@ -475,11 +555,15 @@ FailureOr<StructuredProgram> Analyzer::run() {
       return failure();
     if (auto module = dyn_cast<ModuleOp>(op)) {
       modules.push_back(module);
+      if (auto domains = module->getAttrOfType<ArrayAttr>("domains");
+          domains && domains.size() == 1 &&
+          domains[0] == StringAttr::get(module.getContext(), "default"))
+        clockedModules.insert(module);
     } else if (auto structure = dyn_cast<ac::StructOp>(op)) {
       if (failed(hardware.verifyResolvedOperation(structure, {})))
         return failure();
     } else if (auto primitive = dyn_cast<PrimitiveOp>(op)) {
-      if (!clockedModule)
+      if (!detail::hasGeneratedDomain(result.root))
         return primitive.emitOpError("native FIFO declarations require a clocked root");
       if (failed(detail::verifyFifoPrimitive(primitive, hardware)))
         return failure();
@@ -487,8 +571,10 @@ FailureOr<StructuredProgram> Analyzer::run() {
       return op.emitOpError("unexpected declaration in structured GFIR package");
     }
   }
+  if (clockedModules.contains(top) != detail::hasGeneratedDomain(result.root))
+    return result.root.emitOpError("generated domain must match the selected Module's domains");
   for (auto module : modules)
-    if (failed(verifyDefinition(module, module == clockedModule)))
+    if (failed(verifyDefinition(module, clockedModules.contains(module))))
       return failure();
   auto order = orderDefinitions(modules);
   if (failed(order))

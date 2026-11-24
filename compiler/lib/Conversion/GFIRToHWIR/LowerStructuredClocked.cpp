@@ -320,6 +320,13 @@ LogicalResult ClockedMaterializer::bindGraph() {
         return original->emitOpError("missing verified graph value in clocked refinement");
       operands.push_back(value);
     }
+    if (isa<gfir::CallOp>(original)) {
+      auto callee = copy->getAttrOfType<FlatSymbolRefAttr>("callee");
+      auto *child = hardware.lookupDefinition(callee.getValue());
+      auto domains = child->getAttrOfType<ArrayAttr>("domains");
+      if (domains && !domains.empty())
+        operands.append({clock, reset});
+    }
     copy->setOperands(operands);
   }
   return success();
@@ -424,7 +431,7 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
 LogicalResult ClockedMaterializer::lowerRules() {
   grants.resize(plan.rules.size());
   for (unsigned node : definition.order) {
-    if (node < definition.wires.size())
+    if (node < definition.wires.size() || node >= definition.firstClockedCallNode())
       continue;
     unsigned index = node - definition.wires.size();
     Value grant = one;

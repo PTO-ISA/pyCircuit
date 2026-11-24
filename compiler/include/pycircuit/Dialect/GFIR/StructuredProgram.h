@@ -74,16 +74,38 @@ struct StructuredOutput {
   ac::PortEndpoint port;
   unsigned wire;
   llvm::SmallVector<unsigned> inputs;
+  bool requiresPreparation;
+};
+
+struct StructuredClockedCall {
+  CallOp operation;
+  InstanceOp receiver;
+  unsigned definition;
+  llvm::SmallVector<unsigned> dependencies;
 };
 
 struct StructuredDefinition {
   ModuleOp module;
   llvm::SmallVector<StructuredWire, 0> wires;
-  /// Entries after the wire IDs (wires.size() + i) admit and evaluate Rule i.
+  /// Wires, Rule evaluations, then clocked instance preparations.
   llvm::SmallVector<unsigned> order;
   llvm::SmallVector<StructuredOutput> outputs;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;
   std::optional<StructuredClocked> clocked;
+  llvm::SmallVector<StructuredClockedCall> clockedCalls;
+  llvm::SmallVector<unsigned> preparationInputs;
+
+  unsigned firstClockedCallNode() const {
+    return wires.size() + (clocked ? clocked->rules.size() : 0);
+  }
+
+  llvm::ArrayRef<unsigned> dependencies(unsigned node) const {
+    if (node < wires.size())
+      return wires[node].dependencies;
+    if (node < firstClockedCallNode())
+      return clocked->rules[node - wires.size()].dependencies;
+    return clockedCalls[node - firstClockedCallNode()].dependencies;
+  }
 };
 
 /// Verified facts reference the original, unmodified structured package.

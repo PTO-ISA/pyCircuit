@@ -25,6 +25,11 @@ std::string frameName(unsigned index) { return "pyc_frame_" + std::to_string(ind
 std::string ruleName(unsigned index) { return "pyc_rule_" + std::to_string(index); }
 std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string(index); }
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
+std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
+
+bool isClocked(const gfir::StructuredDefinition &definition) {
+  return definition.clocked.has_value() || !definition.clockedCalls.empty();
+}
 
 constexpr StringLiteral levelName = "gfsim::behavior::level";
 
@@ -96,11 +101,23 @@ void signature(raw_ostream &out, const gfir::StructuredDefinition &definition,
   const auto &output = definition.outputs[result];
   out << carrier(definition.wires[output.wire].width) << ' ' << owner
       << functionName(result) << '(';
-  llvm::interleaveComma(output.inputs, out, [&](unsigned input) {
+  ArrayRef<unsigned> inputs = output.requiresPreparation ? ArrayRef<unsigned>{}
+                                                         : ArrayRef<unsigned>(output.inputs);
+  llvm::interleaveComma(inputs, out, [&](unsigned input) {
     out << "const " << carrier(definition.wires[input].width) << " &"
         << wireName(input);
   });
   out << ") const";
+}
+
+void preparationSignature(raw_ostream &out,
+                          const gfir::StructuredDefinition &definition,
+                          StringRef owner = {}) {
+  out << "void " << owner << "prepare(const gfsim::behavior::Level &pyc_clock, "
+         "const gfsim::behavior::Level &pyc_reset";
+  for (unsigned input : definition.preparationInputs)
+    out << ", const " << carrier(definition.wires[input].width) << " &" << wireName(input);
+  out << ')';
 }
 
 class BehavioralEmitter {
@@ -137,9 +154,14 @@ private:
                                     std::optional<unsigned> rule = {}, bool ownPop = false);
   LogicalResult emitGrant(raw_ostream &out, const gfir::StructuredDefinition &definition,
                           unsigned grant, StringRef instancePrefix);
+  LogicalResult emitClockedCall(raw_ostream &out,
+                                const gfir::StructuredDefinition &definition,
+                                unsigned index, StringRef instancePrefix);
+  LogicalResult emitTemporalWork(raw_ostream &out,
+                                 const gfir::StructuredDefinition &definition);
   LogicalResult emitPreparation(raw_ostream &out, const gfir::StructuredDefinition &definition,
                                 StringRef clock);
-  LogicalResult emitLifecycle(raw_ostream &out, const gfir::StructuredClocked &clocked,
+  LogicalResult emitLifecycle(raw_ostream &out, const gfir::StructuredDefinition &definition,
                               StringRef name);
 
   const gfir::StructuredProgram &program;
@@ -161,6 +183,8 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
     auto member = instanceName(wire.call->receiver);
     if (failed(member))
       return failure();
+    if (program.definitions[wire.call->definition].outputs[wire.call->output].requiresPreparation)
+      args.clear();
     return instancePrefix.str() + *member + "." + functionName(wire.call->output) +
            "(" + join(args, ", ") + ")";
   }
@@ -255,15 +279,18 @@ LogicalResult BehavioralEmitter::emitWires(
     needed.set(output);
   for (unsigned index : llvm::reverse(definition.order))
     if (needed.test(index)) {
-      ArrayRef<unsigned> dependencies = index < definition.wires.size()
-          ? ArrayRef<unsigned>(definition.wires[index].dependencies)
-          : ArrayRef<unsigned>(definition.clocked->rules[index - definition.wires.size()].dependencies);
-      for (unsigned input : dependencies)
+      for (unsigned input : definition.dependencies(index))
         needed.set(input);
     }
   for (unsigned index : definition.order) {
     if (!needed.test(index))
       continue;
+    if (index >= definition.firstClockedCallNode()) {
+      if (failed(emitClockedCall(out, definition,
+                                 index - definition.firstClockedCallNode(), instancePrefix)))
+        return failure();
+      continue;
+    }
     if (index >= definition.wires.size()) {
       if (failed(emitGrant(out, definition, index, instancePrefix)))
         return failure();
@@ -283,12 +310,17 @@ LogicalResult BehavioralEmitter::emitWires(
 LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
   out << "struct " << moduleName(index) << " {\n";
-  if (!definition.clocked)
-    for (unsigned result = 0; result < definition.outputs.size(); ++result) {
-      out << "  ";
-      signature(out, definition, result);
-      out << ";\n";
-    }
+  for (unsigned result = 0; result < definition.outputs.size(); ++result) {
+    out << "  ";
+    signature(out, definition, result);
+    out << ";\n";
+  }
+  if (isClocked(definition)) {
+    out << "  ";
+    preparationSignature(out, definition);
+    out << ";\n  void reset() noexcept;\n  void discard() noexcept;\n"
+           "  void commit() noexcept;\n";
+  }
   llvm::SmallDenseSet<Operation *> seen;
   for (const auto &wire : definition.wires) {
     if (!wire.call || !seen.insert(wire.call->receiver).second)
@@ -298,22 +330,51 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
       return failure();
     out << "  " << moduleName(wire.call->definition) << " " << *member << ";\n";
   }
+  for (const auto &call : definition.clockedCalls) {
+    if (!seen.insert(call.receiver).second)
+      continue;
+    auto member = instanceName(call.receiver);
+    if (failed(member))
+      return failure();
+    out << "  " << moduleName(call.definition) << ' ' << *member << ";\n";
+  }
   if (definition.clocked && failed(declareClocked(out, *definition.clocked)))
     return failure();
+  if (isClocked(definition)) {
+    out << "private:\n";
+    for (auto [result, output] : llvm::enumerate(definition.outputs)) {
+      if (!output.requiresPreparation)
+        continue;
+      auto type = carrier(definition.wires[output.wire].width);
+      out << "  " << type << ' ' << preparedName(result) << " = " << type
+          << "::unknown();\n";
+    }
+  }
   out << "};\n";
   return success();
 }
 
 LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
-  if (definition.clocked)
-    return success();
   for (auto [result, output] : llvm::enumerate(definition.outputs)) {
     signature(out, definition, result, moduleName(index) + "::");
     out << " {\n";
-    if (failed(emitWires(out, definition, {output.wire})))
+    if (output.requiresPreparation) {
+      out << "    return " << preparedName(result) << ";\n}\n";
+    } else {
+      if (failed(emitWires(out, definition, {output.wire})))
+        return failure();
+      out << "    return " << wireName(output.wire) << ";\n}\n";
+    }
+  }
+  if (isClocked(definition)) {
+    preparationSignature(out, definition, moduleName(index) + "::");
+    out << " {\n";
+    if (failed(emitTemporalWork(out, definition)))
       return failure();
-    out << "    return " << wireName(output.wire) << ";\n}\n";
+    out << "}\n";
+    if (failed(emitLifecycle(out, definition, moduleName(index))))
+      return failure();
   }
   return success();
 }
@@ -631,7 +692,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     grantExpr = "gfsim::behavior::Level::fromPacked(" + combined + ")";
   }
   out << "    const auto " << wireName(grant) << " = " << grantExpr << ";\n";
-  out << "    decltype(pyc_body)::TxnFrame" << index << ' ' << frameName(index) << ";\n"
+  out << "    TxnFrame" << index << ' ' << frameName(index) << ";\n"
       << "    if (";
   if (!definition.clocked->variables.empty() && rule.resultUses.empty())
     out << "pyc_active && ";
@@ -645,6 +706,68 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     out << ", " << *value;
   }
   out << ");\n";
+  return success();
+}
+
+LogicalResult BehavioralEmitter::emitClockedCall(
+    raw_ostream &out, const gfir::StructuredDefinition &definition,
+    unsigned index, StringRef instancePrefix) {
+  const auto &call = definition.clockedCalls[index];
+  const auto &child = program.definitions[call.definition];
+  auto operation = call.operation;
+  auto member = instanceName(call.receiver);
+  if (failed(member))
+    return failure();
+  out << "    " << instancePrefix << *member << ".prepare(pyc_clock, pyc_reset";
+  for (unsigned input : child.preparationInputs) {
+    const auto &endpoint = child.wires[input].endpoint;
+    unsigned argument = cast<BlockArgument>(endpoint.value).getArgNumber();
+    auto actual = operation.getInputs()[argument];
+    const auto &leaves = definition.valueWires.find(actual)->second;
+    auto leaf = llvm::find_if(leaves, [&](unsigned wire) {
+      return definition.wires[wire].endpoint.path == endpoint.path;
+    });
+    if (leaf == leaves.end())
+      return operation.emitOpError("clocked child preparation input is unresolved");
+    out << ", " << wireName(*leaf);
+  }
+  out << ");\n";
+  return success();
+}
+
+LogicalResult BehavioralEmitter::emitTemporalWork(
+    raw_ostream &out, const gfir::StructuredDefinition &definition) {
+  SmallVector<unsigned> needed;
+  for (auto [index, output] : llvm::enumerate(definition.outputs))
+    if (output.requiresPreparation)
+      needed.push_back(output.wire);
+  if (definition.clocked) {
+    const auto &plan = *definition.clocked;
+    if (!plan.variables.empty()) {
+      out << "    const auto pyc_sample = pyc_domain.evaluate(pyc_clock, pyc_reset);\n";
+      if (llvm::any_of(plan.rules, [](const gfir::StructuredRule &rule) {
+            return rule.resultUses.empty();
+          }))
+        out << "    const bool pyc_active = pyc_sample.rising && !pyc_sample.resetActive && "
+               "pyc_sample.fault == gfsim::SampledClockFault::None;\n";
+    }
+    for (unsigned index = 0; index < plan.rules.size(); ++index)
+      needed.push_back(definition.wires.size() + index);
+    for (const auto &fifo : plan.fifos)
+      for (auto call : {fifo.rawInput, fifo.rawOutput})
+        if (call)
+          for (Value input : call.getInputs())
+            needed.append(definition.valueWires.find(input)->second);
+  }
+  for (unsigned index = 0; index < definition.clockedCalls.size(); ++index)
+    needed.push_back(definition.firstClockedCallNode() + index);
+  if (failed(emitWires(out, definition, needed)))
+    return failure();
+  if (definition.clocked && failed(emitPreparation(out, definition, "pyc_clock")))
+    return failure();
+  for (auto [index, output] : llvm::enumerate(definition.outputs))
+    if (output.requiresPreparation)
+      out << "    " << preparedName(index) << " = " << wireName(output.wire) << ";\n";
   return success();
 }
 
@@ -674,7 +797,7 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
       enabled = wireName(definition.wires.size() + *fifo.producer);
       data = frameName(*fifo.producer) + "." + payloadName(index);
     }
-    out << "    pyc_body." << *name << ".prepare(" << clock << ", pyc_reset, "
+    out << "    " << *name << ".prepare(" << clock << ", pyc_reset, "
         << enabled << ", " << data << ", " << *outReady << ");\n";
   }
   if (!hasState)
@@ -682,17 +805,17 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
 
   // FIFO preparation precedes state validation, including when a resource
   // and the sampled domain would both reject the same inputs.
-  out << "    pyc_body.pyc_domain.prepare(pyc_sample);\n"
+  out << "    pyc_domain.prepare(pyc_sample);\n"
       << "    if (pyc_sample.rising) {\n"
       << "      if (pyc_sample.resetActive) {\n"
-      << "        pyc_body.pyc_reset_state();\n"
+      << "        pyc_reset_state();\n"
       << "      } else {\n";
   llvm::DenseMap<unsigned, unsigned> writers;
   for (auto [index, rule] : llvm::enumerate(plan.rules))
     for (unsigned state : rule.writes)
       writers.try_emplace(state, index);
   for (unsigned index = 0; index < plan.variables.size(); ++index) {
-    out << "        pyc_body." << stateName(index);
+    out << "        " << stateName(index);
     if (auto writer = writers.find(index); writer != writers.end()) {
       out << ".prepare(" << wireName(definition.wires.size() + writer->second)
           << ", " << frameName(writer->second) << '.' << stateName(index) << ");\n";
@@ -704,28 +827,36 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
   return success();
 }
 
-LogicalResult BehavioralEmitter::emitLifecycle(raw_ostream &out,
-                                               const gfir::StructuredClocked &plan,
-                                               StringRef name) {
-  for (auto [hook, action] : {std::pair{"Reset", "reset"},
-                              {"DiscardNext", "discard"}, {"Xfer", "commit"}}) {
-    out << "void " << name << "::" << hook << "() noexcept {\n";
-    for (const auto &fifo : plan.fifos) {
-      auto member = instanceName(fifo.instance);
+LogicalResult BehavioralEmitter::emitLifecycle(
+    raw_ostream &out, const gfir::StructuredDefinition &definition,
+    StringRef name) {
+  for (StringRef action : {"reset", "discard", "commit"}) {
+    out << "void " << name << "::" << action << "() noexcept {\n";
+    for (const auto &call : definition.clockedCalls) {
+      auto member = instanceName(call.receiver);
       if (failed(member))
         return failure();
-      out << "  pyc_body." << *member << "." << action << "();\n";
+      out << "  " << *member << '.' << action << "();\n";
     }
-    if (!plan.variables.empty()) {
-      if (StringRef(action) == "commit") {
-        out << "  if (pyc_body.pyc_domain.commit()) {\n";
-        for (unsigned index = 0; index < plan.variables.size(); ++index)
-          out << "    pyc_body." << stateName(index) << ".commit();\n";
-        out << "  }\n";
-      } else {
-        out << "  pyc_body.pyc_domain." << action << "();\n";
-        if (StringRef(action) == "reset")
-          out << "  pyc_body.pyc_reset_state();\n";
+    if (definition.clocked) {
+      const auto &plan = *definition.clocked;
+      for (const auto &fifo : plan.fifos) {
+        auto member = instanceName(fifo.instance);
+        if (failed(member))
+          return failure();
+        out << "  " << *member << '.' << action << "();\n";
+      }
+      if (!plan.variables.empty()) {
+        if (action == "commit") {
+          out << "  if (pyc_domain.commit()) {\n";
+          for (unsigned index = 0; index < plan.variables.size(); ++index)
+            out << "    " << stateName(index) << ".commit();\n";
+          out << "  }\n";
+        } else {
+          out << "  pyc_domain." << action << "();\n";
+          if (action == "reset")
+            out << "  pyc_reset_state();\n";
+        }
       }
     }
     out << "}\n";
@@ -778,7 +909,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
          << "      : gfsim::SimModule(std::move(name)) {}\n"
          << "  bool HasWork() const noexcept override { return true; }\n"
          << "  void Work() override;\n";
-  if (definition.clocked)
+  if (isClocked(definition))
     header << "  void Reset() noexcept override;\n"
            << "  void DiscardNext() noexcept override;\n"
            << "  void Xfer() noexcept override;\n";
@@ -820,7 +951,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     return failure();
   llvm::json::Object domains{{"clock", nullptr}, {"reset", nullptr}};
   std::string clock, reset;
-  if (definition.clocked) {
+  if (isClocked(definition)) {
     for (auto [role, port] : {std::pair{"clock", "pyc_clk"}, {"reset", "pyc_rst"}}) {
       auto pin = legalizeIdentifier(port, [&] { return root.emitOpError(); });
       if (failed(pin))
@@ -842,57 +973,38 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   llvm::raw_string_ostream source(group.source);
   StringRef scopedName = StringRef(*name).drop_front(2);
   source << "void " << scopedName << "::Work() {\n";
-  if (definition.clocked) {
+  if (isClocked(definition)) {
     auto policy = program.root->getAttrOfType<DictionaryAttr>("execution_policy");
     bool ifOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
     source << "  try {\n"
            << "    const auto pyc_reset = gfsim::interpretReset(" << reset
            << ", gfsim::ResetSemantics::" << (ifOne ? "IfOne" : "Strict") << ");\n";
-    if (!definition.clocked->variables.empty()) {
-      source << "    const auto pyc_sample = pyc_body.pyc_domain.evaluate(" << clock
-             << ", pyc_reset);\n";
-      if (llvm::any_of(definition.clocked->rules, [](const gfir::StructuredRule &rule) {
-            return rule.resultUses.empty();
-          }))
-        source << "    const bool pyc_active = pyc_sample.rising && !pyc_sample.resetActive && "
-                  "pyc_sample.fault == gfsim::SampledClockFault::None;\n";
-    }
   }
+
   llvm::SmallDenseSet<unsigned> declaredInputs;
-  SmallVector<unsigned> outputWires;
   for (const auto &output : definition.outputs) {
-    outputWires.push_back(output.wire);
     for (unsigned input : output.inputs)
       declaredInputs.insert(input);
   }
-  if (definition.clocked) {
-    // Driving an otherwise unused resource is observable stateful work.
-    auto bind = [&](gfir::CallOp call) {
-      if (call)
-        for (Value input : call.getInputs())
-          outputWires.append(definition.valueWires.find(input)->second);
-    };
-    for (const auto &fifo : definition.clocked->fifos) {
-      bind(fifo.rawInput);
-      bind(fifo.rawOutput);
-    }
-    for (unsigned index = 0; index < definition.clocked->rules.size(); ++index)
-      outputWires.push_back(definition.wires.size() + index);
-  }
+  for (unsigned input : definition.preparationInputs)
+    declaredInputs.insert(input);
+
   for (auto [index, wire] : llvm::enumerate(definition.wires)) {
     if (!isa<BlockArgument>(wire.endpoint.value) ||
-        (!definition.clocked && !declaredInputs.contains(index)))
+        !declaredInputs.contains(index))
       continue;
     auto arg = cast<BlockArgument>(wire.endpoint.value).getArgNumber();
     source << "    const auto " << wireName(index) << " = gfsim::extract<"
            << wire.width << ">(" << inputs[arg] << ".packed(), " << wire.low << ");\n";
   }
-  if (failed(emitWires(source, definition, outputWires, "pyc_body.")))
-    return failure();
-  if (definition.clocked && failed(emitPreparation(source, definition, clock)))
-    return failure();
-  for (const auto &output : definition.outputs) {
-    const auto &wire = definition.wires[output.wire];
+  if (isClocked(definition)) {
+    source << "    pyc_body.prepare(" << clock << ", pyc_reset";
+    for (unsigned input : definition.preparationInputs)
+      source << ", " << wireName(input);
+    source << ");\n";
+  }
+
+  for (auto [index, output] : llvm::enumerate(definition.outputs)) {
     // The source leaf may be a scalar projected from a wider result port.
     // Use the layout of that port, not the layout of the producing value.
     auto leaves = analysis.getLeaves(type.getResult(output.port.port), {}, root);
@@ -903,14 +1015,22 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     });
     if (leaf == leaves->end())
       return root.emitOpError("unresolved behavioral output layout");
+    SmallVector<std::string> actuals;
+    if (!output.requiresPreparation)
+      for (unsigned input : output.inputs)
+        actuals.push_back(wireName(input));
     source << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
-           << ", " << wireName(output.wire) << ");\n";
+           << ", pyc_body." << functionName(index) << '(' << join(actuals, ", ") << "));\n";
   }
-  if (definition.clocked)
+  if (isClocked(definition))
     source << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
   source << "}\n";
-  if (definition.clocked && failed(emitLifecycle(source, *definition.clocked, scopedName)))
-    return failure();
+  if (isClocked(definition))
+    for (auto [hook, action] : {std::pair{"Reset", "reset"},
+                              {"DiscardNext", "discard"}, {"Xfer", "commit"}})
+      source << "void " << scopedName << "::" << hook << "() noexcept {\n"
+             << "  pyc_body." << action << "();\n}\n";
+
   parts.systemHeader = "#pragma once\n#include \"" + parts.rootHeaderPath +
                        "\"\nusing pyc_root = " + *name + ";\n";
   appendCppDutHeader(parts, inputs, outputs, "observations_.Configure({}, 0)",
@@ -939,7 +1059,7 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   }
   parts.supportHeader = "#pragma once\n#include <gfsim/wire.h>\n"
                         "#include <gfsim/SimModule.h>\n#include <gfsim/WorkExecutor.h>\n";
-  if (program.definitions[program.rootIndex].clocked)
+  if (llvm::any_of(program.definitions, isClocked))
     parts.supportHeader += "#include <gfsim/behavior.h>\n#include <optional>\n";
   llvm::raw_string_ostream support(parts.supportHeader);
   if (failed(emitCppRecords(common, support)))
