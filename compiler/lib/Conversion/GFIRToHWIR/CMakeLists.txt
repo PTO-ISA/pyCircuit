@@ -8,12 +8,14 @@
 # ACIRToGFIR conversion stage or to the emitters.
 add_acir_library(GFIRToHWIR SOURCES
   LowerTransactions.cpp
+  LowerStructured.cpp
   PassRegistration.cpp
   LINK_LIBRARIES
     ACIRConversionCommon
     ACIRDialect
     ACIRAnalysis
     GFIRValidation
+    GFIRStructured
     GFIRDialect
     HWIRValidation
     PycircuitStateInterfaces

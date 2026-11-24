@@ -48,6 +48,7 @@ target_link_libraries(pycircuit-opt PRIVATE
   GFIRValidation
   HWIRValidation
   GFIRDialect
+  GFIRStructured
   ACIRToGFIR
   GFIRToHWIR
   ACIRSourceCompiler

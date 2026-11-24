@@ -5,12 +5,64 @@ include "pycircuit/Dialect/GFIR/GFIRDialect.td"
 include "pycircuit/Dialect/ACIR/ACIRTypes.td"
 include "pycircuit/Interfaces/LogicalStateInterfaces.td"
 include "mlir/IR/OpBase.td"
+include "mlir/IR/RegionKindInterface.td"
+include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 class GFIR_Op<string mnemonic, list<Trait> traits = []>
     : Op<GFIR_Dialect, mnemonic, traits>;
 
-// GFIR owns exactly these two routed logical-state operations. The native
+def GFIR_ModuleOp : GFIR_Op<"module", [
+    Symbol, SymbolTable, IsolatedFromAbove, SingleBlock,
+    RegionKindInterface, HasOnlyGraphRegion]> {
+  let summary = "Define a reusable structured module graph";
+  let description = [{
+    The function_type owns the ordered input and output types. Body arguments
+    bind inputs and the final gfir.yield connects outputs. Static instances
+    retain identity independently of their calls. Graph order is not an
+    execution schedule; closed-package verification proves executable types,
+    call bindings, value-operation admission and acyclic dependencies.
+  }];
+  let arguments = (ins StrAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type, DictionaryAttr:$source_owner,
+      StrArrayAttr:$input_names, StrArrayAttr:$output_names);
+  let regions = (region AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def GFIR_InstanceOp : GFIR_Op<"instance", [Symbol]> {
+  let summary = "Declare a static child module instance";
+  let arguments = (ins SymbolNameAttr:$sym_name, FlatSymbolRefAttr:$callee);
+  let assemblyFormat = "$sym_name `of` $callee attr-dict";
+  let hasVerifier = 1;
+}
+
+def GFIR_CallOp : GFIR_Op<"call"> {
+  let summary = "Bind ordinary inputs and outputs of an existing instance";
+  let arguments = (ins FlatSymbolRefAttr:$receiver, Variadic<AnyType>:$inputs);
+  let results = (outs Variadic<AnyType>:$outputs);
+  let assemblyFormat =
+      "$receiver `(` $inputs `)` attr-dict `:` functional-type($inputs, $outputs)";
+  let hasVerifier = 1;
+}
+
+def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
+  let summary = "Connect the ordered outputs of a module graph";
+  let arguments = (ins Variadic<AnyType>:$values);
+  let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
+  let hasVerifier = 1;
+}
+
+def GFIR_RootOp : GFIR_Op<"root"> {
+  let summary = "Select a closed structured GFIR entry definition";
+  let arguments = (ins FlatSymbolRefAttr:$callee, StrAttr:$kind);
+  let assemblyFormat = "$callee `kind` $kind attr-dict";
+  let hasVerifier = 1;
+}
+
+// Retained routed logical-state operations. The native
 // verifier proves local structure and placement only; publication,
 // refinement and execution additionally require the staged package
 // pipeline's bound checks (B1-boundary.md). State effects are never Pure.

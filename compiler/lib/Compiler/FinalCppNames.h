@@ -6,10 +6,21 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 
 #include <string>
 
 namespace acir::compiler {
+
+class CppNameScope {
+public:
+  mlir::LogicalResult insert(llvm::StringRef qualifiedName,
+                             mlir::Operation *site);
+
+private:
+  llvm::StringSet<> types;
+  llvm::StringSet<> namespaces;
+};
 
 struct CppOwnerComponents {
   std::string moduleName;

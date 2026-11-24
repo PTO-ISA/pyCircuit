@@ -1,0 +1,21 @@
+# REQUIRES: verilator
+# The instance calls form a cycle as whole nodes, while the two Offer fields
+# admit an acyclic execution order. Changing ready to depend on sent closes
+# a real cycle. Each model is checked against independent driver expectations.
+# RUN: %pycircuit_opt %inputs/structured-gfir-feedback.mlir --gfir-verify -o %t.gfir
+# RUN: sed 's/gfir.yield %allow, %accepted/gfir.yield %delivered, %accepted/' %inputs/structured-gfir-feedback.mlir > %t.cycle
+# RUN: not %pycircuit_opt %t.cycle --gfir-verify -o %t.rejected
+# RUN: not %pycircuit_emit %t.cycle --input-stage gfir --target cpp > %t.rejected.cpp
+# RUN: test ! -s %t.rejected.cpp
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.final
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_emit %t.final --target cpp > %t.hardware.json
+# RUN: %python %inputs/unpack_bundle.py %t.behavior.json %t.behavior
+# RUN: %python %inputs/unpack_bundle.py %t.hardware.json %t.hardware
+# RUN: %cxx -std=c++20 -pthread -I%include -I%t.behavior %inputs/structured-gfir-feedback.cpp @%t.behavior/sources.rsp -o %t.behavior.exe
+# RUN: %cxx -std=c++20 -pthread -I%include -I%t.hardware %inputs/structured-gfir-feedback.cpp @%t.hardware/sources.rsp -o %t.hardware.exe
+# RUN: %t.behavior.exe
+# RUN: %t.hardware.exe
+# RUN: %pycircuit_emit %t.final --target verilog --format source > %t.sv
+# RUN: %verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.rtl %t.sv %inputs/structured-gfir-feedback.sv > %t.verilator.log 2>&1
+# RUN: %t.rtl/Vtb

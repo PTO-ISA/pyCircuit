@@ -3,6 +3,7 @@
 #include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/StructuredProgram.h"
 #include "pycircuit/Conversion/ACIRToGFIR.h"
 #include "pycircuit/Conversion/GFIRToHWIR.h"
 #include "pycircuit/Transforms/Passes.h"
@@ -21,6 +22,7 @@ int main(int argc, char **argv) {
                   mlir::arith::ArithDialect, mlir::func::FuncDialect,
                   mlir::scf::SCFDialect>();
   acir::registerGFIRValidationPasses();
+  acir::gfir::registerStructuredGFIRPasses();
   acir::registerHWIRValidationPasses();
   acir::registerACIRPasses();
   acir::registerACIRToGFIRPasses();

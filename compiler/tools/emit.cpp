@@ -2,6 +2,7 @@
 // Emit source-owned modules from verified final ACIR. Publication is
 // transactional in the Python driver; this transport writes nothing before
 // complete success.
+#include "Compiler/BehavioralEmitCpp.h"
 #include "Compiler/FinalCppNames.h"
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/FinalSourceMap.h"
@@ -10,6 +11,7 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/StructuredProgram.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -34,6 +36,69 @@ std::string attributeText(Attribute attr) {
   attr.print(stream);
   return text;
 }
+LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
+  auto program = acir::gfir::analyzeStructured(package);
+  if (failed(program))
+    return failure();
+  auto parts = acir::compiler::emitBehavioralCpp(package, *program);
+  if (failed(parts))
+    return failure();
+  if (format == "source") {
+    // This native view puts the headers before their source bodies. Quoted
+    // generated includes are unnecessary in this concatenated form.
+    auto append = [](StringRef source) {
+      SmallVector<StringRef> lines;
+      source.split(lines, '\n', -1, false);
+      for (StringRef line : lines)
+        if (!line.starts_with("#include \"") && line != "#pragma once")
+          llvm::outs() << line << '\n';
+    };
+    append(parts->supportHeader);
+    for (const auto &group : parts->sourceGroups)
+      append(group.header);
+    append(parts->systemHeader);
+    for (const auto &group : parts->sourceGroups)
+      append(group.source);
+    return success();
+  }
+  auto ports = llvm::json::parse(parts->portMap);
+  if (!ports) {
+    llvm::consumeError(ports.takeError());
+    return package.emitOpError("invalid behavioral C++ port map");
+  }
+  llvm::json::Array groups;
+  for (const auto &group : parts->sourceGroups)
+    groups.emplace_back(llvm::json::Object{
+        {"source", sourceOwner(group.sourceOwner)},
+        {"header_path", group.headerPath}, {"source_path", group.sourcePath},
+        {"header", group.header}, {"implementation", group.source}});
+  bool needsFourState = false;
+  package.walk([&](Operation *op) {
+    if (auto pattern = dyn_cast<acir::ac::BitsConstant4Op>(op))
+      needsFourState |= pattern.getPattern().contains('x') ||
+                        pattern.getPattern().contains('z');
+    if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(op))
+      needsFourState |= compare.getPredicate() == "case_eq";
+    if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(op))
+      needsFourState |= binary.getOpcode() == "udiv" || binary.getOpcode() == "urem";
+  });
+  auto resetPolicy = program->root->getAttrOfType<DictionaryAttr>("ac.execution_policy");
+  auto root = program->definitions[program->rootIndex].module;
+  llvm::json::Object bundle{
+      {"entry", llvm::json::Object{{"definition", "@\"" + program->root.getCalleeAttr().getValue().str() + "\""},
+                                    {"arguments", llvm::json::Array{}}}},
+      {"entry_source", sourceOwner(root.getSourceOwner())},
+      {"reset_semantics", resetPolicy ? resetPolicy.getAs<StringAttr>("reset").getValue()
+                                      : StringRef("strict")},
+      {"needs_four_state", needsFourState},
+      {"system_samples", llvm::json::Array{}},
+      {"support_header", parts->supportHeader}, {"system_header", parts->systemHeader},
+      {"source_groups", std::move(groups)}, {"root_cpp_name", parts->rootCppName},
+      {"source_check_count", 0}, {"simulation_main", ""}, {"simulation_config", ""},
+      {"port_availability", std::move(*ports)}, {"source_maps", llvm::json::Array{}}};
+  llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(bundle)));
+  return success();
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -56,7 +121,7 @@ int main(int argc, char **argv) {
         "{0}\n", llvm::json::Value(llvm::json::Object{{"path", path}}));
     return 0;
   }
-  StringRef target, format = "json", rtlMode = "managed";
+  StringRef target, format = "json", rtlMode = "managed", inputStage;
   bool optionsValid = argc >= 4 && (argc % 2 == 0);
   for (int i = 2; optionsValid && i + 1 < argc; i += 2) {
     StringRef option(argv[i]);
@@ -66,20 +131,29 @@ int main(int argc, char **argv) {
       format = argv[i + 1];
     else if (option == "--rtl-mode")
       rtlMode = argv[i + 1];
+    else if (option == "--input-stage" && inputStage.empty())
+      inputStage = argv[i + 1];
     else
       optionsValid = false;
   }
   if (!optionsValid || (target != "cpp" && target != "verilog") ||
       (format != "json" && format != "source") ||
       (rtlMode != "managed" && rtlMode != "physical") ||
-      (target != "verilog" && rtlMode != "managed")) {
+      (target != "verilog" && rtlMode != "managed") ||
+      (!inputStage.empty() && inputStage != "gfir") ||
+      (inputStage == "gfir" && target != "cpp")) {
     llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog "
-                    "[--format json|source] [--rtl-mode managed|physical]\n";
+                    "[--format json|source] [--rtl-mode managed|physical]\n"
+                    "       pycircuit-emit GFIR.mlir --input-stage gfir --target cpp\n";
     return 2;
   }
   bool physical = rtlMode == "physical";
   auto package = parseSourceFile<ModuleOp>(argv[1], &context);
-  if (!package || failed(mlir::verify(*package)))
+  if (!package)
+    return 1;
+  if (inputStage == "gfir")
+    return failed(emitStructuredCpp(*package, format)) ? 1 : 0;
+  if (failed(mlir::verify(*package)))
     return 1;
   acir::ac::HardwareAnalysis analysis(*package);
   if (failed(analysis.verify()))

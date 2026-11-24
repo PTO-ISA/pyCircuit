@@ -41,6 +41,7 @@ target_include_directories(ACIRSourceCompiler PUBLIC
 )
 
 add_acir_library(ACIRCodegen SOURCES
+  BehavioralEmitCpp.cpp
   FinalCppNames.cpp
   FinalEmitCpp.cpp
   FinalEmitVerilog.cpp
@@ -50,7 +51,7 @@ add_acir_library(ACIRCodegen SOURCES
   HardwareEmitCppDefinition.cpp
   HardwareEmitVerilogFaults.cpp
   HardwareEmitVerilogDefinition.cpp
-  LINK_LIBRARIES ACIRDialect ACIRAnalysis HWIRValidation MLIRParser
+  LINK_LIBRARIES ACIRDialect ACIRAnalysis GFIRStructured HWIRValidation MLIRParser
 )
 target_include_directories(ACIRCodegen PUBLIC
   "$<BUILD_INTERFACE:${PYCIRCUIT_SOURCE_DIR}/lib>"

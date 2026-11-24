@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 namespace acir::compiler {
+class HardwareEmitContext;
+
 struct FinalCppSourceGroup {
   mlir::DictionaryAttr sourceOwner;
   std::string headerPath, sourcePath, header, source;
@@ -15,6 +17,12 @@ struct FinalCppSourceParts {
   std::string simulationMain, simulationConfig, portMap;
   uint64_t sourceCheckCount = 0;
 };
+mlir::LogicalResult emitCppRecords(HardwareEmitContext &context,
+                                   llvm::raw_ostream &out);
+void appendCppDutHeader(FinalCppSourceParts &parts,
+                        llvm::ArrayRef<std::string> inputs,
+                        llvm::ArrayRef<std::string> outputs,
+                        llvm::StringRef configure, bool hasChecks, bool observes);
 mlir::FailureOr<FinalCppSourceParts> emitCppSourceParts(
     mlir::ModuleOp package, ac::HardwareAnalysis &analysis);
 mlir::LogicalResult emitCpp(mlir::ModuleOp package,

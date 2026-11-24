@@ -5,10 +5,114 @@
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "IR/StateDeclarationContracts.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OpImplementation.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
 
 namespace acir::gfir {
+
+ParseResult ModuleOp::parse(OpAsmParser &parser, OperationState &result) {
+  StringAttr name;
+  SmallVector<OpAsmParser::Argument> arguments;
+  SmallVector<Type> resultTypes;
+  if (parser.parseSymbolName(name, "sym_name", result.attributes) ||
+      parser.parseArgumentList(arguments, OpAsmParser::Delimiter::Paren,
+                               /*allowType=*/true) ||
+      parser.parseArrowTypeList(resultTypes) ||
+      parser.parseOptionalAttrDictWithKeyword(result.attributes))
+    return failure();
+  SmallVector<Type> inputTypes;
+  for (const auto &argument : arguments)
+    inputTypes.push_back(argument.type);
+  result.addAttribute("function_type",
+                      TypeAttr::get(parser.getBuilder().getFunctionType(
+                          inputTypes, resultTypes)));
+  return parser.parseRegion(*result.addRegion(), arguments,
+                            /*enableNameShadowing=*/true);
+}
+
+void ModuleOp::print(OpAsmPrinter &printer) {
+  printer << ' ';
+  printer.printSymbolName(getSymName());
+  printer << '(';
+  llvm::interleaveComma(getBody().front().getArguments(), printer,
+                        [&](BlockArgument argument) {
+                          printer.printRegionArgument(argument);
+                        });
+  printer << ") -> (";
+  llvm::interleaveComma(getFunctionType().getResults(), printer,
+                        [&](Type type) { printer.printType(type); });
+  printer << ')';
+  printer.printOptionalAttrDictWithKeyword(
+      (*this)->getAttrs(), {"sym_name", "function_type"});
+  printer << ' ';
+  printer.printRegion(getBody(), /*printEntryBlockArgs=*/false,
+                      /*printBlockTerminators=*/true);
+}
+
+LogicalResult ModuleOp::verify() {
+  if (!isa<mlir::ModuleOp>((*this)->getParentOp()))
+    return emitOpError("requires package placement");
+  if (failed(ac::detail::verifySourceOwner(
+          getSourceOwner(), [&] { return emitOpError(); })))
+    return failure();
+  FunctionType signature = getFunctionType();
+  if (getInputNames().size() != signature.getNumInputs() ||
+      getOutputNames().size() != signature.getNumResults())
+    return emitOpError("port name counts must match the function signature");
+  llvm::StringSet<> names;
+  for (ArrayAttr list : {getInputNames(), getOutputNames()})
+    for (Attribute raw : list) {
+      StringRef name = cast<StringAttr>(raw).getValue();
+      if (name.empty() || name.contains('\0') || !names.insert(name).second)
+        return emitOpError("port names must be nonempty and unique");
+    }
+  if (!getBody().hasOneBlock())
+    return emitOpError("requires one body block");
+  if (!llvm::equal(getBody().front().getArgumentTypes(), signature.getInputs()))
+    return emitOpError("body arguments must match the function inputs");
+  return success();
+}
+
+LogicalResult ModuleOp::verifyRegions() {
+  Block &body = getBody().front();
+  if (body.empty() || !isa<YieldOp>(body.back()))
+    return emitOpError("body must end with gfir.yield");
+  return success();
+}
+
+LogicalResult InstanceOp::verify() {
+  if (!isa<ModuleOp>((*this)->getParentOp()))
+    return emitOpError("requires direct gfir.module placement");
+  return success();
+}
+
+LogicalResult CallOp::verify() {
+  if (!isa<ModuleOp>((*this)->getParentOp()))
+    return emitOpError("requires direct gfir.module placement");
+  return success();
+}
+
+LogicalResult YieldOp::verify() {
+  auto module = dyn_cast_or_null<ModuleOp>((*this)->getParentOp());
+  if (!module)
+    return emitOpError("requires direct gfir.module placement");
+  if (&(*this)->getBlock()->back() != getOperation())
+    return emitOpError("must terminate its module body");
+  if (!llvm::equal(getValues().getTypes(), module.getFunctionType().getResults()))
+    return emitOpError("values must match the module function results");
+  return success();
+}
+
+LogicalResult RootOp::verify() {
+  if (!isa<mlir::ModuleOp>((*this)->getParentOp()))
+    return emitOpError("requires package placement");
+  if (getKind() != "module" && getKind() != "system")
+    return emitOpError("kind must be module or system");
+  return success();
+}
 
 // GFIR owns concrete state local verification (B1-boundary.md). These native
 // verifiers prove local structure, placement and literal-shape facts only.

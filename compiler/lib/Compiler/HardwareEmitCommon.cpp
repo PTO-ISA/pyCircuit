@@ -997,21 +997,8 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     if (failed(capabilities(definition, bindings, 1)))
       return failure();
   }
-  llvm::StringSet<> cpp, cppNamespaces, rtl, rtlTypes;
-  auto reserveCppName = [&](StringRef name, Operation *site) -> LogicalResult {
-    SmallVector<StringRef> parts;
-    name.drop_front(2).split(parts, "::");
-    std::string prefix;
-    for (size_t i = 0; i + 1 < parts.size(); ++i) {
-      prefix += "::" + parts[i].str();
-      if (cpp.contains(prefix))
-        return site->emitOpError() << "emitted hardware name collision";
-      cppNamespaces.insert(prefix);
-    }
-    if (cppNamespaces.contains(name) || !cpp.insert(name).second)
-      return site->emitOpError() << "emitted hardware name collision";
-    return success();
-  };
+  CppNameScope cpp;
+  llvm::StringSet<> rtl, rtlTypes;
   // Validate the complete nominal declaration closure shared by both targets.
   for (Operation &op : package.getBody()->getOperations()) {
     Type type;
@@ -1025,7 +1012,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
       return failure();
     auto cppName = cppType(type, &op), rtlName = rtlType(type, &op);
     if (failed(cppName) || failed(rtlName) ||
-        failed(reserveCppName(*cppName, &op)))
+        failed(cpp.insert(*cppName, &op)))
       return failure();
     // RTL typedefs share pycircuit_types, separately from global module names.
     if (!rtlTypes.insert(*rtlName).second)
@@ -1068,8 +1055,8 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     names.header = *header;
     names.source = *source;
     names.verilog = *v;
-    if (failed(reserveCppName(names.cppQualified, site)) ||
-        failed(reserveCppName(names.cppFamilyQualified, site)))
+    if (failed(cpp.insert(names.cppQualified, site)) ||
+        failed(cpp.insert(names.cppFamilyQualified, site)))
       return failure();
     if (!rtl.insert(names.rtl).second)
       return site->emitOpError() << "emitted hardware name collision";

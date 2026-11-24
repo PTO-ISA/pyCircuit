@@ -58,7 +58,27 @@ Their implementations live in `lib/Conversion/ACIRToGFIR/` and
 The conversion targets have no dependency on each other or on the emitters;
 tools assemble the required pass registrations explicitly.
 
-GFIR-to-high-level-C++ and GFIR-to-DOT consumers remain future work. The current
-C++ and Verilog backends continue to consume the same verified HWIR artifact.
-Unsupported source or backend capabilities fail before output publication; see
-[known limitations](../development/known-limitations.md).
+## Handwritten structured GFIR in CompilerDev
+
+The CompilerDev tools accept a closed, handwritten combinational package
+with `gfir.contract = 1 : i64` and one `gfir.root` of kind `module`.
+`gfir.module` defines the typed graph, `gfir.instance` names the child, and
+`gfir.call` binds its input and result values. The structured verifier derives
+field dependencies from actual SSA, including links between child instances.
+
+```sh
+pycircuit-opt graph.gfir.mlir --gfir-verify -o checked.gfir.mlir
+pycircuit-emit checked.gfir.mlir --input-stage gfir --target cpp > behavior.json
+pycircuit-opt checked.gfir.mlir --gfir-to-hwir --ac-verify-hardware -o final.mlir
+pycircuit-emit final.mlir --target cpp > final-cpp.json
+pycircuit-emit final.mlir --target verilog > rtl.json
+```
+
+This slice supports closed Bits and Struct combinational graphs and preserves
+four-state values in generated native code. Both native branches verify the
+structured input. The hardware branch also verifies the generated HWIR before
+passing it to the existing final emitters. Behavior C++ uses the same typed DUT
+and gfsim interfaces for this profile. Structured state, resources, Rule and
+System execution are subsequent work. Python source compilation uses the
+existing routed GFIR and saved-anchor contract. Unsupported capabilities fail
+before output publication. See [known limitations](../development/known-limitations.md).
