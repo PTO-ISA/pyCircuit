@@ -1,4 +1,5 @@
 #include "Dialect/GFIR/StructuredClocked.h"
+#include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "mlir/IR/Builders.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -14,6 +15,16 @@ namespace acir::gfir::detail {
 namespace {
 
 using Access = StructuredFifoAccess;
+
+LogicalResult verifyPayloadConstraint(Operation *site, Type type,
+                                      const ac::HardwareAnalysis &hardware) {
+  auto constraint = site->getAttr("ac.payload_constraint");
+  if (!constraint)
+    return success();
+  Operation *owner = isa<PrimitiveOp>(site) ? site : site->getParentOp();
+  return ac::detail::verifySourceCallHardwareConstraint(
+      constraint, type, hardware, owner, site, "GFIR payload");
+}
 
 bool isBitOne(const ac::HardwareAnalysis &hardware, Type type, Operation *op) {
   auto width = hardware.getPackedWidth(type, {}, op);
@@ -106,8 +117,9 @@ private:
 LogicalResult ClockedAnalyzer::collect() {
   for (Operation &op : module.getBody().front()) {
     if (auto var = dyn_cast<VarOp>(op)) {
-      if (failed(verifyAttributes(var, {"sym_name"})) ||
+      if (failed(verifyAttributes(var, {"sym_name", "ac.payload_constraint"})) ||
           failed(verifyValueType(hardware, var.getInitial().getType(), var, true)) ||
+          failed(verifyPayloadConstraint(var, var.getInitial().getType(), hardware)) ||
           failed(verifyInitializer(var.getInitial(), var, budget)))
         return failure();
       variables.try_emplace(var.getSymName(), plan.variables.size());
@@ -117,6 +129,9 @@ LogicalResult ClockedAnalyzer::collect() {
           hardware.lookupDefinition(instance.getCalleeAttr().getValue()));
       if (!primitive)
         continue;
+      auto element = primitive->getAttrOfType<TypeAttr>("element").getValue();
+      if (failed(verifyPayloadConstraint(instance, element, hardware)))
+        return failure();
       if (primitive.getNativeKind() == "memory") {
         auto memory = describeRawMemory(primitive, hardware);
         if (failed(memory))
@@ -129,7 +144,7 @@ LogicalResult ClockedAnalyzer::collect() {
       auto *definition = primitive.getOperation();
       fifos.try_emplace(instance.getSymName(), plan.fifos.size());
       plan.fifos.push_back({
-          instance, definition->getAttrOfType<TypeAttr>("element").getValue(),
+          instance, element,
           definition->getAttrOfType<IntegerAttr>("depth").getValue().getZExtValue(),
           definition->getAttrOfType<IntegerAttr>("latency").getValue().getZExtValue(),
           definition->getAttrOfType<StringAttr>("ready_policy").getValue() ==
@@ -841,7 +856,8 @@ bool hasGeneratedDomain(RootOp root) {
 LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
                                    const ac::HardwareAnalysis &hardware) {
   if (failed(verifyAttributes(primitive, {"sym_name", "native_kind", "version",
-                                         "element", "depth", "latency", "ready_policy"})))
+                                         "element", "depth", "latency", "ready_policy",
+                                         "ac.payload_constraint"})))
     return failure();
   if (primitive.getNativeKind() != "fifo" || primitive.getVersion() != 1)
     return primitive.emitOpError("clocked GFIR supports native FIFO version 1");
@@ -854,13 +870,16 @@ LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
   if (!element || !positive("depth") || !positive("latency") || !policy ||
       (policy.getValue() != "local_occupancy" && policy.getValue() != "downstream_pop"))
     return primitive.emitOpError("FIFO requires element, positive i64 depth/latency and ready_policy");
-  return verifyValueType(hardware, element.getValue(), primitive);
+  if (failed(verifyValueType(hardware, element.getValue(), primitive)))
+    return failure();
+  return verifyPayloadConstraint(primitive, element.getValue(), hardware);
 }
 
 FailureOr<StructuredMemory>
 describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
   if (failed(verifyAttributes(primitive, {"sym_name", "native_kind", "version",
-                                         "element", "kind", "depth", "access"})))
+                                         "element", "kind", "depth", "access",
+                                         "ac.payload_constraint"})))
     return failure();
   auto kind = primitive->getAttrOfType<StringAttr>("kind");
   auto element = primitive->getAttrOfType<TypeAttr>("element");
@@ -876,7 +895,8 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
   bool transactional = access.getValue() == "transaction";
   if (transactional && !isa<ac::BitsType>(type))
     return primitive.emitOpError("transaction Memory requires Bits storage");
-  if (failed(verifyValueType(hardware, type, primitive)))
+  if (failed(verifyValueType(hardware, type, primitive)) ||
+      failed(verifyPayloadConstraint(primitive, type, hardware)))
     return failure();
   auto width = hardware.getPackedWidth(type, {}, primitive);
   if (failed(width))

@@ -166,7 +166,8 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
   llvm::StringMap<InstanceOp> instances;
   llvm::SmallDenseSet<Operation *> bound;
   for (auto instance : body->getOps<InstanceOp>()) {
-    if (failed(verifyAttributes(instance, {"sym_name", "callee", "domains"})))
+    if (failed(verifyAttributes(instance, {"sym_name", "callee", "domains",
+                                          "ac.payload_constraint"})))
       return failure();
     auto *callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
     if (result.root.getKind() == "system" &&
@@ -182,6 +183,8 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     } else if (!isa_and_nonnull<ModuleOp>(callee)) {
       return instance.emitOpError("callee must be a defined Module or native primitive");
     } else {
+      if (instance->hasAttr("ac.payload_constraint"))
+        return instance.emitOpError("payload constraint requires a native resource instance");
       ++allocations[callee];
     }
     const bool inheritsClock = native || clockedModules.contains(callee);

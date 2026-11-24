@@ -24,3 +24,7 @@
 # Giving ingress a raw consumer would conflict with its transactional consumer.
 # RUN: sed 's/@egress\["raw_out"\]/@ingress["raw_out"]/' %inputs/structured-gfir-table-rule.mlir > %t.duplicate
 # RUN: not %pycircuit_opt %t.duplicate --gfir-verify -o %t.rejected
+
+# A resource constraint must name the actual element, including nominal identity.
+# RUN: sed 's/type = !E, source_kind = "nominal"/type = !R, source_kind = "nominal"/' %inputs/structured-gfir-table-rule.mlir > %t.wrong-payload
+# RUN: not %pycircuit_opt %t.wrong-payload --gfir-verify -o %t.rejected

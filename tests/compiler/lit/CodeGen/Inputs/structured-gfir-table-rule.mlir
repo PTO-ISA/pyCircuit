@@ -22,7 +22,8 @@ module attributes {gfir.contract = 1 : i64} {
   ac.struct "example_table_rule.table_rule.Result" fields [{name = "ready", type = !b1}, {name = "valid", type = !b1},
                              {name = "data", type = !E}]
   gfir.primitive @EntryFifo2 native "fifo" version 1
-      {element = !E, depth = 2 : i64, latency = 1 : i64, ready_policy = "downstream_pop"}
+      {element = !E, depth = 2 : i64, latency = 1 : i64, ready_policy = "downstream_pop",
+       ac.payload_constraint = {kind = "hardware", type = !E, source_kind = "nominal"}}
   gfir.primitive @EntryFifo1 native "fifo" version 1
       {element = !E, depth = 1 : i64, latency = 1 : i64, ready_policy = "downstream_pop"}
 
@@ -34,9 +35,11 @@ module attributes {gfir.contract = 1 : i64} {
     %zero7 = "ac.bits.constant4"() {pattern = "0000000"} : () -> !b7
     %empty = ac.struct.create(%zero1, %zero7) : (!b1, !b7) -> !E
     %initial = "ac.table.splat"(%empty) {shape = [#w2]} : (!E) -> !Rows
-    gfir.var @entries init %initial : !Rows
+    gfir.var @entries init %initial
+        {ac.payload_constraint = {kind = "hardware", type = !Rows, source_kind = "table"}} : !Rows
     gfir.instance @ingress of @EntryFifo2
     gfir.instance @egress of @EntryFifo1
+        {ac.payload_constraint = {kind = "hardware", type = !E, source_kind = "nominal"}}
     %ready = gfir.call @ingress["raw_in"](%valid, %data) : (!b1, !E) -> !b1
     %out_valid, %head = gfir.call @egress["raw_out"](%take) : (!b1) -> (!b1, !E)
 

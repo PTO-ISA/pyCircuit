@@ -120,6 +120,12 @@ on each Work with the interpreted reset mask. Sampling and guard checks precede
 assertions. A failed assertion leaves state and clock history at their previous
 committed values, including in generated System runs.
 
+An optional `ac.payload_constraint` on a state variable, native FIFO or Memory
+declaration, or native resource instance uses the existing source hardware
+constraint format. GFIR verifies the constraint against the actual closed
+storage or element type, including its nominal identity and Boolean or Integer
+domain where present. HWIR uses the verified physical layout.
+
 ## Final artifact interfaces
 
 The C++ and Verilog representations differ, but element order, field identity,
