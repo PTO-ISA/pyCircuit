@@ -23,6 +23,7 @@ public:
 private:
   struct SampledContext {
     DictionaryAttr registration;
+    ArrayRef<gfir::StructuredCheckSite> plannedChecks;
     SmallVector<Attribute> invocation, controls, checks;
     SmallVector<Value> predicates, reaches;
     Value prefix, path;
@@ -39,9 +40,7 @@ private:
   Value binary(StringRef opcode, Value left, Value right);
   Value merge(Value base, Value guard, Value value);
   Value known(Value value, bool high);
-  DictionaryAttr sourceLocation(Operation *operation);
-  DictionaryAttr lexicalOccurrence(Operation *operation);
-  unsigned addControl(StringRef kind, Operation *site, Value raw);
+  FailureOr<unsigned> addControl(StringRef kind, Operation *site, Value raw);
   LogicalResult lowerSampled(unsigned index);
   void bindTransactionWiring();
   FailureOr<Value> zero(Type type);
@@ -71,7 +70,6 @@ private:
   SmallVector<Value> grants, candidates, intents, fifoData;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
-  llvm::DenseMap<Operation *, unsigned> lexicalOrdinals;
   SampledContext *sampled = nullptr;
   SmallVector<std::pair<Operation *, Operation *>> graphOperations;
 };
@@ -271,37 +269,24 @@ Value ClockedMaterializer::known(Value value, bool high) {
       ->getResult(0);
 }
 
-DictionaryAttr ClockedMaterializer::sourceLocation(Operation *operation) {
-  if (auto location = dyn_cast<FileLineColLoc>(operation->getLoc()))
-    return builder.getDictionaryAttr({
-        builder.getNamedAttr("path", source.getSourceOwner().getAs<StringAttr>("path")),
-        builder.getNamedAttr("line", builder.getI64IntegerAttr(location.getLine())),
-        builder.getNamedAttr("column", builder.getI64IntegerAttr(location.getColumn())),
-        builder.getNamedAttr("end_line", builder.getI64IntegerAttr(location.getLine())),
-        builder.getNamedAttr("end_column", builder.getI64IntegerAttr(location.getColumn() + 1))});
-  return cast<DictionaryAttr>(literal(0).getTree().get("location"));
-}
-
-DictionaryAttr ClockedMaterializer::lexicalOccurrence(Operation *operation) {
-  return occurrence("ordered", lexicalOrdinals.lookup(operation));
-}
-
-unsigned ClockedMaterializer::addControl(StringRef kind, Operation *site, Value raw) {
+FailureOr<unsigned> ClockedMaterializer::addControl(StringRef kind, Operation *site,
+                                                    Value raw) {
   unsigned ordinal = sampled->controls.size();
-  auto id = builder.getDictionaryAttr({
-      builder.getNamedAttr("registration", sampled->registration),
-      builder.getNamedAttr("check", lexicalOccurrence(site)),
-      builder.getNamedAttr("obligation", builder.getI64IntegerAttr(ordinal))});
+  if (ordinal >= sampled->plannedChecks.size() ||
+      sampled->plannedChecks[ordinal].id.get("check") !=
+          plan.orderedOccurrences.lookup(site))
+    return site->emitOpError("sampled refinement disagrees with the verified check order");
+  const auto &check = sampled->plannedChecks[ordinal];
   sampled->controls.push_back(builder.getDictionaryAttr({
       builder.getNamedAttr("kind", builder.getStringAttr(kind)),
-      builder.getNamedAttr("id", id),
+      builder.getNamedAttr("id", check.id),
       builder.getNamedAttr("invocation", builder.getArrayAttr(sampled->invocation)),
       builder.getNamedAttr("predecessor", builder.getI64IntegerAttr(int64_t(ordinal) - 1)),
       builder.getNamedAttr("path", sampled->pathIdentity)}));
   sampled->checks.push_back(builder.getDictionaryAttr({
-      builder.getNamedAttr("id", id),
+      builder.getNamedAttr("id", check.id),
       builder.getNamedAttr("kind", builder.getStringAttr("guard_known")),
-      builder.getNamedAttr("location", sourceLocation(site))}));
+      builder.getNamedAttr("location", check.location)}));
   Value accepted = known(raw, true);
   if (kind == "branch_select")
     accepted = binary("or", known(raw, false), accepted);
@@ -565,7 +550,8 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       local[target] = value;
       localIntents[target] = one;
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
-      addControl("ordered_guard", guard, mapping.lookup(guard.getPredicate()));
+      if (failed(addControl("ordered_guard", guard, mapping.lookup(guard.getPredicate()))))
+        return failure();
     } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
       Value predicate = mapping.lookup(branch.getPredicate());
       Value parentPath;
@@ -574,7 +560,10 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       if (sampled && plan.checkedBranches.contains(branch)) {
         parentPath = sampled->path;
         parentPathIdentity = sampled->pathIdentity;
-        selection = addControl("branch_select", branch, predicate);
+        auto control = addControl("branch_select", branch, predicate);
+        if (failed(control))
+          return failure();
+        selection = *control;
         sampled->path = known(predicate, true);
         if (parentPath)
           sampled->path = binary("and", parentPath, sampled->path);
@@ -620,10 +609,11 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         auto method = plan.methods[plan.methodCalls.lookup(call)];
         if (sampled) {
           sampled->invocation.push_back(builder.getDictionaryAttr({
-              builder.getNamedAttr("call", lexicalOccurrence(call)),
+              builder.getNamedAttr("call", plan.orderedOccurrences.lookup(call)),
               builder.getNamedAttr("receiver", builder.getDictionaryAttr({
                   builder.getNamedAttr("instance_path", builder.getArrayAttr({}))}))}));
-          addControl("callable_guard", method, one);
+          if (failed(addControl("callable_guard", method, one)))
+            return failure();
         }
         auto values = lowerBody(method.getBody().front(),
                                  arguments, local, localIntents, nested);
@@ -673,11 +663,13 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   one = controlLiteral(1);
   none = controlLiteral(0);
   SampledContext context;
-  context.registration = lexicalOccurrence(rule);
+  context.registration = plan.orderedOccurrences.lookup(rule);
+  context.plannedChecks = plan.rules[index].checks;
   context.pathIdentity = builder.getDictionaryAttr({});
   context.prefix = one;
   sampled = &context;
-  addControl("callable_guard", rule, one);
+  if (failed(addControl("callable_guard", rule, one)))
+    return failure();
 
   SmallVector<Value> local(states.size()), localIntents(states.size(), none);
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].states))
@@ -691,6 +683,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     none = outerNone;
     return failure();
   }
+  if (context.controls.size() != context.plannedChecks.size())
+    return rule.emitOpError("sampled refinement did not emit all verified checks");
   SmallVector<Value> yielded;
   SmallVector<Attribute> candidateRows;
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
@@ -873,9 +867,6 @@ LogicalResult ClockedMaterializer::bindStorage() {
 }
 
 LogicalResult ClockedMaterializer::run() {
-  source.walk([&](Operation *operation) {
-    lexicalOrdinals.try_emplace(operation, lexicalOrdinals.size());
-  });
   bit = bits(1);
   if (!plan.variables.empty() && failed(addPrimitive("dffe")))
     return failure();

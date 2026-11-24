@@ -54,6 +54,11 @@ struct StructuredRequirement {
   bool ownPop;
 };
 
+struct StructuredCheckSite {
+  mlir::DictionaryAttr id;
+  mlir::DictionaryAttr location;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -62,6 +67,7 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> dependencies;
   llvm::SmallVector<ResultOp> resultUses;
   bool sampled = false;
+  llvm::SmallVector<StructuredCheckSite> checks;
 };
 
 struct StructuredClocked {
@@ -80,6 +86,9 @@ struct StructuredClocked {
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<unsigned>> branchWrites;
   llvm::DenseSet<unsigned> conditionalWrites;
   llvm::DenseSet<mlir::Operation *> checkedBranches;
+  /// Relative ordinal of a check or callee entry in its callable's inventory.
+  llvm::DenseMap<mlir::Operation *, uint64_t> checkOffsets;
+  llvm::DenseMap<mlir::Operation *, mlir::DictionaryAttr> orderedOccurrences;
 };
 
 struct StructuredWire {
@@ -118,7 +127,9 @@ struct StructuredDefinition {
   std::optional<StructuredClocked> clocked;
   llvm::SmallVector<StructuredClockedCall> clockedCalls;
   llvm::SmallVector<unsigned> preparationInputs;
-  bool hasChecks = false;
+  uint64_t sourceCheckCount = 0;
+
+  bool hasChecks() const { return sourceCheckCount != 0; }
 
   unsigned firstClockedCallNode() const {
     return wires.size() + (clocked ? clocked->rules.size() : 0);

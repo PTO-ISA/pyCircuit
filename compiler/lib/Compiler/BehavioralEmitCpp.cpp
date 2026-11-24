@@ -38,6 +38,16 @@ bool needsDomain(const gfir::StructuredClocked &clocked) {
 }
 
 constexpr StringLiteral levelName = "gfsim::behavior::level";
+constexpr StringLiteral noCheck = "std::numeric_limits<unsigned>::max()";
+
+std::string cppString(StringRef value) {
+  std::string text;
+  llvm::raw_string_ostream out(text);
+  out << '"';
+  out.write_escaped(value, false);
+  out << '"';
+  return text;
+}
 
 std::string concatenate(ArrayRef<std::string> fields) {
   std::string result = fields.front();
@@ -372,8 +382,10 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     out << ";\n  void reset() noexcept;\n  void discard() noexcept;\n"
            "  void commit() noexcept;\n";
   }
-  if (definition.hasChecks)
-    out << "  bool validate_checks() const noexcept;\n";
+  if (definition.hasChecks())
+    out << "  void configure_checks(std::string instance);\n"
+           "  bool validate_sampling(gfsim::SimFailureInfo &failure) const noexcept;\n"
+           "  bool validate_checks(gfsim::SimFailureInfo &failure) const noexcept;\n";
   llvm::SmallDenseSet<Operation *> seen;
   for (const auto &wire : definition.wires) {
     if (!wire.call || !seen.insert(wire.call->receiver).second)
@@ -395,8 +407,12 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     return failure();
   if (isClocked(definition)) {
     out << "private:\n";
-    if (definition.hasChecks)
-      out << "  bool pyc_checks_valid = false;\n  bool pyc_checks_ok = true;\n";
+    if (definition.hasChecks())
+      out << "  bool pyc_checks_valid = false;\n"
+             "  gfsim::SampledClockFault pyc_sampling_fault = gfsim::SampledClockFault::None;\n"
+             "  std::string pyc_check_instance;\n"
+          << "  unsigned pyc_failed_rule = " << noCheck << ";\n"
+          << "  unsigned pyc_failed_check = " << noCheck << ";\n";
     for (auto [result, output] : llvm::enumerate(definition.outputs)) {
       if (!output.requiresPreparation)
         continue;
@@ -431,19 +447,72 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
     if (failed(emitLifecycle(out, definition, moduleName(index))))
       return failure();
   }
-  if (definition.hasChecks) {
-    out << "bool " << moduleName(index) << "::validate_checks() const noexcept {\n"
-           "  bool accepted = pyc_checks_valid && pyc_checks_ok;\n";
+  if (definition.hasChecks()) {
+    out << "void " << moduleName(index) << "::configure_checks(std::string instance) {\n"
+           "  pyc_check_instance = std::move(instance);\n";
     for (const auto &call : definition.clockedCalls) {
-      if (!program.definitions[call.definition].hasChecks)
+      if (!program.definitions[call.definition].hasChecks())
         continue;
       auto member = instanceName(call.receiver);
       if (failed(member))
         return failure();
-      out << "  accepted &= " << *member << ".validate_checks();\n";
+      auto receiver = call.receiver;
+      out << "  " << *member << ".configure_checks(pyc_check_instance + "
+          << cppString("." + receiver.getSymName().str()) << ");\n";
     }
-    out << "  return accepted;\n}\n";
+    out << "}\n";
+    out << "bool " << moduleName(index)
+        << "::validate_sampling(gfsim::SimFailureInfo &failure) const noexcept {\n"
+           "  if (!pyc_checks_valid) {\n"
+           "    failure = {gfsim::SimFailurePhase::Check, \"runtime_failure\", "
+           "\"model check failed\", {}, {}, {}};\n    return false;\n  }\n"
+           "  if (pyc_sampling_fault != gfsim::SampledClockFault::None) {\n"
+           "    failure = {gfsim::SimFailurePhase::Check, \"runtime_failure\", "
+           "pyc_sampling_fault == gfsim::SampledClockFault::UnknownClock ? "
+           "\"sampled clock is unknown\" : \"sampled reset is unknown\", {}, {}, {}};\n"
+           "    return false;\n  }\n";
+    for (const auto &call : definition.clockedCalls) {
+      if (!program.definitions[call.definition].hasChecks())
+        continue;
+      auto member = instanceName(call.receiver);
+      if (failed(member))
+        return failure();
+      out << "  if (!" << *member << ".validate_sampling(failure)) return false;\n";
+    }
+    out << "  return true;\n}\n";
+    out << "bool " << moduleName(index)
+        << "::validate_checks(gfsim::SimFailureInfo &failure) const noexcept {\n";
+    if (definition.clocked)
+      for (auto [ruleIndex, rule] : llvm::enumerate(definition.clocked->rules)) {
+        if (!rule.sampled)
+          continue;
+        out << "  if (pyc_failed_rule == " << ruleIndex << ") {\n"
+               "    switch (pyc_failed_check) {\n";
+        auto operation = rule.operation;
+        for (auto [ordinal, check] : llvm::enumerate(rule.checks)) {
+          auto id = emissionMetadataJson(check.id, operation);
+          auto location = emissionMetadataJson(check.location, operation);
+          if (failed(id) || failed(location))
+            return failure();
+          out << "    case " << ordinal << ":\n"
+                 "      failure = {gfsim::SimFailurePhase::Check, \"source_check_failed\", "
+                 "\"source guard_known check failed\", pyc_check_instance, "
+              << cppString(*location) << ", " << cppString(*id)
+              << "};\n      return false;\n";
+        }
+        out << "    }\n  }\n";
+      }
+    for (const auto &call : definition.clockedCalls) {
+      if (!program.definitions[call.definition].hasChecks())
+        continue;
+      auto member = instanceName(call.receiver);
+      if (failed(member))
+        return failure();
+      out << "  if (!" << *member << ".validate_checks(failure)) return false;\n";
+    }
+    out << "  return true;\n}\n";
   }
+
   return success();
 }
 
@@ -670,7 +739,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       auto predicate = values.lookup(guard.getPredicate());
       out << "    if (!gfsim::behavior::isOne(" << predicate << ")) {\n"
-          << "      txn.pyc_failed |= txn.pyc_check_active && !" << predicate << ".isFullyKnown();\n"
+          << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
+          << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(guard) << ";\n"
              "      txn.pyc_running = false;\n      ";
       if (failed(emitBlockedReturn(out, body, ruleResults)))
         return failure();
@@ -680,7 +750,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       if (clocked.checkedBranches.contains(branch)) {
         auto predicate = values.lookup(branch.getPredicate());
         out << "    if (!" << predicate << ".isFullyKnown()) {\n"
-               "      txn.pyc_failed |= txn.pyc_check_active;\n"
+            << "      if (txn.pyc_check_active) txn.pyc_failed_check = pyc_check_base + "
+            << clocked.checkOffsets.lookup(branch) << ";\n"
                "      txn.pyc_running = false;\n      ";
         if (failed(emitBlockedReturn(out, body, ruleResults)))
           return failure();
@@ -712,6 +783,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         auto callee = methodName(clocked.methods[clocked.methodCalls.lookup(call)]);
         if (failed(callee))
           return failure();
+        args.insert(args.begin(), "pyc_check_base + " + std::to_string(clocked.checkOffsets.lookup(call)));
         args.insert(args.begin(), "txn");
         text = *callee + "(" + join(args, ", ") + ")";
       }
@@ -896,7 +968,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     auto name = methodName(method);
     if (failed(name))
       return failure();
-    out << "  template <class Frame> auto " << *name << "(Frame &txn";
+    out << "  template <class Frame> auto " << *name
+        << "(Frame &txn, unsigned pyc_check_base";
     for (auto [index, type] : llvm::enumerate(method.getFunctionType().getInputs())) {
       auto wire = typedWire(type, method);
       if (failed(wire))
@@ -912,8 +985,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     auto name = "TxnFrame" + std::to_string(index);
     out << "  struct " << name << " {\n";
     if (rule.sampled)
-      out << "    bool pyc_running = true;\n    bool pyc_failed = false;\n"
-             "    bool pyc_check_active = false;\n";
+      out << "    bool pyc_running = true;\n"
+          << "    unsigned pyc_failed_check = " << noCheck << ";\n"
+          << "    bool pyc_check_active = false;\n";
     for (unsigned state : rule.states) {
       auto variable = clocked.variables[state];
       auto wire = typedWire(variable.getInitial().getType(), variable);
@@ -947,6 +1021,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << ", const " << *wire << " &" << wireName(input);
     }
     out << ") {\n";
+    out << "    constexpr unsigned pyc_check_base = 0;\n";
     if (failed(emitBody(out, operation.getBody().front(), clocked, /*ruleResults=*/true)))
       return failure();
     out << "  }\n";
@@ -1019,7 +1094,11 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   }
   out << ");\n";
   if (rule.sampled)
-    out << "    pyc_checks_ok &= !" << frameName(index) << ".pyc_failed;\n";
+    out << "    if (" << frameName(index) << ".pyc_failed_check != " << noCheck
+        << " && pyc_failed_rule == " << noCheck << ") {\n"
+        << "      pyc_failed_rule = " << index << ";\n"
+        << "      pyc_failed_check = " << frameName(index) << ".pyc_failed_check;\n"
+        << "    }\n";
   return success();
 }
 
@@ -1052,8 +1131,11 @@ LogicalResult BehavioralEmitter::emitClockedCall(
 LogicalResult BehavioralEmitter::emitTemporalWork(
     raw_ostream &out, const gfir::StructuredDefinition &definition) {
   SmallVector<unsigned> needed;
-  if (definition.hasChecks)
-    out << "    pyc_checks_valid = false;\n    pyc_checks_ok = true;\n";
+  if (definition.hasChecks())
+    out << "    pyc_checks_valid = false;\n"
+        << "    pyc_failed_rule = " << noCheck << ";\n"
+        << "    pyc_failed_check = " << noCheck << ";\n"
+        << "    pyc_sampling_fault = gfsim::SampledClockFault::None;\n";
   for (auto [index, output] : llvm::enumerate(definition.outputs))
     if (output.requiresPreparation)
       needed.push_back(output.wire);
@@ -1061,8 +1143,8 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
     const auto &plan = *definition.clocked;
     if (needsDomain(plan)) {
       out << "    const auto pyc_sample = pyc_domain.evaluate(pyc_clock, pyc_reset);\n";
-      if (plan.variables.empty())
-        out << "    pyc_checks_ok &= pyc_sample.fault == gfsim::SampledClockFault::None;\n";
+      if (definition.hasChecks())
+        out << "    pyc_sampling_fault = pyc_sample.fault;\n";
       if (llvm::any_of(plan.rules, [](const gfir::StructuredRule &rule) {
             return rule.resultUses.empty();
           }))
@@ -1091,7 +1173,7 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
   for (auto [index, output] : llvm::enumerate(definition.outputs))
     if (output.requiresPreparation)
       out << "    " << preparedName(index) << " = " << wireName(output.wire) << ";\n";
-  if (definition.hasChecks)
+  if (definition.hasChecks())
     out << "    pyc_checks_valid = true;\n";
   return success();
 }
@@ -1201,7 +1283,7 @@ LogicalResult BehavioralEmitter::emitLifecycle(
     StringRef name) {
   for (StringRef action : {"reset", "discard", "commit"}) {
     out << "void " << name << "::" << action << "() noexcept {\n";
-    if (definition.hasChecks)
+    if (definition.hasChecks())
       out << "  pyc_checks_valid = false;\n";
     for (const auto &call : definition.clockedCalls) {
       auto member = instanceName(call.receiver);
@@ -1278,6 +1360,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     return failure();
   parts.rootCppName = *name;
   parts.rootHeaderPath = group.headerPath;
+  parts.sourceCheckCount = definition.sourceCheckCount;
   SmallVector<StringRef> components;
   StringRef(*name).drop_front(2).split(components, "::");
   llvm::raw_string_ostream header(group.header);
@@ -1287,10 +1370,13 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   header << "class " << className << " final : public gfsim::SimModule {\n"
          << "public:\n  explicit " << className
          << "(std::string name, gfsim::WorkExecutor* = nullptr)\n"
-         << "      : gfsim::SimModule(std::move(name)) {}\n"
+         << "      : gfsim::SimModule(std::move(name)) {\n";
+  if (definition.hasChecks())
+    header << "    pyc_body.configure_checks(std::string(this->name()));\n";
+  header << "  }\n"
          << "  bool HasWork() const noexcept override { return true; }\n"
          << "  void Work() override;\n";
-  if (definition.hasChecks)
+  if (definition.hasChecks())
     header << "  bool pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept;\n";
   else
     header << "  bool pyc_validate_checks(gfsim::SimFailureInfo &) const noexcept "
@@ -1432,14 +1518,11 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     }
   }
 
-  if (definition.hasChecks)
+  if (definition.hasChecks())
     source << "bool " << scopedName
            << "::pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept {\n"
               "  failure = {};\n"
-              "  if (pyc_body.validate_checks()) return true;\n"
-              "  failure = {gfsim::SimFailurePhase::Check, \"source_check_failed\", "
-              "\"source guard_known check failed\", {}, {}, {}};\n"
-              "  return false;\n}\n";
+              "  return pyc_body.validate_sampling(failure) && pyc_body.validate_checks(failure);\n}\n";
 
   parts.systemHeader = "#pragma once\n#include \"" + parts.rootHeaderPath +
                        "\"\nusing pyc_root = " + *name + ";\n";
@@ -1450,7 +1533,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     addCppSystemDriver(parts, clock, reset, program.samples, resetIfOne);
   }
   appendCppDutHeader(parts, inputs, outputs, "observations_.Configure({}, 0)",
-                     /*hasChecks=*/definition.hasChecks, /*observes=*/false,
+                     /*hasChecks=*/definition.hasChecks(), /*observes=*/false,
                      /*alwaysActiveRoot=*/true);
   llvm::raw_string_ostream map(parts.portMap);
   map << llvm::json::Value(llvm::json::Object{
@@ -1480,8 +1563,8 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   }
   parts.supportHeader = "#pragma once\n#include <gfsim/wire.h>\n"
                         "#include <gfsim/SimModule.h>\n#include <gfsim/WorkExecutor.h>\n";
-  if (program.definitions[program.rootIndex].hasChecks)
-    parts.supportHeader += "#include <gfsim/SimSystem.h>\n";
+  if (program.definitions[program.rootIndex].hasChecks())
+    parts.supportHeader += "#include <gfsim/SimSystem.h>\n#include <limits>\n#include <string>\n";
   else
     parts.supportHeader += "namespace gfsim { struct SimFailureInfo; }\n";
   if (llvm::any_of(program.definitions, [](const gfir::StructuredDefinition &definition) {

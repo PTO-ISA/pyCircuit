@@ -370,8 +370,9 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     definition.clocked = std::move(*plan);
     for (auto [index, rule] : llvm::enumerate(definition.clocked->rules))
       rules.try_emplace(rule.operation.getSymName(), index);
-    definition.hasChecks = llvm::any_of(definition.clocked->rules,
-        [](const StructuredRule &rule) { return rule.sampled; });
+    for (const auto &rule : definition.clocked->rules)
+      definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(
+          definition.sourceCheckCount, rule.checks.size());
     for (auto output : body.getOps<ResultOp>()) {
       auto &rule = definition.clocked->rules[rules.lookup(output.getRuleAttr().getValue())];
       if (rule.sampled || !rule.requirements.empty())
@@ -410,7 +411,8 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     const auto &child = result.definitions[target];
     if (!child.clocked)
       continue;
-    definition.hasChecks |= child.hasChecks;
+    definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(
+        definition.sourceCheckCount, child.sourceCheckCount);
     auto &prepare = definition.clockedCalls.emplace_back(
         StructuredClockedCall{call, receiver, target, {}});
     clockedCallNodes.try_emplace(
@@ -423,6 +425,8 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
   }
   size_t count = definition.firstClockedCallNode() + definition.clockedCalls.size();
+  if (failed(budget.debit(definition.sourceCheckCount, module)))
+    return failure();
   SmallVector<SmallVector<unsigned>> dependents(count);
   SmallVector<unsigned> remaining(count);
   for (auto [index, wire] : llvm::enumerate(definition.wires)) {

@@ -7,8 +7,10 @@
 # RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
 # RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
 # RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: %python -c 'import json, sys; counts = [json.load(open(p))["source_check_count"] for p in sys.argv[1:]]; assert counts[0] > 0 and counts[0] == counts[1], counts' %t.behavior.json %t.final.json
 # RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
-# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-guard.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %inputs/structured-gfir-guard.rows || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-guard.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %inputs/structured-gfir-guard.rows > %t.$kind.checks || exit; done
+# RUN: diff -u %t.final.checks %t.behavior.checks
 # RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
 # RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/structured-gfir-guard.sv
 # RUN: %vvp %t.vvp +rows=%inputs/structured-gfir-guard.rows

@@ -1,4 +1,5 @@
 #include "Dialect/GFIR/StructuredClocked.h"
+#include "mlir/IR/Builders.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringMap.h"
@@ -85,6 +86,7 @@ private:
   LogicalResult verifyBody(Operation *owner, Block &block, BodyUses &uses,
                            std::optional<unsigned> rule);
   LogicalResult resolveMethodEffects();
+  LogicalResult buildCheckPlan();
 
   ModuleOp module;
   const ac::HardwareAnalysis &hardware;
@@ -129,7 +131,8 @@ LogicalResult ClockedAnalyzer::collect() {
       methods.try_emplace(method.getSymName(), plan.methods.size());
       plan.methods.push_back(method);
     } else if (auto rule = dyn_cast<RuleOp>(op)) {
-      plan.rules.push_back({rule, {}, {}, {}, {}, {}});
+      auto &record = plan.rules.emplace_back();
+      record.operation = rule;
     }
   }
   return success();
@@ -455,6 +458,98 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   return success();
 }
 
+LogicalResult ClockedAnalyzer::buildCheckPlan() {
+  if (llvm::none_of(plan.rules, [](const StructuredRule &rule) { return rule.sampled; }))
+    return success();
+  using Budget = ac::detail::SourceCheckBudget;
+  Builder builder(module.getContext());
+  auto symbol = FlatSymbolRefAttr::get(module.getSymNameAttr());
+  auto sitePath = module.getSourceOwner().getAs<StringAttr>("path");
+  auto field = builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("field")),
+      builder.getNamedAttr("name", builder.getStringAttr("ordered"))});
+  auto empty = builder.getArrayAttr({});
+  auto indexed = module.walk([&](Operation *op) {
+    if (failed(budget.debit(1, op)))
+      return WalkResult::interrupt();
+    auto index = builder.getDictionaryAttr({
+        builder.getNamedAttr("kind", builder.getStringAttr("index")),
+        builder.getNamedAttr("value", builder.getI64IntegerAttr(plan.orderedOccurrences.size()))});
+    auto site = builder.getDictionaryAttr({
+        builder.getNamedAttr("definition", symbol),
+        builder.getNamedAttr("ast_path", builder.getArrayAttr({field, index}))});
+    plan.orderedOccurrences.try_emplace(op, builder.getDictionaryAttr({
+        builder.getNamedAttr("site", site), builder.getNamedAttr("expansion", empty)}));
+    return WalkResult::advance();
+  });
+  if (indexed.wasInterrupted())
+    return failure();
+
+  SmallVector<uint64_t> methodSizes(plan.methods.size());
+  auto visit = [&](auto &&recurse, Block &body, auto &&onCheck, auto &&onCall) -> void {
+    for (Operation &op : body) {
+      if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))
+        onCheck(&op);
+      if (auto method = plan.methodCalls.find(&op); method != plan.methodCalls.end())
+        onCall(&op, method->second);
+      if (auto branch = dyn_cast<IfOp>(op)) {
+        recurse(recurse, branch.getThenBody().front(), onCheck, onCall);
+        recurse(recurse, branch.getElseBody().front(), onCheck, onCall);
+      }
+    }
+  };
+  auto assignOffsets = [&](Block &body) {
+    uint64_t next = 1;
+    visit(visit, body, [&](Operation *op) {
+            plan.checkOffsets.try_emplace(op, next);
+            next = Budget::add(next, 1);
+          },
+          [&](Operation *call, unsigned method) {
+            plan.checkOffsets.try_emplace(call, next);
+            next = Budget::add(next, methodSizes[method]);
+          });
+    return next;
+  };
+  for (unsigned method : plan.methodOrder)
+    methodSizes[method] = assignOffsets(plan.methods[method].getBody().front());
+  for (auto &rule : plan.rules) {
+    if (!rule.sampled)
+      continue;
+    auto registration = plan.orderedOccurrences.lookup(rule.operation);
+    auto &body = rule.operation.getBody().front();
+    auto count = assignOffsets(body);
+    if (failed(budget.debit(count, rule.operation)))
+      return failure();
+    rule.checks.reserve(count);
+    auto add = [&](Operation *op) {
+      auto loc = dyn_cast<FileLineColLoc>(op->getLoc());
+      uint64_t line = loc ? std::max<uint64_t>(loc.getLine(), 1) : 1;
+      uint64_t col = loc ? std::max<uint64_t>(loc.getColumn(), 1) : 1;
+      auto location = builder.getDictionaryAttr({
+          builder.getNamedAttr("path", sitePath),
+          builder.getNamedAttr("line", builder.getI64IntegerAttr(line)),
+          builder.getNamedAttr("column", builder.getI64IntegerAttr(col)),
+          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
+          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(col + 1))});
+      auto id = builder.getDictionaryAttr({
+          builder.getNamedAttr("registration", registration),
+          builder.getNamedAttr("check", plan.orderedOccurrences.lookup(op)),
+          builder.getNamedAttr("obligation", builder.getI64IntegerAttr(rule.checks.size()))});
+      rule.checks.push_back({id, location});
+    };
+    add(rule.operation);
+    auto expand = [&](auto &&self, Operation *, unsigned method) -> void {
+      auto definition = plan.methods[method];
+      add(definition);
+      visit(visit, definition.getBody().front(), add,
+            [&](Operation *call, unsigned next) { self(self, call, next); });
+    };
+    visit(visit, body, add,
+          [&](Operation *call, unsigned method) { expand(expand, call, method); });
+  }
+  return success();
+}
+
 FailureOr<StructuredClocked> ClockedAnalyzer::run() {
   if (failed(collect()))
     return failure();
@@ -496,7 +591,7 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
                           ruleUses[index], unsigned(index))))
       return failure();
   }
-  if (failed(resolveMethodEffects()))
+  if (failed(resolveMethodEffects()) || failed(buildCheckPlan()))
     return failure();
   return std::move(plan);
 }

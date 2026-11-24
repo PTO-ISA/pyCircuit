@@ -2,6 +2,7 @@
 #include "pycircuit_system.hpp"
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <string>
 void require(bool ok) { if (!ok) std::abort(); }
 template<unsigned W> auto bits(const std::string &s) {
@@ -23,7 +24,14 @@ int main(int argc,char **argv) {
     require(root.sibling.packed().value()==bits<8>(sibling).packed().value());
     gfsim::SimFailureInfo failure;
     require(root.pyc_validate_checks(failure)==bool(ok));
-    if(!ok)root.DiscardNext();
+    if (!ok) {
+      require(failure.phase == gfsim::SimFailurePhase::Check);
+      require(!failure.instance.empty() && !failure.sourceJson.empty() &&
+              !failure.checkIdJson.empty());
+      std::cout << count << ' ' << failure.instance << ' ' << failure.sourceJson
+                << ' ' << failure.checkIdJson << '\n';
+      root.DiscardNext();
+    }
     root.Xfer();++count;
   }
   require(rows.eof() && count==16);
