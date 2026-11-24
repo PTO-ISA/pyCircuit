@@ -153,13 +153,14 @@ std::string outputGroupName(unsigned index) {
   return "output_group_" + std::to_string(index);
 }
 
+std::string outputGroupType(unsigned index) {
+  return "OutputGroup" + std::to_string(index);
+}
+
 void groupSignature(raw_ostream &out, const gfir::StructuredDefinition &definition,
                     const OutputGroup &group, unsigned index, StringRef owner = {}) {
-  out << "std::tuple<";
-  llvm::interleaveComma(group.outputs, out, [&](unsigned output) {
-    out << carrier(definition.wires[definition.outputs[output].wire].width);
-  });
-  out << "> " << owner << outputGroupName(index) << '(';
+  out << owner << outputGroupType(index) << ' ' << owner
+      << outputGroupName(index) << '(';
   llvm::interleaveComma(group.inputs, out, [&](unsigned input) {
     out << "const " << carrier(definition.wires[input].width) << " &" << wireName(input);
   });
@@ -548,7 +549,7 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
       }
       if (failed(emitWires(out, definition, roots)))
         return failure();
-      out << "    return std::tuple{" << join(values, ", ") << "};\n}\n";
+      out << "    return {" << join(values, ", ") << "};\n}\n";
     }
   }
   return success();
@@ -563,6 +564,11 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     out << ";\n";
   }
   for (auto [ordinal, group] : llvm::enumerate(outputGroups[index])) {
+    out << "  struct " << outputGroupType(ordinal) << " {\n";
+    for (unsigned output : group.outputs)
+      out << "    " << carrier(definition.wires[definition.outputs[output].wire].width)
+          << ' ' << resultName(output) << ";\n";
+    out << "  };\n";
     out << "  ";
     groupSignature(out, definition, group, ordinal);
     out << ";\n";

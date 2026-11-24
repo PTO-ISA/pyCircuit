@@ -412,8 +412,8 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
   if (!isArm && !isLoop && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
     return failure();
   llvm::SmallDenseSet<unsigned> popped;
-  for (Type type : block.getArgumentTypes().drop_front(isLoop ? 1 : 0))
-    if (failed(verifyValueType(hardware, type, owner)))
+  for (BlockArgument argument : block.getArguments().drop_front(isLoop ? 1 : 0))
+    if (failed(verifyValueType(hardware, argument.getType(), owner)))
       return failure();
   for (Operation &op : block) {
     if (isLoop && isa<LoopOp, IfOp, CallOp, GuardOp, YieldOp>(op))
@@ -428,7 +428,7 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       for (Type type : loop.getInitial().getTypes())
         if (failed(verifyValueType(hardware, type, loop)))
           return failure();
-      if (!isBitOne(hardware, loop.getResultTypes().back(), loop))
+      if (!isBitOne(hardware, loop.getResults().back().getType(), loop))
         return loop.emitOpError("natural completion result requires Bits1");
       BodyUses iteration;
       if (failed(verifyBody(loop, loop.getBody().front(), iteration, rule)))

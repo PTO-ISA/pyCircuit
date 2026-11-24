@@ -500,15 +500,17 @@ LogicalResult LoopOp::verify() {
   if (getTripCountAttr().getInt() < 0)
     return emitOpError("range requires a nonnegative i64 trip count");
   if (getNumResults() != getInitial().size() + 1 ||
-      !llvm::equal(getInitial().getTypes(), getResultTypes().drop_back()) ||
-      !isa<ac::BitsType>(getResultTypes().back()))
+      !llvm::equal(getInitial().getTypes(), getResults().drop_back().getTypes()) ||
+      !isa<ac::BitsType>(getResults().back().getType()))
     return emitOpError("results must preserve carried types followed by natural Bits1");
   if (!getBody().hasOneBlock())
     return emitOpError("requires one ordered body block");
   auto arguments = getBody().front().getArguments();
   if (arguments.size() != getInitial().size() + 1 ||
       !arguments.front().getType().isSignlessInteger(64) ||
-      !llvm::equal(getBody().front().getArgumentTypes().drop_front(), getInitial().getTypes()))
+      !llvm::equal(llvm::map_range(arguments.drop_front(),
+                                  [](BlockArgument arg) { return arg.getType(); }),
+                   getInitial().getTypes()))
     return emitOpError("body arguments must be i64 ordinal followed by exact carried types");
   return success();
 }
@@ -530,8 +532,9 @@ LogicalResult StepOp::verify() {
 }
 
 LogicalResult OrdinalBitsOp::verify() {
-  auto loop = dyn_cast<LoopOp>((*this)->getParentOp());
-  if (!loop || getOrdinal() != loop.getBody().front().getArgument(0))
+  auto argument = dyn_cast<BlockArgument>(getOrdinal());
+  if (!isa<LoopOp>((*this)->getParentOp()) || !argument ||
+      argument.getOwner() != (*this)->getBlock() || argument.getArgNumber() != 0)
     return emitOpError("requires the enclosing loop's ordinal argument");
   return success();
 }

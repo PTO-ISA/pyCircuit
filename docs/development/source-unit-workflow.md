@@ -95,6 +95,14 @@ The `structured-gfir-availability` compiler test exercises field-sensitive root
 output availability and failure rollback with gfsim and managed RTL. Published
 anchors use the public source-unit workflow.
 
+Fixed-range `gfir.loop` carries typed values and shares the enclosing Rule's
+transaction candidate throughout one sample. Its ordinal block argument is
+`i64`. The `gfir.ordinal_bits` operation converts that argument to a closed
+Bits width validated against the trip count. Behavioral C++ emits a loop.
+HWIR expands the same iterations into SSA within the shared expansion budget.
+A zero-trip loop returns its initial values and natural completion without
+executing the body.
+
 ## Final artifact interfaces
 
 The C++ and Verilog representations differ, but element order, field identity,
