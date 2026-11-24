@@ -379,6 +379,27 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
         return output.emitOpError("gated Rule results require availability lowering");
       rule.resultUses.push_back(output);
     }
+    for (auto &rule : definition.clocked->rules) {
+      if (rule.resultUses.empty() || rule.writes.empty() || rule.sampled ||
+          !rule.requirements.empty())
+        continue;
+      // Captured values and saved SSA results remain immutable. Work can
+      // freeze the yield operands before evaluating later proposals.
+      auto &ordered = rule.operation.getBody().front();
+      auto yield = cast<YieldOp>(ordered.getTerminator());
+      llvm::SmallDenseSet<Operation *> producers;
+      for (Value result : yield.getValues())
+        if (auto *producer = result.getDefiningOp())
+          producers.insert(producer);
+      Operation *cut = &ordered.front();
+      for (Operation &op : llvm::reverse(ordered.without_terminator()))
+        if (producers.contains(&op)) {
+          cut = op.getNextNode();
+          break;
+        }
+      if (cut != yield.getOperation())
+        rule.afterSnapshot = cut;
+    }
   }
   for (Value value : body.getArguments())
     if (failed(addValue(definition, value)))

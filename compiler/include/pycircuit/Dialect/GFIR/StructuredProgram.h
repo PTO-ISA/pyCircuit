@@ -68,6 +68,7 @@ struct StructuredRule {
   llvm::SmallVector<ResultOp> resultUses;
   bool sampled = false;
   llvm::SmallVector<StructuredCheckSite> checks;
+  mlir::Operation *afterSnapshot = nullptr;
 };
 
 struct StructuredClocked {

@@ -166,7 +166,7 @@ private:
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredClocked &clocked,
-                         bool ruleResults = false,
+                         const gfir::StructuredRule *rule = nullptr,
                          const llvm::DenseMap<Value, std::string> *outer = nullptr);
   LogicalResult emitBranch(raw_ostream &out, gfir::IfOp branch,
                            const gfir::StructuredClocked &clocked,
@@ -722,12 +722,22 @@ LogicalResult BehavioralEmitter::emitBlockedReturn(raw_ostream &out, Block &body
 
 LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredClocked &clocked,
-                                          bool ruleResults,
+                                          const gfir::StructuredRule *rule,
                                           const llvm::DenseMap<Value, std::string> *outer) {
+  bool ruleResults = rule != nullptr;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
+  auto snapshot = [&] {
+    auto yield = cast<gfir::YieldOp>(body.getTerminator());
+    for (auto [index, value] : llvm::enumerate(yield.getValues()))
+      out << "    txn." << resultName(index) << " = " << values.lookup(value) << ";\n";
+  };
   for (Operation &op : body) {
+    if (rule && rule->afterSnapshot == &op) {
+      snapshot();
+      out << "    if (!pyc_active) return;\n";
+    }
     SmallVector<std::string> args, results;
     for (Value input : op.getOperands())
       args.push_back(values.lookup(input));
@@ -806,8 +816,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       }
     } else if (isa<gfir::YieldOp>(op)) {
       if (ruleResults) {
-        for (auto [index, arg] : llvm::enumerate(args))
-          out << "    txn." << resultName(index) << " = " << arg << ";\n";
+        if (!rule->afterSnapshot)
+          snapshot();
       } else if (args.size() == 1)
         out << "    return " << args.front() << ";\n";
       else if (!args.empty())
@@ -854,7 +864,7 @@ LogicalResult BehavioralEmitter::emitBranch(
   for (auto [arm, name] : {std::pair{&branch.getThenBody(), thenName},
                           std::pair{&branch.getElseBody(), elseName}}) {
     out << "    const auto " << name << " = [&](auto &txn) {\n";
-    if (failed(emitBody(out, arm->front(), clocked, false, &values)))
+    if (failed(emitBody(out, arm->front(), clocked, nullptr, &values)))
       return failure();
     out << "    };\n";
   }
@@ -1014,6 +1024,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    " << *wire << ' ' << resultName(result) << ";\n";
     }
     out << "  };\n  void " << ruleName(index) << "(" << name << " &txn";
+    if (rule.afterSnapshot)
+      out << ", bool pyc_active";
     for (auto [input, type] : llvm::enumerate(operation.getFunctionType().getInputs())) {
       auto wire = typedWire(type, operation);
       if (failed(wire))
@@ -1022,7 +1034,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     }
     out << ") {\n";
     out << "    constexpr unsigned pyc_check_base = 0;\n";
-    if (failed(emitBody(out, operation.getBody().front(), clocked, /*ruleResults=*/true)))
+    if (failed(emitBody(out, operation.getBody().front(), clocked, &rule)))
       return failure();
     out << "  }\n";
   }
@@ -1085,6 +1097,8 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     out << "pyc_active && ";
   out << "gfsim::behavior::isOne(" << wireName(grant) << ")) "
       << instancePrefix << ruleName(index) << '(' << frameName(index);
+  if (rule.afterSnapshot)
+    out << ", pyc_active";
   auto operation = rule.operation;
   for (Value capture : operation.getCaptures()) {
     auto value = graphWire(capture, definition, operation);
@@ -1146,7 +1160,7 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
       if (definition.hasChecks())
         out << "    pyc_sampling_fault = pyc_sample.fault;\n";
       if (llvm::any_of(plan.rules, [](const gfir::StructuredRule &rule) {
-            return rule.resultUses.empty();
+            return rule.resultUses.empty() || rule.afterSnapshot;
           }))
         out << "    const bool pyc_active = pyc_sample.rising && !pyc_sample.resetActive && "
                "pyc_sample.fault == gfsim::SampledClockFault::None;\n";
