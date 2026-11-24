@@ -96,8 +96,24 @@ explicit wrapper receives its mapped pair and owns its clock history. Such
 wrappers use managed RTL, with the domain pins carried as ordinary public inputs
 and the legacy implicit domain pair recorded as null.
 The `structured-gfir-availability` compiler test exercises field-sensitive root
-output availability and failure rollback with gfsim and managed RTL. Published
-anchors use the public source-unit workflow.
+output availability and failure rollback with gfsim and managed RTL. A clocked
+child result can carry sampled Rule availability to its caller. Each logical
+child result port has one availability condition. Distinct result ports can
+remain available independently. A caller can retain the condition through
+Struct field construction and projection, export the result, or consume a
+Bits1 result at a direct ordered guard.
+
+```mermaid
+flowchart LR
+    R["Child Rule result"] --> C["Actual child output and availability"]
+    C --> P["Parent field projection"]
+    P --> G["Reached parent guard"]
+    P --> O["Parent output and availability"]
+```
+
+A guard whose result is unavailable blocks at that statement. Earlier reached
+checks retain their order, and an available X or Z still follows the guard
+knownness check. Published anchors use the public source-unit workflow.
 
 Fixed-range `gfir.loop` carries typed values and shares the enclosing Rule's
 transaction candidate throughout one sample. Its ordinal block argument is

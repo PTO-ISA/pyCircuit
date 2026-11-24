@@ -105,7 +105,6 @@ private:
   LogicalResult verifyBody(Operation *owner, Block &block, BodyUses &uses,
                            std::optional<unsigned> rule);
   LogicalResult resolveMethodEffects();
-  LogicalResult buildCheckPlan();
 
   ModuleOp module;
   const ac::HardwareAnalysis &hardware;
@@ -695,7 +694,10 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   return success();
 }
 
-LogicalResult ClockedAnalyzer::buildCheckPlan() {
+} // namespace
+
+LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
+                                 ac::detail::SourceCheckBudget &budget) {
   if (llvm::none_of(plan.rules, [](const StructuredRule &rule) { return rule.sampled; }))
     return success();
   using Budget = ac::detail::SourceCheckBudget;
@@ -824,6 +826,8 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
   return success();
 }
 
+namespace {
+
 FailureOr<StructuredClocked> ClockedAnalyzer::run() {
   if (failed(collect()))
     return failure();
@@ -868,42 +872,6 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
   if (!plan.transactionMemoryCalls.empty() && !plan.fifos.empty())
     return module.emitOpError("transaction Memory cannot yet combine with native FIFO");
   if (failed(resolveMethodEffects()))
-    return failure();
-  llvm::StringMap<unsigned> ruleIndices;
-  for (auto [index, entry] : llvm::enumerate(plan.rules)) {
-    auto rule = entry.operation;
-    ruleIndices.try_emplace(rule.getSymName(), index);
-  }
-  for (auto &consumer : plan.rules) {
-    auto &body = consumer.operation.getBody().front();
-    for (auto [captureIndex, capture] : llvm::enumerate(consumer.operation.getCaptures())) {
-      auto result = capture.getDefiningOp<ResultOp>();
-      if (!result)
-        continue;
-      unsigned producer = ruleIndices.lookup(result.getRuleAttr().getValue());
-      if (!plan.rules[producer].sampled)
-        continue;
-      if (!isBitOne(hardware, capture.getType(), consumer.operation))
-        return consumer.operation.emitOpError("gated guard capture requires Bits1");
-      auto argument = body.getArgument(captureIndex);
-      if (argument.use_empty())
-        return consumer.operation.emitOpError("gated capture requires a direct guard use");
-      for (Operation *user : argument.getUsers()) {
-        if (failed(budget.debit(1, user)))
-          return failure();
-        auto guard = dyn_cast<GuardOp>(user);
-        if (!guard || guard->getParentOp() != consumer.operation)
-          return user->emitOpError("gated capture may only supply a direct guard");
-        plan.guardedCaptureUses.try_emplace(user, captureIndex);
-      }
-      consumer.guardCaptures.push_back({unsigned(captureIndex), producer});
-    }
-    if (!consumer.guardCaptures.empty())
-      for (Operation &op : body)
-        if (isa<CallOp, IfOp, LoopOp>(op))
-          return op.emitOpError("gated guard consumer requires a direct ordered body");
-  }
-  if (failed(buildCheckPlan()))
     return failure();
   return std::move(plan);
 }

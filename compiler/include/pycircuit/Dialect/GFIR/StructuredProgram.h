@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/GFIR/GFIROps.h"
 #include "llvm/ADT/DenseSet.h"
 #include <array>
+#include <compare>
 #include <optional>
 
 namespace acir::gfir {
@@ -105,6 +106,23 @@ struct StructuredMethodEffects {
   bool writes;
 };
 
+struct StructuredAvailabilitySource {
+  enum class Kind { Rule, ChildOutput };
+  Kind kind;
+  /// Rule or clocked call ordinal in the enclosing definition.
+  unsigned index;
+  /// Logical result port for a child call.
+  unsigned port = 0;
+  auto operator<=>(const StructuredAvailabilitySource &) const = default;
+};
+
+using StructuredAvailability = llvm::SmallVector<StructuredAvailabilitySource, 1>;
+
+struct StructuredGuardCapture {
+  unsigned capture;
+  StructuredAvailability sources;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -112,7 +130,7 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> writes;
   llvm::SmallVector<unsigned> dependencies;
   llvm::SmallVector<ResultOp> resultUses;
-  llvm::SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
+  llvm::SmallVector<StructuredGuardCapture> guardCaptures;
   llvm::SmallVector<EffectOp> assertions;
   llvm::SmallVector<StructuredObservation> observations;
   bool sampled = false;
@@ -170,7 +188,8 @@ struct StructuredOutput {
 struct StructuredOutputAvailability {
   unsigned port;
   mlir::StringAttr name;
-  llvm::SmallVector<unsigned, 1> rules;
+  StructuredAvailability sources;
+  bool uniform = true;
 };
 
 struct StructuredClockedCall {

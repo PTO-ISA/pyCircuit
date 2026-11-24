@@ -4008,9 +4008,8 @@ private:
       if (candidate.rule == consumer) writer = &candidate;
     }
     if (!writer || capture >= consumer.getNumOperands()) return false;
-    auto sourceAdmission = writerAdmission(entry, producer.rule);
     auto admission = writerAdmission(entry, consumer);
-    if (failed(sourceAdmission) || failed(admission)) return failure();
+    if (failed(admission)) return failure();
     const auto &view = **admission;
     auto &body = consumer.getBody().front();
     Value payload = body.getArgument(capture);
@@ -4041,9 +4040,7 @@ private:
           !available.invocation.empty() || !guard.invocation.empty() ||
           available.id.get("check") != guard.id.get("check") ||
           requirement.occurrence != guard.id.get("check") || requirement.location != location ||
-          !availability || availability.getOwner() != &body ||
-          consumer.getOperand(availability.getArgNumber()) !=
-              producer.rule->getResult((*sourceAdmission)->fireResult))
+          !availability || availability.getOwner() != &body)
         return false;
       auto path = isOne(operation.getPath());
       if (failed(path)) return failure();
@@ -4054,6 +4051,9 @@ private:
       rawSlots.insert(guard.rawResult);
     }
     if (requirements.empty()) return false;
+    // A child companion or conjunction is not a direct producer-fire capture.
+    // After this full use audit succeeds, writers() independently matches the
+    // actual payload/availability formulas with the common availability proof.
 
     // Inspect all raw-payload fanout. Its only executable use is the exact
     // known-one test of the matched ordered guard; the other two roles are
@@ -4111,33 +4111,26 @@ private:
     return livePrefix;
   }
 
-  // Conditional direct-root payloads may leave only through live exports or
-  // independently authenticated ordered guard consumers. Inspect every use.
-  FailureOr<bool> rootResultExports(const Occurrence &entry,
+  // Follow every conditional export through each actual allocation. A catalog
+  // root may stop at a companion-backed public port; an instantiated export
+  // must also prove all uses of that occurrence's result in its parent.
+  FailureOr<bool> proveConditionalResultUses(const Occurrence &entry,
                                     const TransactionWriterView &writer) {
-    auto module = entry.module;
-    if (entry.parent || writer.rule->hasAttr("ac.registration_path"))
+    if (writer.rule->hasAttr("ac.registration_path"))
       return false;
-    auto systems = analysis.getPackage().getOps<SystemOp>();
-    if (!llvm::hasSingleElement(systems))
-      return false;
-    auto system = *systems.begin();
-    auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
-    if (!callee || callee.getValue() != module.getSymName())
-      return false;
-    auto ports = getModulePortLayout(module);
-    if (failed(ports))
-      return failure();
-
-    auto *yield = module.getBody().front().getTerminator();
     bool provedUse = false;
-    SmallVector<std::pair<Value, FieldPath>> pending;
-    DenseMap<Value, SmallVector<FieldPath>> visited;
+    SmallVector<std::tuple<size_t, Value, FieldPath>> pending;
+    DenseMap<std::pair<size_t, Value>, SmallVector<FieldPath>> visited;
+    DenseMap<Operation *, ModulePortLayout> layouts;
+    size_t root = &entry - occurrences.data();
     for (Value value : writer.rule->getResults().take_front(writer.ordinaryResults))
-      pending.emplace_back(value, FieldPath{});
+      pending.emplace_back(root, value, FieldPath{});
     while (!pending.empty()) {
-      auto [value, path] = pending.pop_back_val();
-      auto &paths = visited[value];
+      auto [occurrence, value, path] = pending.pop_back_val();
+      const auto &at = occurrences[occurrence];
+      auto module = at.module;
+      auto *yield = module.getBody().front().getTerminator();
+      auto &paths = visited[{occurrence, value}];
       if (failed(budget.debit(1 + path.size() * (1 + paths.size()) + paths.size(),
                               writer.rule)))
         return failure();
@@ -4150,12 +4143,31 @@ private:
         if (failed(budget.debit(1 + path.size(), owner)))
           return failure();
         if (owner == yield) {
-          if (operand >= ports->sourceOutputCount || ports->outputValidity[operand] < 0)
+          auto found = layouts.find(module);
+          if (found == layouts.end()) {
+            auto count = SourceCheckBudget::add(module.getFunctionType().getNumInputs(),
+                                                module.getFunctionType().getNumResults());
+            if (failed(charge(budget, module, 1, sizeof(ModulePortLayout))) ||
+                failed(charge(budget, module, count, 2 * sizeof(int64_t)))) return failure();
+            auto parsed = getModulePortLayout(module);
+            if (failed(parsed)) return failure();
+            found = layouts.try_emplace(module, std::move(*parsed)).first;
+          }
+          const auto &ports = found->second;
+          if (operand >= ports.sourceOutputCount || ports.outputValidity[operand] < 0)
             return false;
+          if (at.parent) {
+            if (!at.allocation || operand >= at.allocation->getNumResults() ||
+                uint64_t(ports.outputValidity[operand]) >= at.allocation->getNumResults())
+              return false;
+            if (failed(charge(budget, owner, 1, sizeof(decltype(pending)::value_type) +
+                                      path.size() * sizeof(StringAttr)))) return failure();
+            pending.emplace_back(*at.parent, at.allocation->getResult(operand), path);
+          }
           provedUse = true;
         } else if (auto consumer = dyn_cast<RuleOp>(owner)) {
           if (!path.empty()) return false;
-          auto guarded = guardedResultCapture(entry, writer, consumer, operand);
+          auto guarded = guardedResultCapture(at, writer, consumer, operand);
           if (failed(guarded)) return failure();
           if (!*guarded) return false;
           provedUse = true;
@@ -4167,12 +4179,12 @@ private:
                           .getAs<StringAttr>("name");
           FieldPath field{name};
           field.append(path);
-          pending.emplace_back(create.getResult(), std::move(field));
+          pending.emplace_back(occurrence, create.getResult(), std::move(field));
         } else if (auto get = dyn_cast<StructGetOp>(owner)) {
           if (path.empty())
-            pending.emplace_back(get.getResult(), FieldPath{});
+            pending.emplace_back(occurrence, get.getResult(), FieldPath{});
           else if (path.front() == get.getFieldAttr())
-            pending.emplace_back(get.getResult(), FieldPath(path.begin() + 1, path.end()));
+            pending.emplace_back(occurrence, get.getResult(), FieldPath(path.begin() + 1, path.end()));
         } else {
           return false;
         }
@@ -4219,7 +4231,7 @@ private:
         bool managed = resultOwner->getAttrOfType<ArrayAttr>("ac.result_availability") &&
                        !sampled->requirements.empty();
         if (writer.ordinaryResults && !managed) {
-          auto exports = rootResultExports(entry, writer);
+          auto exports = proveConditionalResultUses(entry, writer);
           if (failed(exports))
             return failure();
           managed = *exports;

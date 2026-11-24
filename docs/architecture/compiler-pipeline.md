@@ -91,8 +91,9 @@ ordered Rules, and local Methods called with
 `gfir.call self["interface"]`. A Rule explicitly captures a graph value with
 `%arg = %actual : T`. The verifier schedules captured graph fields before
 the Rule and exposes its result snapshots through `gfir.result @rule[0] : T`.
-Results gated by sampled admission can supply selected-root output fields
-and direct Bits1 guards in the same root.
+Results gated by sampled admission can supply output fields and direct Bits1
+guards in their own module or through a clocked child call. Availability
+follows the actual instance and result port through parent Struct fields.
 Repeated and nested Method calls on a direct child share its candidate
 within the caller Rule. Different child instances have separate candidates.
 An indexed write spells the index type inside

@@ -264,6 +264,10 @@ private:
                                     std::optional<unsigned> rule = {}, bool ownPop = false);
   LogicalResult emitGrant(raw_ostream &out, const gfir::StructuredDefinition &definition,
                           unsigned grant, StringRef instancePrefix);
+  FailureOr<std::string> availabilityExpression(
+      const gfir::StructuredDefinition &definition,
+      ArrayRef<gfir::StructuredAvailabilitySource> sources,
+      StringRef instancePrefix = {});
   LogicalResult emitClockedCall(raw_ostream &out,
                                 const gfir::StructuredDefinition &definition,
                                 unsigned index, StringRef instancePrefix);
@@ -1400,8 +1404,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     for (unsigned receiver : rule.childStates)
       out << "    " << moduleName(definition.childStates[receiver].definition)
           << "::ChildTxnState " << childCandidateName(receiver) << ";\n";
-    for (auto [capture, producer] : rule.guardCaptures)
-      out << "    bool pyc_capture_available_" << capture << " = false;\n";
+    for (const auto &capture : rule.guardCaptures)
+      out << "    bool pyc_capture_available_" << capture.capture << " = false;\n";
     if (rule.sampled)
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
@@ -1497,6 +1501,24 @@ BehavioralEmitter::recipient(const gfir::StructuredDefinition &definition,
   return levelName.str() + (ownPop ? "(true)" : "(false)");
 }
 
+FailureOr<std::string> BehavioralEmitter::availabilityExpression(
+    const gfir::StructuredDefinition &definition,
+    ArrayRef<gfir::StructuredAvailabilitySource> sources,
+    StringRef instancePrefix) {
+  SmallVector<std::string> terms;
+  for (const auto &source : sources) {
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::Rule) {
+      terms.push_back(frameName(source.index) + ".pyc_running");
+      continue;
+    }
+    auto member = instanceName(definition.clockedCalls[source.index].receiver);
+    if (failed(member))
+      return failure();
+    terms.push_back(instancePrefix.str() + *member + "." + availabilityName(source.port));
+  }
+  return join(terms, " && ");
+}
+
 LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
                                             const gfir::StructuredDefinition &definition,
                                             unsigned grant, StringRef instancePrefix) {
@@ -1532,9 +1554,13 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   out << "    TxnFrame" << index << ' ' << frameName(index) << ";\n";
   if (rule.sampled)
     out << "    " << frameName(index) << ".pyc_check_active = pyc_active;\n";
-  for (auto [capture, producer] : rule.guardCaptures)
-    out << "    " << frameName(index) << ".pyc_capture_available_" << capture
-        << " = " << frameName(producer) << ".pyc_running;\n";
+  for (const auto &capture : rule.guardCaptures) {
+    auto available = availabilityExpression(definition, capture.sources, instancePrefix);
+    if (failed(available))
+      return failure();
+    out << "    " << frameName(index) << ".pyc_capture_available_" << capture.capture
+        << " = " << *available << ";\n";
+  }
   out << "    if (";
   if (needsDomain(*definition.clocked) && rule.resultUses.empty() &&
       !rule.readsByteMemory && rule.assertions.empty() && rule.observations.empty())
@@ -1689,11 +1715,10 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
     if (output.requiresPreparation)
       out << "    " << preparedName(index) << " = " << wireName(output.wire) << ";\n";
   for (const auto &output : definition.outputAvailability) {
-    out << "    " << availabilityName(output.port) << " = ";
-    llvm::interleave(output.rules, out, [&](unsigned rule) {
-      out << frameName(rule) << ".pyc_running";
-    }, " && ");
-    out << ";\n";
+    auto available = availabilityExpression(definition, output.sources);
+    if (failed(available))
+      return failure();
+    out << "    " << availabilityName(output.port) << " = " << *available << ";\n";
   }
   if (definition.hasChecks())
     out << "    pyc_checks_valid = true;\n";

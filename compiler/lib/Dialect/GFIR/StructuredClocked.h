@@ -21,6 +21,8 @@ analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
                ac::detail::SourceCheckBudget &budget,
                llvm::DenseMap<mlir::Operation *, StructuredChildMethod> childMethods,
                llvm::ArrayRef<StructuredChildState> childStates);
+mlir::LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
+                                      ac::detail::SourceCheckBudget &budget);
 
 } // namespace acir::gfir::detail
 

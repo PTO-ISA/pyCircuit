@@ -82,6 +82,7 @@ private:
       SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping);
   DictionaryAttr localStateID(Operation *storage);
   DictionaryAttr childStateID(unsigned receiver);
+  FailureOr<Value> availability(const gfir::StructuredAvailability &sources);
 
   const gfir::StructuredDefinition &definition;
   const gfir::StructuredProgram &program;
@@ -102,6 +103,7 @@ private:
   llvm::DenseMap<Operation *, std::pair<Value, Value>> childIdleInputs;
   llvm::DenseMap<Operation *, unsigned> childRouteInstances;
   llvm::DenseMap<unsigned, unsigned> childSlots;
+  llvm::DenseMap<std::pair<unsigned, unsigned>, Value> childCompanions;
   IRMapping graph;
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
@@ -472,10 +474,6 @@ LogicalResult ClockedMaterializer::makeModule() {
       outputs.push_back(bit);
       outputNames.push_back(output.name);
     }
-    state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
-        builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(inputs.size())),
-        builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(validity.size())),
-        builder.getNamedAttr("root_inputs", builder.getArrayAttr({}))}));
     state.addAttribute("ac.output_validity", builder.getArrayAttr(validity));
   }
   if (definition.incomingState) {
@@ -483,11 +481,15 @@ LogicalResult ClockedMaterializer::makeModule() {
     outputNames.push_back(privateName("__ac_state_q"));
     names.push_back(privateName("__ac_state_data"));
     names.push_back(privateName("__ac_state_enable"));
+  }
+  if (definition.incomingState || !definition.outputAvailability.empty()) {
+    SmallVector<Attribute> defaults;
+    if (definition.incomingState)
+      defaults.assign(2, builder.getI64IntegerAttr(0));
     state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
         builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(sourceInputs)),
         builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
-        builder.getNamedAttr("root_inputs", builder.getArrayAttr({
-            builder.getI64IntegerAttr(0), builder.getI64IntegerAttr(0)}))}));
+        builder.getNamedAttr("root_inputs", builder.getArrayAttr(defaults))}));
   }
   state.addAttribute("output_names", builder.getArrayAttr(outputNames));
   state.addAttribute("function_type", TypeAttr::get(
@@ -600,6 +602,7 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     state.addTypes(op.getResultTypes());
     Operation *childStorage = nullptr;
     std::optional<unsigned> childRoute;
+    const gfir::StructuredClockedCall *planned = nullptr;
     if (auto call = dyn_cast<gfir::CallOp>(op)) {
       gfir::InstanceOp instance;
       for (auto candidate : source.getBody().front().getOps<gfir::InstanceOp>())
@@ -611,7 +614,10 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       state.addAttribute("parameters", builder.getArrayAttr({}));
       state.addAttribute("type_arguments", builder.getArrayAttr({}));
       state.addAttribute("occurrence", occurrence("child", graphOperations.size()));
-      const auto *planned = plannedCalls.lookup(&op);
+      planned = plannedCalls.lookup(&op);
+      if (planned)
+        for (unsigned i = 0; i < program.definitions[planned->definition].outputAvailability.size(); ++i)
+          state.addTypes(bit);
       if (planned && program.definitions[planned->definition].incomingState) {
         const auto &child = program.definitions[planned->definition];
         auto childSource = child.module;
@@ -632,6 +638,12 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     for (unsigned index = 0; index < op.getNumRegions(); ++index)
       state.addRegion();
     auto *copy = builder.create(state);
+    if (planned) {
+      unsigned call = planned - definition.clockedCalls.data();
+      unsigned result = op.getNumResults();
+      for (const auto &output : program.definitions[planned->definition].outputAvailability)
+        childCompanions.try_emplace(std::make_pair(call, output.port), copy->getResult(result++));
+    }
     if (childStorage) {
       Value q = copy->getResults().back();
       Value data = make(ac::BitsConstantOp::getOperationName(), {}, {q.getType()}, {
@@ -781,6 +793,19 @@ DictionaryAttr ClockedMaterializer::childStateID(unsigned receiver) {
   id.set("owner", builder.getDictionaryAttr({builder.getNamedAttr("instance_path",
       builder.getArrayAttr({route.instance->getAttr("occurrence")}))}));
   return id.getDictionary(builder.getContext());
+}
+
+FailureOr<Value> ClockedMaterializer::availability(
+    const gfir::StructuredAvailability &sources) {
+  Value result;
+  for (const auto &source : sources) {
+    Value value = source.kind == gfir::StructuredAvailabilitySource::Kind::Rule
+        ? grants[source.index] : childCompanions.lookup({source.index, source.port});
+    if (!value)
+      return this->source.emitOpError("missing verified availability source");
+    result = result ? binary("and", result, value) : value;
+  }
+  return result ? result : one;
 }
 
 FailureOr<SmallVector<Value>>
@@ -1003,11 +1028,11 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     captures.push_back(q);
   }
   SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
-  for (auto [capture, producer] : plan.rules[index].guardCaptures) {
-    if (!grants[producer])
-      return rule.emitOpError("sampled producer must precede its guard consumer");
-    guardCaptures.emplace_back(capture, captures.size());
-    captures.push_back(grants[producer]);
+  for (const auto &capture : plan.rules[index].guardCaptures) {
+    auto available = availability(capture.sources);
+    if (failed(available)) return failure();
+    guardCaptures.emplace_back(capture.capture, captures.size());
+    captures.push_back(*available);
   }
   SmallVector<std::pair<unsigned, unsigned>> memoryCaptures;
   for (Operation &operation : rule.getBody().front()) {
@@ -1470,10 +1495,9 @@ LogicalResult ClockedMaterializer::bindStorage() {
   for (Value value : cast<gfir::YieldOp>(source.getBody().front().getTerminator()).getValues())
     outputs.push_back(graph.lookup(value));
   for (const auto &output : definition.outputAvailability) {
-    Value available = grants[output.rules.front()];
-    for (unsigned rule : ArrayRef<unsigned>(output.rules).drop_front())
-      available = binary("and", available, grants[rule]);
-    outputs.push_back(available);
+    auto available = availability(output.sources);
+    if (failed(available)) return failure();
+    outputs.push_back(*available);
   }
   if (definition.incomingState)
     outputs.push_back(states[*definition.incomingState]->getResult(0));

@@ -1,0 +1,17 @@
+# Two actual children share one definition and have independent grants/state.
+# A parent Struct combines a partial gate with an independent committed field.
+# Its selected gate supplies a direct guard, while the sibling stays total.
+# Shared reference rows check all three targets against independent expectations,
+# including unavailable X/Z, reached unknowns, and global same-high retry.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %python %inputs/structured-gfir-child-availability-oracle.py > %t.rows
+# RUN: %pycircuit_opt %inputs/structured-gfir-child-availability.mlir --gfir-verify --mlir-print-debuginfo -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: %python %inputs/structured-gfir-child-availability-ports.py %t.behavior.json %t.final.json %t.ports
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.ports -I%t.$kind %inputs/structured-gfir-child-availability.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %t.rows || exit; done
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -I%t.ports -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/structured-gfir-child-availability.sv
+# RUN: %vvp %t.vvp +rows=%t.rows

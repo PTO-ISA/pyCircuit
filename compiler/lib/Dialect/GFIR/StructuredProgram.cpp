@@ -105,7 +105,9 @@ private:
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
   FailureOr<llvm::DenseMap<Operation *, StructuredChildMethod>>
   bindChildMethods(StructuredDefinition &definition);
-  LogicalResult analyzeAvailability(StructuredDefinition &definition);
+  LogicalResult analyzeAvailability(
+      StructuredDefinition &definition,
+      const llvm::DenseMap<Operation *, unsigned> &clockedCallNodes);
   FailureOr<SmallVector<unsigned>> orderDefinitions(ArrayRef<ModuleOp> modules);
   FailureOr<unsigned> findWire(const StructuredDefinition &definition,
                                const ac::WireEndpoint &endpoint, Operation *site);
@@ -468,22 +470,30 @@ LogicalResult Analyzer::describeFifoQuery(StructuredDefinition &definition,
   return success();
 }
 
-LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
-  if (!definition.clocked ||
-      llvm::none_of(definition.clocked->rules, [](const StructuredRule &rule) {
-        return rule.sampled && !rule.resultUses.empty();
-      }))
+LogicalResult Analyzer::analyzeAvailability(
+    StructuredDefinition &definition,
+    const llvm::DenseMap<Operation *, unsigned> &clockedCallNodes) {
+  if (!definition.clocked)
+    return success();
+  auto &clocked = *definition.clocked;
+  const bool hasLocalResults = llvm::any_of(clocked.rules, [](const StructuredRule &rule) {
+    return rule.sampled && !rule.resultUses.empty();
+  });
+  const bool hasChildResults = llvm::any_of(definition.clockedCalls, [&](const auto &call) {
+    return !result.definitions[call.definition].outputAvailability.empty();
+  });
+  if (!hasLocalResults && !hasChildResults)
     return success();
 
-  using Rules = SmallVector<unsigned, 1>;
-  SmallVector<Rules> wireRules(definition.wires.size());
-  auto merge = [&](Rules &into, const Rules &from,
+  using Source = StructuredAvailabilitySource;
+  SmallVector<StructuredAvailability> wireSources(definition.wires.size());
+  auto merge = [&](StructuredAvailability &into, const StructuredAvailability &from,
                    Operation *site) -> LogicalResult {
     if (from.empty())
       return success();
     if (failed(budget.debit(into.size() + from.size(), site)))
       return failure();
-    Rules combined;
+    StructuredAvailability combined;
     std::set_union(into.begin(), into.end(), from.begin(), from.end(),
                    std::back_inserter(combined));
     into = std::move(combined);
@@ -495,17 +505,28 @@ LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
     const auto &wire = definition.wires[index];
     if (wire.ruleResult) {
       unsigned rule = wire.ruleResult->first;
-      if (definition.clocked->rules[rule].sampled)
-        wireRules[index].push_back(rule);
+      if (clocked.rules[rule].sampled)
+        wireSources[index].push_back({Source::Kind::Rule, rule});
       continue;
     }
     auto *site = wire.endpoint.value.getDefiningOp();
+    if (wire.call) {
+      const auto &child = result.definitions[wire.call->definition];
+      unsigned port = child.outputs[wire.call->output].port.port;
+      if (failed(budget.debit(child.outputAvailability.size(), site)))
+        return failure();
+      if (llvm::any_of(child.outputAvailability,
+                       [&](const auto &output) { return output.port == port; })) {
+        unsigned call = clockedCallNodes.lookup(site) - definition.firstClockedCallNode();
+        wireSources[index].push_back({Source::Kind::ChildOutput, call, port});
+      }
+    }
     for (unsigned dep : wire.dependencies) {
-      if (dep >= wireRules.size() || wireRules[dep].empty())
+      if (dep >= wireSources.size() || wireSources[dep].empty())
         continue;
       if (!isa<ac::StructCreateOp, ac::StructGetOp>(site))
-        return site->emitOpError("gated Rule results can only flow through Struct fields to root outputs");
-      if (failed(merge(wireRules[index], wireRules[dep], site)))
+        return site->emitOpError("gated Rule results require a supported field transport");
+      if (failed(merge(wireSources[index], wireSources[dep], site)))
         return failure();
     }
   }
@@ -515,7 +536,7 @@ LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
   auto checkInputs = [&](Operation *site, ValueRange inputs) -> LogicalResult {
     for (Value input : inputs) {
       const auto &leaves = definition.valueWires.find(input)->second;
-      if (llvm::any_of(leaves, [&](unsigned wire) { return !wireRules[wire].empty(); }))
+      if (llvm::any_of(leaves, [&](unsigned wire) { return !wireSources[wire].empty(); }))
         return site->emitOpError("gated Rule results require consumer admission here");
     }
     return success();
@@ -523,32 +544,68 @@ LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
   for (auto call : body.getOps<CallOp>())
     if (failed(checkInputs(call, call.getInputs())))
       return failure();
-  for (const auto &entry : definition.clocked->rules) {
-    auto rule = entry.operation;
+  for (auto &consumer : clocked.rules) {
+    auto rule = consumer.operation;
+    auto &ordered = rule.getBody().front();
     for (auto [index, capture] : llvm::enumerate(rule.getCaptures())) {
-      if (llvm::any_of(entry.guardCaptures, [&](auto binding) { return binding.first == index; }))
+      const auto &leaves = definition.valueWires.find(capture)->second;
+      if (llvm::none_of(leaves, [&](unsigned wire) { return !wireSources[wire].empty(); }))
         continue;
-      if (failed(checkInputs(rule, ValueRange{capture})))
+      if (leaves.size() != 1 || !isa<ac::BitsType>(capture.getType()) ||
+          definition.wires[leaves.front()].width != 1)
+        return rule.emitOpError("gated guard capture requires Bits1");
+      auto argument = ordered.getArgument(index);
+      if (argument.use_empty())
+        return rule.emitOpError("gated capture requires a direct guard use");
+      for (Operation *user : argument.getUsers()) {
+        if (failed(budget.debit(1, user)))
+          return failure();
+        if (!isa<GuardOp>(user) || user->getParentOp() != rule)
+          return user->emitOpError("gated capture may only supply a direct guard");
+        clocked.guardedCaptureUses.try_emplace(user, index);
+      }
+      const auto &sources = wireSources[leaves.front()];
+      if (failed(budget.debit(sources.size(), rule)))
         return failure();
+      consumer.guardCaptures.push_back({unsigned(index), sources});
     }
+    if (!consumer.guardCaptures.empty())
+      for (Operation &op : ordered)
+        if (isa<CallOp, IfOp, LoopOp>(op))
+          return op.emitOpError("gated guard consumer requires a direct ordered body");
   }
 
-  SmallVector<Rules> ports(module.getFunctionType().getNumResults());
-  for (const auto &output : definition.outputs)
-    if (failed(merge(ports[output.port.port], wireRules[output.wire], module)))
+  SmallVector<StructuredAvailability> ports(module.getFunctionType().getNumResults());
+  SmallVector<std::optional<unsigned>> firstLeaves(ports.size());
+  llvm::BitVector mixedPorts(ports.size());
+  for (const auto &output : definition.outputs) {
+    unsigned port = output.port.port;
+    const auto &sources = wireSources[output.wire];
+    if (!firstLeaves[port]) {
+      firstLeaves[port] = output.wire;
+    } else {
+      const auto &first = wireSources[*firstLeaves[port]];
+      if (failed(budget.debit(first.size() + sources.size(), module)))
+        return failure();
+      if (first != sources)
+        mixedPorts.set(port);
+    }
+    if (failed(merge(ports[port], sources, module)))
       return failure();
+  }
   llvm::StringSet<> names;
   for (auto list : {module.getInputNames(), module.getOutputNames()})
     for (auto name : list)
       names.insert(cast<StringAttr>(name).getValue());
-  for (auto [port, rules] : llvm::enumerate(ports)) {
-    if (rules.empty())
+  for (auto [port, sources] : llvm::enumerate(ports)) {
+    if (sources.empty())
       continue;
     std::string name = "__pyc_valid_out_" + std::to_string(port);
     while (!names.insert(name).second)
       name += "_";
     definition.outputAvailability.push_back(
-        {unsigned(port), StringAttr::get(module.getContext(), name), std::move(rules)});
+        {unsigned(port), StringAttr::get(module.getContext(), name),
+         std::move(sources), !mixedPorts.test(port)});
   }
   return success();
 }
@@ -580,15 +637,10 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
     for (auto [index, rule] : llvm::enumerate(definition.clocked->rules))
       rules.try_emplace(rule.operation.getSymName(), index);
-    for (const auto &rule : definition.clocked->rules)
-      definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(
-          definition.sourceCheckCount, rule.checks.size());
     for (auto output : body.getOps<ResultOp>()) {
       auto &rule = definition.clocked->rules[rules.lookup(output.getRuleAttr().getValue())];
       if (!rule.requirements.empty())
         return output.emitOpError("resource-gated Rule results require resource availability");
-      if (rule.sampled && module.getSymName() != result.root.getCalleeAttr().getValue())
-        return output.emitOpError("gated Rule results require the selected root Module");
       rule.resultUses.push_back(output);
     }
     for (auto &rule : definition.clocked->rules) {
@@ -645,8 +697,11 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     auto receiver = receivers.lookup(call);
     unsigned target = childDefinition(receiver);
     const auto &child = result.definitions[target];
-    if (!child.outputAvailability.empty())
-      return call.emitOpError("gated child outputs require availability transport");
+    if (!child.outputAvailability.empty() && !definition.clocked)
+      return call.emitOpError("gated child outputs require a clocked caller");
+    if (llvm::any_of(child.outputAvailability,
+                     [](const auto &output) { return !output.uniform; }))
+      return call.emitOpError("child result with mixed field availability requires field transport");
     if (!child.clocked)
       continue;
     definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(
@@ -679,8 +734,6 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
   }
   size_t count = definition.firstClockedCallNode() + definition.clockedCalls.size();
-  if (failed(budget.debit(definition.sourceCheckCount, module)))
-    return failure();
   SmallVector<SmallVector<unsigned>> dependents(count);
   SmallVector<unsigned> remaining(count);
   for (auto [index, wire] : llvm::enumerate(definition.wires)) {
@@ -812,7 +865,16 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
           {{unsigned(port), definition.wires[index].endpoint.path}, index,
            inputs[index], prepared.test(index)});
     }
-  if (failed(analyzeAvailability(definition)))
+  if (failed(analyzeAvailability(definition, clockedCallNodes)))
+    return failure();
+  if (definition.clocked) {
+    if (failed(detail::buildClockedChecks(module, *definition.clocked, budget)))
+      return failure();
+    for (const auto &rule : definition.clocked->rules)
+      definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(
+          definition.sourceCheckCount, rule.checks.size());
+  }
+  if (failed(budget.debit(definition.sourceCheckCount, module)))
     return failure();
   if (definition.clocked || !definition.clockedCalls.empty()) {
     llvm::BitVector preparationInputs(definition.wires.size());
