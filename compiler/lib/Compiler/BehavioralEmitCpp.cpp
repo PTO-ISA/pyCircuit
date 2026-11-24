@@ -8,7 +8,9 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <limits>
+#include <map>
 
 using namespace mlir;
 
@@ -130,6 +132,40 @@ void signature(raw_ostream &out, const gfir::StructuredDefinition &definition,
   out << ") const";
 }
 
+llvm::BitVector wireClosure(const gfir::StructuredDefinition &definition,
+                            ArrayRef<unsigned> outputs) {
+  llvm::BitVector needed(definition.order.size());
+  for (unsigned output : outputs)
+    needed.set(output);
+  for (unsigned index : llvm::reverse(definition.order))
+    if (needed.test(index))
+      for (unsigned input : definition.dependencies(index))
+        needed.set(input);
+  return needed;
+}
+
+struct OutputGroup {
+  SmallVector<unsigned> outputs;
+  SmallVector<unsigned> inputs;
+};
+
+std::string outputGroupName(unsigned index) {
+  return "output_group_" + std::to_string(index);
+}
+
+void groupSignature(raw_ostream &out, const gfir::StructuredDefinition &definition,
+                    const OutputGroup &group, unsigned index, StringRef owner = {}) {
+  out << "std::tuple<";
+  llvm::interleaveComma(group.outputs, out, [&](unsigned output) {
+    out << carrier(definition.wires[definition.outputs[output].wire].width);
+  });
+  out << "> " << owner << outputGroupName(index) << '(';
+  llvm::interleaveComma(group.inputs, out, [&](unsigned input) {
+    out << "const " << carrier(definition.wires[input].width) << " &" << wireName(input);
+  });
+  out << ") const";
+}
+
 void preparationSignature(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
                           StringRef owner = {}) {
@@ -155,6 +191,12 @@ private:
   LogicalResult emitWires(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
                           ArrayRef<unsigned> outputs, StringRef instancePrefix = {});
+  std::optional<unsigned> internOutputGroup(unsigned definition, ArrayRef<unsigned> outputs);
+  FailureOr<bool> emitOutputGroup(raw_ostream &out,
+                                  const gfir::StructuredDefinition &definition,
+                                  unsigned first, ArrayRef<unsigned> candidates,
+                                  llvm::BitVector &emitted, StringRef instancePrefix);
+  LogicalResult emitOutputGroups();
   LogicalResult declareModule(raw_ostream &out, unsigned index);
   LogicalResult emitModule(raw_ostream &out, unsigned index);
   LogicalResult emitRoot(FinalCppSourceGroup &group);
@@ -207,6 +249,8 @@ private:
   FinalCppSourceParts parts;
   unsigned nextBranch = 0;
   unsigned nextLoop = 0;
+  SmallVector<SmallVector<OutputGroup>> outputGroups;
+  SmallVector<uint64_t> groupWorkRemaining;
 };
 
 FailureOr<std::string>
@@ -345,35 +389,167 @@ BehavioralEmitter::bitExpression(Operation *op, unsigned bitWidth,
 LogicalResult BehavioralEmitter::emitWires(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
     ArrayRef<unsigned> outputs, StringRef instancePrefix) {
-  llvm::BitVector needed(definition.order.size());
-  for (unsigned output : outputs)
-    needed.set(output);
-  for (unsigned index : llvm::reverse(definition.order))
-    if (needed.test(index)) {
-      for (unsigned input : definition.dependencies(index))
-        needed.set(input);
-    }
+  auto needed = wireClosure(definition, outputs);
+  llvm::BitVector emitted(definition.order.size());
+  for (auto [index, wire] : llvm::enumerate(definition.wires))
+    if (isa<BlockArgument>(wire.endpoint.value))
+      emitted.set(index);
+  llvm::DenseMap<Operation *, SmallVector<unsigned>> callMembers;
+  for (unsigned index : definition.order)
+    if (index < definition.wires.size() && needed.test(index))
+      if (const auto &call = definition.wires[index].call)
+        callMembers[call->receiver].push_back(index);
   for (unsigned index : definition.order) {
-    if (!needed.test(index))
+    if (!needed.test(index) || emitted.test(index))
       continue;
     if (index >= definition.firstClockedCallNode()) {
       if (failed(emitClockedCall(out, definition,
                                  index - definition.firstClockedCallNode(), instancePrefix)))
         return failure();
+      emitted.set(index);
       continue;
     }
     if (index >= definition.wires.size()) {
       if (failed(emitGrant(out, definition, index, instancePrefix)))
         return failure();
+      emitted.set(index);
       continue;
     }
     const auto &wire = definition.wires[index];
     if (isa<BlockArgument>(wire.endpoint.value))
       continue;
+    auto candidates = wire.call ? ArrayRef<unsigned>(callMembers[wire.call->receiver])
+                                : ArrayRef<unsigned>{};
+    auto grouped = emitOutputGroup(out, definition, index, candidates, emitted, instancePrefix);
+    if (failed(grouped))
+      return failure();
+    if (*grouped)
+      continue;
     auto value = expression(wire, definition, instancePrefix);
     if (failed(value))
       return failure();
     out << "    const auto " << wireName(index) << " = " << *value << ";\n";
+    emitted.set(index);
+  }
+  return success();
+}
+
+std::optional<unsigned> BehavioralEmitter::internOutputGroup(
+    unsigned index, ArrayRef<unsigned> outputs) {
+  auto &groups = outputGroups[index];
+  for (auto [ordinal, group] : llvm::enumerate(groups))
+    if (llvm::equal(group.outputs, outputs))
+      return ordinal;
+  const auto &definition = program.definitions[index];
+  // Bound specialization count and total added closure size by the existing
+  // singleton surface; a refused specialization keeps ordinary emission.
+  if (groups.size() >= definition.outputs.size())
+    return std::nullopt;
+  OutputGroup group;
+  group.outputs.append(outputs.begin(), outputs.end());
+  SmallVector<unsigned> roots;
+  for (unsigned output : outputs) {
+    const auto &field = definition.outputs[output];
+    roots.push_back(field.wire);
+    group.inputs.append(field.inputs.begin(), field.inputs.end());
+  }
+  auto work = wireClosure(definition, roots).count();
+  if (work > groupWorkRemaining[index])
+    return std::nullopt;
+  groupWorkRemaining[index] -= work;
+  llvm::sort(group.inputs);
+  group.inputs.erase(std::unique(group.inputs.begin(), group.inputs.end()), group.inputs.end());
+  groups.push_back(std::move(group));
+  return groups.size() - 1;
+}
+
+FailureOr<bool> BehavioralEmitter::emitOutputGroup(
+    raw_ostream &out, const gfir::StructuredDefinition &definition,
+    unsigned first, ArrayRef<unsigned> candidates, llvm::BitVector &emitted,
+    StringRef instancePrefix) {
+  const auto &initial = definition.wires[first];
+  if (!initial.call)
+    return false;
+  const auto &call = *initial.call;
+  const auto &child = program.definitions[call.definition];
+  if (isClocked(child) || child.hasChecks())
+    return false;
+  SmallVector<unsigned> members;
+  SmallVector<unsigned> outputs;
+  std::map<unsigned, unsigned> frontier;
+  for (unsigned index : candidates) {
+    if (emitted.test(index))
+      continue;
+    const auto &wire = definition.wires[index];
+    if (!wire.call || wire.call->receiver != call.receiver || wire.call->definition != call.definition)
+      continue;
+    const auto &output = child.outputs[wire.call->output];
+    if (output.requiresPreparation || output.inputs.size() != wire.dependencies.size() ||
+        !llvm::all_of(wire.dependencies, [&](unsigned input) { return emitted.test(input); }))
+      continue;
+    // Actual SSA bindings, rather than port names or declaration order, own
+    // the union frontier. Different invocation bindings must remain separate.
+    for (auto [input, actual] : llvm::zip(output.inputs, wire.dependencies)) {
+      auto [found, inserted] = frontier.emplace(input, actual);
+      if (!inserted && found->second != actual)
+        return false;
+    }
+    members.push_back(index);
+    outputs.push_back(wire.call->output);
+  }
+  llvm::sort(outputs);
+  outputs.erase(std::unique(outputs.begin(), outputs.end()), outputs.end());
+  if (outputs.size() < 2 || !llvm::is_contained(members, first))
+    return false;
+  auto group = internOutputGroup(call.definition, outputs);
+  if (!group)
+    return false;
+  auto member = instanceName(call.receiver);
+  if (failed(member))
+    return failure();
+  std::map<unsigned, unsigned> bindings;
+  for (unsigned index : members)
+    bindings.try_emplace(definition.wires[index].call->output, index);
+  SmallVector<std::string> results, arguments;
+  for (unsigned output : outputs)
+    results.push_back(wireName(bindings.at(output)));
+  for (unsigned input : outputGroups[call.definition][*group].inputs)
+    arguments.push_back(wireName(frontier.at(input)));
+  out << "    const auto [" << join(results, ", ") << "] = " << instancePrefix << *member
+      << '.' << outputGroupName(*group) << '(' << join(arguments, ", ") << ");\n";
+  for (unsigned index : members) {
+    unsigned original = bindings.at(definition.wires[index].call->output);
+    if (index != original)
+      out << "    const auto " << wireName(index) << " = " << wireName(original) << ";\n";
+    emitted.set(index);
+  }
+  return true;
+}
+
+LogicalResult BehavioralEmitter::emitOutputGroups() {
+  // Definitions are callee-before-caller. Descending discovery allows each
+  // helper body to register nested groups before its child is emitted.
+  for (unsigned index = program.definitions.size(); index-- != 0;) {
+    const auto &definition = program.definitions[index];
+    auto group = getGroup(definition.module);
+    if (failed(group))
+      return failure();
+    llvm::raw_string_ostream out((*group)->source);
+    for (unsigned ordinal = 0; ordinal < outputGroups[index].size(); ++ordinal) {
+      const auto &outputs = outputGroups[index][ordinal];
+      groupSignature(out, definition, outputs, ordinal, moduleName(index) + "::");
+      out << " {\n";
+      SmallVector<unsigned> roots;
+      SmallVector<std::string> values;
+      for (unsigned output : outputs.outputs) {
+        unsigned wire = definition.outputs[output].wire;
+        roots.push_back(wire);
+        values.push_back(wireName(wire));
+      }
+      if (failed(emitWires(out, definition, roots)))
+        return failure();
+      out << "    return std::tuple{" << join(values, ", ") << "};\n}\n";
+    }
   }
   return success();
 }
@@ -384,6 +560,11 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   for (unsigned result = 0; result < definition.outputs.size(); ++result) {
     out << "  ";
     signature(out, definition, result);
+    out << ";\n";
+  }
+  for (auto [ordinal, group] : llvm::enumerate(outputGroups[index])) {
+    out << "  ";
+    groupSignature(out, definition, group, ordinal);
     out << ";\n";
   }
   for (const auto &output : definition.outputAvailability)
@@ -1757,7 +1938,17 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
     if (failed(name) || failed(names.insert(*name, module)))
       return failure();
   }
-  parts.supportHeader = "#pragma once\n#include <gfsim/wire.h>\n"
+  outputGroups.resize(program.definitions.size());
+  groupWorkRemaining.resize(program.definitions.size());
+  for (auto [index, definition] : llvm::enumerate(program.definitions))
+    for (const auto &output : definition.outputs) {
+      uint64_t work = wireClosure(definition, {output.wire}).count();
+      groupWorkRemaining[index] =
+          work > std::numeric_limits<uint64_t>::max() - groupWorkRemaining[index]
+              ? std::numeric_limits<uint64_t>::max()
+              : groupWorkRemaining[index] + work;
+    }
+  parts.supportHeader = "#pragma once\n#include <gfsim/wire.h>\n#include <tuple>\n"
                         "#include <gfsim/SimModule.h>\n#include <gfsim/WorkExecutor.h>\n";
   if (llvm::any_of(program.definitions, [](const gfir::StructuredDefinition &definition) {
         return definition.hasChecks();
@@ -1777,8 +1968,6 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   if (failed(emitCppRecords(common, support)))
     return failure();
   for (auto [index, definition] : llvm::enumerate(program.definitions)) {
-    if (failed(declareModule(support, index)))
-      return failure();
     auto group = getGroup(definition.module);
     if (failed(group))
       return failure();
@@ -1789,6 +1978,11 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   auto rootGroup = getGroup(program.definitions[program.rootIndex].module);
   if (failed(rootGroup) || failed(emitRoot(**rootGroup)))
     return failure();
+  if (failed(emitOutputGroups()))
+    return failure();
+  for (unsigned index = 0; index < program.definitions.size(); ++index)
+    if (failed(declareModule(support, index)))
+      return failure();
   return std::move(parts);
 }
 
