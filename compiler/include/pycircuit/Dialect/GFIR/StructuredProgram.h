@@ -111,6 +111,12 @@ struct StructuredOutput {
   bool requiresPreparation;
 };
 
+struct StructuredOutputAvailability {
+  unsigned port;
+  mlir::StringAttr name;
+  llvm::SmallVector<unsigned, 1> rules;
+};
+
 struct StructuredClockedCall {
   CallOp operation;
   InstanceOp receiver;
@@ -124,6 +130,7 @@ struct StructuredDefinition {
   /// Wires, Rule evaluations, then clocked instance preparations.
   llvm::SmallVector<unsigned> order;
   llvm::SmallVector<StructuredOutput> outputs;
+  llvm::SmallVector<StructuredOutputAvailability> outputAvailability;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;
   std::optional<StructuredClocked> clocked;
   llvm::SmallVector<StructuredClockedCall> clockedCalls;

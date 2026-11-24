@@ -325,12 +325,28 @@ FailureOr<Value> ClockedMaterializer::zero(Type type) {
 LogicalResult ClockedMaterializer::makeModule() {
   builder.setInsertionPointToEnd(package.getBody());
   OperationState state(source.getLoc(), ac::ModuleOp::getOperationName());
-  for (StringRef name : {"sym_name", "source_owner", "output_names"})
+  for (StringRef name : {"sym_name", "source_owner"})
     state.addAttribute(name, source->getAttr(name));
   SmallVector<Type> inputs(source.getFunctionType().getInputs());
   inputs.append({bit, bit});
+  SmallVector<Type> outputs(source.getFunctionType().getResults());
+  SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
+  if (!definition.outputAvailability.empty()) {
+    SmallVector<Attribute> validity(outputs.size(), builder.getI64IntegerAttr(-1));
+    for (const auto &output : definition.outputAvailability) {
+      validity[output.port] = builder.getI64IntegerAttr(outputs.size());
+      outputs.push_back(bit);
+      outputNames.push_back(output.name);
+    }
+    state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
+        builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(inputs.size())),
+        builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(validity.size())),
+        builder.getNamedAttr("root_inputs", builder.getArrayAttr({}))}));
+    state.addAttribute("ac.output_validity", builder.getArrayAttr(validity));
+  }
+  state.addAttribute("output_names", builder.getArrayAttr(outputNames));
   state.addAttribute("function_type", TypeAttr::get(
-      builder.getFunctionType(inputs, source.getFunctionType().getResults())));
+      builder.getFunctionType(inputs, outputs)));
   SmallVector<Attribute> names(source.getInputNames().getValue());
   names.append({builder.getStringAttr("pyc_clk"), builder.getStringAttr("pyc_rst")});
   state.addAttribute("input_names", builder.getArrayAttr(names));
@@ -686,6 +702,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   if (context.controls.size() != context.plannedChecks.size())
     return rule.emitOpError("sampled refinement did not emit all verified checks");
   SmallVector<Value> yielded;
+  const auto &resultUses = plan.rules[index].resultUses;
+  if (!resultUses.empty())
+    yielded.append(*results);
+  unsigned ordinaryResults = yielded.size();
   SmallVector<Attribute> candidateRows;
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
     yielded.push_back(local[state]);
@@ -697,8 +717,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
         builder.getNamedAttr("element", builder.getArrayAttr({}))});
     candidateRows.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("state", stateID),
-        builder.getNamedAttr("data", builder.getI64IntegerAttr(2 * ordinal)),
-        builder.getNamedAttr("enable", builder.getI64IntegerAttr(2 * ordinal + 1))}));
+        builder.getNamedAttr("data", builder.getI64IntegerAttr(ordinaryResults + 2 * ordinal)),
+        builder.getNamedAttr("enable", builder.getI64IntegerAttr(ordinaryResults + 2 * ordinal + 1))}));
   }
   unsigned fireResult = yielded.size();
   yielded.push_back(context.prefix);
@@ -726,9 +746,11 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       builder.getNamedAttr("observations", builder.getArrayAttr({}))}));
   operation.addRegion(std::move(region));
   auto *lowered = builder.create(operation);
+  for (auto result : resultUses)
+    graph.map(result.getValue(), lowered->getResult(result.getOrdinalAttr().getInt()));
   for (auto [ordinal, state] : llvm::enumerate(plan.rules[index].writes)) {
-    candidates[state] = lowered->getResult(2 * ordinal);
-    sampledEnables[state] = lowered->getResult(2 * ordinal + 1);
+    candidates[state] = lowered->getResult(ordinaryResults + 2 * ordinal);
+    sampledEnables[state] = lowered->getResult(ordinaryResults + 2 * ordinal + 1);
   }
   for (auto [ordinal, raw] : llvm::enumerate(context.checks)) {
     auto check = cast<DictionaryAttr>(raw);
@@ -741,9 +763,9 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   transactionWriters.push_back(builder.getDictionaryAttr({
       builder.getNamedAttr("registration", context.registration),
-      builder.getNamedAttr("ordinary_results", builder.getI64IntegerAttr(0)),
+      builder.getNamedAttr("ordinary_results", builder.getI64IntegerAttr(ordinaryResults)),
       builder.getNamedAttr("candidates", builder.getArrayAttr(candidateRows))}));
-  grants[index] = one;
+  grants[index] = lowered->getResult(fireResult);
   return success();
 }
 
@@ -862,6 +884,12 @@ LogicalResult ClockedMaterializer::bindStorage() {
   SmallVector<Value> outputs;
   for (Value value : cast<gfir::YieldOp>(source.getBody().front().getTerminator()).getValues())
     outputs.push_back(graph.lookup(value));
+  for (const auto &output : definition.outputAvailability) {
+    Value available = grants[output.rules.front()];
+    for (unsigned rule : ArrayRef<unsigned>(output.rules).drop_front())
+      available = binary("and", available, grants[rule]);
+    outputs.push_back(available);
+  }
   make(ac::YieldOp::getOperationName(), outputs, {});
   return success();
 }

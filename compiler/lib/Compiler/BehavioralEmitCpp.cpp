@@ -26,6 +26,7 @@ std::string ruleName(unsigned index) { return "pyc_rule_" + std::to_string(index
 std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string(index); }
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
 std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
+std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
 std::string intentName(unsigned index) { return "pyc_intent_" + std::to_string(index); }
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
@@ -376,6 +377,8 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     signature(out, definition, result);
     out << ";\n";
   }
+  for (const auto &output : definition.outputAvailability)
+    out << "  bool " << availabilityName(output.port) << " = false;\n";
   if (isClocked(definition)) {
     out << "  ";
     preparationSignature(out, definition);
@@ -1109,7 +1112,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   out << ");\n";
   if (rule.sampled)
     out << "    if (" << frameName(index) << ".pyc_failed_check != " << noCheck
-        << " && pyc_failed_rule == " << noCheck << ") {\n"
+        << " && " << index << " < pyc_failed_rule) {\n"
         << "      pyc_failed_rule = " << index << ";\n"
         << "      pyc_failed_check = " << frameName(index) << ".pyc_failed_check;\n"
         << "    }\n";
@@ -1160,7 +1163,7 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
       if (definition.hasChecks())
         out << "    pyc_sampling_fault = pyc_sample.fault;\n";
       if (llvm::any_of(plan.rules, [](const gfir::StructuredRule &rule) {
-            return rule.resultUses.empty() || rule.afterSnapshot;
+            return rule.sampled || rule.resultUses.empty() || rule.afterSnapshot;
           }))
         out << "    const bool pyc_active = pyc_sample.rising && !pyc_sample.resetActive && "
                "pyc_sample.fault == gfsim::SampledClockFault::None;\n";
@@ -1187,6 +1190,13 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
   for (auto [index, output] : llvm::enumerate(definition.outputs))
     if (output.requiresPreparation)
       out << "    " << preparedName(index) << " = " << wireName(output.wire) << ";\n";
+  for (const auto &output : definition.outputAvailability) {
+    out << "    " << availabilityName(output.port) << " = ";
+    llvm::interleave(output.rules, out, [&](unsigned rule) {
+      out << frameName(rule) << ".pyc_running";
+    }, " && ");
+    out << ";\n";
+  }
   if (definition.hasChecks())
     out << "    pyc_checks_valid = true;\n";
   return success();
@@ -1400,7 +1410,8 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
            << "  void DiscardNext() noexcept override;\n"
            << "  void Xfer() noexcept override;\n";
   SmallVector<std::string> inputs, outputs;
-  llvm::json::Array inputRows, outputRows;
+  llvm::json::Array inputRows, outputRows, controls;
+  SmallVector<std::pair<unsigned, std::string>> companions;
   auto ports = [&](TypeRange types, ArrayAttr names, SmallVectorImpl<std::string> &wires,
                    llvm::json::Array &rows, bool output) -> LogicalResult {
     for (auto [index, pair] : llvm::enumerate(llvm::zip(types, names))) {
@@ -1435,6 +1446,18 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   if (failed(ports(type.getInputs(), root.getInputNames(), inputs, inputRows, false)) ||
       failed(ports(type.getResults(), root.getOutputNames(), outputs, outputRows, true)))
     return failure();
+  for (const auto &output : definition.outputAvailability) {
+    auto wire = legalizeIdentifier(output.name.getValue(), [&] { return root.emitOpError(); });
+    if (failed(wire))
+      return failure();
+    header << "  gfsim::behavior::Level " << *wire << ";\n";
+    (*outputRows[output.port].getAsObject())["availability"] = *wire;
+    controls.emplace_back(llvm::json::Object{{"direction", "output"},
+                                             {"role", "availability"},
+                                             {"wire", *wire}, {"width", 1}});
+    outputs.push_back(*wire);
+    companions.emplace_back(output.port, std::move(*wire));
+  }
   llvm::json::Object domains{{"clock", nullptr}, {"reset", nullptr}};
   std::string clock, reset;
   if (isClocked(definition)) {
@@ -1518,6 +1541,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
       source << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
              << ", pyc_body." << functionName(index) << '(' << join(actuals, ", ") << "));\n";
   }
+  for (const auto &[port, wire] : companions)
+    source << "    " << wire << " = " << levelName << "(pyc_body."
+           << availabilityName(port) << ");\n";
   if (isClocked(definition))
     source << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
   source << "}\n";
@@ -1552,7 +1578,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   llvm::raw_string_ostream map(parts.portMap);
   map << llvm::json::Value(llvm::json::Object{
       {"schema_version", 1}, {"target", "cpp"}, {"inputs", std::move(inputRows)},
-      {"outputs", std::move(outputRows)}, {"controls", llvm::json::Array{}},
+      {"outputs", std::move(outputRows)}, {"controls", std::move(controls)},
       {"domains", std::move(domains)}});
   return success();
 }
@@ -1577,7 +1603,9 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   }
   parts.supportHeader = "#pragma once\n#include <gfsim/wire.h>\n"
                         "#include <gfsim/SimModule.h>\n#include <gfsim/WorkExecutor.h>\n";
-  if (program.definitions[program.rootIndex].hasChecks())
+  if (llvm::any_of(program.definitions, [](const gfir::StructuredDefinition &definition) {
+        return definition.hasChecks();
+      }))
     parts.supportHeader += "#include <gfsim/SimSystem.h>\n#include <limits>\n#include <string>\n";
   else
     parts.supportHeader += "namespace gfsim { struct SimFailureInfo; }\n";

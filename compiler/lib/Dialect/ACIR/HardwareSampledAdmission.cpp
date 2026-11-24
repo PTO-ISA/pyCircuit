@@ -3996,6 +3996,70 @@ private:
     writerAdmissions.emplace_hint(position, key, sampled);
     return sampled;
   }
+  // A direct root export may carry conditional payloads without requiring
+  // downstream admission. Walk the actual result uses before relying on the
+  // public output companions. Other consumers retain the existing checks.
+  FailureOr<bool> rootResultExports(const Occurrence &entry,
+                                    const TransactionWriterView &writer) {
+    auto module = entry.module;
+    if (entry.parent || writer.rule->hasAttr("ac.registration_path") ||
+        !module->hasAttr("ac.output_validity"))
+      return false;
+    auto systems = analysis.getPackage().getOps<SystemOp>();
+    if (!llvm::hasSingleElement(systems))
+      return false;
+    auto system = *systems.begin();
+    auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
+    if (!callee || callee.getValue() != module.getSymName())
+      return false;
+    auto ports = getModulePortLayout(module);
+    if (failed(ports))
+      return failure();
+
+    auto *yield = module.getBody().front().getTerminator();
+    SmallVector<std::pair<Value, FieldPath>> pending;
+    DenseMap<Value, SmallVector<FieldPath>> visited;
+    for (Value value : writer.rule->getResults().take_front(writer.ordinaryResults))
+      pending.emplace_back(value, FieldPath{});
+    while (!pending.empty()) {
+      auto [value, path] = pending.pop_back_val();
+      auto &paths = visited[value];
+      if (failed(budget.debit(1 + path.size() * (1 + paths.size()) + paths.size(),
+                              writer.rule)))
+        return failure();
+      if (llvm::is_contained(paths, path))
+        continue;
+      paths.push_back(path);
+      for (OpOperand &use : value.getUses()) {
+        auto *owner = use.getOwner();
+        unsigned operand = use.getOperandNumber();
+        if (failed(budget.debit(1 + path.size(), owner)))
+          return failure();
+        if (owner == yield) {
+          if (operand >= ports->sourceOutputCount || ports->outputValidity[operand] < 0)
+            return false;
+        } else if (auto create = dyn_cast<StructCreateOp>(owner)) {
+          auto structure = analysis.lookupStruct(create.getResult().getType());
+          if (!structure || operand >= structure.getFields().size())
+            return false;
+          auto name = cast<DictionaryAttr>(structure.getFields()[operand])
+                          .getAs<StringAttr>("name");
+          FieldPath field{name};
+          field.append(path);
+          pending.emplace_back(create.getResult(), std::move(field));
+        } else if (auto get = dyn_cast<StructGetOp>(owner)) {
+          if (path.empty())
+            pending.emplace_back(get.getResult(), FieldPath{});
+          else if (path.front() == get.getFieldAttr())
+            pending.emplace_back(get.getResult(), FieldPath(path.begin() + 1, path.end()));
+        } else {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   LogicalResult writers() {
     for (const auto &entry : occurrences) {
       if (!entry.wiring)
@@ -4033,6 +4097,12 @@ private:
         }
         bool managed = resultOwner->getAttrOfType<ArrayAttr>("ac.result_availability") &&
                        !sampled->requirements.empty();
+        if (writer.ordinaryResults && !managed) {
+          auto exports = rootResultExports(entry, writer);
+          if (failed(exports))
+            return failure();
+          managed = *exports;
+        }
         if (writer.ordinaryResults && managed && !provedAvailability) {
           if (failed(verifyHardwareValueAvailability(analysis))) return failure();
           provedAvailability = true;

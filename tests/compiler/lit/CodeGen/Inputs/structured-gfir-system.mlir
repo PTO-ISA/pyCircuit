@@ -1,6 +1,19 @@
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Scenario, ast_path = []}, expansion = []}, location = {path = "scenario.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b8 = !ac.bits<#w8>
+#w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Unused, ast_path = []}, expansion = []}, location = {path = "unused.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+!b1 = !ac.bits<#w1>
 module attributes {gfir.contract = 1 : i64} {
+  // The C++ bundle also compiles uninstantiated definitions and their checks.
+  gfir.module @Unused() -> ()
+      attributes {source_owner = {package = "", path = "unused.py"},
+                  input_names = [], output_names = [], domains = ["default"]} {
+    gfir.rule @check() -> () {
+      %permit = "ac.bits.constant4"() {pattern = "1"} : () -> !b1
+      gfir.guard %permit : !b1
+      gfir.yield
+    }
+    gfir.yield
+  }
   gfir.module @Counter() -> ()
       attributes {source_owner = {package = "", path = "counter.py"},
                   input_names = [], output_names = [], domains = ["default"]} {

@@ -5,6 +5,7 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringSet.h"
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -90,6 +91,7 @@ public:
 private:
   LogicalResult verifyDefinition(ModuleOp module, bool clocked);
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
+  LogicalResult analyzeAvailability(StructuredDefinition &definition);
   FailureOr<SmallVector<unsigned>> orderDefinitions(ArrayRef<ModuleOp> modules);
   FailureOr<unsigned> findWire(const StructuredDefinition &definition,
                                const ac::WireEndpoint &endpoint, Operation *site);
@@ -358,6 +360,87 @@ LogicalResult Analyzer::describeFifoQuery(StructuredDefinition &definition,
   return success();
 }
 
+LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
+  if (!definition.clocked ||
+      llvm::none_of(definition.clocked->rules, [](const StructuredRule &rule) {
+        return rule.sampled && !rule.resultUses.empty();
+      }))
+    return success();
+
+  using Rules = SmallVector<unsigned, 1>;
+  SmallVector<Rules> wireRules(definition.wires.size());
+  auto merge = [&](Rules &into, const Rules &from,
+                   Operation *site) -> LogicalResult {
+    if (from.empty())
+      return success();
+    if (failed(budget.debit(into.size() + from.size(), site)))
+      return failure();
+    Rules combined;
+    std::set_union(into.begin(), into.end(), from.begin(), from.end(),
+                   std::back_inserter(combined));
+    into = std::move(combined);
+    return success();
+  };
+  for (unsigned index : definition.order) {
+    if (index >= definition.wires.size())
+      continue;
+    const auto &wire = definition.wires[index];
+    if (wire.ruleResult) {
+      unsigned rule = wire.ruleResult->first;
+      if (definition.clocked->rules[rule].sampled)
+        wireRules[index].push_back(rule);
+      continue;
+    }
+    auto *site = wire.endpoint.value.getDefiningOp();
+    for (unsigned dep : wire.dependencies) {
+      if (dep >= wireRules.size() || wireRules[dep].empty())
+        continue;
+      if (!isa<ac::StructCreateOp, ac::StructGetOp>(site))
+        return site->emitOpError("gated Rule results can only flow through Struct fields to root outputs");
+      if (failed(merge(wireRules[index], wireRules[dep], site)))
+        return failure();
+    }
+  }
+
+  auto module = definition.module;
+  auto &body = module.getBody().front();
+  auto checkInputs = [&](Operation *site, ValueRange inputs) -> LogicalResult {
+    for (Value input : inputs) {
+      const auto &leaves = definition.valueWires.find(input)->second;
+      if (llvm::any_of(leaves, [&](unsigned wire) { return !wireRules[wire].empty(); }))
+        return site->emitOpError("gated Rule results require consumer admission here");
+    }
+    return success();
+  };
+  for (auto call : body.getOps<CallOp>())
+    if (failed(checkInputs(call, call.getInputs())))
+      return failure();
+  for (const auto &entry : definition.clocked->rules) {
+    auto rule = entry.operation;
+    if (failed(checkInputs(rule, rule.getCaptures())))
+      return failure();
+  }
+
+  SmallVector<Rules> ports(module.getFunctionType().getNumResults());
+  for (const auto &output : definition.outputs)
+    if (failed(merge(ports[output.port.port], wireRules[output.wire], module)))
+      return failure();
+  llvm::StringSet<> names;
+  for (auto list : {module.getInputNames(), module.getOutputNames()})
+    for (auto name : list)
+      names.insert(cast<StringAttr>(name).getValue());
+  for (auto [port, rules] : llvm::enumerate(ports)) {
+    if (rules.empty())
+      continue;
+    std::string name = "__pyc_valid_out_" + std::to_string(port);
+    while (!names.insert(name).second)
+      name += "_";
+    definition.outputAvailability.push_back(
+        {unsigned(port), StringAttr::get(module.getContext(), name), std::move(rules)});
+  }
+  return success();
+}
+
 FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   StructuredDefinition definition;
   definition.module = module;
@@ -375,8 +458,10 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
           definition.sourceCheckCount, rule.checks.size());
     for (auto output : body.getOps<ResultOp>()) {
       auto &rule = definition.clocked->rules[rules.lookup(output.getRuleAttr().getValue())];
-      if (rule.sampled || !rule.requirements.empty())
-        return output.emitOpError("gated Rule results require availability lowering");
+      if (!rule.requirements.empty())
+        return output.emitOpError("resource-gated Rule results require resource availability");
+      if (rule.sampled && module.getSymName() != result.root.getCalleeAttr().getValue())
+        return output.emitOpError("gated Rule results require the selected root Module");
       rule.resultUses.push_back(output);
     }
     for (auto &rule : definition.clocked->rules) {
@@ -430,6 +515,8 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     auto receiver = receivers.lookup(call);
     unsigned target = childDefinition(receiver);
     const auto &child = result.definitions[target];
+    if (!child.outputAvailability.empty())
+      return call.emitOpError("gated child outputs require availability transport");
     if (!child.clocked)
       continue;
     definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(
@@ -579,6 +666,8 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
           {{unsigned(port), definition.wires[index].endpoint.path}, index,
            inputs[index], prepared.test(index)});
     }
+  if (failed(analyzeAvailability(definition)))
+    return failure();
   if (definition.clocked) {
     llvm::BitVector preparationInputs(definition.wires.size());
     auto include = [&](unsigned node) -> LogicalResult {
