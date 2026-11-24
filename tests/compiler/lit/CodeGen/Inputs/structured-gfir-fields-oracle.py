@@ -1,5 +1,4 @@
 """Independent scalar four-state oracle; writes expected pre-commit snapshots."""
-import sys
 
 
 def byte(value):
@@ -7,7 +6,9 @@ def byte(value):
 
 
 def mux_unknown(left, right):
-    return "".join(a if a == b and a != "x" else "x" for a, b in zip(left, right))
+    return "".join(
+        a if a == b and a != "x" else "x" for a, b in zip(left, right, strict=True)
+    )
 
 
 initial = byte(0xA5) + byte(0x3C) + byte(0x11) * 3

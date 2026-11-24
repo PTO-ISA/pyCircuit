@@ -61,6 +61,42 @@ The [compiler pipeline](../architecture/compiler-pipeline.md#ir-stages-and-libra
 maps source ACIR, routed GFIR and final HWIR to their library boundaries.
 Public `anchor` and `final` targets select GFIR and HWIR respectively.
 
+## Verify handwritten structured GFIR
+
+For compiler development, a closed MLIR package with `gfir.contract = 1 : i64`
+and one `gfir.root` can enter at the native GFIR boundary. Both generation paths
+use the same structural analysis of module calls, field dependencies, state
+ownership, and Rule admission. The behavioral path emits logical evaluation and
+state proposals for the built-in gfsim runtime. The hardware path verifies physical
+storage and controls in HWIR before emitting final C++ or Verilog.
+
+```mermaid
+flowchart LR
+    G["Closed GFIR package"] --> V["Structured verification"]
+    V --> B["Behavioral C++ with gfsim"]
+    V --> H["Verified HWIR"]
+    H --> C["Final C++ with gfsim"]
+    H --> R["Verilog"]
+```
+
+```sh
+pycircuit-opt design.gfir.mlir --gfir-verify --mlir-print-debuginfo -o verified.gfir.mlir
+pycircuit-emit verified.gfir.mlir --input-stage gfir --target cpp > behavior.json
+pycircuit-opt verified.gfir.mlir --gfir-to-hwir --ac-verify-hardware -o final.mlir
+pycircuit-emit final.mlir --target cpp > final-cpp.json
+pycircuit-emit final.mlir --target verilog > rtl.json
+```
+
+Use the generated DUT interface and port metadata to apply the same samples to
+each result. The GFIR package declares logical bindings and ordered effects.
+Sampling, preparation, checks, and whole-system commit use the existing runtime
+contract. The native entry currently covers the generated default rising domain.
+The `structured-gfir-availability` compiler test exercises field-sensitive root
+output availability and failure rollback with gfsim and managed RTL. Published
+anchors use the public source-unit workflow.
+
+## Final artifact interfaces
+
 The C++ and Verilog representations differ, but element order, field identity,
 four-state value/known/Z information and clock/commit behavior must agree. For
 example, admitting a Table-valued Struct field requires a matching declaration,

@@ -1,3 +1,4 @@
+#indexMask = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Fields, ast_path = []}, expansion = []}, location = {path = "fields.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w2 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = {site = {definition = @Fields, ast_path = []}, expansion = []}, location = {path = "fields.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w3 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<3>}, origin = {site = {definition = @Fields, ast_path = []}, expansion = []}, location = {path = "fields.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Fields, ast_path = []}, expansion = []}, location = {path = "fields.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -19,7 +20,7 @@ module attributes {gfir.contract = 1 : i64} {
     %initial = ac.struct.create(%keep, %inner) : (!b8, !Inner) -> !Outer
     gfir.var @s init %initial : !Outer
     gfir.rule @update(%r = %raw : !b2, %d = %data : !b8, %t = %tag : !b8) -> (!Outer, !Outer) {
-      %mask = "ac.bits.constant4"() {pattern = "01"} : () -> !b2
+      %mask = "ac.bits.constant"() {value = #indexMask} : () -> !b2
       %index = "ac.bits.binary"(%r, %mask) {opcode = "and"} : (!b2, !b2) -> !b2
       gfir.write @s["nested"]["tag"], %t : !b8
       %before = gfir.read @s : !Outer

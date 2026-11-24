@@ -4,7 +4,7 @@
 # REQUIRES: rtl-four-state-parameter-types
 # RUN: %python %inputs/structured-gfir-fields-oracle.py > %t.rows
 # RUN: %pycircuit_opt %inputs/structured-gfir-fields.mlir --gfir-verify -o %t.gfir
-# RUN: %python -c 'import pathlib,sys; p=pathlib.Path; p(sys.argv[2]).write_text(p(sys.argv[1]).read_text().replace("pattern = \"01\"", "pattern = \"11\""))' %t.gfir %t.unbounded.gfir
+# RUN: sed 's/#ac.math_int<1>/#ac.math_int<3>/' %inputs/structured-gfir-fields.mlir > %t.unbounded.gfir
 # RUN: not %pycircuit_opt %t.unbounded.gfir --gfir-verify -o /dev/null
 # RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
 # RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir

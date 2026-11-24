@@ -13,7 +13,7 @@ module tb;
   initial begin
     if(!$value$plusargs("rows=%s",path))$fatal(1,"missing rows");
     fd=$fopen(path,"r");if(!fd)$fatal(1,"cannot open rows");
-    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    #1;pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
     pyc_phase=0;pyc_root_commit_ok=0;#1;
     while(!$feof(fd))begin
       n=$fscanf(fd,"%b %b %b %b %b %b %b %b\n",pyc_7079635f636c6b,pyc_7079635f727374,raw,data,tag,expected_old,expected_snapshot,expected_candidate);

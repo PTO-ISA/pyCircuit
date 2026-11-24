@@ -1,7 +1,8 @@
 """Validate public availability metadata and expose legalized companion names."""
+
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 behavior, final = [json.loads(Path(p).read_text()) for p in sys.argv[1:3]]
 assert behavior["source_check_count"] == final["source_check_count"] > 0
@@ -9,7 +10,10 @@ metadata = behavior["port_availability"]
 assert metadata == final["port_availability"], "behavior/final port metadata differs"
 outputs = metadata["outputs"]
 assert [o["name"] for o in outputs] == [
-    "packet", "projected", "independent", "accepted"
+    "packet",
+    "projected",
+    "independent",
+    "accepted",
 ], outputs
 wires = [o.get("availability") for o in outputs]
 assert all(isinstance(w, str) and w for w in wires[:2]), wires
@@ -20,7 +24,7 @@ assert {c["wire"] for c in controls} == set(wires[:2]), controls
 assert all(c["direction"] == "output" and c["width"] == 1 for c in controls)
 destination = Path(sys.argv[3])
 destination.mkdir(parents=True, exist_ok=True)
-macros = list(zip(["PYC_PACKET_VALID", "PYC_PROJECTED_VALID"], wires[:2]))
+macros = list(zip(["PYC_PACKET_VALID", "PYC_PROJECTED_VALID"], wires[:2], strict=True))
 (destination / "availability_ports.hpp").write_text(
     "#pragma once\n" + "".join(f"#define {name} {wire}\n" for name, wire in macros)
 )
