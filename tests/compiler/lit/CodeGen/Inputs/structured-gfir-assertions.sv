@@ -25,7 +25,7 @@ module tb;
       else begin pyc_phase=3;#1;pyc_phase=2;#1;end
       pyc_phase=0;pyc_root_commit_ok=0;#1;samples=samples+1;
     end
-    if(samples!=22)$fatal(1,"incomplete rows");
+    if(samples!=25)$fatal(1,"incomplete rows");
     $fclose(fd);$finish;
   end
 endmodule

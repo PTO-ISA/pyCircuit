@@ -21,19 +21,16 @@ for epoch, (level, reset) in enumerate(
 
 
 def scalar(value):
-    if isinstance(value, dict):
-        assert value["known"] == "ff" and int(value["z"], 16) == 0, value
-        return int(value["value"], 16)
-    return int(value)
+    assert value["kind"] == "integer", value
+    return int(value["value"])
 
 
 for path in sys.argv[1:]:
     actual = []
     for line in Path(path).read_text().splitlines():
-        try:
-            row = json.loads(line.replace('\\"', '"'))
-        except json.JSONDecodeError:
+        if not line.startswith("{"):
             continue
+        row = json.loads(line)
         if row.get("kind") not in ("log", "report"):
             continue
         assert row["spec"].get("event", row["spec"].get("name")) in (

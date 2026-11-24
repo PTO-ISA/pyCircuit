@@ -39,5 +39,5 @@ int main(int argc, char **argv) {
     }
     root.Xfer(); ++samples;
   }
-  require(rows.eof() && samples == 22);
+  require(rows.eof() && samples == 25);
 }
