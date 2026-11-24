@@ -60,7 +60,7 @@ tools assemble the required pass registrations explicitly.
 
 ## Handwritten structured GFIR in CompilerDev
 
-The CompilerDev tools accept a closed, handwritten combinational package
+The CompilerDev tools accept a closed, handwritten structured package
 with `gfir.contract = 1 : i64` and one `gfir.root` of kind `module`.
 `gfir.module` defines the typed graph, `gfir.instance` names the child, and
 `gfir.call` binds its input and result values. The structured verifier derives
@@ -74,11 +74,24 @@ pycircuit-emit final.mlir --target cpp > final-cpp.json
 pycircuit-emit final.mlir --target verilog > rtl.json
 ```
 
-This slice supports closed Bits and Struct combinational graphs and preserves
-four-state values in generated native code. Both native branches verify the
-structured input. The hardware branch also verifies the generated HWIR before
-passing it to the existing final emitters. Behavior C++ uses the same typed DUT
-and gfsim interfaces for this profile. Structured state, resources, Rule and
-System execution are subsequent work. Python source compilation uses the
-existing routed GFIR and saved-anchor contract. Unsupported capabilities fail
-before output publication. See [known limitations](../development/known-limitations.md).
+The profile supports Bits and Struct combinational graphs. A clocked Module
+root may declare one generated rising `default` domain. The root supports
+native FIFO v1, logical variables of Bits, Struct, or rank-one Table type,
+straight-line Rules with signature `() -> ()`, and local Methods called with
+`gfir.call self["interface"]`. An indexed write spells the index type inside
+the brackets, as in `gfir.write @entries[%i : !Index], %entry : !Entry`.
+The optional `execution_policy` on `gfir.root` selects `strict` or `if_one`
+reset interpretation and projects to `ac.execution_policy` on the HWIR root.
+
+Both native branches verify the structured input. The hardware branch also
+verifies the generated HWIR and requests managed sampling for a clocked root.
+Behavior C++ derives admission from the committed
+resource state, evaluates each admitted Rule in its own candidate frame, and
+prepares the frozen FIFO and state drives through the built-in gfsim kernels.
+`SimSystem` commits or discards the complete sample. The hand-written
+`TableRule` package uses the original C++ driver against both generated
+models. It covers backpressure, four-state Table indices, rollback, and reset.
+
+RAM, System roots, cross-instance Methods, and Rule captures/results are
+subsequent work. Python source compilation uses the routed GFIR and saved-anchor
+contract. See [known limitations](../development/known-limitations.md).

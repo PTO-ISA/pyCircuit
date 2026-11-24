@@ -166,6 +166,7 @@ struct HardwareSourceCheckPlan {
   llvm::SmallVector<HardwareCheckCommitEndpoint> commits;
   llvm::SmallVector<HardwareCheckSamplingBinding> samplingBindings;
   llvm::SmallVector<HardwareCheckSamplingOccurrence> samplingOccurrences;
+  bool managedSampling = false;
   bool hasChecks() const { return !checks.empty(); }
 };
 /// Read-only physical-edge admission over the authenticated check inventory.

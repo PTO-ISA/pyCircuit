@@ -1,5 +1,5 @@
 #include "pycircuit/Dialect/GFIR/StructuredProgram.h"
-#include "Dialect/ACIR/SourceCheckBudget.h"
+#include "Dialect/GFIR/StructuredClocked.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -11,7 +11,7 @@
 using namespace mlir;
 
 namespace acir::gfir {
-namespace {
+namespace detail {
 
 LogicalResult verifyAttributes(Operation *op, ArrayRef<StringRef> allowed) {
   for (NamedAttribute attr : op->getAttrs())
@@ -28,17 +28,23 @@ bool isCombinational(Operation *op) {
              ac::StructCreateOp, ac::StructGetOp>(op);
 }
 
+} // namespace detail
+namespace {
+
+using detail::isCombinational;
+using detail::verifyAttributes;
+
 LogicalResult verifyRoot(RootOp root) {
   if (root.getKind() != "module")
     return root.emitOpError("structured GFIR currently supports ordinary Module roots");
-  if (failed(verifyAttributes(root, {"callee", "kind", "domains", "ac.execution_policy"})))
+  if (failed(verifyAttributes(root, {"callee", "kind", "domains", "execution_policy"})))
     return failure();
   if (Attribute raw = root->getAttr("domains")) {
     auto domains = dyn_cast<ArrayAttr>(raw);
-    if (!domains || !domains.empty())
-      return root.emitOpError("structured combinational root requires empty domains");
+    if (!domains || (!domains.empty() && !detail::hasGeneratedDomain(root)))
+      return root.emitOpError("structured roots support a single generated rising default domain");
   }
-  if (Attribute raw = root->getAttr("ac.execution_policy")) {
+  if (Attribute raw = root->getAttr("execution_policy")) {
     auto policy = dyn_cast<DictionaryAttr>(raw);
     auto reset = policy ? policy.getAs<StringAttr>("reset") : StringAttr();
     if (!policy || policy.size() != 1 || !reset ||
@@ -72,7 +78,7 @@ public:
   FailureOr<StructuredProgram> run();
 
 private:
-  LogicalResult verifyDefinition(ModuleOp module);
+  LogicalResult verifyDefinition(ModuleOp module, bool clocked);
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
   FailureOr<SmallVector<unsigned>> orderDefinitions(ArrayRef<ModuleOp> modules);
   FailureOr<unsigned> findWire(const StructuredDefinition &definition,
@@ -80,34 +86,60 @@ private:
   LogicalResult addValue(StructuredDefinition &definition, Value value);
   LogicalResult bindCall(CallOp call, InstanceOp receiver,
                          ModuleOp callee);
+  LogicalResult describeFifoQuery(StructuredDefinition &definition,
+                                  StructuredWire &wire, CallOp call,
+                                  StructuredFifoUse use);
+  FailureOr<std::optional<unsigned>>
+  readyDependency(const StructuredDefinition &definition, const StructuredFifo &fifo,
+                  std::optional<unsigned> rule);
 
   mlir::ModuleOp package;
   ac::HardwareAnalysis hardware;
   ac::detail::SourceCheckBudget budget{{}};
   llvm::DenseMap<Operation *, unsigned> done;
   llvm::DenseMap<Operation *, InstanceOp> receivers;
+  ModuleOp clockedModule;
   StructuredProgram result;
 };
 
-LogicalResult Analyzer::verifyDefinition(ModuleOp module) {
+LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
   auto body = &module.getBody().front();
   if (failed(verifyAttributes(module, {"sym_name", "function_type", "source_owner",
                                        "input_names", "output_names", "domains"})))
     return failure();
-  if (Attribute raw = module->getAttr("domains")) {
-    auto domains = dyn_cast<ArrayAttr>(raw);
-    if (!domains || !domains.empty())
-      return module.emitOpError("structured combinational module requires empty domains");
+  Attribute rawDomains = module->getAttr("domains");
+  auto domains = dyn_cast_if_present<ArrayAttr>(rawDomains);
+  if (clocked) {
+    if (!domains || domains.size() != 1 ||
+        domains[0] != StringAttr::get(module.getContext(), "default"))
+      return module.emitOpError("clocked module requires the default formal domain");
+    for (ArrayAttr names : {module.getInputNames(), module.getOutputNames()})
+      if (llvm::any_of(names, [](Attribute attr) {
+            auto name = cast<StringAttr>(attr).getValue();
+            return name == "pyc_clk" || name == "pyc_rst";
+          }))
+        return module.emitOpError("root port conflicts with a generated domain port");
+  } else if (rawDomains && (!domains || !domains.empty())) {
+    return module.emitOpError("structured combinational module requires empty domains");
   }
   llvm::StringMap<InstanceOp> instances;
   llvm::SmallDenseSet<Operation *> bound;
   for (auto instance : body->getOps<InstanceOp>()) {
     if (failed(verifyAttributes(instance, {"sym_name", "callee"})))
       return failure();
+    auto *callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
+    if (isa_and_nonnull<PrimitiveOp>(callee)) {
+      if (!clocked)
+        return instance.emitOpError("native FIFO instances require a clocked root");
+      bound.insert(instance);
+    } else if (!isa_and_nonnull<ModuleOp>(callee) || callee == clockedModule.getOperation()) {
+      return instance.emitOpError("callee must be a defined combinational Module or native FIFO");
+    }
     instances.try_emplace(instance.getSymName(), instance);
   }
   for (Operation &op : *body) {
-    if (isa<InstanceOp>(op))
+    if (isa<InstanceOp>(op) ||
+        (clocked && isa<VarOp, MethodOp, RuleOp, ReadOp>(op)))
       continue;
     if (isa<YieldOp>(op)) {
       if (failed(verifyAttributes(&op, {})))
@@ -115,9 +147,13 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module) {
       continue;
     }
     if (auto call = dyn_cast<CallOp>(op)) {
+      if (clocked && call.getInterfaceAttr())
+        continue;
       if (failed(verifyAttributes(call, {"receiver"})))
         return failure();
-      auto receiver = instances.lookup(call.getReceiverAttr().getValue());
+      auto receiverAttr = call.getReceiverAttr();
+      auto receiver = receiverAttr ? instances.lookup(receiverAttr.getValue())
+                                   : InstanceOp();
       if (!receiver)
         return call.emitOpError("receiver must be a declared local instance");
       auto callee = dyn_cast_or_null<ModuleOp>(
@@ -130,8 +166,14 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module) {
         return failure();
       continue;
     }
-    if (!isCombinational(&op))
-      return op.emitOpError("operation is unavailable in structured combinational GFIR");
+    if (clocked && isa<ac::TableSplatOp>(op)) {
+      if (!llvm::all_of(op.getResult(0).getUsers(), [](Operation *user) {
+            return isa<VarOp>(user);
+          }))
+        return op.emitOpError("graph Table splats are available for state initialization");
+    } else if (!isCombinational(&op)) {
+      return op.emitOpError("operation is unavailable in the structured GFIR graph");
+    }
     if (failed(hardware.verifyResolvedOperation(&op, {})))
       return failure();
   }
@@ -167,8 +209,10 @@ Analyzer::orderDefinitions(ArrayRef<ModuleOp> modules) {
   for (unsigned index = 0; index < modules.size(); ++index) {
     ModuleOp module = modules[index];
     for (auto instance : module.getBody().front().getOps<InstanceOp>()) {
-      unsigned dependency = indices.lookup(hardware.lookupDefinition(
-          instance.getCalleeAttr().getValue()));
+      auto found = indices.find(hardware.lookupDefinition(instance.getCalleeAttr().getValue()));
+      if (found == indices.end())
+        continue;
+      unsigned dependency = found->second;
       dependents[dependency].push_back(index);
       ++remaining[index];
     }
@@ -193,7 +237,7 @@ LogicalResult Analyzer::addValue(StructuredDefinition &definition, Value value) 
       return failure();
     ids.push_back(definition.wires.size());
     definition.wires.push_back(
-        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}});
+        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}});
   }
   return success();
 }
@@ -212,44 +256,100 @@ FailureOr<unsigned> Analyzer::findWire(const StructuredDefinition &definition,
   return site->emitOpError("unresolved field dependency in structured GFIR");
 }
 
+FailureOr<std::optional<unsigned>>
+Analyzer::readyDependency(const StructuredDefinition &definition,
+                           const StructuredFifo &fifo,
+                           std::optional<unsigned> rule) {
+  if (!fifo.downstreamPop)
+    return std::optional<unsigned>();
+  if (fifo.rawOutput) {
+    auto call = fifo.rawOutput;
+    auto wire = findWire(definition, {call.getInputs().front(), {}}, call);
+    if (failed(wire))
+      return failure();
+    return std::optional<unsigned>(*wire);
+  }
+  if (fifo.consumer && fifo.consumer != rule)
+    return std::optional<unsigned>(definition.wires.size() + *fifo.consumer);
+  return std::optional<unsigned>();
+}
+
+LogicalResult Analyzer::describeFifoQuery(StructuredDefinition &definition,
+                                           StructuredWire &wire, CallOp call,
+                                           StructuredFifoUse use) {
+  auto result = cast<OpResult>(wire.endpoint.value).getResultNumber();
+  auto query = StructuredFifoQuery::Ready;
+  if (use.access == StructuredFifoAccess::RawOut)
+    query = result == 0 ? StructuredFifoQuery::Valid : StructuredFifoQuery::Data;
+  else if (use.access == StructuredFifoAccess::Status && result != 0)
+    query = result == 1 ? StructuredFifoQuery::Valid : StructuredFifoQuery::Data;
+  if (query == StructuredFifoQuery::Ready) {
+    auto echo = readyDependency(definition, definition.clocked->fifos[use.fifo], {});
+    if (failed(echo))
+      return failure();
+    if (*echo)
+      wire.dependencies.push_back(**echo);
+  }
+  wire.fifoQuery = std::pair(use.fifo, query);
+  return success();
+}
+
 FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   StructuredDefinition definition;
   definition.module = module;
   auto &body = module.getBody().front();
+  if (module == clockedModule) {
+    auto plan = detail::analyzeClocked(module, hardware, budget);
+    if (failed(plan))
+      return failure();
+    definition.clocked = std::move(*plan);
+  }
   for (Value value : body.getArguments())
     if (failed(addValue(definition, value)))
       return failure();
-  for (Operation &op : body)
+  for (Operation &op : body) {
+    if (isa<ac::TableSplatOp>(op))
+      continue;
     for (Value value : op.getResults())
       if (failed(addValue(definition, value)))
         return failure();
+  }
 
   auto debit = [&](uint64_t units, Operation *op) { return budget.debit(units, op); };
-  SmallVector<SmallVector<unsigned>> dependents(definition.wires.size());
-  SmallVector<unsigned> remaining;
-  remaining.reserve(definition.wires.size());
+  size_t count = definition.wires.size() +
+                 (definition.clocked ? definition.clocked->rules.size() : 0);
+  SmallVector<SmallVector<unsigned>> dependents(count);
+  SmallVector<unsigned> remaining(count);
   for (auto [index, wire] : llvm::enumerate(definition.wires)) {
     auto endpoint = wire.endpoint;
     auto *op = endpoint.value.getDefiningOp();
     SmallVector<ac::WireEndpoint> edges;
     if (auto call = dyn_cast_or_null<CallOp>(op)) {
-      auto receiver = receivers.lookup(call);
-      auto target = done.lookup(hardware.lookupDefinition(receiver.getCalleeAttr().getValue()));
-      const auto &child = result.definitions[target];
-      unsigned port = cast<OpResult>(endpoint.value).getResultNumber();
-      if (failed(budget.debit(child.outputs.size(), op)))
-        return failure();
-      auto match = llvm::find_if(child.outputs, [&](const StructuredOutput &output) {
-        return output.port.port == port && output.port.path == endpoint.path;
-      });
-      if (match == child.outputs.end())
-        return call.emitOpError("callee output field is unresolved");
-      wire.call = StructuredCall{receiver, target, unsigned(match - child.outputs.begin())};
-      for (unsigned input : match->inputs) {
-        const auto &source = child.wires[input].endpoint;
-        auto arg = cast<BlockArgument>(source.value).getArgNumber();
-        edges.push_back({call.getInputs()[arg], source.path});
+      if (call.getInterfaceAttr()) {
+        if (failed(describeFifoQuery(definition, wire, call,
+                                     definition.clocked->fifoCalls.lookup(call))))
+          return failure();
+      } else {
+        auto receiver = receivers.lookup(call);
+        auto target = done.lookup(hardware.lookupDefinition(receiver.getCalleeAttr().getValue()));
+        const auto &child = result.definitions[target];
+        unsigned port = cast<OpResult>(endpoint.value).getResultNumber();
+        if (failed(budget.debit(child.outputs.size(), op)))
+          return failure();
+        auto match = llvm::find_if(child.outputs, [&](const StructuredOutput &output) {
+          return output.port.port == port && output.port.path == endpoint.path;
+        });
+        if (match == child.outputs.end())
+          return call.emitOpError("callee output field is unresolved");
+        wire.call = StructuredCall{receiver, target, unsigned(match - child.outputs.begin())};
+        for (unsigned input : match->inputs) {
+          const auto &source = child.wires[input].endpoint;
+          auto arg = cast<BlockArgument>(source.value).getArgNumber();
+          edges.push_back({call.getInputs()[arg], source.path});
+        }
       }
+    } else if (auto read = dyn_cast_or_null<ReadOp>(op)) {
+      wire.state = definition.clocked->stateAccesses.lookup(read);
     } else if (op) {
       auto computed = hardware.getDependencies(endpoint.value, endpoint.path, {}, debit);
       if (failed(computed))
@@ -261,9 +361,28 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       if (failed(dep))
         return failure();
       wire.dependencies.push_back(*dep);
-      dependents[*dep].push_back(index);
     }
-    remaining.push_back(wire.dependencies.size());
+    for (unsigned dependency : wire.dependencies)
+      dependents[dependency].push_back(index);
+    remaining[index] = wire.dependencies.size();
+  }
+  if (definition.clocked) {
+    for (auto [index, rule] : llvm::enumerate(definition.clocked->rules)) {
+      unsigned grant = definition.wires.size() + index;
+      for (const auto &requirement : rule.requirements) {
+        if (!requirement.requiresReady || requirement.ownPop)
+          continue;
+        auto dependency = readyDependency(
+            definition, definition.clocked->fifos[requirement.fifo], unsigned(index));
+        if (failed(dependency))
+          return failure();
+        if (*dependency) {
+          rule.dependencies.push_back(**dependency);
+          dependents[**dependency].push_back(grant);
+          ++remaining[grant];
+        }
+      }
+    }
   }
   auto order = getOrder(dependents, std::move(remaining), module,
                         "structured GFIR combinational cycle in field dependencies");
@@ -273,12 +392,15 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
 
   // Collapse immediate dependencies to the input leaves each exported value
   // requires. Keep argument order stable across printing and reloading.
-  SmallVector<SmallVector<unsigned>> inputs(definition.wires.size());
+  SmallVector<SmallVector<unsigned>> inputs(count);
   for (unsigned index : definition.order) {
-    const auto &wire = definition.wires[index];
-    if (isa<BlockArgument>(wire.endpoint.value))
+    const bool isWire = index < definition.wires.size();
+    if (isWire && isa<BlockArgument>(definition.wires[index].endpoint.value))
       inputs[index].push_back(index);
-    for (unsigned dep : wire.dependencies) {
+    ArrayRef<unsigned> dependencies = isWire
+        ? ArrayRef<unsigned>(definition.wires[index].dependencies)
+        : ArrayRef<unsigned>(definition.clocked->rules[index - definition.wires.size()].dependencies);
+    for (unsigned dep : dependencies) {
       SmallVector<unsigned> combined;
       if (failed(budget.debit(inputs[index].size() + inputs[dep].size(), module)))
         return failure();
@@ -313,6 +435,8 @@ FailureOr<StructuredProgram> Analyzer::run() {
       hardware.lookupDefinition(result.root.getCalleeAttr().getValue()));
   if (!top)
     return result.root.emitOpError("root must select a defined structured module");
+  if (detail::hasGeneratedDomain(result.root))
+    clockedModule = top;
 
   SmallVector<ModuleOp> modules;
   budget.setPhase("structured GFIR field dependency verification");
@@ -320,16 +444,22 @@ FailureOr<StructuredProgram> Analyzer::run() {
     if (failed(budget.debit(1, &op)))
       return failure();
     if (auto module = dyn_cast<ModuleOp>(op)) {
-      if (failed(verifyDefinition(module)))
-        return failure();
       modules.push_back(module);
     } else if (auto structure = dyn_cast<ac::StructOp>(op)) {
       if (failed(hardware.verifyResolvedOperation(structure, {})))
+        return failure();
+    } else if (auto primitive = dyn_cast<PrimitiveOp>(op)) {
+      if (!clockedModule)
+        return primitive.emitOpError("native FIFO declarations require a clocked root");
+      if (failed(detail::verifyFifoPrimitive(primitive, hardware)))
         return failure();
     } else if (!isa<RootOp>(op)) {
       return op.emitOpError("unexpected declaration in structured GFIR package");
     }
   }
+  for (auto module : modules)
+    if (failed(verifyDefinition(module, module == clockedModule)))
+      return failure();
   auto order = orderDefinitions(modules);
   if (failed(order))
     return failure();

@@ -387,6 +387,8 @@ TEST_F(HardwareSourceChecksTest,
     EXPECT_TRUE(failed(analysis.verifySourceCheckPlan(altered)));
   };
   rejected("missing binding", [](auto &p) { p.bindings.pop_back(); });
+  rejected("different managed sampling mode",
+           [](auto &p) { p.managedSampling = !p.managedSampling; });
   rejected("missing actual check", [](auto &p) { p.checks.pop_back(); });
   rejected("extra check",
            [](auto &p) { p.checks.push_back(p.checks.front()); });

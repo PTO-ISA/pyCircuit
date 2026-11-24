@@ -633,7 +633,8 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
 }
 bool HardwareEmitContext::managesChecks() {
   return !physical_ &&
-         (isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty()));
+         (isSystem() || (sourceChecks_ && (sourceChecks_->hasChecks() ||
+                                         sourceChecks_->managedSampling)));
 }
 bool HardwareEmitContext::resetIfOne() const {
   return sourceChecks().resetSemantics == ac::HardwareResetSemantics::IfOne;

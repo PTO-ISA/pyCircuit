@@ -13,6 +13,74 @@ using namespace mlir;
 
 namespace acir::gfir {
 
+namespace {
+
+bool isOrderedOwner(Operation *op) {
+  return isa<RuleOp, MethodOp>(op);
+}
+
+bool isValueOwner(Operation *op) {
+  return isa<ModuleOp>(op) || isOrderedOwner(op);
+}
+
+ParseResult parseOrderedCallable(OpAsmParser &parser, OperationState &result) {
+  StringAttr name;
+  SmallVector<OpAsmParser::Argument> arguments;
+  SmallVector<Type> resultTypes;
+  if (parser.parseSymbolName(name, "sym_name", result.attributes) ||
+      parser.parseArgumentList(arguments, OpAsmParser::Delimiter::Paren,
+                               /*allowType=*/true) ||
+      parser.parseArrowTypeList(resultTypes) ||
+      parser.parseOptionalAttrDictWithKeyword(result.attributes))
+    return failure();
+  SmallVector<Type> inputs;
+  for (const auto &argument : arguments)
+    inputs.push_back(argument.type);
+  result.addAttribute("function_type", TypeAttr::get(
+      parser.getBuilder().getFunctionType(inputs, resultTypes)));
+  return parser.parseRegion(*result.addRegion(), arguments,
+                            /*enableNameShadowing=*/true);
+}
+
+void printOrderedCallable(OpAsmPrinter &printer, Operation *op,
+                          StringRef name, FunctionType type, Region &body) {
+  printer << ' ';
+  printer.printSymbolName(name);
+  printer << '(';
+  llvm::interleaveComma(body.front().getArguments(), printer,
+                        [&](BlockArgument argument) {
+                          printer.printRegionArgument(argument);
+                        });
+  printer << ") -> (";
+  llvm::interleaveComma(type.getResults(), printer,
+                        [&](Type result) { printer.printType(result); });
+  printer << ')';
+  printer.printOptionalAttrDictWithKeyword(
+      op->getAttrs(), {"sym_name", "function_type"});
+  printer << ' ';
+  printer.printRegion(body, /*printEntryBlockArgs=*/false,
+                      /*printBlockTerminators=*/true);
+}
+
+LogicalResult verifyOrderedCallable(Operation *op, FunctionType type,
+                                    Region &body) {
+  if (!isa<ModuleOp>(op->getParentOp()))
+    return op->emitOpError("requires direct gfir.module placement");
+  if (!body.hasOneBlock())
+    return op->emitOpError("requires one ordered body block");
+  if (!llvm::equal(body.front().getArgumentTypes(), type.getInputs()))
+    return op->emitOpError("body arguments must match the function inputs");
+  return success();
+}
+
+LogicalResult verifyOrderedTerminator(Operation *op, Region &body) {
+  if (body.front().empty() || !isa<YieldOp>(body.front().back()))
+    return op->emitOpError("ordered body must end with gfir.yield");
+  return success();
+}
+
+} // namespace
+
 ParseResult ModuleOp::parse(OpAsmParser &parser, OperationState &result) {
   StringAttr name;
   SmallVector<OpAsmParser::Argument> arguments;
@@ -90,20 +158,191 @@ LogicalResult InstanceOp::verify() {
 }
 
 LogicalResult CallOp::verify() {
+  if (!isValueOwner((*this)->getParentOp()))
+    return emitOpError("requires a module graph or ordered body");
+  if (!getReceiverAttr() && !getInterfaceAttr())
+    return emitOpError("self call requires a named interface");
+  if (getInterfaceAttr() && getInterfaceAttr().getValue().empty())
+    return emitOpError("interface name must be nonempty");
+  return success();
+}
+
+LogicalResult YieldOp::verify() {
+  auto *owner = (*this)->getParentOp();
+  if (!isValueOwner(owner))
+    return emitOpError("requires a module graph or ordered body");
+  if (&(*this)->getBlock()->back() != getOperation())
+    return emitOpError("must terminate its body");
+  auto type = cast<FunctionType>(
+      owner->getAttrOfType<TypeAttr>("function_type").getValue());
+  if (!llvm::equal(getValues().getTypes(), type.getResults()))
+    return emitOpError("values must match the function results");
+  return success();
+}
+
+ParseResult CallOp::parse(OpAsmParser &parser, OperationState &result) {
+  if (failed(parser.parseOptionalKeyword("self"))) {
+    FlatSymbolRefAttr receiver;
+    if (parser.parseAttribute(receiver, "receiver", result.attributes))
+      return failure();
+  }
+  if (succeeded(parser.parseOptionalLSquare())) {
+    StringAttr interface;
+    if (parser.parseAttribute(interface, "interface", result.attributes) ||
+        parser.parseRSquare())
+      return failure();
+  }
+  SmallVector<OpAsmParser::UnresolvedOperand> inputs;
+  FunctionType type;
+  if (parser.parseOperandList(inputs, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(type) ||
+      parser.resolveOperands(inputs, type.getInputs(), parser.getCurrentLocation(),
+                              result.operands))
+    return failure();
+  result.addTypes(type.getResults());
+  return success();
+}
+
+void CallOp::print(OpAsmPrinter &printer) {
+  printer << ' ';
+  if (auto receiver = getReceiverAttr())
+    printer.printAttributeWithoutType(receiver);
+  else
+    printer << "self";
+  if (auto interface = getInterfaceAttr()) {
+    printer << '[';
+    printer.printAttributeWithoutType(interface);
+    printer << ']';
+  }
+  printer << '(' << getInputs() << ')';
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"receiver", "interface"});
+  printer << " : ";
+  printer.printFunctionalType(getInputs().getTypes(), getOutputs().getTypes());
+}
+
+void CallOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // A local interface may access state or resources. Closed-package analysis
+  // resolves the actual receiver and effects before scheduling or lowering.
+  SideEffects::Resource *resources[] = {ac::SourceStateResource::get(),
+                                        ac::SourceQueueResource::get()};
+  for (auto *resource : resources) {
+    effects.emplace_back(MemoryEffects::Read::get(), resource);
+    effects.emplace_back(MemoryEffects::Write::get(), resource);
+  }
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       ac::SourceCheckResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       ac::SourceObservationResource::get());
+}
+
+LogicalResult PrimitiveOp::verify() {
+  if (!isa<mlir::ModuleOp>((*this)->getParentOp()))
+    return emitOpError("requires package placement");
+  if (getKind().empty() || getVersionAttr().getInt() <= 0)
+    return emitOpError("native kind and positive version are required");
+  return success();
+}
+
+LogicalResult VarOp::verify() {
   if (!isa<ModuleOp>((*this)->getParentOp()))
     return emitOpError("requires direct gfir.module placement");
   return success();
 }
 
-LogicalResult YieldOp::verify() {
-  auto module = dyn_cast_or_null<ModuleOp>((*this)->getParentOp());
-  if (!module)
-    return emitOpError("requires direct gfir.module placement");
-  if (&(*this)->getBlock()->back() != getOperation())
-    return emitOpError("must terminate its module body");
-  if (!llvm::equal(getValues().getTypes(), module.getFunctionType().getResults()))
-    return emitOpError("values must match the module function results");
+void VarOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       ac::SourceStateResource::get());
+}
+
+LogicalResult ReadOp::verify() {
+  if (!isValueOwner((*this)->getParentOp()))
+    return emitOpError("requires a module graph or ordered body");
   return success();
+}
+
+void ReadOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(),
+                       ac::SourceStateResource::get());
+}
+
+ParseResult WriteOp::parse(OpAsmParser &parser, OperationState &result) {
+  FlatSymbolRefAttr state;
+  OpAsmParser::UnresolvedOperand value, index;
+  Type valueType, indexType;
+  if (parser.parseAttribute(state, "state", result.attributes))
+    return failure();
+  bool indexed = succeeded(parser.parseOptionalLSquare());
+  if (indexed && (parser.parseOperand(index) || parser.parseColonType(indexType) ||
+                  parser.parseRSquare()))
+    return failure();
+  if (parser.parseComma() || parser.parseOperand(value) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(valueType) ||
+      parser.resolveOperand(value, valueType, result.operands))
+    return failure();
+  if (indexed && parser.resolveOperand(index, indexType, result.operands))
+    return failure();
+  return success();
+}
+
+void WriteOp::print(OpAsmPrinter &printer) {
+  printer << ' ';
+  printer.printAttributeWithoutType(getStateAttr());
+  if (auto index = getIndex())
+    printer << '[' << index << " : " << index.getType() << ']';
+  printer << ", " << getValue();
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"state"});
+  printer << " : " << getValue().getType();
+}
+
+LogicalResult WriteOp::verify() {
+  if (!isOrderedOwner((*this)->getParentOp()))
+    return emitOpError("requires an ordered Rule or Method body");
+  if (getIndex() && !isa<ac::BitsType>(getIndex().getType()))
+    return emitOpError("dynamic table index must have a Bits type");
+  return success();
+}
+
+void WriteOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       ac::SourceStateResource::get());
+}
+
+ParseResult RuleOp::parse(OpAsmParser &parser, OperationState &result) {
+  return parseOrderedCallable(parser, result);
+}
+
+void RuleOp::print(OpAsmPrinter &printer) {
+  printOrderedCallable(printer, *this, getSymName(), getFunctionType(), getBody());
+}
+
+LogicalResult RuleOp::verify() {
+  return verifyOrderedCallable(*this, getFunctionType(), getBody());
+}
+
+LogicalResult RuleOp::verifyRegions() {
+  return verifyOrderedTerminator(*this, getBody());
+}
+
+ParseResult MethodOp::parse(OpAsmParser &parser, OperationState &result) {
+  return parseOrderedCallable(parser, result);
+}
+
+void MethodOp::print(OpAsmPrinter &printer) {
+  printOrderedCallable(printer, *this, getSymName(), getFunctionType(), getBody());
+}
+
+LogicalResult MethodOp::verify() {
+  return verifyOrderedCallable(*this, getFunctionType(), getBody());
+}
+
+LogicalResult MethodOp::verifyRegions() {
+  return verifyOrderedTerminator(*this, getBody());
 }
 
 LogicalResult RootOp::verify() {

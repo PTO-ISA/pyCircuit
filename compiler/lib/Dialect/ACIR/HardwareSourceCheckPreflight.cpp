@@ -136,11 +136,13 @@ public:
     budget.setPhase("transaction wiring");
     if (failed(verifyTransactionWiring(analysis, scopes, validation, budget)))
       return failure();
-    // A closed system needs the complete managed commit tree even without
-    // source assertions: generated reset/prepare/commit must reach every leaf.
-    // Reusable modules without checks still avoid hypothetical expansion.
+    // An executable sampling boundary needs the complete commit tree even
+    // without assertions. Reusable modules keep their compact plan.
+    for (auto system : package.getOps<SystemOp>())
+      plan.managedSampling |= system->hasAttr("ac.managed_sampling");
     auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
-    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system"))
+    if (!plan.managedSampling && !nodes[*rootIndex]->hasChecks &&
+        (!role || role.getValue() != "system"))
       return std::move(plan);
     budget.setPhase("occurrence summary");
     auto expansion = summarize(*rootIndex);

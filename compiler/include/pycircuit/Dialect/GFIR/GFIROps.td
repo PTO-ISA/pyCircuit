@@ -39,13 +39,72 @@ def GFIR_InstanceOp : GFIR_Op<"instance", [Symbol]> {
   let hasVerifier = 1;
 }
 
-def GFIR_CallOp : GFIR_Op<"call"> {
-  let summary = "Bind ordinary inputs and outputs of an existing instance";
-  let arguments = (ins FlatSymbolRefAttr:$receiver, Variadic<AnyType>:$inputs);
+def GFIR_CallOp : GFIR_Op<"call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Invoke a logical interface on an existing receiver";
+  let arguments = (ins OptionalAttr<FlatSymbolRefAttr>:$receiver,
+      OptionalAttr<StrAttr>:$interface, Variadic<AnyType>:$inputs);
   let results = (outs Variadic<AnyType>:$outputs);
-  let assemblyFormat =
-      "$receiver `(` $inputs `)` attr-dict `:` functional-type($inputs, $outputs)";
+  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+}
+
+def GFIR_PrimitiveOp : GFIR_Op<"primitive", [Symbol]> {
+  let summary = "Declare a versioned executable native module contract";
+  let arguments = (ins SymbolNameAttr:$sym_name, StrAttr:$kind,
+      I64Attr:$version);
+  let assemblyFormat =
+      "$sym_name `native` $kind `version` $version attr-dict";
+  let hasVerifier = 1;
+}
+
+def GFIR_VarOp : GFIR_Op<"var", [Symbol,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Declare persistent state owned by this module instance";
+  let arguments = (ins SymbolNameAttr:$sym_name, AnyType:$initial);
+  let assemblyFormat =
+      "$sym_name `init` $initial attr-dict `:` type($initial)";
+  let hasVerifier = 1;
+}
+
+def GFIR_ReadOp : GFIR_Op<"read", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Read committed state or the current transaction candidate";
+  let arguments = (ins FlatSymbolRefAttr:$state);
+  let results = (outs AnyType:$value);
+  let assemblyFormat = "$state attr-dict `:` type($value)";
+  let hasVerifier = 1;
+}
+
+def GFIR_WriteOp : GFIR_Op<"write", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Update one transaction candidate or indexed table row";
+  let arguments = (ins FlatSymbolRefAttr:$state, AnyType:$value,
+      Optional<AnyType>:$index);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+
+def GFIR_RuleOp : GFIR_Op<"rule", [Symbol, IsolatedFromAbove,
+    SingleBlock, RecursiveMemoryEffects]> {
+  let summary = "Register an ordered autonomous transaction";
+  let arguments = (ins SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def GFIR_MethodOp : GFIR_Op<"method", [Symbol, IsolatedFromAbove,
+    SingleBlock, RecursiveMemoryEffects]> {
+  let summary = "Define an ordered interface in its caller transaction";
+  let arguments = (ins SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
@@ -57,7 +116,8 @@ def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
 
 def GFIR_RootOp : GFIR_Op<"root"> {
   let summary = "Select a closed structured GFIR entry definition";
-  let arguments = (ins FlatSymbolRefAttr:$callee, StrAttr:$kind);
+  let arguments = (ins FlatSymbolRefAttr:$callee, StrAttr:$kind,
+      OptionalAttr<DictionaryAttr>:$execution_policy);
   let assemblyFormat = "$callee `kind` $kind attr-dict";
   let hasVerifier = 1;
 }

@@ -95,15 +95,18 @@ use the standard managed lifecycle, and normal design RTL retains its physical
 clock semantics. Checks cannot be replaced by a fatal message after state has
 already committed.
 
-An ordinary module with reachable source checks also requires the managed
-lifecycle. Its original data, clock and reset ports remain present; emitted RTL
+An ordinary module with reachable source checks requires the managed lifecycle.
+Clocked structured GFIR requests the same lifecycle on its verified final HWIR
+root with `ac.managed_sampling`, including roots whose only sampling checks
+come from physical resources. The original data, clock and reset ports remain
+present. Managed RTL
 adds `pyc_phase`, `pyc_root_commit_ok` and `pyc_local_error`. The caller must
 prepare the original input row, sample old-state outputs, freeze permission
 only when the complete error signal is exactly zero, and then commit or discard.
 Reset context comes from verified physical domain ordinals. Source checks include
 compiler-generated Rule guard and sampled-admission checks, even when the author
-writes no assertion. Only modules without reachable source checks retain the
-ordinary physical clock interface. An ordinary module
+writes no assertion. Unmanaged modules retain the ordinary physical clock
+interface. An ordinary module
 does not gain a generated simulation main or the closed `@system` signature.
 Ordinary-module RTL observations remain unsupported and diagnose explicitly.
 

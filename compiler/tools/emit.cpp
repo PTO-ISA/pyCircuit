@@ -72,8 +72,10 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
         {"source", sourceOwner(group.sourceOwner)},
         {"header_path", group.headerPath}, {"source_path", group.sourcePath},
         {"header", group.header}, {"implementation", group.source}});
-  bool needsFourState = false;
+  const auto &clocked = program->definitions[program->rootIndex].clocked;
+  bool needsFourState = clocked && !clocked->fifos.empty();
   package.walk([&](Operation *op) {
+    needsFourState |= isa<acir::ac::TableGetOp>(op);
     if (auto pattern = dyn_cast<acir::ac::BitsConstant4Op>(op))
       needsFourState |= pattern.getPattern().contains('x') ||
                         pattern.getPattern().contains('z');
@@ -82,7 +84,7 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
     if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(op))
       needsFourState |= binary.getOpcode() == "udiv" || binary.getOpcode() == "urem";
   });
-  auto resetPolicy = program->root->getAttrOfType<DictionaryAttr>("ac.execution_policy");
+  auto resetPolicy = program->root.getExecutionPolicyAttr();
   auto root = program->definitions[program->rootIndex].module;
   llvm::json::Object bundle{
       {"entry", llvm::json::Object{{"definition", "@\"" + program->root.getCalleeAttr().getValue().str() + "\""},

@@ -29,6 +29,7 @@ target_include_directories(GFIRDialect PUBLIC
 
 # The structured verifier consumes typed operations from both dialects.
 add_acir_library(GFIRStructured SOURCES
+  StructuredClocked.cpp
   StructuredProgram.cpp
   LINK_LIBRARIES GFIRDialect ACIRAnalysis MLIRPass
 )

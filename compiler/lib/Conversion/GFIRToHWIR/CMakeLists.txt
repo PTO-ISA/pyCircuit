@@ -9,6 +9,7 @@
 add_acir_library(GFIRToHWIR SOURCES
   LowerTransactions.cpp
   LowerStructured.cpp
+  LowerStructuredClocked.cpp
   PassRegistration.cpp
   LINK_LIBRARIES
     ACIRConversionCommon

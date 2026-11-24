@@ -1223,6 +1223,7 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
            << "source check plan differs from current hardware package";
   };
   if (plan.resetSemantics != fresh->resetSemantics ||
+      plan.managedSampling != fresh->managedSampling ||
       plan.bindings.size() != fresh->bindings.size() ||
       plan.owners.size() != fresh->owners.size() ||
       plan.checks.size() != fresh->checks.size() ||

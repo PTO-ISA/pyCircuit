@@ -25,6 +25,7 @@ install(FILES
   "${PROJECT_SOURCE_DIR}/include/gfsim/dff.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/sampled_clock.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/fifo.h"
+  "${PROJECT_SOURCE_DIR}/include/gfsim/behavior.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/SimObj.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/SimModule.h"
   "${PROJECT_SOURCE_DIR}/include/gfsim/WorkExecutor.h"

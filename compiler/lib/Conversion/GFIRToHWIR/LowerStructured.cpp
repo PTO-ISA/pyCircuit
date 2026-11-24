@@ -1,6 +1,7 @@
 // Structured GFIR retains module instances and typed call bindings. This
 // refinement turns those bindings into the common hardware graph directly.
 #include "pycircuit/Conversion/GFIRToHWIR.h"
+#include "LowerStructuredClocked.h"
 
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
@@ -161,7 +162,9 @@ materializeStructuredHardware(mlir::ModuleOp package) {
     if (isa<ac::StructOp, ac::EnumOp>(operation))
       builder.clone(operation);
   for (const auto &definition : program->definitions)
-    if (failed(materializeDefinition(definition.module, *candidate)))
+    if (failed(definition.clocked
+                   ? materializeStructuredClocked(definition, *candidate)
+                   : materializeDefinition(definition.module, *candidate)))
       return failure();
   builder.setInsertionPointToEnd(candidate->getBody());
   OperationState system(program->root.getLoc(), ac::SystemOp::getOperationName());
@@ -170,8 +173,10 @@ materializeStructuredHardware(mlir::ModuleOp package) {
       builder.getNamedAttr("parameters", builder.getArrayAttr({})),
       builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
   system.addAttribute("domain", builder.getStringAttr("default"));
-  if (auto policy = program->root->getAttr("ac.execution_policy"))
+  if (auto policy = program->root.getExecutionPolicyAttr())
     system.addAttribute("ac.execution_policy", policy);
+  if (program->definitions[program->rootIndex].clocked)
+    system.addAttribute("ac.managed_sampling", builder.getUnitAttr());
   builder.create(system);
   if (failed(verify(*candidate)) || failed(ac::verifyHardwarePackage(*candidate)))
     return failure();

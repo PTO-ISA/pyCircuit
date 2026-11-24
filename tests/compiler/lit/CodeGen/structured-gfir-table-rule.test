@@ -1,0 +1,26 @@
+# Reuse TableRule's independent oracle and public driver. Its default run
+# checks capacity, held/reset samples, X/Z table indices and owner rollback.
+# The terminal probe checks rejected transfers and recovery through SimExecutor.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-table-rule.mlir --gfir-verify -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: %python -c 'import json,sys; left,right=(json.load(open(p))["port_availability"] for p in sys.argv[1:]); assert left == right' %t.behavior.json %t.final.json
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %src/examples/table_rule/driver.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; done
+# RUN: for kind in behavior final; do %t.$kind.exe --config %src/examples/table_rule/config.json --workers 2 > %t.$kind.stdout || exit; grep -E '^(WORK|FOUR|HISTORY|OWNER) ' %t.$kind.stdout > %t.$kind.trace || exit; %t.$kind.exe --config %src/examples/table_rule/config.json --probe-mode terminal > %t.$kind.terminal || exit; done
+# RUN: diff -u %t.behavior.trace %t.final.trace
+# RUN: grep '^NEGATIVE ' %t.behavior.terminal > %t.behavior.rejects
+# RUN: grep '^NEGATIVE ' %t.final.terminal > %t.final.rejects
+# RUN: diff -u %t.behavior.rejects %t.final.rejects
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -DPYC_TABLE_RULE_FOUR_STATE -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %include/verilog/fifo.v %src/examples/table_rule/rtl_tb.sv
+# RUN: %vvp %t.vvp > %t.rtl.stdout
+# RUN: grep -E '^(WORK|FOUR) ' %t.rtl.stdout > %t.rtl.samples
+# RUN: grep -E '^(WORK|FOUR) ' %t.behavior.trace > %t.behavior.samples
+# RUN: diff -u %t.behavior.samples %t.rtl.samples
+
+# Giving ingress a raw consumer would conflict with its transactional consumer.
+# RUN: sed 's/@egress\["raw_out"\]/@ingress["raw_out"]/' %inputs/structured-gfir-table-rule.mlir > %t.duplicate
+# RUN: not %pycircuit_opt %t.duplicate --gfir-verify -o %t.rejected
