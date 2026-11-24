@@ -17,7 +17,7 @@ namespace acir::gfir {
 namespace {
 
 bool isOrderedOwner(Operation *op) {
-  return isa<RuleOp, MethodOp, IfOp>(op);
+  return isa<RuleOp, MethodOp, IfOp, LoopOp>(op);
 }
 
 bool isValueOwner(Operation *op) {
@@ -194,8 +194,8 @@ LogicalResult CallOp::verify() {
 
 LogicalResult YieldOp::verify() {
   auto *owner = (*this)->getParentOp();
-  if (!isValueOwner(owner))
-    return emitOpError("requires a module graph or ordered body");
+  if (!isValueOwner(owner) || isa<LoopOp>(owner))
+    return emitOpError("requires a module graph or ordered body ending with yield");
   if (&(*this)->getBlock()->back() != getOperation())
     return emitOpError("must terminate its body");
   if (auto branch = dyn_cast<IfOp>(owner)) {
@@ -463,6 +463,77 @@ LogicalResult IfOp::verifyRegions() {
   if (failed(verifyOrderedTerminator(*this, getThenBody())))
     return failure();
   return verifyOrderedTerminator(*this, getElseBody());
+}
+
+ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &result) {
+  IntegerAttr count;
+  SmallVector<OpAsmParser::UnresolvedOperand> initial;
+  FunctionType signature;
+  if (parser.parseKeyword("range") ||
+      parser.parseAttribute(count, parser.getBuilder().getI64Type(),
+                            "trip_count", result.attributes) ||
+      parser.parseKeyword("init") ||
+      parser.parseOperandList(initial, OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(signature) ||
+      parser.resolveOperands(initial, signature.getInputs(), parser.getCurrentLocation(),
+                             result.operands))
+    return failure();
+  result.addTypes(signature.getResults());
+  return parser.parseRegion(*result.addRegion());
+}
+
+void LoopOp::print(OpAsmPrinter &printer) {
+  printer << " range ";
+  printer.printAttributeWithoutType(getTripCountAttr());
+  printer << " init(" << getInitial() << ')';
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"trip_count"});
+  printer << " : ";
+  printer.printFunctionalType(getInitial().getTypes(), getResultTypes());
+  printer << ' ';
+  printer.printRegion(getBody(), true, true);
+}
+
+LogicalResult LoopOp::verify() {
+  if (!isa<RuleOp, MethodOp, IfOp>((*this)->getParentOp()))
+    return emitOpError("requires an ordered body without enclosing loop");
+  if (getTripCountAttr().getInt() < 0)
+    return emitOpError("range requires a nonnegative i64 trip count");
+  if (getNumResults() != getInitial().size() + 1 ||
+      !llvm::equal(getInitial().getTypes(), getResultTypes().drop_back()) ||
+      !isa<ac::BitsType>(getResultTypes().back()))
+    return emitOpError("results must preserve carried types followed by natural Bits1");
+  if (!getBody().hasOneBlock())
+    return emitOpError("requires one ordered body block");
+  auto arguments = getBody().front().getArguments();
+  if (arguments.size() != getInitial().size() + 1 ||
+      !arguments.front().getType().isSignlessInteger(64) ||
+      !llvm::equal(getBody().front().getArgumentTypes().drop_front(), getInitial().getTypes()))
+    return emitOpError("body arguments must be i64 ordinal followed by exact carried types");
+  return success();
+}
+
+LogicalResult LoopOp::verifyRegions() {
+  auto &body = getBody().front();
+  if (body.empty() || !isa<StepOp>(body.back()))
+    return emitOpError("body must end with gfir.step");
+  return success();
+}
+
+LogicalResult StepOp::verify() {
+  auto loop = dyn_cast<LoopOp>((*this)->getParentOp());
+  if (!loop || &(*this)->getBlock()->back() != getOperation())
+    return emitOpError("must terminate a gfir.loop body");
+  if (!llvm::equal(getValues().getTypes(), loop.getInitial().getTypes()))
+    return emitOpError("values must exactly match loop carried types");
+  return success();
+}
+
+LogicalResult OrdinalBitsOp::verify() {
+  auto loop = dyn_cast<LoopOp>((*this)->getParentOp());
+  if (!loop || getOrdinal() != loop.getBody().front().getArgument(0))
+    return emitOpError("requires the enclosing loop's ordinal argument");
+  return success();
 }
 
 LogicalResult GuardOp::verify() {

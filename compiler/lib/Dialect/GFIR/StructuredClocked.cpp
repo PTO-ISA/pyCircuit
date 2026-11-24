@@ -406,18 +406,53 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
                                          BodyUses &uses,
                                          std::optional<unsigned> rule) {
   bool isArm = isa<IfOp>(owner);
-  if (!isArm && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
+  bool isLoop = isa<LoopOp>(owner);
+  if (isLoop && failed(verifyAttributes(owner, {"trip_count"})))
+    return failure();
+  if (!isArm && !isLoop && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
     return failure();
   llvm::SmallDenseSet<unsigned> popped;
-  for (Type type : block.getArgumentTypes())
+  for (Type type : block.getArgumentTypes().drop_front(isLoop ? 1 : 0))
     if (failed(verifyValueType(hardware, type, owner)))
       return failure();
   for (Operation &op : block) {
+    if (isLoop && isa<LoopOp, IfOp, CallOp, GuardOp, YieldOp>(op))
+      return op.emitOpError("fixed-range body supports values and state accesses only");
     auto work = 1 + uint64_t(op.getNumOperands()) + op.getNumResults();
     if (failed(budget.debit(work, &op)))
       return failure();
     uses.expandedWork = ac::detail::SourceCheckBudget::add(uses.expandedWork, work);
-    if (auto read = dyn_cast<ReadOp>(op)) {
+    if (auto loop = dyn_cast<LoopOp>(op)) {
+      if (failed(verifyAttributes(loop, {"trip_count"})))
+        return failure();
+      for (Type type : loop.getInitial().getTypes())
+        if (failed(verifyValueType(hardware, type, loop)))
+          return failure();
+      if (!isBitOne(hardware, loop.getResultTypes().back(), loop))
+        return loop.emitOpError("natural completion result requires Bits1");
+      BodyUses iteration;
+      if (failed(verifyBody(loop, loop.getBody().front(), iteration, rule)))
+        return failure();
+      uint64_t count = loop.getTripCountAttr().getValue().getZExtValue();
+      uint64_t expansion = ac::detail::SourceCheckBudget::multiply(count, iteration.expandedWork);
+      if (failed(budget.debit(expansion, loop)))
+        return failure();
+      uses.expandedWork = ac::detail::SourceCheckBudget::add(uses.expandedWork, expansion);
+      if (count != 0) {
+        uses.states.append(iteration.states.begin(), iteration.states.end());
+        uses.writes.append(iteration.writes.begin(), iteration.writes.end());
+        uses.hasFieldWrites |= iteration.hasFieldWrites;
+      }
+    } else if (auto ordinal = dyn_cast<OrdinalBitsOp>(op)) {
+      if (!isLoop || failed(verifyAttributes(ordinal, {})))
+        return ordinal.emitOpError("requires a fixed-range body");
+      auto width = hardware.getPackedWidth(ordinal.getValue().getType(), {}, ordinal);
+      if (failed(width) || *width == 0 || *width > std::numeric_limits<unsigned>::max())
+        return ordinal.emitOpError("ordinal requires a closed positive Bits width");
+      uint64_t count = cast<LoopOp>(owner).getTripCountAttr().getValue().getZExtValue();
+      if (count > 1 && *width < 64 && (count - 1) >> *width)
+        return ordinal.emitOpError("Bits width cannot represent every range ordinal");
+    } else if (auto read = dyn_cast<ReadOp>(op)) {
       if (failed(bindState(read, read.getStateAttr(), read.getValue(), {}, &uses, false)))
         return failure();
     } else if (auto write = dyn_cast<WriteOp>(op)) {
@@ -475,7 +510,7 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       written.erase(std::unique(written.begin(), written.end()), written.end());
       plan.conditionalWrites.insert(written.begin(), written.end());
       plan.branchWrites.try_emplace(branch, std::move(written));
-    } else if (isa<YieldOp>(op)) {
+    } else if (isa<YieldOp, StepOp>(op)) {
       if (failed(verifyAttributes(&op, {})))
         return failure();
     } else {

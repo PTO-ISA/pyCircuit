@@ -171,7 +171,12 @@ private:
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredClocked &clocked,
                          const gfir::StructuredRule *rule = nullptr,
-                         const llvm::DenseMap<Value, std::string> *outer = nullptr);
+                         const llvm::DenseMap<Value, std::string> *outer = nullptr,
+                         ArrayRef<std::string> stepTargets = {});
+  LogicalResult emitLoop(raw_ostream &out, gfir::LoopOp loop,
+                         const gfir::StructuredClocked &clocked,
+                         const llvm::DenseMap<Value, std::string> &values,
+                         ArrayRef<std::string> results);
   LogicalResult emitBranch(raw_ostream &out, gfir::IfOp branch,
                            const gfir::StructuredClocked &clocked,
                            const llvm::DenseMap<Value, std::string> &values,
@@ -201,6 +206,7 @@ private:
   llvm::StringMap<unsigned> groups;
   FinalCppSourceParts parts;
   unsigned nextBranch = 0;
+  unsigned nextLoop = 0;
 };
 
 FailureOr<std::string>
@@ -729,7 +735,8 @@ LogicalResult BehavioralEmitter::emitBlockedReturn(raw_ostream &out, Block &body
 LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredClocked &clocked,
                                           const gfir::StructuredRule *rule,
-                                          const llvm::DenseMap<Value, std::string> *outer) {
+                                          const llvm::DenseMap<Value, std::string> *outer,
+                                          ArrayRef<std::string> stepTargets) {
   bool ruleResults = rule != nullptr;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
@@ -752,7 +759,23 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       values.try_emplace(result, results.back());
     }
     std::string text;
-    if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
+    if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
+      if (failed(emitLoop(out, loop, clocked, values, results)))
+        return failure();
+      continue;
+    } else if (auto ordinal = dyn_cast<gfir::OrdinalBitsOp>(op)) {
+      auto type = typedWire(ordinal.getValue().getType(), ordinal);
+      auto width = analysis.getPackedWidth(ordinal.getValue().getType(), {}, ordinal);
+      if (failed(type) || failed(width))
+        return failure();
+      text = *type + "::known(gfsim::Bits<" + std::to_string(*width) + ">{" +
+             values.lookup(ordinal.getOrdinal()) + "})";
+    } else if (isa<gfir::StepOp>(op)) {
+      if (!stepTargets.empty())
+        out << "    {\n      const auto pyc_next = std::tuple{" << join(args, ", ")
+            << "};\n      std::tie(" << join(stepTargets, ", ") << ") = pyc_next;\n    }\n";
+      continue;
+    } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       auto predicate = values.lookup(guard.getPredicate());
       out << "    if (!gfsim::behavior::isOne(" << predicate << ")) {\n"
           << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
@@ -897,6 +920,38 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       out << "    }\n";
     }
   }
+  return success();
+}
+
+LogicalResult BehavioralEmitter::emitLoop(
+    raw_ostream &out, gfir::LoopOp loop, const gfir::StructuredClocked &clocked,
+    const llvm::DenseMap<Value, std::string> &values,
+    ArrayRef<std::string> results) {
+  for (auto [result, initial, name] :
+       llvm::zip(loop.getResults().drop_back(), loop.getInitial(),
+                 results.drop_back())) {
+    auto type = typedWire(result.getType(), loop);
+    if (failed(type))
+      return failure();
+    out << "    " << *type << ' ' << name << " = " << values.lookup(initial) << ";\n";
+  }
+  uint64_t count = loop.getTripCountAttr().getInt();
+  if (count) {
+    auto ordinal = "pyc_ordinal_" + std::to_string(nextLoop++);
+    out << "    for (std::uint64_t " << ordinal << " = 0; " << ordinal << " < "
+        << count << "ULL; ++" << ordinal << ") {\n";
+    auto &body = loop.getBody().front();
+    llvm::DenseMap<Value, std::string> iteration(values);
+    iteration.try_emplace(body.getArgument(0), ordinal);
+    for (auto [argument, name] :
+         llvm::zip(body.getArguments().drop_front(), results.drop_back()))
+      iteration.try_emplace(argument, name);
+    if (failed(emitBody(out, body, clocked, nullptr, &iteration,
+                        results.drop_back())))
+      return failure();
+    out << "    }\n";
+  }
+  out << "    const auto " << results.back() << " = " << levelName << "(true);\n";
   return success();
 }
 

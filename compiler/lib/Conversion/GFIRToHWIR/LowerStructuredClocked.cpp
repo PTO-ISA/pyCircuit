@@ -67,7 +67,8 @@ private:
   FailureOr<SmallVector<Value>> lowerBody(Block &body, ValueRange inputs,
                                          SmallVector<Value> &candidates,
                                          SmallVector<Value> &intents,
-                                         IRMapping &mapping);
+                                         IRMapping &mapping,
+                                         std::optional<uint64_t> ordinal = {});
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
 
@@ -629,17 +630,48 @@ FailureOr<SmallVector<Value>>
 ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
                                SmallVector<Value> &local,
                                SmallVector<Value> &localIntents,
-                               IRMapping &mapping) {
+                               IRMapping &mapping,
+                               std::optional<uint64_t> ordinal) {
   for (auto [argument, input] : llvm::zip(body.getArguments(), inputs))
     mapping.map(argument, input);
   for (Operation &op : body) {
-    if (auto yield = dyn_cast<gfir::YieldOp>(op)) {
+    if (isa<gfir::YieldOp, gfir::StepOp>(op)) {
       SmallVector<Value> values;
-      for (Value value : yield.getValues())
+      for (Value value : op.getOperands())
         values.push_back(mapping.lookup(value));
       return values;
     }
-    if (auto read = dyn_cast<gfir::ReadOp>(op)) {
+    if (auto converted = dyn_cast<gfir::OrdinalBitsOp>(op)) {
+      if (!ordinal)
+        return converted.emitOpError("missing verified loop ordinal in hardware refinement");
+      Value value = make(ac::BitsConstantOp::getOperationName(), {},
+          {converted.getValue().getType()}, {
+          builder.getNamedAttr("value", literal(*ordinal))})->getResult(0);
+      mapping.map(converted.getValue(), value);
+    } else if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
+      SmallVector<Value> carried;
+      for (Value initial : loop.getInitial())
+        carried.push_back(mapping.lookup(initial));
+      auto &body = loop.getBody().front();
+      uint64_t count = loop.getTripCountAttr().getInt();
+      for (uint64_t iteration = 0; iteration < count; ++iteration) {
+        // Every iteration starts with the enclosing immutable SSA bindings.
+        // Candidates and write intent belong to the same transaction and flow
+        // through the complete sequence of iterations.
+        IRMapping nested(mapping);
+        for (auto [argument, value] :
+             llvm::zip(body.getArguments().drop_front(), carried))
+          nested.map(argument, value);
+        auto next = lowerBody(body, {}, local, localIntents, nested, iteration);
+        if (failed(next))
+          return failure();
+        carried = std::move(*next);
+      }
+      for (auto [result, value] :
+           llvm::zip(loop.getResults().drop_back(), carried))
+        mapping.map(result, value);
+      mapping.map(loop.getResults().back(), one);
+    } else if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       mapping.map(read.getValue(), local[plan.stateAccesses.lookup(read)]);
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
       unsigned target = plan.stateAccesses.lookup(write);

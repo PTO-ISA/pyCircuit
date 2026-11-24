@@ -125,6 +125,31 @@ def GFIR_IfOp : GFIR_Op<"if", [SingleBlock, RecursiveMemoryEffects]> {
   let hasRegionVerifier = 1;
 }
 
+def GFIR_LoopOp : GFIR_Op<"loop", [SingleBlock, RecursiveMemoryEffects]> {
+  let summary = "Execute a fixed range with ordered carried values";
+  let arguments = (ins I64Attr:$trip_count, Variadic<AnyType>:$initial);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def GFIR_StepOp : GFIR_Op<"step", [Terminator, MemoryEffects<[]>]> {
+  let summary = "Carry values to the next fixed-range iteration";
+  let arguments = (ins Variadic<AnyType>:$values);
+  let assemblyFormat = "`(` $values `)` attr-dict `:` `(` type($values) `)`";
+  let hasVerifier = 1;
+}
+
+def GFIR_OrdinalBitsOp : GFIR_Op<"ordinal_bits", [MemoryEffects<[]>]> {
+  let summary = "Convert a bounded loop ordinal to unsigned Bits";
+  let arguments = (ins I64:$ordinal);
+  let results = (outs ACIR_BitsType:$value);
+  let assemblyFormat = "$ordinal attr-dict `:` type($ordinal) `->` type($value)";
+  let hasVerifier = 1;
+}
+
 def GFIR_GuardOp : GFIR_Op<"guard", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Require a known true predicate at this point in the transaction";
