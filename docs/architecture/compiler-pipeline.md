@@ -83,13 +83,18 @@ inherit that domain through their instances. The verifier schedules early
 outputs from committed state and pure graph dependencies separately from
 outputs that require a child's Rule evaluation. A clocked child prepares
 once per Work and remains pending until the root commits the sample.
-Clocked modules support native FIFO v1 and raw Memory v1, logical variables
+An explicit-domain Module wrapper can map named clock/reset inputs to child
+domains while sharing the root commit barrier.
+Clocked modules support native FIFO v1 and Memory v1, logical variables
 of Bits, Struct, or rank-one Table type,
 ordered Rules, and local Methods called with
 `gfir.call self["interface"]`. A Rule explicitly captures a graph value with
 `%arg = %actual : T`. The verifier schedules captured graph fields before
-the Rule and exposes snapshots of its declared results as
-`gfir.result @rule[0] : T` when its resource admission is unconditional.
+the Rule and exposes its result snapshots through `gfir.result @rule[0] : T`.
+Results gated by sampled admission can supply selected-root output fields
+and direct Bits1 guards in the same root.
+Repeated and nested Method calls on a direct child share its candidate
+within the caller Rule. Different child instances have separate candidates.
 An indexed write spells the index type inside
 the brackets, as in `gfir.write @entries[%i : !Index], %entry : !Entry`.
 The arms of `gfir.if %predicate : !Bit -> (T) { … } else { … }` can
@@ -103,11 +108,11 @@ transaction and skips later checks. An unknown reached guard or a selector
 that controls a Method call fails validation on a non-reset rising sample.
 The HWIR projection records each reached sample separately from its final
 grant. The entire root commits only after all checks succeed.
-Native Memory declares `kind`, `element`, `depth`, and `access = "raw"`.
-The `raw` call drives that instance's complete input interface. Synchronous
-`sync_mem` and `sync_mem_dp` results read committed responses. A `byte_mem`
-result depends on its read address. Both targets use the existing gfsim or
-RTL memory implementation for sampling and commit.
+Native Memory declares `kind`, `element`, `depth`, and `access`. The `raw` call
+drives the complete input interface. A Bits Memory with `access = "transaction"`
+supports synchronous read request and result interfaces or an asynchronous
+`byte_mem` read. Masked writes use final Rule admission. Both targets use the
+existing gfsim or RTL memory implementation for sampling and commit.
 The optional `execution_policy` on `gfir.root` selects `strict` or `if_one`
 reset interpretation and projects to `ac.execution_policy` on the HWIR root.
 A System root has no logical arguments or results and uses the generated
@@ -115,13 +120,16 @@ A System root has no logical arguments or results and uses the generated
 existing C++ runner and managed RTL testbench. Each row represents one
 clock/reset sample, including held or falling levels. The drivers validate
 the root domain even when no child consumes it.
+Direct Rule assertions use final admission and the interpreted reset mask.
+Direct System logs and reports publish saved statement values after a
+successful sample.
 
 Both native branches verify the structured input. The hardware branch also
 verifies the generated HWIR and requests managed sampling for a clocked root.
 Behavior C++ derives admission from committed resource state and gives each
 Rule its own candidate frame. When the root owns logical variables, it samples
 their shared clock history once. A Rule whose result is used runs in Work so
-its snapshot is visible at each sample. Rules that only prepare effects can
+its snapshot is visible at each sample. Rules that only stage writes can
 wait for a non-reset rising edge. Held and falling samples still publish
 outputs and advance committed clock history. FIFO drives go through the same
 gfsim kernel on every sample.
@@ -135,6 +143,8 @@ models. It covers backpressure, four-state Table indices, rollback, and reset.
 The clocked-feedback fixture checks separate instance state, bidirectional
 old-state feedback and a late resource failure before root commit.
 
-RAM, System roots, cross-instance Methods, and resource-gated Rule results are
-subsequent work. Python source compilation uses the routed GFIR and saved-anchor
-contract. See [known limitations](../development/known-limitations.md).
+The direct child Method profile uses one Bits state per receiver. General
+writable bindings, resource-gated results, and combined FIFO and transactional
+Memory admission remain open. Python source compilation uses the routed GFIR
+and saved-anchor contract. See [known limitations](../development/known-limitations.md)
+and the [structured GFIR workflow](../development/source-unit-workflow.md#verify-handwritten-structured-gfir).

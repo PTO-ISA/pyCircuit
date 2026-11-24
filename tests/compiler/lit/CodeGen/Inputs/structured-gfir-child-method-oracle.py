@@ -41,6 +41,7 @@ for clock, reset, allow in stimuli:
         f"{first:x}",
         f"{second:x}",
         int(accepted),
+        f"{other:x}",
     )
     if not accepted:
         continue
