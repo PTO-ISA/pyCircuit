@@ -61,7 +61,7 @@ tools assemble the required pass registrations explicitly.
 ## Handwritten structured GFIR in CompilerDev
 
 The CompilerDev tools accept a closed, handwritten structured package
-with `gfir.contract = 1 : i64` and one `gfir.root` of kind `module`.
+with `gfir.contract = 1 : i64` and one `gfir.root` of kind `module` or `system`.
 `gfir.module` defines the typed graph, `gfir.instance` names the child, and
 `gfir.call` binds its input and result values. The structured verifier derives
 field dependencies from actual SSA, including links between child instances.
@@ -74,8 +74,8 @@ pycircuit-emit final.mlir --target cpp > final-cpp.json
 pycircuit-emit final.mlir --target verilog > rtl.json
 ```
 
-The profile supports Bits, Struct, and Enum transport in combinational graphs. A clocked Module
-root may declare one generated rising `default` domain. Clocked children
+The profile supports Bits, Struct, and Enum transport in combinational graphs.
+A clocked Module root may declare one generated rising `default` domain. Clocked children
 inherit that domain through their instances. The verifier schedules early
 outputs from committed state and pure graph dependencies separately from
 outputs that require a child's Rule evaluation. A clocked child prepares
@@ -101,6 +101,11 @@ result depends on its read address. Both targets use the existing gfsim or
 RTL memory implementation for sampling and commit.
 The optional `execution_policy` on `gfir.root` selects `strict` or `if_one`
 reset interpretation and projects to `ac.execution_policy` on the HWIR root.
+A System root has no logical arguments or results and uses the generated
+`default` domain. Its optional `ac.system_samples` metadata drives the
+existing C++ runner and managed RTL testbench. Each row represents one
+clock/reset sample, including held or falling levels. The drivers validate
+the root domain even when no child consumes it.
 
 Both native branches verify the structured input. The hardware branch also
 verifies the generated HWIR and requests managed sampling for a clocked root.

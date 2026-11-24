@@ -135,8 +135,9 @@ def GFIR_YieldOp : GFIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
 def GFIR_RootOp : GFIR_Op<"root"> {
   let summary = "Select a closed structured GFIR entry definition";
   let arguments = (ins FlatSymbolRefAttr:$callee, StrAttr:$kind,
-      OptionalAttr<DictionaryAttr>:$execution_policy);
-  let assemblyFormat = "$callee `kind` $kind attr-dict";
+      OptionalAttr<DictionaryAttr>:$execution_policy,
+      OptionalAttr<DictionaryAttr>:$system_samples);
+  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
 

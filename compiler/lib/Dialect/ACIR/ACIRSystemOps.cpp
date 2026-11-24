@@ -57,13 +57,19 @@ getSystemSamples(mlir::Operation *declaration) {
     return mlir::ArrayAttr::get(declaration->getContext(), {});
   auto error = [&] { return declaration->emitOpError(); };
   auto kind = declaration->getAttrOfType<mlir::StringAttr>("ac.root_kind");
-  auto metadata = mlir::dyn_cast<mlir::DictionaryAttr>(raw);
-  auto rows =
-      metadata ? metadata.getAs<mlir::ArrayAttr>("rows") : mlir::ArrayAttr();
   if (!mlir::isa<ModuleOp, ModuleImportOp>(declaration) ||
       !mlir::isa_and_nonnull<mlir::ModuleOp>(declaration->getParentOp()) ||
-      !kind || kind.getValue() != "system" || !metadata ||
-      metadata.size() != 3 || !rows || rows.empty() ||
+      !kind || kind.getValue() != "system")
+    return error() << "ac.system_samples requires a System declaration";
+  return getSystemSampleRows(mlir::dyn_cast<mlir::DictionaryAttr>(raw), declaration);
+}
+
+mlir::FailureOr<mlir::ArrayAttr>
+getSystemSampleRows(mlir::DictionaryAttr metadata, mlir::Operation *declaration) {
+  auto error = [&] { return declaration->emitOpError(); };
+  auto rows =
+      metadata ? metadata.getAs<mlir::ArrayAttr>("rows") : mlir::ArrayAttr();
+  if (!metadata || metadata.size() != 3 || !rows || rows.empty() ||
       rows.size() > HardwareSourceCheckLimits{}.maxWorkUnits)
     return error() << "ac.system_samples requires a bounded nonempty rows, "
                       "origin and location dictionary on a System declaration";

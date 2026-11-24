@@ -76,6 +76,12 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
     return definition.clocked &&
            (!definition.clocked->fifos.empty() || !definition.clocked->memories.empty());
   });
+  llvm::json::Array sampleRows;
+  for (Attribute raw : program->samples) {
+    StringRef row = cast<StringAttr>(raw).getValue();
+    sampleRows.emplace_back(row);
+    needsFourState |= row.contains('x') || row.contains('z');
+  }
   package.walk([&](Operation *op) {
     needsFourState |= isa<acir::ac::TableGetOp>(op);
     if (auto pattern = dyn_cast<acir::ac::BitsConstant4Op>(op))
@@ -95,10 +101,11 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
       {"reset_semantics", resetPolicy ? resetPolicy.getAs<StringAttr>("reset").getValue()
                                       : StringRef("strict")},
       {"needs_four_state", needsFourState},
-      {"system_samples", llvm::json::Array{}},
+      {"system_samples", std::move(sampleRows)},
       {"support_header", parts->supportHeader}, {"system_header", parts->systemHeader},
       {"source_groups", std::move(groups)}, {"root_cpp_name", parts->rootCppName},
-      {"source_check_count", 0}, {"simulation_main", ""}, {"simulation_config", ""},
+      {"source_check_count", parts->sourceCheckCount}, {"simulation_main", parts->simulationMain},
+      {"simulation_config", parts->simulationConfig},
       {"port_availability", std::move(*ports)}, {"source_maps", llvm::json::Array{}}};
   llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(bundle)));
   return success();

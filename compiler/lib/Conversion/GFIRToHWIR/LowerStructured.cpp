@@ -11,6 +11,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/STLExtras.h"
@@ -166,6 +167,12 @@ materializeStructuredHardware(mlir::ModuleOp package) {
                    ? materializeStructuredClocked(definition, *candidate)
                    : materializeDefinition(definition.module, *candidate)))
       return failure();
+  if (program->root.getKind() == "system") {
+    Operation *root = SymbolTable::lookupSymbolIn(*candidate, program->root.getCalleeAttr());
+    root->setAttr("ac.root_kind", builder.getStringAttr("system"));
+    if (auto samples = program->root.getSystemSamplesAttr())
+      root->setAttr("ac.system_samples", samples);
+  }
   builder.setInsertionPointToEnd(candidate->getBody());
   OperationState system(program->root.getLoc(), ac::SystemOp::getOperationName());
   system.addAttribute("entry", builder.getDictionaryAttr({

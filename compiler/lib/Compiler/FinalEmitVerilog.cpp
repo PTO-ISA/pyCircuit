@@ -215,6 +215,7 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
   auto samples = ac::getSystemSamples(root);
   if (failed(samples))
     return failure();
+  const bool sampleRootDomain = context.sourceChecks().managedSampling;
   std::string scheduleDeclaration, scheduleSteps, cycleGuard;
   if (!samples->empty()) {
     std::string pattern;
@@ -291,6 +292,8 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "    .pyc_check_complete(pyc_check_complete),\n"
          "    .pyc_sampling_error(pyc_sampling_error),\n"
          "    .pyc_local_error(pyc_local_error)\n  );\n";
+  if (sampleRootDomain)
+    out << "  bit pyc_previous_clock = 1'b0;\n";
   for (const auto &report : reports)
     out << "  longint unsigned pyc_report_value_" << report.ordinal
         << " = 0;\n  longint unsigned pyc_report_update_" << report.ordinal
@@ -511,7 +514,14 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "        $fatal(1, \"pycircuit_sim: incomplete check snapshot "
          "at epoch %0d\", pyc_epoch);\n"
          "      end\n"
-         "      if (pyc_sampling_error !== 1'b0) begin\n"
+         "      if (pyc_sampling_error !== 1'b0";
+  if (sampleRootDomain) {
+    out << " || (level !== 1'b0 && level !== 1'b1)";
+    if (!context.resetIfOne())
+      out << " || (!pyc_previous_clock && level === 1'b1 && "
+             "reset_level !== 1'b0 && reset_level !== 1'b1)";
+  }
+  out << ") begin\n"
          "        pyc_phase = 3'd3; #1;\n"
          "        $fatal(1, \"pycircuit_sim: physical sampling check failed "
          "at epoch %0d\", pyc_epoch);\n"
@@ -529,8 +539,10 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "at epoch %0d\", pyc_epoch);\n"
          "      end\n"
          "      pyc_root_commit_ok = 1'b1;\n"
-         "      pyc_phase = 3'd2; #1;\n"
-         "      pyc_publish_observations();\n"
+         "      pyc_phase = 3'd2; #1;\n";
+  if (sampleRootDomain)
+    out << "      pyc_previous_clock = level;\n";
+  out << "      pyc_publish_observations();\n"
          "      pyc_phase = 3'd0;\n"
          "      pyc_root_commit_ok = 1'b0;\n"
          "      pyc_epoch = pyc_epoch + 1;\n"

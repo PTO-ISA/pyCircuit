@@ -134,6 +134,7 @@ struct StructuredDefinition {
 /// input summaries index leaf values in their enclosing definition.
 struct StructuredProgram {
   RootOp root;
+  mlir::ArrayAttr samples;
   unsigned rootIndex;
   llvm::SmallVector<StructuredDefinition, 0> definitions;
 };

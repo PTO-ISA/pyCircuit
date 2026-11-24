@@ -2115,6 +2115,20 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
               scalarInputCount))) ||
       failed(scalarPorts(scalarOutputTypes, scalarOutputNames)))
     return failure();
+  SmallVector<std::string, 2> systemPins;
+  auto rootKind = definition->getAttrOfType<StringAttr>("ac.root_kind");
+  if (ctx.sourceChecks().managedSampling && rootKind && rootKind.getValue() == "system") {
+    auto domains = definition->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+    for (StringRef role : {"clock", "reset"}) {
+      auto ordinal = domains ? domains.getAs<IntegerAttr>(role) : IntegerAttr{};
+      if (!ordinal || ordinal.getValue().uge(scalarInputCount))
+        return definition.emitOpError("System has no verified sampling controls");
+      auto pin = id(cast<StringAttr>(definition.getInputNames()[ordinal.getInt()]).getValue());
+      if (failed(pin))
+        return failure();
+      systemPins.push_back(std::move(*pin));
+    }
+  }
   auto bridge = [&](bool input) -> LogicalResult {
     auto types = input ? definition.getFunctionType().getInputs()
                        : definition.getFunctionType().getResults();
@@ -2155,20 +2169,31 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     return failure();
   if (bindRootInputs)
     out << "    pyc_bind_root_inputs();\n";
-  out << "    pyc_implementation->Work();\n";
+  if (systemPins.empty()) {
+    out << "    pyc_implementation->Work();\n";
+  } else {
+    out << "    try {\n      pyc_implementation->Work();\n"
+        << "      pyc_system_clock.prepare(" << systemPins[0] << ", " << systemPins[1]
+        << ", gfsim::ResetSemantics::" << (ctx.resetIfOne() ? "IfOne" : "Strict")
+        << ");\n    } catch (...) { DiscardNext(); throw; }\n";
+  }
   if (failed(bridge(false)))
     return failure();
-  out << "  }\n  void Xfer() noexcept override { pyc_implementation->Xfer(); "
-         "}\n  "
-         "void DiscardNext() noexcept override { "
-         "pyc_implementation->DiscardNext(); }\n  void Reset() noexcept "
-         "override "
-         "{\n";
+  out << "  }\n  void Xfer() noexcept override { pyc_implementation->Xfer(); ";
+  if (!systemPins.empty())
+    out << "pyc_system_clock.commit(); ";
+  out << "}\n  void DiscardNext() noexcept override { pyc_implementation->DiscardNext(); ";
+  if (!systemPins.empty())
+    out << "pyc_system_clock.discard(); ";
+  out << "}\n  void Reset() noexcept override {\n";
   if (failed(bridge(true)))
     return failure();
   if (bindRootInputs)
     out << "    pyc_bind_root_inputs();\n";
-  out << "    pyc_implementation->Reset();\n  }\n  bool HasWork() const "
+  out << "    pyc_implementation->Reset();\n";
+  if (!systemPins.empty())
+    out << "    pyc_system_clock.reset();\n";
+  out << "  }\n  bool HasWork() const "
          "noexcept "
          "override { return true; }\n";
   if (cppHasRootChecks(ctx, definition) &&
@@ -2204,6 +2229,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (cppHasRootChecks(ctx, definition))
     out << "  std::array<std::string, " << ctx.sourceChecks().checks.size()
         << "> pyc_check_instances_;\n";
+  if (!systemPins.empty())
+    out << "  gfsim::SystemSampledClock pyc_system_clock;\n";
   out << "  std::shared_ptr<" << family << "> pyc_implementation;\n};\n";
   if (!names.cppNamespace.empty())
     out << "} // namespace " << names.cppNamespace << "\n";

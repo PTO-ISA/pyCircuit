@@ -36,10 +36,13 @@ using detail::isCombinational;
 using detail::verifyAttributes;
 
 LogicalResult verifyRoot(RootOp root) {
-  if (root.getKind() != "module")
-    return root.emitOpError("structured GFIR currently supports ordinary Module roots");
-  if (failed(verifyAttributes(root, {"callee", "kind", "domains", "execution_policy"})))
+  if (failed(verifyAttributes(root, {"callee", "kind", "domains", "execution_policy",
+                                     "system_samples"})))
     return failure();
+  if (root.getKind() == "system" && !detail::hasGeneratedDomain(root))
+    return root.emitOpError("System requires the generated default domain");
+  if (root.getKind() != "system" && root.getSystemSamplesAttr())
+    return root.emitOpError("only a System can declare sample rows");
   if (Attribute raw = root->getAttr("domains")) {
     auto domains = dyn_cast<ArrayAttr>(raw);
     if (!domains || (!domains.empty() && !detail::hasGeneratedDomain(root)))
@@ -129,6 +132,9 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     if (failed(verifyAttributes(instance, {"sym_name", "callee", "domains"})))
       return failure();
     auto *callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
+    if (result.root.getKind() == "system" &&
+        instance.getCalleeAttr() == result.root.getCalleeAttr())
+      return instance.emitOpError("System cannot be used as a child module");
     const bool native = isa_and_nonnull<PrimitiveOp>(callee);
     if (native) {
       bound.insert(instance);
@@ -560,6 +566,16 @@ FailureOr<StructuredProgram> Analyzer::run() {
       hardware.lookupDefinition(result.root.getCalleeAttr().getValue()));
   if (!top)
     return result.root.emitOpError("root must select a defined structured module");
+  if (result.root.getKind() == "system" &&
+      (top.getFunctionType().getNumInputs() || top.getFunctionType().getNumResults()))
+    return result.root.emitOpError("System requires a closed module interface");
+  result.samples = ArrayAttr::get(package.getContext(), {});
+  if (auto metadata = result.root.getSystemSamplesAttr()) {
+    auto samples = ac::getSystemSampleRows(metadata, top);
+    if (failed(samples))
+      return failure();
+    result.samples = *samples;
+  }
   SmallVector<ModuleOp> modules;
   budget.setPhase("structured GFIR field dependency verification");
   for (Operation &op : *package.getBody()) {

@@ -270,6 +270,16 @@ LogicalResult emitDefinitionOnce(HardwareEmitContext &context,
 }
 } // namespace
 
+void addCppSystemDriver(FinalCppSourceParts &parts, StringRef clock,
+                        StringRef reset, ArrayAttr samples, bool resetIfOne) {
+  parts.simulationConfig =
+      "{\"deadlock_window\":null,\"max_domain_cycles\":{},"
+      "\"max_ticks\":9223372036854775807,"
+      "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}\n";
+  parts.simulationMain = systemSimulationMain({clock.str(), reset.str()},
+      StringRef(parts.simulationConfig).trim(), samples, resetIfOne);
+}
+
 LogicalResult emitCppRecords(HardwareEmitContext &context, raw_ostream &out) {
   for (auto declaration : context.package.getOps<ac::EnumOp>())
     if (failed(emitEnum(context, declaration, out)))
@@ -554,16 +564,11 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
     auto controls = systemControls(*root);
     if (failed(controls))
       return failure();
-    parts.simulationConfig =
-        "{\"deadlock_window\":null,\"max_domain_cycles\":{},"
-        "\"max_ticks\":9223372036854775807,"
-        "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}\n";
     auto samples = ac::getSystemSamples(*root);
     if (failed(samples))
       return failure();
-    parts.simulationMain = systemSimulationMain(
-        *controls, StringRef(parts.simulationConfig).trim(), *samples,
-        context.resetIfOne());
+    addCppSystemDriver(parts, controls->clock, controls->reset, *samples,
+                       context.resetIfOne());
   }
   return parts;
 }

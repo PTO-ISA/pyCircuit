@@ -1071,6 +1071,10 @@ FailureOr<FinalCppSourceGroup *> BehavioralEmitter::getGroup(gfir::ModuleOp modu
 LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   const auto &definition = program.definitions[program.rootIndex];
   auto root = definition.module;
+  auto entry = program.root;
+  auto policy = entry.getExecutionPolicyAttr();
+  const bool resetIfOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
+  const bool system = entry.getKind() == "system";
   auto name = qualifiedName(root.getSymName(), root);
   if (failed(name))
     return failure();
@@ -1145,7 +1149,10 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
       (StringRef(role) == "clock" ? clock : reset) = *pin;
     }
   }
-  header << "private:\n  " << moduleName(program.rootIndex) << " pyc_body;\n};\n";
+  header << "private:\n  " << moduleName(program.rootIndex) << " pyc_body;\n";
+  if (system)
+    header << "  gfsim::SystemSampledClock pyc_system_clock;\n";
+  header << "};\n";
   for (size_t i = 1; i < components.size(); ++i)
     header << "}\n";
 
@@ -1153,11 +1160,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   StringRef scopedName = StringRef(*name).drop_front(2);
   source << "void " << scopedName << "::Work() {\n";
   if (isClocked(definition)) {
-    auto policy = program.root->getAttrOfType<DictionaryAttr>("execution_policy");
-    bool ifOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
     source << "  try {\n"
            << "    const auto pyc_reset = gfsim::interpretReset(" << reset
-           << ", gfsim::ResetSemantics::" << (ifOne ? "IfOne" : "Strict") << ");\n";
+           << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
   }
 
   llvm::SmallDenseSet<unsigned> declaredInputs;
@@ -1182,6 +1187,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
       source << ", " << wireName(input);
     source << ");\n";
   }
+  if (system)
+    source << "    pyc_system_clock.prepare(" << clock << ", " << reset
+           << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
 
   for (auto [index, output] : llvm::enumerate(definition.outputs)) {
     // The source leaf may be a scalar projected from a wider result port.
@@ -1204,14 +1212,25 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   if (isClocked(definition))
     source << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
   source << "}\n";
-  if (isClocked(definition))
+  if (isClocked(definition)) {
     for (auto [hook, action] : {std::pair{"Reset", "reset"},
-                              {"DiscardNext", "discard"}, {"Xfer", "commit"}})
+                              {"DiscardNext", "discard"}, {"Xfer", "commit"}}) {
       source << "void " << scopedName << "::" << hook << "() noexcept {\n"
-             << "  pyc_body." << action << "();\n}\n";
+             << "  pyc_body." << action << "();\n";
+      if (system)
+        source << "  pyc_system_clock." << action << "();\n";
+      source << "}\n";
+    }
+  }
 
   parts.systemHeader = "#pragma once\n#include \"" + parts.rootHeaderPath +
                        "\"\nusing pyc_root = " + *name + ";\n";
+  if (system) {
+    parts.systemHeader += "#include <gfsim/SystemRunner.h>\n"
+                          "inline std::span<const gfsim::RunnerObservation> "
+                          "pyc_observation_metadata() { return {}; }\n";
+    addCppSystemDriver(parts, clock, reset, program.samples, resetIfOne);
+  }
   appendCppDutHeader(parts, inputs, outputs, "observations_.Configure({}, 0)",
                      /*hasChecks=*/false, /*observes=*/false,
                      /*alwaysActiveRoot=*/true);

@@ -18,6 +18,8 @@ namespace acir::ac {
 /// Validated raw clock/reset rows on a System Module/ModuleImport declaration.
 /// The empty array means no authored sequence; present sequences are nonempty.
 mlir::FailureOr<mlir::ArrayAttr> getSystemSamples(mlir::Operation *declaration);
+mlir::FailureOr<mlir::ArrayAttr> getSystemSampleRows(mlir::DictionaryAttr samples,
+                                                   mlir::Operation *declaration);
 
 /// Read the closed policy on the single root selection and reject overrides.
 /// A saved package without the attribute means strict; this never mutates IR.

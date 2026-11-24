@@ -438,6 +438,39 @@ LogicalResult IfOp::verifyRegions() {
   return verifyOrderedTerminator(*this, getElseBody());
 }
 
+ParseResult RootOp::parse(OpAsmParser &parser, OperationState &result) {
+  FlatSymbolRefAttr callee;
+  StringAttr kind;
+  if (parser.parseAttribute(callee, "callee", result.attributes) ||
+      parser.parseKeyword("kind") ||
+      parser.parseAttribute(kind, "kind", result.attributes) ||
+      parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+  for (auto [qualified, local] : {
+           std::pair{"ac.system_samples", "system_samples"},
+           std::pair{"ac.execution_policy", "execution_policy"}}) {
+    if (Attribute mapped = result.attributes.erase(qualified)) {
+      if (result.attributes.get(local))
+        return parser.emitError(parser.getCurrentLocation(), "duplicate root attribute ") << local;
+      result.attributes.set(local, mapped);
+    }
+  }
+  return success();
+}
+
+void RootOp::print(OpAsmPrinter &printer) {
+  printer << ' ';
+  printer.printAttributeWithoutType(getCalleeAttr());
+  printer << " kind ";
+  printer.printAttributeWithoutType(getKindAttr());
+  NamedAttrList attributes((*this)->getAttrs());
+  attributes.erase("callee");
+  attributes.erase("kind");
+  if (Attribute samples = attributes.erase("system_samples"))
+    attributes.set("ac.system_samples", samples);
+  printer.printOptionalAttrDict(attributes.getAttrs());
+}
+
 LogicalResult RootOp::verify() {
   if (!isa<mlir::ModuleOp>((*this)->getParentOp()))
     return emitOpError("requires package placement");
