@@ -107,11 +107,11 @@ struct StructuredMethodEffects {
 };
 
 struct StructuredAvailabilitySource {
-  enum class Kind { Rule, ChildOutput };
+  enum class Kind { Rule, ChildOutput, ChildField };
   Kind kind;
   /// Rule or clocked call ordinal in the enclosing definition.
   unsigned index;
-  /// Logical result port for a child call.
+  /// Logical result port or private field-output ordinal for a child call.
   unsigned port = 0;
   auto operator<=>(const StructuredAvailabilitySource &) const = default;
 };
@@ -170,6 +170,7 @@ struct StructuredWire {
   ac::WireEndpoint endpoint;
   unsigned low;
   unsigned width;
+  mlir::Type type;
   llvm::SmallVector<unsigned> dependencies;
   std::optional<StructuredCall> call;
   std::optional<std::pair<unsigned, StructuredFifoQuery>> fifoQuery;
@@ -183,13 +184,21 @@ struct StructuredOutput {
   unsigned wire;
   llvm::SmallVector<unsigned> inputs;
   bool requiresPreparation;
+  std::optional<unsigned> fieldOutput;
 };
 
 struct StructuredOutputAvailability {
   unsigned port;
   mlir::StringAttr name;
   StructuredAvailability sources;
-  bool uniform = true;
+};
+
+struct StructuredFieldOutput {
+  /// Leaf in the original output plan. It carries the exact logical field path.
+  unsigned output;
+  mlir::StringAttr name;
+  mlir::StringAttr availabilityName;
+  StructuredAvailability sources;
 };
 
 struct StructuredClockedCall {
@@ -209,6 +218,7 @@ struct StructuredDefinition {
   llvm::SmallVector<unsigned> order;
   llvm::SmallVector<StructuredOutput> outputs;
   llvm::SmallVector<StructuredOutputAvailability> outputAvailability;
+  llvm::SmallVector<StructuredFieldOutput> fieldOutputs;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;
   std::optional<StructuredClocked> clocked;
   llvm::SmallVector<StructuredChildState> childStates;

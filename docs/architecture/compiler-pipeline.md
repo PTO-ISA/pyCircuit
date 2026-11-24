@@ -93,7 +93,8 @@ ordered Rules, and local Methods called with
 the Rule and exposes its result snapshots through `gfir.result @rule[0] : T`.
 Results gated by sampled admission can supply output fields and direct Bits1
 guards in their own module or through a clocked child call. Availability
-follows the actual instance and result port through parent Struct fields.
+follows the actual instance and field. A child Struct with independently
+available fields uses private typed field results in HWIR.
 Repeated and nested Method calls on a direct child share its candidate
 within the caller Rule. Different child instances have separate candidates.
 An indexed write spells the index type inside

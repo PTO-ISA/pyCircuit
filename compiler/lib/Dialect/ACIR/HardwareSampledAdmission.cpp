@@ -4121,7 +4121,7 @@ private:
     bool provedUse = false;
     SmallVector<std::tuple<size_t, Value, FieldPath>> pending;
     DenseMap<std::pair<size_t, Value>, SmallVector<FieldPath>> visited;
-    DenseMap<Operation *, ModulePortLayout> layouts;
+    DenseMap<Operation *, DenseMap<unsigned, unsigned>> companionPorts;
     size_t root = &entry - occurrences.data();
     for (Value value : writer.rule->getResults().take_front(writer.ordinaryResults))
       pending.emplace_back(root, value, FieldPath{});
@@ -4143,22 +4143,28 @@ private:
         if (failed(budget.debit(1 + path.size(), owner)))
           return failure();
         if (owner == yield) {
-          auto found = layouts.find(module);
-          if (found == layouts.end()) {
+          auto found = companionPorts.find(module);
+          if (found == companionPorts.end()) {
             auto count = SourceCheckBudget::add(module.getFunctionType().getNumInputs(),
                                                 module.getFunctionType().getNumResults());
             if (failed(charge(budget, module, 1, sizeof(ModulePortLayout))) ||
                 failed(charge(budget, module, count, 2 * sizeof(int64_t)))) return failure();
             auto parsed = getModulePortLayout(module);
             if (failed(parsed)) return failure();
-            found = layouts.try_emplace(module, std::move(*parsed)).first;
+            auto &ports = companionPorts[module];
+            for (auto [payload, control] : llvm::enumerate(parsed->outputValidity))
+              if (control >= 0) ports.try_emplace(payload, control);
+            for (auto [payload, control] : parsed->routedOutputValidity) {
+              if (failed(charge(budget, module, 1, 2 * sizeof(unsigned)))) return failure();
+              ports.try_emplace(payload, control);
+            }
+            found = companionPorts.find(module);
           }
-          const auto &ports = found->second;
-          if (operand >= ports.sourceOutputCount || ports.outputValidity[operand] < 0)
-            return false;
+          auto companion = found->second.find(operand);
+          if (companion == found->second.end()) return false;
           if (at.parent) {
             if (!at.allocation || operand >= at.allocation->getNumResults() ||
-                uint64_t(ports.outputValidity[operand]) >= at.allocation->getNumResults())
+                companion->second >= at.allocation->getNumResults())
               return false;
             if (failed(charge(budget, owner, 1, sizeof(decltype(pending)::value_type) +
                                       path.size() * sizeof(StringAttr)))) return failure();

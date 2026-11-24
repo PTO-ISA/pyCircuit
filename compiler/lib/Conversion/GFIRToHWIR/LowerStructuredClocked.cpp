@@ -5,6 +5,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
+#include <functional>
 #include <memory>
 
 using namespace mlir;
@@ -83,6 +84,7 @@ private:
   DictionaryAttr localStateID(Operation *storage);
   DictionaryAttr childStateID(unsigned receiver);
   FailureOr<Value> availability(const gfir::StructuredAvailability &sources);
+  FailureOr<Value> projectField(Value value, ArrayRef<StringAttr> path);
 
   const gfir::StructuredDefinition &definition;
   const gfir::StructuredProgram &program;
@@ -104,6 +106,7 @@ private:
   llvm::DenseMap<Operation *, unsigned> childRouteInstances;
   llvm::DenseMap<unsigned, unsigned> childSlots;
   llvm::DenseMap<std::pair<unsigned, unsigned>, Value> childCompanions;
+  llvm::DenseMap<std::pair<unsigned, unsigned>, Value> childFieldCompanions;
   IRMapping graph;
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
@@ -476,13 +479,30 @@ LogicalResult ClockedMaterializer::makeModule() {
     }
     state.addAttribute("ac.output_validity", builder.getArrayAttr(validity));
   }
+  SmallVector<Attribute> routedValidity;
+  for (const auto &field : definition.fieldOutputs) {
+    unsigned payload = outputs.size();
+    const auto &output = definition.outputs[field.output];
+    outputs.push_back(definition.wires[output.wire].type);
+    outputNames.push_back(field.name);
+    if (!field.sources.empty()) {
+      routedValidity.push_back(builder.getDictionaryAttr({
+          builder.getNamedAttr("payload", builder.getI64IntegerAttr(payload)),
+          builder.getNamedAttr("validity", builder.getI64IntegerAttr(outputs.size()))}));
+      outputs.push_back(bit);
+      outputNames.push_back(field.availabilityName);
+    }
+  }
+  if (!routedValidity.empty())
+    state.addAttribute("ac.routed_output_validity", builder.getArrayAttr(routedValidity));
   if (definition.incomingState) {
     outputs.push_back(incomingType);
     outputNames.push_back(privateName("__ac_state_q"));
     names.push_back(privateName("__ac_state_data"));
     names.push_back(privateName("__ac_state_enable"));
   }
-  if (definition.incomingState || !definition.outputAvailability.empty()) {
+  if (definition.incomingState || !definition.outputAvailability.empty() ||
+      !definition.fieldOutputs.empty()) {
     SmallVector<Attribute> defaults;
     if (definition.incomingState)
       defaults.assign(2, builder.getI64IntegerAttr(0));
@@ -618,6 +638,13 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       if (planned)
         for (unsigned i = 0; i < program.definitions[planned->definition].outputAvailability.size(); ++i)
           state.addTypes(bit);
+      if (planned) {
+        const auto &child = program.definitions[planned->definition];
+        for (const auto &field : child.fieldOutputs) {
+          state.addTypes(child.wires[child.outputs[field.output].wire].type);
+          if (!field.sources.empty()) state.addTypes(bit);
+        }
+      }
       if (planned && program.definitions[planned->definition].incomingState) {
         const auto &child = program.definitions[planned->definition];
         auto childSource = child.module;
@@ -638,11 +665,52 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     for (unsigned index = 0; index < op.getNumRegions(); ++index)
       state.addRegion();
     auto *copy = builder.create(state);
+    llvm::DenseMap<unsigned, Value> reassembled;
     if (planned) {
       unsigned call = planned - definition.clockedCalls.data();
       unsigned result = op.getNumResults();
-      for (const auto &output : program.definitions[planned->definition].outputAvailability)
+      const auto &child = program.definitions[planned->definition];
+      for (const auto &output : child.outputAvailability)
         childCompanions.try_emplace(std::make_pair(call, output.port), copy->getResult(result++));
+      llvm::DenseMap<std::pair<unsigned, ArrayAttr>, Value> leaves;
+      SmallVector<unsigned> ports;
+      for (auto [ordinal, field] : llvm::enumerate(child.fieldOutputs)) {
+        const auto &output = child.outputs[field.output];
+        SmallVector<Attribute> path(output.port.path.begin(), output.port.path.end());
+        leaves.try_emplace(std::make_pair(output.port.port, builder.getArrayAttr(path)),
+                           copy->getResult(result++));
+        if (ports.empty() || ports.back() != output.port.port)
+          ports.push_back(output.port.port);
+        if (!field.sources.empty())
+          childFieldCompanions.try_emplace(std::make_pair(call, ordinal), copy->getResult(result++));
+      }
+      if (!ports.empty()) {
+        std::function<FailureOr<Value>(Type, unsigned, SmallVector<Attribute> &)> rebuild =
+            [&](Type type, unsigned port, SmallVector<Attribute> &path) -> FailureOr<Value> {
+          if (auto structure = dyn_cast<ac::StructType>(type)) {
+            auto declaration = hardware.lookupStruct(structure);
+            SmallVector<Value> fields;
+            for (Attribute raw : declaration.getFields()) {
+              auto field = cast<DictionaryAttr>(raw);
+              path.push_back(field.getAs<StringAttr>("name"));
+              auto value = rebuild(field.getAs<TypeAttr>("type").getValue(), port, path);
+              path.pop_back();
+              if (failed(value)) return failure();
+              fields.push_back(*value);
+            }
+            return make(ac::StructCreateOp::getOperationName(), fields, {type})->getResult(0);
+          }
+          Value value = leaves.lookup({port, builder.getArrayAttr(path)});
+          if (!value) return op.emitOpError("missing verified private child field payload");
+          return value;
+        };
+        for (unsigned port : ports) {
+          SmallVector<Attribute> path;
+          auto value = rebuild(op.getResult(port).getType(), port, path);
+          if (failed(value)) return failure();
+          reassembled.try_emplace(port, *value);
+        }
+      }
     }
     if (childStorage) {
       Value q = copy->getResults().back();
@@ -657,8 +725,10 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       }
     }
     graphOperations.push_back({&op, copy});
-    for (auto [from, to] : llvm::zip(op.getResults(), copy->getResults()))
-      graph.map(from, to);
+    for (auto [ordinal, from] : llvm::enumerate(op.getResults())) {
+      Value value = reassembled.lookup(ordinal);
+      graph.map(from, value ? value : copy->getResult(ordinal));
+    }
   }
   return success();
 }
@@ -799,13 +869,35 @@ FailureOr<Value> ClockedMaterializer::availability(
     const gfir::StructuredAvailability &sources) {
   Value result;
   for (const auto &source : sources) {
-    Value value = source.kind == gfir::StructuredAvailabilitySource::Kind::Rule
-        ? grants[source.index] : childCompanions.lookup({source.index, source.port});
+    Value value;
+    switch (source.kind) {
+    case gfir::StructuredAvailabilitySource::Kind::Rule:
+      value = grants[source.index]; break;
+    case gfir::StructuredAvailabilitySource::Kind::ChildOutput:
+      value = childCompanions.lookup({source.index, source.port}); break;
+    case gfir::StructuredAvailabilitySource::Kind::ChildField:
+      value = childFieldCompanions.lookup({source.index, source.port}); break;
+    }
     if (!value)
       return this->source.emitOpError("missing verified availability source");
     result = result ? binary("and", result, value) : value;
   }
   return result ? result : one;
+}
+
+FailureOr<Value> ClockedMaterializer::projectField(Value value, ArrayRef<StringAttr> path) {
+  for (auto name : path) {
+    auto declaration = hardware.lookupStruct(cast<ac::StructType>(value.getType()));
+    auto field = llvm::find_if(declaration.getFields(), [&](Attribute raw) {
+      return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
+    });
+    if (field == declaration.getFields().end())
+      return source.emitOpError("missing verified output field layout");
+    Type type = cast<DictionaryAttr>(*field).getAs<TypeAttr>("type").getValue();
+    value = make(ac::StructGetOp::getOperationName(), {value}, {type}, {
+        builder.getNamedAttr("field", name)})->getResult(0);
+  }
+  return value;
 }
 
 FailureOr<SmallVector<Value>>
@@ -1284,7 +1376,7 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
 }
 
 void ClockedMaterializer::bindTransactionWiring() {
-  if (transactionWriters.empty() && !definition.incomingState)
+  if (transactionWriters.empty() && !definition.incomingState && definition.fieldOutputs.empty())
     return;
   SmallVector<Attribute> declarations;
   for (auto [index, state] : llvm::enumerate(states))
@@ -1498,6 +1590,17 @@ LogicalResult ClockedMaterializer::bindStorage() {
     auto available = availability(output.sources);
     if (failed(available)) return failure();
     outputs.push_back(*available);
+  }
+  for (const auto &field : definition.fieldOutputs) {
+    const auto &output = definition.outputs[field.output];
+    auto value = projectField(outputs[output.port.port], output.port.path);
+    if (failed(value)) return failure();
+    outputs.push_back(*value);
+    if (!field.sources.empty()) {
+      auto available = availability(field.sources);
+      if (failed(available)) return failure();
+      outputs.push_back(*available);
+    }
   }
   if (definition.incomingState)
     outputs.push_back(states[*definition.incomingState]->getResult(0));

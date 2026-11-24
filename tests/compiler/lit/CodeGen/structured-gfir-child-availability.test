@@ -1,6 +1,8 @@
-# Two actual children share one definition and have independent grants/state.
-# A parent Struct combines a partial gate with an independent committed field.
-# Its selected gate supplies a direct guard, while the sibling stays total.
+# Two actual children share one definition, exposing both a mixed Struct port
+# and independent result ports. Left uses the Struct, right the separate ports.
+# Each child's admission depends on its peer's total committed field, forming
+# real old-Q feedback while the gated field still requires child preparation.
+# Selected gates supply direct guards, while committed siblings stay total.
 # Shared reference rows check all three targets against independent expectations,
 # including unavailable X/Z, reached unknowns, and global same-high retry.
 # REQUIRES: rtl-four-state-parameter-types

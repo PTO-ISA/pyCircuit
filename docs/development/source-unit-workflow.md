@@ -97,23 +97,27 @@ wrappers use managed RTL, with the domain pins carried as ordinary public inputs
 and the legacy implicit domain pair recorded as null.
 The `structured-gfir-availability` compiler test exercises field-sensitive root
 output availability and failure rollback with gfsim and managed RTL. A clocked
-child result can carry sampled Rule availability to its caller. Each logical
-child result port has one availability condition. Distinct result ports can
-remain available independently. A caller can retain the condition through
-Struct field construction and projection, export the result, or consume a
-Bits1 result at a direct ordered guard.
+child result can carry sampled Rule availability to its caller. Distinct
+ports and individual Struct fields retain their own conditions through
+construction and projection. A caller can export the result or consume a
+Bits1 field at a direct ordered guard. An exported aggregate is available
+when all of its fields are available.
 
 ```mermaid
 flowchart LR
     R["Child Rule result"] --> C["Actual child output and availability"]
-    C --> P["Parent field projection"]
+    C --> P["Parent projection of the required field"]
     P --> G["Reached parent guard"]
     P --> O["Parent output and availability"]
 ```
 
 A guard whose result is unavailable blocks at that statement. Earlier reached
 checks retain their order, and an available X or Z still follows the guard
-knownness check. Published anchors use the public source-unit workflow.
+knownness check. The HWIR projection uses private, typed field results when
+callers use a Struct port whose fields have different availability. The
+behavioral path keeps the existing field evaluation schedule. An independent
+committed-state field can feed a peer before the child prepares its gated
+fields. Published anchors use the public source-unit workflow.
 
 Fixed-range `gfir.loop` carries typed values and shares the enclosing Rule's
 transaction candidate throughout one sample. Its ordinal block argument is

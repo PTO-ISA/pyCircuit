@@ -1,6 +1,7 @@
-"""Independent shared-domain clock, guard and four-counter reference model."""
+"""Independent clock, guard and four-counter model with old-Q peer feedback."""
 
-# clk rst left-allow left-payload right-allow right-payload left-enable right-enable
+# Plan effective child admission; encode raw allows using reference peer parity.
+# clk rst left-admit left-payload right-admit right-payload left-enable right-enable
 stimuli = [
     (0, 0, "0", "x", "1", "1", "1", "1"),
     (1, 0, "0", "z", "1", "1", "1", "1"),
@@ -47,10 +48,18 @@ for clock, reset, *signals in stimuli:
             for gate, admission, value in zip(enable, allow, payload, strict=True)
         )
     available = [int(value == "1") for value in allow]
+    raw_allow = [
+        value if value in ("x", "z") else str(int(value) ^ (issued[1 - index] & 1))
+        for index, value in enumerate(allow)
+    ]
     print(
         clock,
         reset,
-        *signals,
+        raw_allow[0],
+        left_payload,
+        raw_allow[1],
+        right_payload,
+        *enable,
         *available,
         *(f"{value:x}" for value in issued + seen),
         int(not fault),

@@ -127,6 +127,7 @@ private:
   ac::detail::SourceCheckBudget budget{{}};
   llvm::DenseMap<Operation *, unsigned> done;
   llvm::DenseMap<Operation *, InstanceOp> receivers;
+  llvm::DenseMap<Operation *, llvm::BitVector> usedResultPorts;
   llvm::DenseSet<Operation *> allocatedModules;
   llvm::DenseSet<Operation *> clockedModules;
   StructuredProgram result;
@@ -267,6 +268,12 @@ LogicalResult Analyzer::bindCall(CallOp call,
   if (!detail::matchesSignature(call, callee.getFunctionType()))
     return call.emitOpError("instance call type does not match callee signature");
   receivers.try_emplace(call, receiver);
+  if (failed(budget.debit(call.getNumResults(), call)))
+    return failure();
+  auto &used = usedResultPorts.try_emplace(callee, call.getNumResults()).first->second;
+  for (auto [ordinal, output] : llvm::enumerate(call.getOutputs()))
+    if (!output.use_empty())
+      used.set(ordinal);
   return success();
 }
 
@@ -382,7 +389,8 @@ LogicalResult Analyzer::addValue(StructuredDefinition &definition, Value value) 
       return failure();
     ids.push_back(definition.wires.size());
     definition.wires.push_back(
-        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), {}, {}, {}, {}, {}, {}});
+        {{value, leaf.path}, unsigned(leaf.low), unsigned(leaf.width), leaf.type,
+         {}, {}, {}, {}, {}, {}});
   }
   return success();
 }
@@ -512,13 +520,21 @@ LogicalResult Analyzer::analyzeAvailability(
     auto *site = wire.endpoint.value.getDefiningOp();
     if (wire.call) {
       const auto &child = result.definitions[wire.call->definition];
-      unsigned port = child.outputs[wire.call->output].port.port;
-      if (failed(budget.debit(child.outputAvailability.size(), site)))
-        return failure();
-      if (llvm::any_of(child.outputAvailability,
-                       [&](const auto &output) { return output.port == port; })) {
+      const auto &output = child.outputs[wire.call->output];
+      auto addChild = [&](Source::Kind kind, unsigned resultPort) {
         unsigned call = clockedCallNodes.lookup(site) - definition.firstClockedCallNode();
-        wireSources[index].push_back({Source::Kind::ChildOutput, call, port});
+        wireSources[index].push_back({kind, call, resultPort});
+      };
+      if (auto field = output.fieldOutput) {
+        if (!child.fieldOutputs[*field].sources.empty())
+          addChild(Source::Kind::ChildField, *field);
+      } else {
+        if (failed(budget.debit(child.outputAvailability.size(), site)))
+          return failure();
+        if (llvm::any_of(child.outputAvailability, [&](const auto &available) {
+              return available.port == output.port.port;
+            }))
+          addChild(Source::Kind::ChildOutput, output.port.port);
       }
     }
     for (unsigned dep : wire.dependencies) {
@@ -597,15 +613,35 @@ LogicalResult Analyzer::analyzeAvailability(
   for (auto list : {module.getInputNames(), module.getOutputNames()})
     for (auto name : list)
       names.insert(cast<StringAttr>(name).getValue());
+  auto uniqueName = [&](std::string name) {
+    while (!names.insert(name).second)
+      name += "_";
+    return StringAttr::get(module.getContext(), name);
+  };
   for (auto [port, sources] : llvm::enumerate(ports)) {
     if (sources.empty())
       continue;
-    std::string name = "__pyc_valid_out_" + std::to_string(port);
-    while (!names.insert(name).second)
-      name += "_";
     definition.outputAvailability.push_back(
-        {unsigned(port), StringAttr::get(module.getContext(), name),
-         std::move(sources), !mixedPorts.test(port)});
+        {unsigned(port), uniqueName("__pyc_valid_out_" + std::to_string(port)),
+         std::move(sources)});
+  }
+  auto used = usedResultPorts.find(module);
+  if (used == usedResultPorts.end() || !mixedPorts.any())
+    return success();
+  for (auto [index, output] : llvm::enumerate(definition.outputs)) {
+    unsigned port = output.port.port;
+    if (!mixedPorts.test(port) || !used->second.test(port))
+      continue;
+    const auto &sources = wireSources[output.wire];
+    if (failed(budget.debit(1 + output.port.path.size() + sources.size(), module)))
+      return failure();
+    output.fieldOutput = definition.fieldOutputs.size();
+    StringAttr available;
+    if (!sources.empty())
+      available = uniqueName("__pyc_valid_field_" + std::to_string(index));
+    definition.fieldOutputs.push_back(
+        {unsigned(index), uniqueName("__pyc_field_out_" + std::to_string(index)),
+         available, sources});
   }
   return success();
 }
@@ -699,9 +735,6 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     const auto &child = result.definitions[target];
     if (!child.outputAvailability.empty() && !definition.clocked)
       return call.emitOpError("gated child outputs require a clocked caller");
-    if (llvm::any_of(child.outputAvailability,
-                     [](const auto &output) { return !output.uniform; }))
-      return call.emitOpError("child result with mixed field availability requires field transport");
     if (!child.clocked)
       continue;
     definition.sourceCheckCount = ac::detail::SourceCheckBudget::add(

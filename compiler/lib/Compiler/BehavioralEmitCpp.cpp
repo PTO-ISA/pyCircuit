@@ -29,6 +29,9 @@ std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
 std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
 std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
+std::string fieldAvailabilityName(unsigned field) {
+  return "pyc_field_available_" + std::to_string(field);
+}
 std::string memoryPinName(unsigned memory, unsigned port, unsigned argument) {
   return "pyc_memory_" + std::to_string(memory) + "_" + std::to_string(port) + "_" + std::to_string(argument);
 }
@@ -612,6 +615,9 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   for (const auto &output : definition.outputAvailability)
     out << "  bool " << availabilityName(output.port) << " = false;\n";
+  for (auto [index, field] : llvm::enumerate(definition.fieldOutputs))
+    if (!field.sources.empty())
+      out << "  bool " << fieldAvailabilityName(index) << " = false;\n";
   if (definition.incomingState) {
     unsigned state = *definition.incomingState;
     auto variable = definition.clocked->variables[state];
@@ -1514,7 +1520,10 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     auto member = instanceName(definition.clockedCalls[source.index].receiver);
     if (failed(member))
       return failure();
-    terms.push_back(instancePrefix.str() + *member + "." + availabilityName(source.port));
+    auto result = source.kind == gfir::StructuredAvailabilitySource::Kind::ChildField
+                      ? fieldAvailabilityName(source.port)
+                      : availabilityName(source.port);
+    terms.push_back(instancePrefix.str() + *member + "." + result);
   }
   return join(terms, " && ");
 }
@@ -1714,12 +1723,21 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
   for (auto [index, output] : llvm::enumerate(definition.outputs))
     if (output.requiresPreparation)
       out << "    " << preparedName(index) << " = " << wireName(output.wire) << ";\n";
-  for (const auto &output : definition.outputAvailability) {
-    auto available = availabilityExpression(definition, output.sources);
+  auto assignAvailability = [&](StringRef member,
+      ArrayRef<gfir::StructuredAvailabilitySource> sources) -> LogicalResult {
+    auto available = availabilityExpression(definition, sources);
     if (failed(available))
       return failure();
-    out << "    " << availabilityName(output.port) << " = " << *available << ";\n";
-  }
+    out << "    " << member << " = " << *available << ";\n";
+    return success();
+  };
+  for (const auto &output : definition.outputAvailability)
+    if (failed(assignAvailability(availabilityName(output.port), output.sources)))
+      return failure();
+  for (auto [index, field] : llvm::enumerate(definition.fieldOutputs))
+    if (!field.sources.empty() &&
+        failed(assignAvailability(fieldAvailabilityName(index), field.sources)))
+      return failure();
   if (definition.hasChecks())
     out << "    pyc_checks_valid = true;\n";
   return success();
