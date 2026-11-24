@@ -22,7 +22,8 @@ mlir::LogicalResult emitCppRecords(HardwareEmitContext &context,
 void appendCppDutHeader(FinalCppSourceParts &parts,
                         llvm::ArrayRef<std::string> inputs,
                         llvm::ArrayRef<std::string> outputs,
-                        llvm::StringRef configure, bool hasChecks, bool observes);
+                        llvm::StringRef configure, bool hasChecks, bool observes,
+                        bool alwaysActiveRoot = false);
 mlir::FailureOr<FinalCppSourceParts> emitCppSourceParts(
     mlir::ModuleOp package, ac::HardwareAnalysis &analysis);
 mlir::LogicalResult emitCpp(mlir::ModuleOp package,

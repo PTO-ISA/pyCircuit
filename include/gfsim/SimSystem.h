@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <limits>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace gfsim {
@@ -47,6 +48,7 @@ public:
         std::find(roots_.begin(), roots_.end(), &module) != roots_.end())
       return false;
     roots_.push_back(&module);
+    singleRootStep_ = nullptr;
     return true;
   }
 
@@ -73,11 +75,15 @@ public:
     if (state_ != SimSystemState::Ready)
       return SimStepResult::InvalidState;
 
-    bool hasWork = false;
-    for (const SimModule *module : roots_)
-      hasWork |= module->HasWork();
-    if (!hasWork)
-      return SimStepResult::Quiescent;
+    const bool single = singleRootStep_ &&
+                        (!observations_ || !observations_->NeedsSampling());
+    if (!single) {
+      bool hasWork = false;
+      for (const SimModule *module : roots_)
+        hasWork |= module->HasWork();
+      if (!hasWork)
+        return SimStepResult::Quiescent;
+    }
 
     // Time belongs to the system and observation records, not module Work.
     if (cycle_ == std::numeric_limits<std::uint64_t>::max()) {
@@ -86,6 +92,11 @@ public:
     }
 
     try {
+      if (single) {
+        singleRootStep_(*roots_.front());
+        ++cycle_;
+        return SimStepResult::Running;
+      }
       Work();
     } catch (...) {
       failureInfo_ = DescribeFailure(SimFailurePhase::Evaluate);
@@ -122,6 +133,23 @@ public:
   SimFailureInfo failureInfo() const noexcept { return failureInfo_; }
 
 protected:
+  // Generated systems use this registration when HasWork is always true and
+  // Precheck is an unconditional success. Extra roots or active observations
+  // require the ordinary whole-system path.
+  template <class Root> bool AddAlwaysActiveRootWithNoChecks(Root &root) {
+    static_assert(std::is_final_v<Root>);
+    if (!AddModule(root))
+      return false;
+    if (roots_.size() == 1) {
+      singleRootStep_ = [](SimModule &module) {
+        auto &typed = static_cast<Root &>(module);
+        typed.Work();
+        typed.Xfer();
+      };
+    }
+    return true;
+  }
+
   virtual bool FinalizeBuild() noexcept { return true; }
   virtual bool Precheck() noexcept = 0;
   virtual SimFailureInfo DescribeFailure(SimFailurePhase phase) const noexcept {
@@ -155,7 +183,7 @@ private:
     }
     // Check the complete system before any root or nested child commits state.
     bool accepted = Precheck();
-    if (observations_)
+    if (observations_ && observations_->NeedsSampling())
       accepted &= observations_->Precommit(cycle_);
     if (!accepted) {
       discardAll();
@@ -166,7 +194,7 @@ private:
     for (SimModule *module : roots_)
       module->Xfer();
     ++cycle_;
-    if (observations_)
+    if (observations_ && observations_->NeedsSampling())
       observations_->Xfer(cycle_);
     return true;
   }
@@ -185,6 +213,7 @@ private:
   }
 
   std::vector<SimModule *> roots_;
+  void (*singleRootStep_)(SimModule &) = nullptr;
   ObservationSlots *observations_ = nullptr;
   SimSystemState state_ = SimSystemState::PreBuild;
   std::uint64_t cycle_ = 0;

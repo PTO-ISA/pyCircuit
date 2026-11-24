@@ -468,6 +468,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
 LogicalResult
 BehavioralEmitter::declareClocked(raw_ostream &out,
                                  const gfir::StructuredClocked &clocked) {
+  if (!clocked.variables.empty())
+    out << "  gfsim::behavior::SampledDomain pyc_domain;\n";
   for (const auto &fifo : clocked.fifos) {
     auto name = instanceName(fifo.instance);
     auto type = common.cppType(fifo.element, fifo.instance);
@@ -484,6 +486,12 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     if (failed(type) || failed(emitInitial(out, variable, index)))
       return failure();
     out << "  gfsim::behavior::State<" << *type << "> " << stateName(index) << ";\n";
+  }
+  if (!clocked.variables.empty()) {
+    out << "  void pyc_reset_state() noexcept {\n";
+    for (unsigned index = 0; index < clocked.variables.size(); ++index)
+      out << "    " << stateName(index) << ".reset(" << initialName(index) << "());\n";
+    out << "  }\n";
   }
   for (unsigned index : clocked.methodOrder) {
     auto method = clocked.methods[index];
@@ -598,9 +606,20 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
       fields.push_back(wireName(at));
     return *type + "::fromPacked(" + concatenate(fields) + ")";
   };
-  for (auto [index, rule] : llvm::enumerate(plan.rules)) {
+  const bool hasState = !plan.variables.empty();
+  if (hasState) {
+    out << "    const auto pyc_sample = pyc_body.pyc_domain.evaluate(" << clock
+        << ", pyc_reset);\n";
+    // This profile's Rule bodies yield neither visible outputs nor checks.
+    // Their value proposals and FIFO payloads are only used on active edges.
+    if (!plan.rules.empty())
+      out << "    const bool pyc_active = pyc_sample.rising && !pyc_sample.resetActive && "
+             "pyc_sample.fault == gfsim::SampledClockFault::None;\n";
+  }
+  for (unsigned index = 0; index < plan.rules.size(); ++index) {
     out << "    decltype(pyc_body)::TxnFrame" << index << ' ' << frameName(index) << ";\n"
-        << "    if (gfsim::behavior::isOne(" << wireName(definition.wires.size() + index)
+        << "    if (" << (hasState ? "pyc_active && " : "")
+        << "gfsim::behavior::isOne(" << wireName(definition.wires.size() + index)
         << ")) pyc_body." << ruleName(index) << '(' << frameName(index) << ");\n";
   }
   // All Rules have finished issuing requests. Only prepare borrowed inputs
@@ -627,22 +646,30 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
     out << "    pyc_body." << *name << ".prepare(" << clock << ", pyc_reset, "
         << enabled << ", " << data << ", " << *outReady << ");\n";
   }
+  if (!hasState)
+    return success();
+
+  // FIFO preparation precedes state validation, including when a resource
+  // and the sampled domain would both reject the same inputs.
+  out << "    pyc_body.pyc_domain.prepare(pyc_sample);\n"
+      << "    if (pyc_sample.rising) {\n"
+      << "      if (pyc_sample.resetActive) {\n"
+      << "        pyc_body.pyc_reset_state();\n"
+      << "      } else {\n";
   llvm::DenseMap<unsigned, unsigned> writers;
   for (auto [index, rule] : llvm::enumerate(plan.rules))
     for (unsigned state : rule.writes)
       writers.try_emplace(state, index);
   for (unsigned index = 0; index < plan.variables.size(); ++index) {
-    std::string state = "pyc_body." + stateName(index);
-    std::string enabled = levelName.str() + "(false)";
-    std::string data = state + ".value()";
+    out << "        pyc_body." << stateName(index);
     if (auto writer = writers.find(index); writer != writers.end()) {
-      std::string candidate = frameName(writer->second) + "." + stateName(index);
-      enabled = wireName(definition.wires.size() + writer->second);
-      data = candidate + " ? *" + candidate + " : " + data;
+      out << ".prepare(" << wireName(definition.wires.size() + writer->second)
+          << ", " << frameName(writer->second) << '.' << stateName(index) << ");\n";
+    } else {
+      out << ".hold();\n";
     }
-    out << "    " << state << ".prepare(" << clock << ", pyc_reset, " << enabled
-        << ", " << data << ", pyc_body." << initialName(index) << "());\n";
   }
+  out << "      }\n    }\n";
   return success();
 }
 
@@ -658,11 +685,17 @@ LogicalResult BehavioralEmitter::emitLifecycle(raw_ostream &out,
         return failure();
       out << "  pyc_body." << *member << "." << action << "();\n";
     }
-    for (unsigned index = 0; index < plan.variables.size(); ++index) {
-      out << "  pyc_body." << stateName(index) << "." << action << '(';
-      if (StringRef(hook) == "Reset")
-        out << "pyc_body." << initialName(index) << "()";
-      out << ");\n";
+    if (!plan.variables.empty()) {
+      if (StringRef(action) == "commit") {
+        out << "  if (pyc_body.pyc_domain.commit()) {\n";
+        for (unsigned index = 0; index < plan.variables.size(); ++index)
+          out << "    pyc_body." << stateName(index) << ".commit();\n";
+        out << "  }\n";
+      } else {
+        out << "  pyc_body.pyc_domain." << action << "();\n";
+        if (StringRef(action) == "reset")
+          out << "  pyc_body.pyc_reset_state();\n";
+      }
     }
     out << "}\n";
   }
@@ -781,7 +814,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   if (definition.clocked) {
     auto policy = program.root->getAttrOfType<DictionaryAttr>("execution_policy");
     bool ifOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
-    source << "  DiscardNext();\n  try {\n"
+    source << "  try {\n"
            << "    const auto pyc_reset = gfsim::interpretReset(" << reset
            << ", gfsim::ResetSemantics::" << (ifOne ? "IfOne" : "Strict") << ");\n";
   }
@@ -841,7 +874,8 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   parts.systemHeader = "#pragma once\n#include \"" + parts.rootHeaderPath +
                        "\"\nusing pyc_root = " + *name + ";\n";
   appendCppDutHeader(parts, inputs, outputs, "observations_.Configure({}, 0)",
-                     /*hasChecks=*/false, /*observes=*/false);
+                     /*hasChecks=*/false, /*observes=*/false,
+                     /*alwaysActiveRoot=*/true);
   llvm::raw_string_ostream map(parts.portMap);
   map << llvm::json::Value(llvm::json::Object{
       {"schema_version", 1}, {"target", "cpp"}, {"inputs", std::move(inputRows)},

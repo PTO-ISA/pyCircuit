@@ -85,10 +85,17 @@ reset interpretation and projects to `ac.execution_policy` on the HWIR root.
 
 Both native branches verify the structured input. The hardware branch also
 verifies the generated HWIR and requests managed sampling for a clocked root.
-Behavior C++ derives admission from the committed
-resource state, evaluates each admitted Rule in its own candidate frame, and
-prepares the frozen FIFO and state drives through the built-in gfsim kernels.
-`SimSystem` commits or discards the complete sample. The hand-written
+Behavior C++ derives admission from committed resource state and gives each
+Rule its own candidate frame. When the root owns logical variables, it samples
+their shared clock history once. Rule proposals in this profile are needed on
+non-reset rising edges. Held and falling samples still publish old-state
+outputs and advance committed clock history. FIFO drives go through the same
+gfsim kernel on every sample.
+
+`SimSystem` commits or discards the complete sample. For the generated root
+with no observations or additional checks, it can call the concrete root
+directly. Additional roots or active observation slots use the whole-system
+check before any commit. The hand-written
 `TableRule` package uses the original C++ driver against both generated
 models. It covers backpressure, four-state Table indices, rollback, and reset.
 

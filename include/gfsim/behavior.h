@@ -6,6 +6,7 @@
 
 #include <bit>
 #include <cstdint>
+#include <optional>
 #include <tuple>
 
 namespace gfsim::behavior {
@@ -55,27 +56,69 @@ private:
   wire<T> unusedData_;
 };
 
-template <class T> class State {
-  using Kernel = dffe_kernel<T>;
-
+// All logical state in a verified domain shares committed edge history.
+// Clock-only samples still prepare their history for the enclosing Xfer.
+class SampledDomain {
 public:
-  const wire<T> &value() const noexcept { return current_.q; }
+  SampledClockEvaluation evaluate(const Level &clock,
+                                  const Level &reset) const noexcept {
+    return evaluateSampledClock(clock_, clock, reset);
+  }
 
-  void prepare(const Level &clock, const Level &reset, const Level &enabled,
-               const wire<T> &candidate, const wire<T> &initial) {
-    Kernel::work(current_, {clock, reset, enabled, candidate, initial}, pending_,
-                 {current_.q});
+  void prepare(const SampledClockEvaluation &sample) {
+    detail::checkDffeClock(sample);
+    nextClock_ = sample.nextClock;
+    writesState_ = sample.rising;
+    valid_ = true;
   }
-  void reset(const wire<T> &initial) noexcept {
-    Kernel::reset(current_, {Level{}, Level{}, Level{}, current_.q, initial},
-                  pending_);
+
+  void reset() noexcept {
+    nextClock_ = false;
+    writesState_ = true;
+    valid_ = true;
   }
-  void commit() noexcept { Kernel::xfer(current_, pending_, {current_.q}); }
-  void discard() noexcept { Kernel::discard(current_, pending_); }
+
+  bool commit() noexcept {
+    if (!valid_)
+      return false;
+    clock_ = nextClock_;
+    valid_ = false;
+    return writesState_;
+  }
+
+  void discard() noexcept { valid_ = false; }
 
 private:
-  typename Kernel::Current current_;
-  typename Kernel::Pending pending_;
+  bool clock_ = false;
+  bool nextClock_ = false;
+  bool writesState_ = false;
+  bool valid_ = false;
+};
+
+// A value proposal is read only when the domain commits a sample with writes.
+// Every such sample replaces all of its owner's proposals, including holds.
+template <class T> class State {
+public:
+  const wire<T> &value() const noexcept { return current_; }
+
+  void prepare(const Level &enabled, const std::optional<wire<T>> &candidate) {
+    if (detail::dffeEnabled(enabled))
+      pending_ = candidate;
+    else
+      hold();
+  }
+
+  void hold() noexcept { pending_.reset(); }
+  void reset(const wire<T> &initial) noexcept { pending_ = initial; }
+
+  void commit() noexcept {
+    if (pending_)
+      current_ = *pending_;
+  }
+
+private:
+  wire<T> current_;
+  std::optional<wire<T>> pending_;
 };
 
 template <std::size_t Size, class T>

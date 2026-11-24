@@ -268,6 +268,9 @@ public:
 
   bool Check() const noexcept { return checkGroups(nullptr); }
 
+  // Only configured, empty owners can skip the sample's observation phase.
+  bool NeedsSampling() const noexcept { return !configured_ || !slots_.empty(); }
+
   bool Precommit(std::uint64_t evaluationEpoch) const noexcept {
     return checkGroups(&evaluationEpoch);
   }
