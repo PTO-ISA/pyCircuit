@@ -33,6 +33,9 @@ std::string memoryPinName(unsigned memory, unsigned port, unsigned argument) {
   return "pyc_memory_" + std::to_string(memory) + "_" + std::to_string(port) + "_" + std::to_string(argument);
 }
 std::string intentName(unsigned index) { return "pyc_intent_" + std::to_string(index); }
+std::string observationName(unsigned slot) {
+  return "pyc_observation_" + std::to_string(slot);
+}
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
@@ -41,6 +44,11 @@ bool isClocked(const gfir::StructuredDefinition &definition) {
 bool hasAssertions(const gfir::StructuredDefinition &definition) {
   return definition.clocked && llvm::any_of(definition.clocked->rules,
       [](const gfir::StructuredRule &rule) { return !rule.assertions.empty(); });
+}
+
+bool hasObservations(const gfir::StructuredDefinition &definition) {
+  return definition.clocked && llvm::any_of(definition.clocked->rules,
+      [](const gfir::StructuredRule &rule) { return !rule.observations.empty(); });
 }
 
 std::string assertionName(unsigned rule, unsigned check) {
@@ -192,6 +200,8 @@ void preparationSignature(raw_ostream &out,
   }
   if (definition.incomingState)
     out << ", const ChildTxnState &pyc_incoming, bool pyc_incoming_enabled";
+  if (hasObservations(definition))
+    out << ", const pyc_observation_sink *pyc_sink, std::size_t pyc_observation_base";
   out << ')';
 }
 
@@ -219,6 +229,8 @@ private:
   LogicalResult declareModule(raw_ostream &out, unsigned index);
   LogicalResult emitModule(raw_ostream &out, unsigned index);
   LogicalResult emitRoot(FinalCppSourceGroup &group);
+  FailureOr<std::string> emitObservationMetadata(
+      const gfir::StructuredDefinition &definition);
   FailureOr<FinalCppSourceGroup *> getGroup(gfir::ModuleOp module);
   FailureOr<std::string> typedWire(Type type, Operation *site);
   FailureOr<std::string> graphWire(Value value,
@@ -983,6 +995,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           ArrayRef<std::string> stepTargets) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
+  unsigned nextObservation = 0;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
@@ -1005,8 +1018,14 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     }
     std::string text;
     if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
-      out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
-          << " = " << values.lookup(effect.getPredicate()) << ";\n";
+      if (effect.getKind() == "assert") {
+        out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
+            << " = " << args.front() << ";\n";
+      } else {
+        unsigned slot = rule->observations[nextObservation++].firstSlot;
+        for (const auto &argument : args)
+          out << "    txn." << observationName(slot++) << " = " << argument << ";\n";
+      }
       continue;
     } else if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
       if (failed(emitLoop(out, loop, definition, values, results)))
@@ -1386,6 +1405,16 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     for (auto assertion : rule.assertions)
       out << "    gfsim::behavior::Level pyc_assert_condition_"
           << clocked.checkOffsets.lookup(assertion) << ";\n";
+    for (const auto &observation : rule.observations) {
+      auto effect = observation.operation;
+      unsigned slot = observation.firstSlot;
+      for (Value value : effect.getValues()) {
+        auto type = typedWire(value.getType(), effect);
+        if (failed(type))
+          return failure();
+        out << "    " << *type << ' ' << observationName(slot++) << ";\n";
+      }
+    }
     for (unsigned state : rule.states) {
       auto variable = clocked.variables[state];
       auto wire = typedWire(variable.getInitial().getType(), variable);
@@ -1504,7 +1533,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
         << " = " << frameName(producer) << ".pyc_running;\n";
   out << "    if (";
   if (needsDomain(*definition.clocked) && rule.resultUses.empty() &&
-      !rule.readsByteMemory && rule.assertions.empty())
+      !rule.readsByteMemory && rule.assertions.empty() && rule.observations.empty())
     out << "pyc_active && ";
   out << "gfsim::behavior::isOne(" << wireName(grant) << ")) "
       << instancePrefix << ruleName(index) << '(' << frameName(index);
@@ -1526,6 +1555,32 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
         << frameName(index) << ".pyc_assert_condition_" << ordinal << ".packed()));\n"
         << "      " << assertionName(index, ordinal)
         << " = !pyc_error.isFullyKnown() || pyc_error.value() != gfsim::Bits<1>{0};\n    }\n";
+  }
+  if (!rule.observations.empty()) {
+    auto frame = frameName(index);
+    out << "    if (" << frame
+        << ".pyc_running && pyc_sink && pyc_sink->slots && pyc_sink->system) {\n";
+    for (const auto &observation : rule.observations) {
+      auto effect = observation.operation;
+      unsigned slot = observation.firstSlot;
+      auto stage = [&](StringRef packed, bool eventBool) {
+        out << "      pyc_sink->slots->StagePacked(pyc_observation_base + " << slot++
+            << ", " << packed << ", " << (eventBool ? "true" : "false")
+            << ", true, true, pyc_sink->system->cycle());\n";
+      };
+      if (effect.getValues().empty()) {
+        stage("gfsim::behavior::level(true).packed()", true);
+        continue;
+      }
+      for (Value value : effect.getValues()) {
+        auto width = analysis.getPackedWidth(value.getType(), {}, effect);
+        if (failed(width))
+          return failure();
+        stage(frame + "." + observationName(slot) + ".packed()",
+              effect.getKind() == "log" && *width == 1);
+      }
+    }
+    out << "    }\n";
   }
   if (rule.sampled)
     out << "    if (" << frameName(index) << ".pyc_failed_check != " << noCheck
@@ -1859,6 +1914,57 @@ FailureOr<FinalCppSourceGroup *> BehavioralEmitter::getGroup(gfir::ModuleOp modu
   return &group;
 }
 
+FailureOr<std::string> BehavioralEmitter::emitObservationMetadata(
+    const gfir::StructuredDefinition &definition) {
+  if (!hasObservations(definition)) {
+    parts.systemHeader += "inline std::span<const gfsim::RunnerObservation> "
+                          "pyc_observation_metadata() { return {}; }\n";
+    return std::string("observations_.Configure({}, 0)");
+  }
+  std::string descriptors, metadata;
+  llvm::raw_string_ostream descriptorStream(descriptors), metadataStream(metadata);
+  uint64_t registration = 0, site = 0, events = 0, slots = 0;
+  for (const auto &rule : definition.clocked->rules) {
+    if (rule.observations.empty())
+      continue;
+    for (const auto &observation : rule.observations) {
+      auto effect = observation.operation;
+      bool gauge = effect.getKind() == "report";
+      bool carriesValue = !effect.getValues().empty();
+      unsigned count = std::max<std::size_t>(1, effect.getValues().size());
+      for (unsigned index = 0; index < count; ++index) {
+        uint64_t width = 1;
+        if (carriesValue) {
+          auto payload = analysis.getPackedWidth(effect.getValues()[index].getType(), {}, effect);
+          if (failed(payload))
+            return failure();
+          width = *payload;
+        }
+        uint64_t slot = observation.firstSlot + index;
+        appendCppObservationDescriptor(descriptorStream,
+            {slot, 0, registration, site, gauge ? 1u : 0u}, index, count, width);
+        if (failed(appendCppObservationMetadata(metadataStream, effect, observation.id,
+                effect.getSpec(), effect.getKind(), "root", slot, carriesValue, index, count)))
+          return failure();
+      }
+      slots += count;
+      if (!gauge)
+        events += count;
+      ++site;
+    }
+    ++registration;
+  }
+  llvm::raw_string_ostream header(parts.systemHeader);
+  header << "static constexpr gfsim::ObservationDescriptor pyc_observation_descriptors["
+         << slots << "] = {" << descriptors << "\n};\n"
+         << "inline std::span<const gfsim::RunnerObservation> "
+            "pyc_observation_metadata() {\n"
+            "  static const gfsim::RunnerObservation entries[] = {\n"
+         << metadata << "  };\n  return entries;\n}\n";
+  return "observations_.Configure(pyc_observation_descriptors, " +
+         std::to_string(events) + ")";
+}
+
 LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   const auto &definition = program.definitions[program.rootIndex];
   auto root = definition.module;
@@ -1866,6 +1972,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   auto policy = entry.getExecutionPolicyAttr();
   const bool resetIfOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
   const bool system = entry.getKind() == "system";
+  const bool observes = hasObservations(definition);
   auto name = qualifiedName(root.getSymName(), root);
   if (failed(name))
     return failure();
@@ -1880,8 +1987,13 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   auto className = components.back();
   header << "class " << className << " final : public gfsim::SimModule {\n"
          << "public:\n  explicit " << className
-         << "(std::string name, gfsim::WorkExecutor* = nullptr)\n"
-         << "      : gfsim::SimModule(std::move(name)) {\n";
+         << "(std::string name, gfsim::WorkExecutor* = nullptr";
+  if (observes)
+    header << ", pyc_observation_sink *sink = nullptr, std::size_t base = 0";
+  header << ")\n      : gfsim::SimModule(std::move(name))";
+  if (observes)
+    header << ", pyc_sink_(sink), pyc_observation_base_(base)";
+  header << " {\n";
   if (definition.hasChecks())
     header << "    pyc_body.configure_checks(std::string(this->name()));\n";
   header << "  }\n"
@@ -1964,6 +2076,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   }
 
   header << "private:\n  " << moduleName(program.rootIndex) << " pyc_body;\n";
+  if (observes)
+    header << "  pyc_observation_sink *pyc_sink_;\n"
+           << "  std::size_t pyc_observation_base_;\n";
   if (system)
     header << "  gfsim::SystemSampledClock pyc_system_clock;\n";
   header << "};\n";
@@ -2007,6 +2122,8 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
       source << wireName(input);
       comma = true;
     }
+    if (observes)
+      source << ", pyc_sink_, pyc_observation_base_";
     source << ");\n";
   }
   if (system)
@@ -2065,14 +2182,17 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
 
   parts.systemHeader = "#pragma once\n#include \"" + parts.rootHeaderPath +
                        "\"\nusing pyc_root = " + *name + ";\n";
+  std::string configure = "observations_.Configure({}, 0)";
   if (system) {
-    parts.systemHeader += "#include <gfsim/SystemRunner.h>\n"
-                          "inline std::span<const gfsim::RunnerObservation> "
-                          "pyc_observation_metadata() { return {}; }\n";
+    parts.systemHeader += "#include <gfsim/SystemRunner.h>\n";
+    auto observations = emitObservationMetadata(definition);
+    if (failed(observations))
+      return failure();
+    configure = std::move(*observations);
     addCppSystemDriver(parts, clock, reset, program.samples, resetIfOne);
   }
-  appendCppDutHeader(parts, inputs, outputs, "observations_.Configure({}, 0)",
-                     /*hasChecks=*/definition.hasChecks(), /*observes=*/false,
+  appendCppDutHeader(parts, inputs, outputs, configure,
+                     /*hasChecks=*/definition.hasChecks(), observes,
                      /*alwaysActiveRoot=*/true);
   llvm::raw_string_ostream map(parts.portMap);
   map << llvm::json::Value(llvm::json::Object{
@@ -2118,6 +2238,8 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
     parts.supportHeader += "#include <gfsim/SimSystem.h>\n#include <limits>\n#include <string>\n";
   else
     parts.supportHeader += "namespace gfsim { struct SimFailureInfo; }\n";
+  if (hasObservations(program.definitions[program.rootIndex]))
+    parts.supportHeader += cppObservationSupport().str();
   if (llvm::any_of(program.definitions, [](const gfir::StructuredDefinition &definition) {
         return isClocked(definition) || llvm::any_of(definition.wires,
             [](const gfir::StructuredWire &wire) {

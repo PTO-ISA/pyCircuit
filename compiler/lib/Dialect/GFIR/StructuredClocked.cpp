@@ -4,6 +4,7 @@
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
@@ -507,11 +508,36 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       }
     } else if (auto effect = dyn_cast<EffectOp>(op)) {
       if (!rule || owner != plan.rules[*rule].operation ||
-          failed(verifyAttributes(effect, {"message"})))
-        return effect.emitOpError("assertion requires a direct Rule body");
-      if (!isBitOne(hardware, effect.getPredicate().getType(), effect))
-        return effect.emitOpError("assertion requires Bits1");
-      plan.rules[*rule].assertions.push_back(effect);
+          failed(verifyAttributes(effect, {"kind", "message", "spec"})))
+        return effect.emitOpError("effect requires a direct Rule body");
+      auto &record = plan.rules[*rule];
+      if (effect.getKind() == "assert") {
+        if (!isBitOne(hardware, effect.getValues().front().getType(), effect))
+          return effect.emitOpError("assertion requires Bits1");
+        record.assertions.push_back(effect);
+      } else {
+        auto error = [&] { return effect.emitOpError(); };
+        if (auto items = effect.getSpec().getAs<ArrayAttr>("items");
+            items && failed(budget.debit(items.size(), effect)))
+          return failure();
+        if (failed(ac::detail::verifySourceObservationSpec(
+                effect.getKindAttr(), effect.getSpec(), effect.getValues().size(), error)))
+          return failure();
+        for (Value value : effect.getValues()) {
+          Type type = value.getType();
+          if (!isa<ac::BitsType, ac::EnumType>(type))
+            return effect.emitOpError("observation requires a scalar Bits or Enum value");
+          auto width = hardware.getPackedWidth(type, {}, effect);
+          if (failed(width))
+            return failure();
+          if (*width == 0 || *width > std::numeric_limits<unsigned>::max() ||
+              (effect.getKind() == "report" && *width > 64))
+            return effect.emitOpError("observation payload width exceeds Runtime capacity");
+          if (failed(budget.debit(6 * (*width / 64 + (*width % 64 != 0)), effect)))
+            return failure();
+        }
+        record.observations.push_back({effect, {}, {}});
+      }
     } else if (auto guard = dyn_cast<GuardOp>(op)) {
       if (failed(verifyAttributes(guard, {})))
         return failure();
@@ -620,12 +646,13 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     rule.states = std::move(body.states);
     rule.writes = std::move(body.writes);
     rule.sampled = body.sampledControls != 0 || childWriter == index;
-    if (!rule.assertions.empty()) {
-      if (rule.sampled || !body.methods.empty() || !rule.requirements.empty())
-        return rule.operation.emitOpError("assertion Rule requires an unconditional local transaction");
+    if (!rule.assertions.empty() &&
+        (rule.sampled || !body.methods.empty() || !rule.requirements.empty()))
+      return rule.operation.emitOpError("assertion Rule requires an unconditional local transaction");
+    if (!rule.assertions.empty() || !rule.observations.empty()) {
       for (Operation &op : rule.operation.getBody().front())
-        if (isa<CallOp, IfOp, LoopOp, GuardOp>(op))
-          return op.emitOpError("assertion Rule requires a direct ordered body");
+        if (isa<CallOp, IfOp, LoopOp>(op))
+          return op.emitOpError("effect Rule requires a direct ordered body");
       rule.sampled = true;
     }
     if (rule.sampled) {
@@ -705,6 +732,19 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
   };
   for (unsigned method : plan.methodOrder)
     methodSizes[method] = assignOffsets(plan.methods[method].getBody().front());
+  auto location = [&](Operation *op) {
+    auto loc = dyn_cast<FileLineColLoc>(op->getLoc());
+    uint64_t line = loc ? std::max<uint64_t>(loc.getLine(), 1) : 1;
+    uint64_t col = loc ? std::max<uint64_t>(loc.getColumn(), 1) : 1;
+    return builder.getDictionaryAttr({
+        builder.getNamedAttr("path", sitePath),
+        builder.getNamedAttr("line", builder.getI64IntegerAttr(line)),
+        builder.getNamedAttr("column", builder.getI64IntegerAttr(col)),
+        builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
+        builder.getNamedAttr("end_column", builder.getI64IntegerAttr(col + 1))});
+  };
+  llvm::StringSet<> reportNames;
+  uint64_t firstSlot = 0;
   for (auto &rule : plan.rules) {
     if (!rule.sampled)
       continue;
@@ -716,20 +756,11 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
       return failure();
     rule.checks.reserve(count);
     auto add = [&](Operation *op) {
-      auto loc = dyn_cast<FileLineColLoc>(op->getLoc());
-      uint64_t line = loc ? std::max<uint64_t>(loc.getLine(), 1) : 1;
-      uint64_t col = loc ? std::max<uint64_t>(loc.getColumn(), 1) : 1;
-      auto location = builder.getDictionaryAttr({
-          builder.getNamedAttr("path", sitePath),
-          builder.getNamedAttr("line", builder.getI64IntegerAttr(line)),
-          builder.getNamedAttr("column", builder.getI64IntegerAttr(col)),
-          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
-          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(col + 1))});
       auto id = builder.getDictionaryAttr({
           builder.getNamedAttr("registration", registration),
           builder.getNamedAttr("check", plan.orderedOccurrences.lookup(op)),
           builder.getNamedAttr("obligation", builder.getI64IntegerAttr(rule.checks.size()))});
-      rule.checks.push_back({id, location});
+      rule.checks.push_back({id, location(op)});
     };
     add(rule.operation);
     auto expand = [&](auto &&self, Operation *, unsigned method) -> void {
@@ -743,6 +774,25 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
     for (auto assertion : rule.assertions) {
       plan.checkOffsets.try_emplace(assertion, rule.checks.size());
       add(assertion);
+    }
+    for (auto [ordinal, observation] : llvm::enumerate(rule.observations)) {
+      auto effect = observation.operation;
+      if (effect.getKind() == "report" &&
+          !reportNames.insert(effect.getSpec().getAs<StringAttr>("name").getValue()).second)
+        return effect.emitOpError("report name is already used for this logical owner");
+      uint64_t slots = std::max<std::size_t>(1, effect.getValues().size());
+      if (slots > std::numeric_limits<unsigned>::max() - firstSlot)
+        return effect.emitOpError("observation slot inventory exceeds Runtime capacity");
+      observation.firstSlot = firstSlot;
+      firstSlot += slots;
+      observation.location = location(effect);
+      observation.id = builder.getDictionaryAttr({
+          builder.getNamedAttr("registration", registration),
+          builder.getNamedAttr("site", plan.orderedOccurrences.lookup(effect)),
+          builder.getNamedAttr("ordinal", builder.getI64IntegerAttr(ordinal)),
+          builder.getNamedAttr("invocation", empty),
+          builder.getNamedAttr("owner", builder.getDictionaryAttr({
+              builder.getNamedAttr("instance_path", empty)}))});
     }
   }
   return success();

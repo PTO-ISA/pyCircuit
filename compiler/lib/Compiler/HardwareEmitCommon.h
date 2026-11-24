@@ -157,6 +157,15 @@ mlir::FailureOr<std::string> emissionMetadataJson(mlir::Attribute value,
                                                   mlir::Operation *site);
 mlir::FailureOr<std::string>
 observationSiteMetadataJson(ac::SourceObserveOp observe);
+llvm::StringRef cppObservationSupport();
+void appendCppObservationDescriptor(llvm::raw_ostream &out,
+                                    const std::array<uint64_t, 5> &entry,
+                                    unsigned valueIndex, uint64_t groupSize,
+                                    uint64_t width);
+mlir::LogicalResult appendCppObservationMetadata(
+    llvm::raw_ostream &out, mlir::Operation *site, mlir::DictionaryAttr identity,
+    mlir::DictionaryAttr spec, llvm::StringRef kind, llvm::StringRef instance,
+    uint64_t ordinal, bool carriesValue, unsigned valueIndex, uint64_t groupSize);
 mlir::FailureOr<std::string>
 cppObservationRunnerMetadata(HardwareEmitContext &context);
 mlir::FailureOr<std::string>

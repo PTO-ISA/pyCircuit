@@ -160,9 +160,10 @@ def GFIR_GuardOp : GFIR_Op<"guard", [
 
 def GFIR_EffectOp : GFIR_Op<"effect", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-  let summary = "Check a total assertion during every simulation sample";
-  let arguments = (ins AnyType:$predicate, OptionalAttr<StrAttr>:$message);
-  let assemblyFormat = "`assert` $predicate attr-dict `:` type($predicate)";
+  let summary = "Capture an ordered assertion or observation";
+  let arguments = (ins Variadic<AnyType>:$values, StrAttr:$kind,
+      OptionalAttr<StrAttr>:$message, OptionalAttr<DictionaryAttr>:$spec);
+  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
 

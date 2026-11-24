@@ -443,16 +443,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
       "#include <cstddef>\n#include <cstdint>\n";
   parts.supportHeader += cppWorkRuntimeSupport().str();
   if (observes)
-    parts.supportHeader +=
-        "#include <gfsim/ObservationSlot.h>\n"
-        "// Native observation binding. A generated module reaches the "
-        "system-owned\n"
-        "// observation slots through this handle, which the DUT binds before "
-        "Build().\n"
-        "struct pyc_observation_sink {\n"
-        "  gfsim::ObservationSlots *slots = nullptr;\n"
-        "  const gfsim::SimSystem *system = nullptr;\n"
-        "};\n";
+    parts.supportHeader += cppObservationSupport().str();
   parts.supportHeader +=
       "constexpr std::int64_t pyc_floordiv(std::int64_t a, std::int64_t b) { "
       "return a/b - ((a%b != 0 && (a<0)!=(b<0)) ? 1 : 0); }\n"

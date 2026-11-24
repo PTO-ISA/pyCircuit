@@ -1786,6 +1786,27 @@ observationPayloadWidth(HardwareEmitContext &context,
     return observe.emitOpError() << "numeric report requires at most 64 bits";
   return *width;
 }
+StringRef cppObservationSupport() {
+  return "#include <gfsim/ObservationSlot.h>\n"
+         "// Native observation binding. A generated module reaches the "
+         "system-owned\n"
+         "// observation slots through this handle, which the DUT binds before "
+         "Build().\n"
+         "struct pyc_observation_sink {\n"
+         "  gfsim::ObservationSlots *slots = nullptr;\n"
+         "  const gfsim::SimSystem *system = nullptr;\n"
+         "};\n";
+}
+
+void appendCppObservationDescriptor(raw_ostream &out,
+                                    const std::array<uint64_t, 5> &entry,
+                                    unsigned valueIndex, uint64_t groupSize,
+                                    uint64_t width) {
+  out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
+      << entry[3] << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
+      << ", " << valueIndex << ", " << groupSize << ", " << width << "},";
+}
+
 FailureOr<std::string>
 cppObservationDescriptorTable(HardwareEmitContext &context) {
   auto plan = buildObservationPlan(context);
@@ -1806,12 +1827,8 @@ cppObservationDescriptorTable(HardwareEmitContext &context) {
     auto width = observationPayloadWidth(context, occurrence);
     if (failed(width))
       return failure();
-    out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
-        << entry[3]
-        << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
-        << ", " << occurrence.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << ", "
-        << *width << "},";
+    appendCppObservationDescriptor(out, entry, occurrence.site.valueIndex,
+        std::max<std::size_t>(1, observe.getValues().size()), *width);
   }
   out << "\n};\n";
   out.flush();
@@ -1988,19 +2005,45 @@ FailureOr<std::string> emissionMetadataJson(Attribute value, Operation *site) {
   out << *converted;
   return text;
 }
-FailureOr<std::string>
-observationSiteMetadataJson(ac::SourceObserveOp observe) {
-  auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
+static FailureOr<std::string>
+observationSiteMetadataJson(DictionaryAttr identity, Operation *site) {
   if (failed(ac::detail::verifyObservationID(
-          identity, [&] { return observe.emitOpError(); })))
+          identity, [&] { return site->emitOpError(); })))
     return failure();
-  Builder builder(observe.getContext());
+  Builder builder(site->getContext());
   return emissionMetadataJson(
       builder.getDictionaryAttr(
           {builder.getNamedAttr("site", identity.get("site")),
            builder.getNamedAttr("invocation", identity.get("invocation")),
            builder.getNamedAttr("ordinal", identity.get("ordinal"))}),
-      observe);
+      site);
+}
+
+FailureOr<std::string>
+observationSiteMetadataJson(ac::SourceObserveOp observe) {
+  return observationSiteMetadataJson(
+      observe->getAttrOfType<DictionaryAttr>("ac.observation_id"), observe);
+}
+
+LogicalResult appendCppObservationMetadata(
+    raw_ostream &out, Operation *op, DictionaryAttr identity,
+    DictionaryAttr specification, StringRef kind, StringRef instance,
+    uint64_t ordinal, bool carriesValue, unsigned valueIndex, uint64_t groupSize) {
+  auto site = observationSiteMetadataJson(identity, op);
+  if (failed(site))
+    return failure();
+  auto registration = emissionMetadataJson(identity.get("registration"), op);
+  auto spec = emissionMetadataJson(specification, op);
+  if (failed(registration) || failed(spec))
+    return failure();
+  auto report = specification.getAs<StringAttr>("name");
+  out << "    {" << ordinal << ", " << cppMetadataString(kind) << ", "
+      << cppMetadataString(instance) << ", " << cppMetadataString(*registration)
+      << ", " << cppMetadataString(*site) << ", " << cppMetadataString(*spec)
+      << ", " << (carriesValue ? "true" : "false") << ", "
+      << cppMetadataString(report ? report.getValue() : StringRef()) << ", "
+      << valueIndex << ", " << groupSize << "},\n";
+  return success();
 }
 FailureOr<std::string>
 cppObservationRunnerMetadata(HardwareEmitContext &context) {
@@ -2020,14 +2063,6 @@ cppObservationRunnerMetadata(HardwareEmitContext &context) {
   for (const auto &entry : plan->occurrences) {
     auto observe = cast<ac::SourceObserveOp>(entry.site.op);
     auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
-    if (!identity)
-      return observe.emitOpError() << "observation identity is missing";
-    auto registration =
-        emissionMetadataJson(identity.get("registration"), observe);
-    auto site = observationSiteMetadataJson(observe);
-    auto spec = emissionMetadataJson(observe.getSpec(), observe);
-    if (failed(registration) || failed(site) || failed(spec))
-      return failure();
     std::string instance = "root";
     for (auto [operation, lane] : entry.logicalOwnerPath) {
       auto name = operation->getAttrOfType<StringAttr>("instance_name");
@@ -2037,16 +2072,11 @@ cppObservationRunnerMetadata(HardwareEmitContext &context) {
       if (isa<ac::CollectionOp>(operation))
         instance += "[" + std::to_string(lane) + "]";
     }
-    auto report = observe.getSpec().getAs<StringAttr>("name");
-    out << "    {" << entry.ordinal << ", "
-        << cppMetadataString(observe.getKind()) << ", "
-        << cppMetadataString(instance) << ", "
-        << cppMetadataString(*registration) << ", " << cppMetadataString(*site)
-        << ", " << cppMetadataString(*spec) << ", "
-        << (entry.site.carriesValue ? "true" : "false") << ", "
-        << cppMetadataString(report ? report.getValue() : StringRef()) << ", "
-        << entry.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << "},\n";
+    if (failed(appendCppObservationMetadata(
+            out, observe, identity, observe.getSpec(), observe.getKind(), instance,
+            entry.ordinal, entry.site.carriesValue, entry.site.valueIndex,
+            std::max<std::size_t>(1, observe.getValues().size()))))
+      return failure();
   }
   out << "  };\n  return entries;\n}\n";
   return text;

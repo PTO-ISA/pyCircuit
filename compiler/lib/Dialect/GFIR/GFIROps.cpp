@@ -539,17 +539,65 @@ LogicalResult OrdinalBitsOp::verify() {
   return success();
 }
 
+ParseResult EffectOp::parse(OpAsmParser &parser, OperationState &result) {
+  StringRef kind;
+  if (parser.parseKeyword(&kind))
+    return failure();
+  result.addAttribute("kind", parser.getBuilder().getStringAttr(kind));
+  SmallVector<OpAsmParser::UnresolvedOperand> values;
+  SmallVector<Type> types;
+  if (kind == "assert") {
+    if (parser.parseOperand(values.emplace_back()) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
+        parser.parseColonType(types.emplace_back()))
+      return failure();
+  } else {
+    if (parser.parseOperandList(values, OpAsmParser::Delimiter::Paren) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
+        parser.parseColon() || parser.parseLParen())
+      return failure();
+    if (failed(parser.parseOptionalRParen()) &&
+        (parser.parseTypeList(types) || parser.parseRParen()))
+      return failure();
+  }
+  return parser.resolveOperands(values, types, parser.getCurrentLocation(), result.operands);
+}
+
+void EffectOp::print(OpAsmPrinter &printer) {
+  printer << ' ' << getKind();
+  if (getKind() == "assert" && getValues().size() == 1) {
+    printer << ' ' << getValues().front();
+    printer.printOptionalAttrDict((*this)->getAttrs(), {"kind"});
+    printer << " : " << getValues().front().getType();
+    return;
+  }
+  printer << '(' << getValues() << ')';
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"kind"});
+  printer << " : (";
+  llvm::interleaveComma(getValues().getTypes(), printer);
+  printer << ')';
+}
+
 LogicalResult EffectOp::verify() {
   if (!isa<RuleOp>((*this)->getParentOp()))
-    return emitOpError("assertion requires a direct Rule body");
-  if (!isa<ac::BitsType>(getPredicate().getType()))
-    return emitOpError("assertion requires a Bits predicate");
+    return emitOpError("effect requires a direct Rule body");
+  if (getKind() == "assert") {
+    if (getValues().size() != 1 || !isa<ac::BitsType>(getValues().front().getType()) ||
+        getSpecAttr())
+      return emitOpError("assertion requires one Bits predicate");
+  } else if ((getKind() != "log" && getKind() != "report") || !getSpecAttr() ||
+             getMessageAttr()) {
+    return emitOpError("effect requires assert or a log/report spec");
+  }
   return success();
 }
 
 void EffectOp::getEffects(
     llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Write::get(), ac::SourceCheckResource::get());
+  SideEffects::Resource *resource = getKind() == "assert"
+      ? static_cast<SideEffects::Resource *>(ac::SourceCheckResource::get())
+      : ac::SourceObservationResource::get();
+  effects.emplace_back(MemoryEffects::Write::get(), resource);
 }
 
 LogicalResult GuardOp::verify() {

@@ -120,6 +120,12 @@ on each Work with the interpreted reset mask. Sampling and guard checks precede
 assertions. A failed assertion leaves state and clock history at their previous
 committed values, including in generated System runs.
 
+Direct Rules on a closed System root can use `gfir.effect log` and
+`gfir.effect report` with the shared observation spec. The effects preserve
+their statement values and publish through gfsim after the transaction admits
+and the whole sample succeeds. A late false guard suppresses earlier effects
+in the same Rule. Known admitted held, falling, and reset samples can publish.
+
 An optional `ac.payload_constraint` on a state variable, native FIFO or Memory
 declaration, or native resource instance uses the existing source hardware
 constraint format. GFIR verifies the constraint against the actual closed

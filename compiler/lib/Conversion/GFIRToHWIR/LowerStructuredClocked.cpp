@@ -42,6 +42,7 @@ private:
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
     llvm::DenseMap<Operation *, Value> assertionConditions;
+    llvm::DenseMap<Operation *, SmallVector<Value>> observationValues;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -76,6 +77,7 @@ private:
                                          std::optional<uint64_t> ordinal = {});
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
+  LogicalResult bindObservations();
   FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call,
       SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping);
   DictionaryAttr localStateID(Operation *storage);
@@ -98,6 +100,7 @@ private:
   SmallVector<Value> grants, candidates, intents, fifoData;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
+  SmallVector<Operation *> sampledRules;
   struct MemoryIssue {
     Value path;
     SmallVector<Value> arguments;
@@ -818,7 +821,13 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       local[target] = value;
       localIntents[target] = one;
     } else if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
-      sampled->assertionConditions.try_emplace(effect, mapping.lookup(effect.getPredicate()));
+      if (effect.getKind() == "assert") {
+        sampled->assertionConditions.try_emplace(effect,
+            mapping.lookup(effect.getValues().front()));
+      } else {
+        auto &values = sampled->observationValues[effect];
+        for (Value value : effect.getValues()) values.push_back(mapping.lookup(value));
+      }
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto captured = plan.guardedCaptureUses.find(guard);
           captured != plan.guardedCaptureUses.end()) {
@@ -1054,6 +1063,20 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   unsigned fireResult = yielded.size();
   yielded.push_back(context.prefix);
+  SmallVector<Attribute> observations;
+  for (const auto &observation : plan.rules[index].observations) {
+    auto effect = observation.operation;
+    auto found = context.observationValues.find(effect);
+    if (found == context.observationValues.end())
+      return effect.emitOpError("missing ordered observation snapshot");
+    observations.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("id", observation.id),
+        builder.getNamedAttr("path", builder.getDictionaryAttr({})),
+        builder.getNamedAttr("value_count", builder.getI64IntegerAttr(found->second.size()))}));
+    yielded.push_back(context.prefix);
+    yielded.append(found->second);
+  }
+  unsigned checkBase = yielded.size();
   if (!context.resources.empty()) {
     // Memory snapshots do not suppress previously reached diagnostics. With
     // no Queue demands or resource branches, the existing demand forest folds
@@ -1136,7 +1159,7 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       builder.getNamedAttr("fire_result", builder.getI64IntegerAttr(fireResult)),
       builder.getNamedAttr("controls", builder.getArrayAttr(context.controls)),
       builder.getNamedAttr("body_checks", builder.getArrayAttr(bodyChecks)),
-      builder.getNamedAttr("observations", builder.getArrayAttr({}))});
+      builder.getNamedAttr("observations", builder.getArrayAttr(observations))});
   if (!context.requirements.empty())
     admission.append("requirements", builder.getArrayAttr(context.requirements));
   if (!context.resources.empty())
@@ -1146,6 +1169,7 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   operation.addAttribute("ac.sampled_admission", admission.getDictionary(builder.getContext()));
   operation.addRegion(std::move(region));
   auto *lowered = builder.create(operation);
+  sampledRules[index] = lowered;
   for (auto &proposal : context.memoryProposals) {
     MemoryIssue issue;
     issue.path = lowered->getResult(proposal.pathResult);
@@ -1167,8 +1191,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
            ArrayRef<Attribute>(context.checks).take_front(context.controls.size()))) {
     auto check = cast<DictionaryAttr>(raw);
     make(ac::SourceExpectOp::getOperationName(), {
-        lowered->getResult(fireResult + 1 + 2 * ordinal),
-        lowered->getResult(fireResult + 2 + 2 * ordinal), clock, reset}, {}, {
+        lowered->getResult(checkBase + 2 * ordinal),
+        lowered->getResult(checkBase + 1 + 2 * ordinal), clock, reset}, {}, {
         builder.getNamedAttr("kind", builder.getStringAttr("guard_known")),
         builder.getNamedAttr("location", check.get("location")),
         builder.getNamedAttr("ac.check_id", check.get("id"))});
@@ -1183,8 +1207,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     if (auto message = assertion->getAttr("message"))
       attrs.push_back(builder.getNamedAttr("ac.message", message));
     make(ac::SourceExpectOp::getOperationName(), {
-        lowered->getResult(fireResult + 1 + 2 * ordinal),
-        lowered->getResult(fireResult + 2 + 2 * ordinal)}, {}, attrs);
+        lowered->getResult(checkBase + 2 * ordinal),
+        lowered->getResult(checkBase + 1 + 2 * ordinal)}, {}, attrs);
   }
   transactionWriters.push_back(builder.getDictionaryAttr({
       builder.getNamedAttr("registration", context.registration),
@@ -1215,6 +1239,7 @@ void ClockedMaterializer::bindTransactionWiring() {
 
 LogicalResult ClockedMaterializer::lowerRules() {
   grants.resize(plan.rules.size());
+  sampledRules.resize(plan.rules.size());
   for (unsigned node : definition.order) {
     if (node < definition.wires.size() || node >= definition.firstClockedCallNode())
       continue;
@@ -1264,6 +1289,34 @@ LogicalResult ClockedMaterializer::lowerRules() {
     for (unsigned state : plan.rules[index].writes) {
       candidates[state] = local[state];
       intents[state] = localIntents[state];
+    }
+  }
+  return success();
+}
+
+LogicalResult ClockedMaterializer::bindObservations() {
+  builder.setInsertionPoint(target.getBody().front().getTerminator());
+  // Rule evaluation may follow dependencies. Terminal order instead follows
+  // source registration, which owns the existing runner's observation order.
+  for (auto [index, rule] : llvm::enumerate(plan.rules)) {
+    if (rule.observations.empty()) continue;
+    Operation *lowered = sampledRules[index];
+    if (!lowered)
+      return source.emitOpError("observation requires its materialized sampled Rule");
+    auto admission = lowered->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+    unsigned slot = admission.getAs<IntegerAttr>("fire_result").getInt() + 1;
+    for (const auto &observation : rule.observations) {
+      auto effect = observation.operation;
+      SmallVector<Value> values;
+      values.push_back(lowered->getResult(slot++));
+      for (unsigned value = 0; value < effect.getValues().size(); ++value)
+        values.push_back(lowered->getResult(slot++));
+      auto *terminal = make(ac::SourceObserveOp::getOperationName(), values, {}, {
+          builder.getNamedAttr("kind", effect.getKindAttr()),
+          builder.getNamedAttr("spec", effect.getSpecAttr()),
+          builder.getNamedAttr("ac.location", observation.location),
+          builder.getNamedAttr("ac.observation_id", observation.id)});
+      terminal->setLoc(effect.getLoc());
     }
   }
   return success();
@@ -1395,7 +1448,8 @@ LogicalResult ClockedMaterializer::run() {
     if (failed(addPrimitive(memory.kind)))
       return failure();
   if (failed(makeModule()) || failed(allocate()) || failed(cloneGraph()) ||
-      failed(lowerRules()) || failed(bindGraph()) || failed(bindStorage()))
+      failed(lowerRules()) || failed(bindGraph()) || failed(bindStorage()) ||
+      failed(bindObservations()))
     return failure();
   bindTransactionWiring();
   return success();

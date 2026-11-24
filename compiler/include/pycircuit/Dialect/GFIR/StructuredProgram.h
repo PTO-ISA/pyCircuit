@@ -87,6 +87,13 @@ struct StructuredChildState {
   std::optional<unsigned> writer;
 };
 
+struct StructuredObservation {
+  EffectOp operation;
+  mlir::DictionaryAttr id;
+  mlir::DictionaryAttr location;
+  unsigned firstSlot = 0;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -96,6 +103,7 @@ struct StructuredRule {
   llvm::SmallVector<ResultOp> resultUses;
   llvm::SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
   llvm::SmallVector<EffectOp> assertions;
+  llvm::SmallVector<StructuredObservation> observations;
   bool sampled = false;
   bool readsByteMemory = false;
   bool usesChildState = false;
