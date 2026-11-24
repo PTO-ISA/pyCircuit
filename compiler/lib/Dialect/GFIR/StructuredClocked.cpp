@@ -643,6 +643,8 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
   SmallVector<uint64_t> methodSizes(plan.methods.size());
   auto visit = [&](auto &&recurse, Block &body, auto &&onCheck, auto &&onCall) -> void {
     for (Operation &op : body) {
+      if (plan.guardedCaptureUses.contains(&op))
+        onCheck(&op);
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))
         onCheck(&op);
       if (auto memory = plan.transactionMemoryCalls.find(&op);
@@ -660,7 +662,10 @@ LogicalResult ClockedAnalyzer::buildCheckPlan() {
   auto assignOffsets = [&](Block &body) {
     uint64_t next = 1;
     visit(visit, body, [&](Operation *op) {
-            plan.checkOffsets.try_emplace(op, next);
+            if (plan.guardedCaptureUses.contains(op))
+              plan.checkOffsets[op] = next;
+            else
+              plan.checkOffsets.try_emplace(op, next);
             next = Budget::add(next, 1);
           },
           [&](Operation *call, unsigned method) {
@@ -752,7 +757,43 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
   }
   if (!plan.transactionMemoryCalls.empty() && !plan.fifos.empty())
     return module.emitOpError("transaction Memory cannot yet combine with native FIFO");
-  if (failed(resolveMethodEffects()) || failed(buildCheckPlan()))
+  if (failed(resolveMethodEffects()))
+    return failure();
+  llvm::StringMap<unsigned> ruleIndices;
+  for (auto [index, entry] : llvm::enumerate(plan.rules)) {
+    auto rule = entry.operation;
+    ruleIndices.try_emplace(rule.getSymName(), index);
+  }
+  for (auto &consumer : plan.rules) {
+    auto &body = consumer.operation.getBody().front();
+    for (auto [captureIndex, capture] : llvm::enumerate(consumer.operation.getCaptures())) {
+      auto result = capture.getDefiningOp<ResultOp>();
+      if (!result)
+        continue;
+      unsigned producer = ruleIndices.lookup(result.getRuleAttr().getValue());
+      if (!plan.rules[producer].sampled)
+        continue;
+      if (!isBitOne(hardware, capture.getType(), consumer.operation))
+        return consumer.operation.emitOpError("gated guard capture requires Bits1");
+      auto argument = body.getArgument(captureIndex);
+      if (argument.use_empty())
+        return consumer.operation.emitOpError("gated capture requires a direct guard use");
+      for (Operation *user : argument.getUsers()) {
+        if (failed(budget.debit(1, user)))
+          return failure();
+        auto guard = dyn_cast<GuardOp>(user);
+        if (!guard || guard->getParentOp() != consumer.operation)
+          return user->emitOpError("gated capture may only supply a direct guard");
+        plan.guardedCaptureUses.try_emplace(user, captureIndex);
+      }
+      consumer.guardCaptures.push_back({unsigned(captureIndex), producer});
+    }
+    if (!consumer.guardCaptures.empty())
+      for (Operation &op : body)
+        if (isa<CallOp, IfOp, LoopOp>(op))
+          return op.emitOpError("gated guard consumer requires a direct ordered body");
+  }
+  if (failed(buildCheckPlan()))
     return failure();
   return std::move(plan);
 }

@@ -970,6 +970,14 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
             << "};\n      std::tie(" << join(stepTargets, ", ") << ") = pyc_next;\n    }\n";
       continue;
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
+      if (auto capture = clocked.guardedCaptureUses.find(guard);
+          capture != clocked.guardedCaptureUses.end()) {
+        out << "    if (!txn.pyc_capture_available_" << capture->second
+            << ") { txn.pyc_running = false; ";
+        if (failed(emitBlockedReturn(out, body, ruleResults)))
+          return failure();
+        out << " }\n";
+      }
       auto predicate = values.lookup(guard.getPredicate());
       out << "    if (!gfsim::behavior::isOne(" << predicate << ")) {\n"
           << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
@@ -1298,6 +1306,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
   for (auto [index, rule] : llvm::enumerate(clocked.rules)) {
     auto name = "TxnFrame" + std::to_string(index);
     out << "  struct " << name << " {\n";
+    for (auto [capture, producer] : rule.guardCaptures)
+      out << "    bool pyc_capture_available_" << capture << " = false;\n";
     if (rule.sampled)
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
@@ -1415,6 +1425,9 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   out << "    TxnFrame" << index << ' ' << frameName(index) << ";\n";
   if (rule.sampled)
     out << "    " << frameName(index) << ".pyc_check_active = pyc_active;\n";
+  for (auto [capture, producer] : rule.guardCaptures)
+    out << "    " << frameName(index) << ".pyc_capture_available_" << capture
+        << " = " << frameName(producer) << ".pyc_running;\n";
   out << "    if (";
   if (needsDomain(*definition.clocked) && rule.resultUses.empty() && !rule.readsByteMemory)
     out << "pyc_active && ";

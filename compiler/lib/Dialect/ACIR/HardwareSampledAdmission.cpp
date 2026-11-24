@@ -3996,14 +3996,127 @@ private:
     writerAdmissions.emplace_hint(position, key, sampled);
     return sampled;
   }
-  // A direct root export may carry conditional payloads without requiring
-  // downstream admission. Walk the actual result uses before relying on the
-  // public output companions. Other consumers retain the existing checks.
+  FailureOr<bool> guardedResultCapture(const Occurrence &entry,
+      const TransactionWriterView &producer, RuleOp consumer, unsigned capture) {
+    if (!entry.wiring || consumer == producer.rule ||
+        consumer->getParentOp() != entry.module ||
+        consumer->hasAttr("ac.registration_path"))
+      return false;
+    const TransactionWriterView *writer = nullptr;
+    for (const auto &candidate : entry.wiring->writers) {
+      if (failed(budget.debit(1, consumer))) return failure();
+      if (candidate.rule == consumer) writer = &candidate;
+    }
+    if (!writer || capture >= consumer.getNumOperands()) return false;
+    auto sourceAdmission = writerAdmission(entry, producer.rule);
+    auto admission = writerAdmission(entry, consumer);
+    if (failed(sourceAdmission) || failed(admission)) return failure();
+    const auto &view = **admission;
+    auto &body = consumer.getBody().front();
+    Value payload = body.getArgument(capture);
+    auto isOne = [&](Value value) -> FailureOr<bool> {
+      auto endpoint = normal(value, entry.scope);
+      if (failed(endpoint)) return failure();
+      auto known = literal(*endpoint, analysis, budget);
+      if (failed(known)) return failure();
+      return known->value_or(false);
+    };
+    llvm::DenseSet<Operation *> requirements;
+    llvm::DenseSet<unsigned> rawSlots;
+    auto required = consumer->getAttrOfType<ArrayAttr>("ac.required_checks");
+    for (const auto &requirement : view.requirements) {
+      if (failed(budget.debit(1, consumer))) return failure();
+      auto operation = requirement.operation;
+      if (operation.getPayload() != payload) continue;
+      unsigned ordinal = requirement.control;
+      if (requirement.kind.getValue() != "guard" || requirement.operand != 0 ||
+          ordinal + 1 >= view.controls.size()) return false;
+      const auto &available = view.controls[ordinal];
+      const auto &guard = view.controls[ordinal + 1];
+      auto location = cast<DictionaryAttr>(required[ordinal + 1]).get("location");
+      auto availability = dyn_cast<BlockArgument>(operation.getAvailability());
+      if (available.kind != SampledControlKind::ValueAvailable ||
+          guard.kind != SampledControlKind::OrderedGuard || guard.raw != payload ||
+          available.executionPath.selectionControl || guard.executionPath.selectionControl ||
+          !available.invocation.empty() || !guard.invocation.empty() ||
+          available.id.get("check") != guard.id.get("check") ||
+          requirement.occurrence != guard.id.get("check") || requirement.location != location ||
+          !availability || availability.getOwner() != &body ||
+          consumer.getOperand(availability.getArgNumber()) !=
+              producer.rule->getResult((*sourceAdmission)->fireResult))
+        return false;
+      auto path = isOne(operation.getPath());
+      if (failed(path)) return failure();
+      if (!*path) return false;
+      if (failed(charge(budget, consumer, 1, sizeof(Operation *) + sizeof(unsigned))))
+        return failure();
+      requirements.insert(operation);
+      rawSlots.insert(guard.rawResult);
+    }
+    if (requirements.empty()) return false;
+
+    // Inspect all raw-payload fanout. Its only executable use is the exact
+    // known-one test of the matched ordered guard; the other two roles are
+    // authenticated use evidence and that guard's diagnostic raw slot.
+    auto *yield = body.getTerminator();
+    SmallVector<Value> pending;
+    for (OpOperand &use : payload.getUses()) {
+      if (failed(budget.debit(1, use.getOwner()))) return failure();
+      auto *owner = use.getOwner();
+      if (requirements.contains(owner) && use.getOperandNumber() == 0) continue;
+      if (owner == yield && rawSlots.contains(use.getOperandNumber())) continue;
+      auto compare = dyn_cast<BitsCompareOp>(owner);
+      if (!compare || compare.getPredicate() != "case_eq" ||
+          use.getOperandNumber() != 0 || owner->getParentOp() != consumer)
+        return false;
+      auto one = isOne(compare.getRhs());
+      if (failed(one)) return failure();
+      if (!*one) return false;
+      if (failed(charge(budget, consumer, 1, sizeof(Value)))) return failure();
+      pending.push_back(compare.getResult());
+    }
+    if (pending.empty()) return false;
+    bool livePrefix = false;
+    llvm::DenseSet<Value> visited;
+    while (!pending.empty()) {
+      Value value = pending.pop_back_val();
+      if (failed(charge(budget, consumer, 1, sizeof(Value)))) return failure();
+      if (!visited.insert(value).second) continue;
+      if (value.use_empty()) return false;
+      for (OpOperand &use : value.getUses()) {
+        if (failed(budget.debit(1, use.getOwner()))) return failure();
+        auto *owner = use.getOwner();
+        if (owner == yield) {
+          unsigned slot = use.getOperandNumber();
+          bool allowed = slot == view.fireResult;
+          for (const auto &control : view.controls) {
+            if (failed(budget.debit(1, consumer))) return failure();
+            allowed |= slot == control.reachedResult;
+          }
+          for (const auto &candidate : writer->candidates) {
+            if (failed(budget.debit(1, consumer))) return failure();
+            allowed |= slot == candidate.enableIndex;
+          }
+          if (!allowed) return false;
+          livePrefix = true;
+          continue;
+        }
+        auto conjunction = dyn_cast<BitsBinaryOp>(owner);
+        if (!conjunction || conjunction.getOpcode() != "and" ||
+            owner->getParentOp() != consumer) return false;
+        if (failed(charge(budget, consumer, 1, sizeof(Value)))) return failure();
+        pending.push_back(conjunction.getResult());
+      }
+    }
+    return livePrefix;
+  }
+
+  // Conditional direct-root payloads may leave only through live exports or
+  // independently authenticated ordered guard consumers. Inspect every use.
   FailureOr<bool> rootResultExports(const Occurrence &entry,
                                     const TransactionWriterView &writer) {
     auto module = entry.module;
-    if (entry.parent || writer.rule->hasAttr("ac.registration_path") ||
-        !module->hasAttr("ac.output_validity"))
+    if (entry.parent || writer.rule->hasAttr("ac.registration_path"))
       return false;
     auto systems = analysis.getPackage().getOps<SystemOp>();
     if (!llvm::hasSingleElement(systems))
@@ -4017,6 +4130,7 @@ private:
       return failure();
 
     auto *yield = module.getBody().front().getTerminator();
+    bool provedUse = false;
     SmallVector<std::pair<Value, FieldPath>> pending;
     DenseMap<Value, SmallVector<FieldPath>> visited;
     for (Value value : writer.rule->getResults().take_front(writer.ordinaryResults))
@@ -4038,6 +4152,13 @@ private:
         if (owner == yield) {
           if (operand >= ports->sourceOutputCount || ports->outputValidity[operand] < 0)
             return false;
+          provedUse = true;
+        } else if (auto consumer = dyn_cast<RuleOp>(owner)) {
+          if (!path.empty()) return false;
+          auto guarded = guardedResultCapture(entry, writer, consumer, operand);
+          if (failed(guarded)) return failure();
+          if (!*guarded) return false;
+          provedUse = true;
         } else if (auto create = dyn_cast<StructCreateOp>(owner)) {
           auto structure = analysis.lookupStruct(create.getResult().getType());
           if (!structure || operand >= structure.getFields().size())
@@ -4057,7 +4178,7 @@ private:
         }
       }
     }
-    return true;
+    return provedUse;
   }
 
   LogicalResult writers() {

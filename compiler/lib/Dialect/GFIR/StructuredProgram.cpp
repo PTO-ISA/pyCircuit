@@ -440,8 +440,12 @@ LogicalResult Analyzer::analyzeAvailability(StructuredDefinition &definition) {
       return failure();
   for (const auto &entry : definition.clocked->rules) {
     auto rule = entry.operation;
-    if (failed(checkInputs(rule, rule.getCaptures())))
-      return failure();
+    for (auto [index, capture] : llvm::enumerate(rule.getCaptures())) {
+      if (llvm::any_of(entry.guardCaptures, [&](auto binding) { return binding.first == index; }))
+        continue;
+      if (failed(checkInputs(rule, ValueRange{capture})))
+        return failure();
+    }
   }
 
   SmallVector<Rules> ports(module.getFunctionType().getNumResults());

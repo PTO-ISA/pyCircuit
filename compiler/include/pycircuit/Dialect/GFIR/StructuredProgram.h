@@ -87,6 +87,7 @@ struct StructuredRule {
   llvm::SmallVector<unsigned> writes;
   llvm::SmallVector<unsigned> dependencies;
   llvm::SmallVector<ResultOp> resultUses;
+  llvm::SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
   bool sampled = false;
   bool readsByteMemory = false;
   llvm::SmallVector<StructuredCheckSite> checks;
@@ -113,6 +114,7 @@ struct StructuredClocked {
   llvm::DenseSet<mlir::Operation *> checkedBranches;
   /// Relative ordinal of a check or callee entry in its callable's inventory.
   llvm::DenseMap<mlir::Operation *, uint64_t> checkOffsets;
+  llvm::DenseMap<mlir::Operation *, unsigned> guardedCaptureUses;
   llvm::DenseMap<mlir::Operation *, mlir::DictionaryAttr> orderedOccurrences;
 };
 

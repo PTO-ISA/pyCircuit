@@ -38,6 +38,7 @@ private:
     SmallVector<Attribute> requirements, resources;
     SmallVector<MemoryProposal> memoryProposals;
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
+    llvm::DenseMap<unsigned, Value> guardAvailability;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -707,6 +708,28 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       local[target] = value;
       localIntents[target] = one;
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
+      if (auto captured = plan.guardedCaptureUses.find(guard);
+          captured != plan.guardedCaptureUses.end()) {
+        unsigned control = sampled->controls.size();
+        if (control >= sampled->plannedChecks.size())
+          return guard.emitOpError("missing verified guard availability obligation");
+        const auto &check = sampled->plannedChecks[control];
+        Value availability = sampled->guardAvailability.lookup(captured->second);
+        if (!availability)
+          return guard.emitOpError("missing sampled producer availability capture");
+        Value required = make(ac::ValueRequireOp::getOperationName(),
+            {mapping.lookup(guard.getPredicate()), availability, one}, {bit}, {
+            builder.getNamedAttr("occurrence", check.id.get("check")),
+            builder.getNamedAttr("source_location", check.location)})->getResult(0);
+        if (failed(addControl("value_available", guard, required)))
+          return failure();
+        sampled->requirements.push_back(builder.getDictionaryAttr({
+            builder.getNamedAttr("control", builder.getI64IntegerAttr(control)),
+            builder.getNamedAttr("kind", builder.getStringAttr("guard")),
+            builder.getNamedAttr("operand", builder.getI64IntegerAttr(0)),
+            builder.getNamedAttr("occurrence", check.id.get("check")),
+            builder.getNamedAttr("location", check.location)}));
+      }
       if (failed(addControl("ordered_guard", guard, mapping.lookup(guard.getPredicate()))))
         return failure();
     } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
@@ -810,6 +833,13 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   captures.append({clock, reset});
   for (unsigned state : plan.rules[index].states)
     captures.push_back(states[state]->getResult(0));
+  SmallVector<std::pair<unsigned, unsigned>> guardCaptures;
+  for (auto [capture, producer] : plan.rules[index].guardCaptures) {
+    if (!grants[producer])
+      return rule.emitOpError("sampled producer must precede its guard consumer");
+    guardCaptures.emplace_back(capture, captures.size());
+    captures.push_back(grants[producer]);
+  }
   SmallVector<std::pair<unsigned, unsigned>> memoryCaptures;
   for (Operation &operation : rule.getBody().front()) {
     auto use = plan.transactionMemoryCalls.find(&operation);
@@ -844,6 +874,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   context.plannedChecks = plan.rules[index].checks;
   context.pathIdentity = builder.getDictionaryAttr({});
   context.prefix = one;
+  for (auto [capture, ordinal] : guardCaptures)
+    context.guardAvailability.try_emplace(capture, body->getArgument(ordinal));
   for (auto [memory, first] : memoryCaptures)
     for (unsigned result = 0; result < memories[memory]->getNumResults(); ++result)
       context.memoryOutputs[memory].push_back(body->getArgument(first + result));
