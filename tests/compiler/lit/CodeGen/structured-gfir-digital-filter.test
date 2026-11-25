@@ -5,18 +5,19 @@
 # four-state helpers use physical edges without managed commits, so that macro
 # is deliberately not enabled here; RTL four-state coverage is not claimed.
 # This is correctness acceptance, not the historical issue #430 replay benchmark.
+# Exercise both the shipped gfir.if proposals and the source's linear selects.
+# Both forms emit the native Rule suffix. Behavioral
+# assertions remain in the unchanged independent driver, including X/Z cold use.
 # REQUIRES: rtl-four-state-parameter-types
-# RUN: %pycircuit_opt %inputs/structured-gfir-digital-filter.mlir --gfir-verify -o %t.gfir
-# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
-# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
-# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
-# RUN: %python -c 'import json,sys; left,right=(json.load(open(p))["port_availability"] for p in sys.argv[1:]); assert left == right' %t.behavior.json %t.final.json
-# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
-# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %src/examples/digital_filter/driver.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; done
-# RUN: for kind in behavior final; do %t.$kind.exe --config %src/examples/digital_filter/config.json --workers 2 > %t.$kind.stdout || exit; grep '^WORK ' %t.$kind.stdout > %t.$kind.trace || exit; done
-# RUN: diff -u %t.behavior.trace %t.final.trace
-# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
-# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %src/examples/digital_filter/rtl_tb.sv
-# RUN: %vvp %t.vvp > %t.rtl.stdout
-# RUN: grep '^WORK ' %t.rtl.stdout > %t.rtl.trace
-# RUN: diff -u %t.behavior.trace %t.rtl.trace
+# RUN: %pycircuit_opt %inputs/structured-gfir-digital-filter.mlir --gfir-verify -o %t.branched.gfir
+# RUN: %python %inputs/structured-gfir-digital-filter-linear.py %inputs/structured-gfir-digital-filter.mlir %t.linear.input.gfir
+# RUN: %pycircuit_opt %t.linear.input.gfir --gfir-verify -o %t.linear.gfir
+# RUN: for form in branched linear; do %pycircuit_emit %t.$form.gfir --input-stage gfir --target cpp > %t.$form.behavior.json || exit; %pycircuit_opt %t.$form.gfir --gfir-to-hwir --ac-verify-hardware -o %t.$form.hwir || exit; %pycircuit_emit %t.$form.hwir --target cpp > %t.$form.final.json || exit; done
+# RUN: for form in branched linear; do %FileCheck %s --check-prefix=NATIVE-SUFFIX < %t.$form.behavior.json || exit; done
+# RUN: for form in branched linear; do %python -c 'import json,sys; left,right=(json.load(open(p))["port_availability"] for p in sys.argv[1:]); assert left == right' %t.$form.behavior.json %t.$form.final.json || exit; for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$form.$kind.json %t.$form.$kind || exit; done; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for form in branched linear; do for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$form.$kind %src/examples/digital_filter/driver.cpp @%t.$form.$kind/sources.rsp "$RTLIB" -o %t.$form.$kind.exe || exit; done; done
+# RUN: for form in branched linear; do for kind in behavior final; do %t.$form.$kind.exe --config %src/examples/digital_filter/config.json --workers 2 > %t.$form.$kind.stdout || exit; grep '^WORK ' %t.$form.$kind.stdout > %t.$form.$kind.trace || exit; done; diff -u %t.$form.behavior.trace %t.$form.final.trace || exit; done
+# RUN: for form in branched linear; do %pycircuit_emit %t.$form.hwir --target verilog --format source > %t.$form.sv || exit; %iverilog -g2012 -s tb -o %t.$form.vvp %t.$form.sv %include/verilog/dffe.v %src/examples/digital_filter/rtl_tb.sv || exit; %vvp %t.$form.vvp > %t.$form.rtl.stdout || exit; grep '^WORK ' %t.$form.rtl.stdout > %t.$form.rtl.trace || exit; diff -u %t.$form.behavior.trace %t.$form.rtl.trace || exit; done
+# RUN: diff -u %t.branched.behavior.trace %t.linear.behavior.trace
+
+# NATIVE-SUFFIX: pyc_known_read_

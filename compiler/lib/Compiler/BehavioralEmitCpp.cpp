@@ -518,6 +518,9 @@ private:
                                                 ArrayRef<std::string> args);
   FailureOr<bool> emitScalarRegion(raw_ostream &out, ArrayRef<Operation *> operations,
                                    llvm::DenseMap<Value, std::string> &values);
+  FailureOr<bool> emitKnownRuleSuffix(raw_ostream &out, Operation &first,
+                                     const gfir::StructuredClocked &clocked,
+                                     const llvm::DenseMap<Value, std::string> &prefix);
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredDefinition &definition,
@@ -1934,6 +1937,185 @@ LogicalResult BehavioralEmitter::emitBlockedReturn(raw_ostream &out, Block &body
   return success();
 }
 
+FailureOr<bool> BehavioralEmitter::emitKnownRuleSuffix(
+    raw_ostream &out, Operation &first, const gfir::StructuredClocked &clocked,
+    const llvm::DenseMap<Value, std::string> &prefix) {
+  for (Operation &op : *first.getBlock()) {
+    if (&op == &first)
+      break;
+    if (!isa<gfir::ReadOp, ac::StructCreateOp, ac::StructGetOp>(op) &&
+        !isNativeScalar(op, /*allowShifts=*/true))
+      return false;
+  }
+
+  llvm::DenseMap<Value, unsigned> reads;
+  llvm::DenseMap<Value, std::pair<Value, Value>> branchResults;
+  llvm::SmallDenseSet<unsigned> written;
+  SmallVector<Operation *> operations;
+  SmallVector<gfir::WriteOp> writes;
+  Value predicate;
+  auto usePredicate = [&](Value condition) {
+    if (!predicate)
+      predicate = condition;
+    return predicate == condition;
+  };
+  auto scalar = [&](Value value) {
+    if (!isa<ac::BitsType>(value.getType()))
+      return false;
+    auto width = analysis.getPackedWidth(value.getType(), {}, &first);
+    return succeeded(width) && *width > 0 && *width <= 64;
+  };
+  for (Operation *op = &first; !isa<gfir::YieldOp>(op); op = op->getNextNode()) {
+    if (auto read = dyn_cast<gfir::ReadOp>(op)) {
+      if (!writes.empty() || !scalar(read.getValue()))
+        return false;
+      reads.try_emplace(read.getValue(), clocked.stateAccesses.lookup(read));
+    } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
+      if (write.getIndex() || clocked.writePaths.contains(write) || !scalar(write.getValue()) ||
+          !written.insert(clocked.stateAccesses.lookup(write)).second)
+        return false;
+      if (auto select = write.getValue().getDefiningOp<ac::BitsSelectOp>();
+          select && !usePredicate(select.getCondition()))
+        return false;
+      writes.push_back(write);
+    } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
+      if (!usePredicate(branch.getPredicate()) || clocked.checkedBranches.contains(branch) ||
+          !llvm::all_of(branch->getResults(), scalar))
+        return false;
+      auto &thenBody = branch.getThenBody().front();
+      auto &elseBody = branch.getElseBody().front();
+      for (Block *arm : {&thenBody, &elseBody}) {
+        for (Operation &arithmetic : arm->without_terminator()) {
+          if (!isNativeScalar(arithmetic, /*allowShifts=*/true))
+            return false;
+          operations.push_back(&arithmetic);
+        }
+      }
+      auto thenYield = cast<gfir::YieldOp>(thenBody.getTerminator());
+      auto elseYield = cast<gfir::YieldOp>(elseBody.getTerminator());
+      for (auto [result, yes, no] :
+           llvm::zip(branch->getResults(), thenYield.getValues(), elseYield.getValues()))
+        branchResults.try_emplace(result, yes, no);
+      operations.push_back(op);
+    } else if (isNativeScalar(*op, /*allowShifts=*/true)) {
+      operations.push_back(op);
+    } else {
+      return false;
+    }
+  }
+  if (!predicate || !prefix.contains(predicate) || operations.size() < minScalarOperations)
+    return false;
+
+  auto selected = [&](Value value, bool take) -> Value {
+    if (auto branch = branchResults.find(value); branch != branchResults.end())
+      return take ? branch->second.first : branch->second.second;
+    auto select = value.getDefiningOp<ac::BitsSelectOp>();
+    if (!select || select.getCondition() != predicate)
+      return Value{};
+    return take ? select.getTrueValue() : select.getFalseValue();
+  };
+  // Compute actual operand demand separately for each known branch. The union
+  // of their incoming values is checked before publishing any candidate.
+  SmallVector<Value> frontier{predicate};
+  llvm::SmallDenseSet<Value> seen;
+  seen.insert(predicate);
+  auto demand = [&](bool take) {
+    SmallVector<Value> pending;
+    for (auto write : writes)
+      pending.push_back(write.getValue());
+    llvm::SmallDenseSet<Value> needed;
+    while (!pending.empty()) {
+      Value value = pending.pop_back_val();
+      if (!needed.insert(value).second)
+        continue;
+      if (prefix.contains(value) || reads.contains(value)) {
+        if (seen.insert(value).second)
+          frontier.push_back(value);
+      } else if (auto operand = selected(value, take)) {
+        pending.push_back(operand);
+      } else {
+        llvm::append_range(pending, value.getDefiningOp()->getOperands());
+      }
+    }
+    return needed;
+  };
+  auto yes = demand(true);
+  auto no = demand(false);
+  if (!llvm::all_of(frontier, scalar))
+    return false;
+
+  SmallVector<std::string> sources, known;
+  llvm::DenseMap<Value, std::string> inputs;
+  for (auto [ordinal, value] : llvm::enumerate(frontier)) {
+    std::string source = prefix.lookup(value);
+    if (auto read = reads.find(value); read != reads.end()) {
+      auto state = stateName(read->second);
+      source = "pyc_known_read_" + std::to_string(ordinal);
+      out << "    const auto &" << source << " = txn." << state
+          << " ? *txn." << state << " : " << state << ".value();\n";
+    }
+    sources.push_back(pack(source));
+    known.push_back(sources.back() + ".isFullyKnown()");
+    inputs.try_emplace(value, "pyc_known_value_" + std::to_string(ordinal));
+  }
+  out << "    if (" << join(known, " &&\n        ") << ") {\n";
+  for (auto [source, value] : llvm::zip(sources, frontier))
+    out << "      const auto " << inputs.lookup(value) << " = "
+        << source << ".value().value();\n";
+  auto emitArm = [&](bool take, const llvm::SmallDenseSet<Value> &needed) -> LogicalResult {
+    auto values = inputs;
+    for (Operation *op : operations) {
+      if (isa<gfir::IfOp>(op)) {
+        for (Value result : op->getResults())
+          if (needed.contains(result))
+            values.try_emplace(result, values.lookup(selected(result, take)));
+        continue;
+      }
+      Value value = op->getResult(0);
+      if (!needed.contains(value))
+        continue;
+      if (auto operand = selected(value, take)) {
+        values.try_emplace(value, values.lookup(operand));
+        continue;
+      }
+      auto width = analysis.getPackedWidth(value.getType(), {}, op);
+      if (failed(width))
+        return failure();
+      SmallVector<std::string> operands;
+      for (Value operand : op->getOperands())
+        operands.push_back(values.lookup(operand));
+      auto expression = nativeScalarExpression(*op, *width, operands);
+      if (failed(expression))
+        return failure();
+      auto name = "pyc_known_value_" + std::to_string(values.size());
+      out << "        const auto " << name << " = pyc_behavior::limitBits<" << *width
+          << ">(" << *expression << ");\n";
+      values.try_emplace(value, std::move(name));
+    }
+    for (auto write : writes) {
+      unsigned state = clocked.stateAccesses.lookup(write);
+      auto value = write.getValue();
+      auto type = typedWire(value.getType(), write);
+      auto width = analysis.getPackedWidth(value.getType(), {}, write);
+      if (failed(type) || failed(width))
+        return failure();
+      if (clocked.conditionalWrites.contains(state))
+        out << "        txn." << intentName(state) << " = " << levelName << "(true);\n";
+      out << "        txn." << stateName(state) << " = " << *type
+          << "::known(gfsim::Bits<" << *width << ">{" << values.lookup(value) << "});\n";
+    }
+    return success();
+  };
+  out << "      if (" << inputs.lookup(predicate) << ") {\n";
+  if (failed(emitArm(true, yes)))
+    return failure();
+  out << "      } else {\n";
+  if (failed(emitArm(false, no)))
+    return failure();
+  out << "      }\n      return;\n    }\n";
+  return true;
+}
+
 LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredDefinition &definition,
                                           const gfir::StructuredRule *rule,
@@ -1961,6 +2143,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     return success();
   };
   Operation *snapshotBoundary = rule && rule->assertions.empty() ? rule->afterSnapshot : nullptr;
+  bool coldSuffix = false;
   auto nextRegion = body.begin();
   for (auto iterator = body.begin(); iterator != body.end();) {
     auto current = iterator++;
@@ -1968,6 +2151,17 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     if (snapshotBoundary == &op) {
       snapshot();
       out << "    if (!pyc_active) return;\n";
+      if (!rule->sampled && rule->requirements.empty() && rule->guardCaptures.empty() &&
+          rule->observations.empty() && clocked.rules.size() == 1 &&
+          clocked.fifos.empty() && clocked.memories.empty()) {
+        auto known = emitKnownRuleSuffix(out, op, clocked, values);
+        if (failed(known))
+          return failure();
+        if (*known) {
+          coldSuffix = true;
+          out << "    pyc_behavior::evaluateFourState([&]() {\n";
+        }
+      }
     }
     if (current == nextRegion) {
       SmallVector<Operation *, 16> scalar;
@@ -2206,6 +2400,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       out << "    }\n";
     }
   }
+  if (coldSuffix)
+    out << "    });\n";
   return success();
 }
 
