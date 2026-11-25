@@ -29,14 +29,19 @@ module attributes {gfir.contract = 1 : i64} {
   }
   gfir.module @Top(%a: !b8, %b: !b8, %count: !b8, %selector: !b1) -> (!b8, !b8, !b8, !b8, !b8)
       attributes {source_owner = {package = "", path = "group.py"}, input_names = ["a", "b", "count", "selector"], output_names = ["picked", "left", "right", "echo", "mirror"]} {
-    gfir.instance @leaf of @Leaf
+    gfir.instance @first of @Leaf
+    gfir.instance @second of @Leaf
     %pair = ac.struct.create(%a, %b) : (!b8, !b8) -> !Pair
-    %packet, %mirror = gfir.call @leaf(%pair, %count, %selector) : (!Pair, !b8, !b1) -> (!Packet, !b8)
+    %first_packet, %first_mirror = gfir.call @first(%pair, %count, %selector) : (!Pair, !b8, !b1) -> (!Packet, !b8)
+    %first_picked = ac.struct.get %first_packet["picked"] : (!Packet) -> !b8
+    %echo = ac.struct.get %first_packet["echo"] : (!Packet) -> !b8
+    // Stage two consumes two outputs from the completed first-stage group.
+    %next_pair = ac.struct.create(%first_picked, %first_mirror) : (!b8, !b8) -> !Pair
+    %packet, %mirror = gfir.call @second(%next_pair, %count, %selector) : (!Pair, !b8, !b1) -> (!Packet, !b8)
     %picked = ac.struct.get %packet["picked"] : (!Packet) -> !b8
     %left = ac.struct.get %packet["left"] : (!Packet) -> !b8
     %right = ac.struct.get %packet["right"] : (!Packet) -> !b8
-    %echo = ac.struct.get %packet["echo"] : (!Packet) -> !b8
-    // One requested Top output needs two Leaf outputs simultaneously.
+    // One requested Top output needs both groups, each with two Leaf outputs.
     %joined = "ac.bits.binary"(%picked, %mirror) {opcode = "xor"} : (!b8, !b8) -> !b8
     gfir.yield %joined, %left, %right, %echo, %mirror : !b8, !b8, !b8, !b8, !b8
   }

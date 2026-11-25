@@ -251,7 +251,23 @@ bool canBorrowTableRead(gfir::ReadOp read) {
 struct OutputGroup {
   SmallVector<unsigned> outputs;
   SmallVector<unsigned> inputs;
+  bool reuseKnownness = false;
+  SmallVector<unsigned> checkedInputs;
+  std::string nativeBody;
 };
+
+struct GroupKnownness {
+  llvm::SmallDenseSet<unsigned> checked;
+  llvm::DenseMap<unsigned, unsigned> nativeResults;
+};
+
+std::string inputKnownName(unsigned wire) {
+  return "pyc_input_known_" + std::to_string(wire);
+}
+
+std::string resultKnownName(unsigned wire) {
+  return "pyc_group_known_" + std::to_string(wire);
+}
 
 struct SelectGroup {
   unsigned condition;
@@ -461,6 +477,8 @@ void groupSignature(raw_ostream &out, const gfir::StructuredDefinition &definiti
   llvm::interleaveComma(group.inputs, out, [&](unsigned input) {
     out << "const " << graphType(definition.wires[input], tables) << " &" << wireName(input);
   });
+  if (!group.checkedInputs.empty())
+    out << ", bool pyc_inputs_known";
   out << ") const";
 }
 
@@ -503,14 +521,17 @@ private:
                           const gfir::StructuredDefinition &definition,
                           ArrayRef<unsigned> outputs, StringRef instancePrefix = {},
                           bool groupSelects = false);
-  std::optional<unsigned> internOutputGroup(unsigned definition, ArrayRef<unsigned> outputs);
+  FailureOr<std::optional<unsigned>> internOutputGroup(
+      unsigned definition, ArrayRef<unsigned> outputs, bool reuseKnownness);
   FailureOr<bool> emitOutputGroup(raw_ostream &out,
                                   const gfir::StructuredDefinition &definition,
                                   unsigned first, ArrayRef<unsigned> candidates,
-                                  llvm::BitVector &emitted, StringRef instancePrefix);
+                                  llvm::BitVector &emitted, StringRef instancePrefix,
+                                  GroupKnownness *knownness);
   FailureOr<bool> emitKnownOutputGroup(raw_ostream &out,
                                       const gfir::StructuredDefinition &definition,
-                                      const OutputGroup &group, ArrayRef<unsigned> roots);
+                                      const OutputGroup &group, ArrayRef<unsigned> roots,
+                                      SmallVectorImpl<unsigned> *checkedInputs = nullptr);
   LogicalResult emitOutputGroups();
   LogicalResult planWholeOutputs();
   LogicalResult planRecordStates();
@@ -1002,6 +1023,7 @@ LogicalResult BehavioralEmitter::emitWires(
     if (index < definition.wires.size() && needed.test(index))
       if (const auto &call = definition.wires[index].call)
         callMembers[call->receiver].push_back(index);
+  GroupKnownness knownness;
   for (unsigned index : definition.order) {
     if (!needed.test(index) || emitted.test(index))
       continue;
@@ -1033,7 +1055,8 @@ LogicalResult BehavioralEmitter::emitWires(
       continue;
     auto candidates = wire.call ? ArrayRef<unsigned>(callMembers[wire.call->receiver])
                                 : ArrayRef<unsigned>{};
-    auto grouped = emitOutputGroup(out, definition, index, candidates, emitted, instancePrefix);
+    auto grouped = emitOutputGroup(out, definition, index, candidates, emitted,
+                                   instancePrefix, callMembers.size() > 1 ? &knownness : nullptr);
     if (failed(grouped))
       return failure();
     if (*grouped)
@@ -1057,18 +1080,22 @@ LogicalResult BehavioralEmitter::emitWires(
   return success();
 }
 
-std::optional<unsigned> BehavioralEmitter::internOutputGroup(
-    unsigned index, ArrayRef<unsigned> outputs) {
+FailureOr<std::optional<unsigned>> BehavioralEmitter::internOutputGroup(
+    unsigned index, ArrayRef<unsigned> outputs, bool reuseKnownness) {
+  const auto &definition = program.definitions[index];
+  reuseKnownness = reuseKnownness && llvm::none_of(definition.wires, [](const auto &wire) {
+    return wire.call.has_value();
+  });
   auto &groups = outputGroups[index];
   for (auto [ordinal, group] : llvm::enumerate(groups))
-    if (llvm::equal(group.outputs, outputs))
-      return ordinal;
-  const auto &definition = program.definitions[index];
+    if (group.reuseKnownness == reuseKnownness && llvm::equal(group.outputs, outputs))
+      return std::optional<unsigned>(ordinal);
   // Bound specialization count and total added closure size by the existing
   // singleton surface; a refused specialization keeps ordinary emission.
   if (groups.size() >= definition.outputs.size())
-    return std::nullopt;
+    return std::optional<unsigned>();
   OutputGroup group;
+  group.reuseKnownness = reuseKnownness;
   group.outputs.append(outputs.begin(), outputs.end());
   SmallVector<unsigned> roots;
   for (unsigned output : outputs) {
@@ -1078,18 +1105,24 @@ std::optional<unsigned> BehavioralEmitter::internOutputGroup(
   }
   auto work = wireClosure(definition, roots).count();
   if (work > groupWorkRemaining[index])
-    return std::nullopt;
+    return std::optional<unsigned>();
   groupWorkRemaining[index] -= work;
   llvm::sort(group.inputs);
   group.inputs.erase(std::unique(group.inputs.begin(), group.inputs.end()), group.inputs.end());
+  if (reuseKnownness) {
+    // Build the native body and its exact scalar frontier together.
+    llvm::raw_string_ostream body(group.nativeBody);
+    if (failed(emitKnownOutputGroup(body, definition, group, roots, &group.checkedInputs)))
+      return failure();
+  }
   groups.push_back(std::move(group));
-  return groups.size() - 1;
+  return std::optional<unsigned>(groups.size() - 1);
 }
 
 FailureOr<bool> BehavioralEmitter::emitOutputGroup(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
     unsigned first, ArrayRef<unsigned> candidates, llvm::BitVector &emitted,
-    StringRef instancePrefix) {
+    StringRef instancePrefix, GroupKnownness *knownness) {
   const auto &initial = definition.wires[first];
   if (!initial.call)
     return false;
@@ -1124,9 +1157,12 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
   outputs.erase(std::unique(outputs.begin(), outputs.end()), outputs.end());
   if (outputs.size() < 2 || !llvm::is_contained(members, first))
     return false;
-  auto group = internOutputGroup(call.definition, outputs);
-  if (!group)
+  auto ordinal = internOutputGroup(call.definition, outputs, knownness != nullptr);
+  if (failed(ordinal))
+    return failure();
+  if (!*ordinal)
     return false;
+  const auto &strategy = outputGroups[call.definition][**ordinal];
   auto member = instanceName(call.receiver);
   if (failed(member))
     return failure();
@@ -1136,14 +1172,42 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
   SmallVector<std::string> results, arguments;
   for (unsigned output : outputs)
     results.push_back(wireName(bindings.at(output)));
-  for (unsigned input : outputGroups[call.definition][*group].inputs)
+  for (unsigned input : strategy.inputs)
     arguments.push_back(wireName(frontier.at(input)));
+  if (!strategy.checkedInputs.empty()) {
+    // Each proof belongs to an actual SSA leaf in this evaluation. A native
+    // predecessor established known masks for all its results. A predecessor
+    // that took the four-state path only supplies its value, so check the mask.
+    SmallVector<std::string> known;
+    for (unsigned input : strategy.checkedInputs) {
+      unsigned actual = frontier.at(input);
+      while (auto source = forwardedBits(definition, actual)) {
+        if (!emitted.test(*source))
+          break;
+        actual = *source;
+      }
+      auto name = inputKnownName(actual);
+      if (knownness->checked.insert(actual).second) {
+        out << "    const bool " << name << " = ";
+        if (auto prior = knownness->nativeResults.find(actual);
+            prior != knownness->nativeResults.end())
+          out << resultKnownName(prior->second) << " || ";
+        out << wireName(actual) << ".isFullyKnown();\n";
+      }
+      if (!llvm::is_contained(known, name))
+        known.push_back(std::move(name));
+    }
+    arguments.push_back(join(known, " && "));
+    results.push_back(resultKnownName(first));
+  }
   out << "    const auto [" << join(results, ", ") << "] = " << instancePrefix << *member
-      << '.' << outputGroupName(*group) << '(' << join(arguments, ", ") << ");\n";
+      << '.' << outputGroupName(**ordinal) << '(' << join(arguments, ", ") << ");\n";
   for (unsigned index : members) {
     unsigned original = bindings.at(definition.wires[index].call->output);
     if (index != original)
       out << "    const auto &" << wireName(index) << " = " << wireName(original) << ";\n";
+    if (!strategy.checkedInputs.empty())
+      knownness->nativeResults.try_emplace(index, first);
     emitted.set(index);
   }
   return true;
@@ -1151,7 +1215,8 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
 
 FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
-    const OutputGroup &group, ArrayRef<unsigned> roots) {
+    const OutputGroup &group, ArrayRef<unsigned> roots,
+    SmallVectorImpl<unsigned> *checkedInputs) {
   auto forwarded = [&](unsigned index) {
     auto bits = forwardedBits(definition, index);
     return bits ? bits : forwardedTable(definition, index);
@@ -1240,10 +1305,15 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
   for (unsigned root : roots)
     ++uses[origins[root]];
 
-  SmallVector<std::string> known;
-  for (unsigned input : inputs)
-    known.push_back(wireName(input) + ".isFullyKnown()");
-  out << "    if (" << join(known, " &&\n        ") << ") {\n";
+  if (checkedInputs) {
+    checkedInputs->append(inputs.begin(), inputs.end());
+    out << "    if (pyc_inputs_known) {\n";
+  } else {
+    SmallVector<std::string> known;
+    for (unsigned input : inputs)
+      known.push_back(wireName(input) + ".isFullyKnown()");
+    out << "    if (" << join(known, " &&\n        ") << ") {\n";
+  }
   if (readsRows)
     out << "      do {\n";
   SmallVector<std::string> expressions(definition.wires.size());
@@ -1293,6 +1363,8 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     results.push_back(carrier(width) + "::known(gfsim::Bits<" + std::to_string(width) +
                       ">{" + expressions[origins[root]] + "})");
   }
+  if (checkedInputs)
+    results.push_back("true");
   out << "      return {" << join(results, ", ") << "};\n";
   if (readsRows)
     out << "      } while (false);\n";
@@ -1325,8 +1397,10 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
         roots.push_back(wire);
         values.push_back(wireName(wire));
       }
-      bool specialized = false;
-      if (groupSelects) {
+      bool specialized = !outputs.checkedInputs.empty();
+      if (specialized) {
+        out << outputs.nativeBody;
+      } else if (groupSelects) {
         auto strategy = emitKnownOutputGroup(out, definition, outputs, roots);
         if (failed(strategy))
           return failure();
@@ -1476,6 +1550,8 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     for (unsigned output : group.outputs)
       out << "    " << graphType(definition.wires[definition.outputs[output].wire], tableWireTypes)
           << ' ' << resultName(output) << ";\n";
+    if (!group.checkedInputs.empty())
+      out << "    bool pyc_results_known = false;\n";
     out << "  };\n";
     out << "  ";
     groupSignature(out, definition, tableWireTypes, group, ordinal);

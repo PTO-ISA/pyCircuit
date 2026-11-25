@@ -104,6 +104,10 @@ required scalar inputs are fully known. A proven in-range Table lookup checks
 the selected row when it is read. A scalar Rule can evaluate only the demanded
 calculations for a known branch after saving its result snapshot. The four-state
 evaluator handles X and Z using the existing transaction and sampling contract.
+When one evaluation calls several pure output groups, scalar mask checks can
+be reused for the same actual value across calls. A completed native group
+establishes knownness for its results. A four-state result is checked at its
+consumer, and each selected Table row retains its own knownness check.
 For an eligible unsampled Rule with direct local Method calls, the native path
 checks inputs and state once. The Methods share one private candidate frame,
 which supplies proposals to the existing commit path.

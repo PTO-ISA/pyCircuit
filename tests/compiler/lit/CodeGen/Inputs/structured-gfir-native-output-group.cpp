@@ -58,6 +58,14 @@ template <class T> void expect(const T &actual, const Word &expected) {
   require(observed.zMask() == reference.zMask());
   require((observed.value() & reference.knownMask()) == reference.value());
 }
+struct Stage { Word picked, left, right, mirror; };
+Stage stage(const Word &a, const Word &b, const Word &count, char selector) {
+  const auto x = logic(a, "01011010", '^');
+  const auto z = logic(x, logic(b, "11110000", '&'), '|');
+  const auto left = shift(invert(z), count, true), right = shift(x, count, false);
+  const auto picked = select(selector, logic(logic(left, right, '^'), "11001100", '&'), z);
+  return {picked, left, right, logic(picked, a, '^')};
+}
 int main() {
   // Six known samples select both branches and cover zero, boundary and large
   // counts. Mixed samples independently exercise data, selector and count X/Z.
@@ -80,20 +88,18 @@ int main() {
   root.Reset(); root.Xfer();
   for (const auto &row : rows) {
     const auto &[a, b, count, selector] = row;
-    const auto x = logic(a, "01011010", '^');
-    const auto z = logic(x, logic(b, "11110000", '&'), '|');
-    const auto left = shift(invert(z), count, true), right = shift(x, count, false);
-    const auto picked = select(selector[0], logic(logic(left, right, '^'), "11001100", '&'), z);
-    const auto mirror = logic(picked, a, '^');
-    const auto joined = logic(picked, mirror, '^');
+    const auto first = stage(a, b, count, selector[0]);
+    const auto second = stage(first.picked, first.mirror, count, selector[0]);
+    const auto joined = logic(second.picked, second.mirror, '^');
     root.a = bits<8>(a); root.b = bits<8>(b);
     root.count = bits<8>(count); root.selector = bits<1>(selector);
     root.Work();
-    expect(root.picked, joined); expect(root.left, left); expect(root.right, right);
-    expect(root.echo, a); expect(root.mirror, mirror);
+    expect(root.picked, joined); expect(root.left, second.left); expect(root.right, second.right);
+    expect(root.echo, a); expect(root.mirror, second.mirror);
     root.Xfer();
     // Icarus consumes oracle expectations, never values read from the DUT.
     std::cout << a << ' ' << b << ' ' << count << ' ' << selector << ' '
-              << joined << ' ' << left << ' ' << right << ' ' << a << ' ' << mirror << '\n';
+              << joined << ' ' << second.left << ' ' << second.right << ' '
+              << a << ' ' << second.mirror << '\n';
   }
 }
