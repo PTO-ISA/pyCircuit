@@ -155,6 +155,8 @@ private:
     }
     // Check the complete system before any root or nested child commits state.
     bool accepted = Precheck();
+    for (const SimModule *module : roots_)
+      accepted &= module->CanXfer();
     if (observations_)
       accepted &= observations_->Precommit(cycle_);
     if (!accepted) {

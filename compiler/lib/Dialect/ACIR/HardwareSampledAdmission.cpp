@@ -625,14 +625,13 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       if (availabilityUses->contains(&use)) continue;
       bool endpoint = false;
       for (const auto &effect : *effects) {
-        if (effect.intent != use.get()) continue;
-        if (use.getOwner() == effect.resource &&
-            isCDCInstance(dyn_cast<InstanceOp>(effect.resource)))
-          endpoint |= use.getOperandNumber() == (effect.write ? 4u : 5u);
-        if (use.getOwner() == effect.resource && isa<CDCRefinementOp>(effect.resource)) {
-          if (failed(verifyHardwareCDCComponent(effect.resource))) return failure();
-          endpoint |= use.getOperandNumber() == (effect.write ? 4u : 5u);
-        }
+        if (effect.intent != use.get() || use.getOwner() != effect.resource)
+          continue;
+        if (isa<CDCRefinementOp>(effect.resource) &&
+            failed(verifyHardwareCDCComponent(effect.resource)))
+          return failure();
+        unsigned push = hasIndependentCDCReset(effect.resource) ? 5 : 4;
+        endpoint |= use.getOperandNumber() == (effect.write ? push : push + 1);
       }
       if (endpoint) continue;
       bool hasDerivedEndpoint = llvm::any_of(*effects, [](const auto &effect) {
@@ -3817,6 +3816,38 @@ private:
     }
     return identity->normalize(value, scope);
   }
+  FailureOr<unsigned> actualClock(const HardwareIdentityEndpoint &endpoint,
+                                  const HardwareDomainOccurrence &base) {
+    Value value = endpoint.value;
+    auto argument = dyn_cast<BlockArgument>(value);
+    auto owner =
+        dyn_cast<ModuleOp>(value.getParentBlock()->getParentOp());
+    if (!owner)
+      return failure();
+    SmallVector<DictionaryAttr> path(base.instancePath);
+    for (auto instance : endpoint.scope.path)
+      path.push_back(instance.getOccurrence());
+    for (auto [index, actual] : llvm::enumerate(domainPlan->occurrences)) {
+      if (failed(budget.debit(1 + path.size(), owner)))
+        return failure();
+      if (actual.definition != owner || !llvm::equal(actual.instancePath, path))
+        continue;
+      if (domainPlan->clockSources) {
+        if (failed(budget.debit(256 + domainPlan->clockSources->sources.size(),
+                                owner)))
+          return failure();
+        return resolveHardwareClockSource(*domainPlan->clockSources,
+                                          endpoint.value, index);
+      }
+      if (!argument)
+        return failure();
+      auto clock = actual.inputClocks.find(argument.getArgNumber());
+      if (clock == actual.inputClocks.end())
+        return failure();
+      return clock->second;
+    }
+    return failure();
+  }
   LogicalResult equalClocks(const HardwareIdentityEndpoint &left,
                             const HardwareIdentityEndpoint &right) {
     if (sameEndpoint(left, right)) return success();
@@ -3831,21 +3862,10 @@ private:
     // A template's distinct clock arguments may alias in an actual instance.
     // Correlate both endpoints under each occurrence of their common root;
     // comparing sets or selecting one occurrence would lose instance identity.
-    auto resolve = [&](const HardwareIdentityEndpoint &endpoint,
-                       const HardwareDomainOccurrence &base) -> FailureOr<unsigned> {
-      auto argument = dyn_cast<BlockArgument>(endpoint.value);
-      auto owner = argument ? dyn_cast<ModuleOp>(argument.getOwner()->getParentOp()) : ModuleOp();
-      if (!owner) return failure();
-      SmallVector<DictionaryAttr> path(base.instancePath);
-      for (auto instance : endpoint.scope.path) path.push_back(instance.getOccurrence());
-      for (const auto &actual : domainPlan->occurrences) {
-        if (failed(budget.debit(1 + path.size(), owner))) return failure();
-        if (actual.definition != owner || !llvm::equal(actual.instancePath, path)) continue;
-        auto clock = actual.inputClocks.find(argument.getArgNumber());
-        if (clock == actual.inputClocks.end()) return failure();
-        return clock->second;
-      }
-      return failure();
+    auto resolve =
+        [&](const HardwareIdentityEndpoint &endpoint,
+            const HardwareDomainOccurrence &base) -> FailureOr<unsigned> {
+      return actualClock(endpoint, base);
     };
     bool matched = false;
     for (const auto &base : domainPlan->occurrences) {
@@ -3909,14 +3929,17 @@ private:
       for (auto instance : receiver->path) relativePath.push_back(instance.getOccurrence());
       auto defaultName = logical.terminal->getAttrOfType<StringAttr>("ac.default_domain");
       auto argument = dyn_cast<BlockArgument>(clock.value);
-      if (!argument || argument.getOwner()->getParentOp() != clock.scope.root ||
-          !clock.scope.path.empty() || clock.scope.root != receiver->root)
+      if (clock.scope.root != receiver->root ||
+          (!domainPlan->clockSources &&
+           (!argument ||
+            argument.getOwner()->getParentOp() != clock.scope.root ||
+            !clock.scope.path.empty())))
         return terminal->emitOpError("sampled effect clock lacks a definition-relative clock argument identity");
       bool matched = false;
       for (const auto &rootOccurrence : domainPlan->occurrences) {
         if (rootOccurrence.definition != receiver->root) continue;
-        auto actualClock = rootOccurrence.inputClocks.find(argument.getArgNumber());
-        if (actualClock == rootOccurrence.inputClocks.end())
+        auto resolvedClock = actualClock(clock, rootOccurrence);
+        if (failed(resolvedClock))
           return terminal->emitOpError("sampled effect clock is not a bound domain clock input");
         SmallVector<DictionaryAttr> actualPath(rootOccurrence.instancePath);
         actualPath.append(relativePath);
@@ -3928,9 +3951,11 @@ private:
           bool system = rootKind && rootKind.getValue() == "system";
           bool matches = false;
           if (system || resourceEndpointContext)
-            for (const auto &binding : owner.clocks) matches |= binding.second == actualClock->second;
+            for (const auto &binding : owner.clocks)
+              matches |= binding.second == *resolvedClock;
           else if (defaultName && owner.clocks.count(defaultName.getValue()))
-            matches = owner.clocks.lookup(defaultName.getValue()) == actualClock->second;
+            matches =
+                owner.clocks.lookup(defaultName.getValue()) == *resolvedClock;
           if (!matches)
             return terminal->emitOpError("sampled effect owner has a different actual clock domain");
         }
@@ -4398,9 +4423,10 @@ private:
       if (commitsMemory(proposal) && failed(includeResource(proposal.memory, true)))
         return failure();
     for (const auto &effect : cdcEffects)
-      if (failed(includeEvent(effect.clock, effect.edge, effect.reset,
-                              RegisterResetKind::Async, effect.polarity, entry.scope)))
-        return failure();
+      for (const auto &reset : effect.resets)
+        if (failed(includeEvent(effect.clock, effect.edge, reset.value,
+                                reset.kind, reset.polarity, entry.scope)))
+          return failure();
     if (expectedResets.size() != sampled.resets.size())
       return writer.rule->emitOpError("sampled reset set differs from transitive effect footprint");
     if (failed(charge(budget, writer.rule, sampled.resets.size(),
@@ -5263,14 +5289,17 @@ private:
           auto layout = getCDCPrimitiveLayout(instance, owner.bindings);
           if (failed(layout)) return failure();
           if (layout->isFIFO()) {
-            intentPin = operand == 4 || operand == 5;
-            dataPin = operand == 3;
+            unsigned payload = layout->hasIndependentReset() ? 4 : 3;
+            intentPin = operand == payload + 1 || operand == payload + 2;
+            dataPin = operand == payload;
           }
         } else {
           auto kind = consumer->getAttrOfType<StringAttr>("logical_kind");
           if (kind && kind.getValue() == "async_fifo") {
-            intentPin = operand == 4 || operand == 5;
-            dataPin = operand == 3;
+            unsigned payload = getCDCRefinementPayloadOperand(
+                cast<CDCRefinementOp>(consumer));
+            intentPin = operand == payload + 1 || operand == payload + 2;
+            dataPin = operand == payload;
           }
         }
         bool approved = false;

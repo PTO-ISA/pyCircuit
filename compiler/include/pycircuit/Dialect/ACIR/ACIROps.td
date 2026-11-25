@@ -401,6 +401,23 @@ def ACIR_SourceStateOp : ACIR_Op<"state", [
   }];
 }
 
+def ACIR_ClockSourceOp : ACIR_Op<"clock.source"> {
+  let summary = "Declare a registered derived clock and retain its identity";
+  let description = [{
+    An identity wire with an occurrence-owned event identity, shared by routed
+    and final hardware. contract=1 requires input to resolve to one registered
+    bit in source_domain. domain names the distinct local derived source.
+    Native verification checks syntax and placement; the common clock-source
+    planner proves actual producer provenance, hierarchy bindings and the
+    acyclic source graph. This witness is deliberately not Pure. It cannot
+    authorize execution without the causal-wave execution profile.
+  }];
+  let arguments = (ins ACIR_BitsType:$input, StrAttr:$domain,
+      StrAttr:$source_domain, DictionaryAttr:$occurrence, I64Attr:$contract);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_CDCRefinementOp : ACIR_Op<"cdc.refinement", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Bind a native CDC allocation to its ordinary physical graph";

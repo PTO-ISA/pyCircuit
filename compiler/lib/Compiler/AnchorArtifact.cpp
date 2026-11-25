@@ -621,14 +621,63 @@ FailureOr<json::Object> configuration(mlir::ModuleOp package, const json::Array 
       {"graph_sha256", graphHash.str()}, {"definitions", std::move(variants)}};
   auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
   if (contract && contract.getInt() == 7) {
-    auto domains = ac::serializeHardwareDomainBindings(package);
+    auto domains = ac::getHardwareDomainPlan(package);
     if (failed(domains)) return failure();
-    auto value = domainBindingJSON(*domains);
+    auto value = domainBindingJSON(ac::serializeHardwareDomainBindings(*domains));
     auto rows = value.getAsArray();
     llvm::sort(*rows, [](const json::Value &a, const json::Value &b) {
       return *canonical(a) < *canonical(b);
     });
     result["domain_bindings"] = std::move(value);
+    if (root->hasAttr("ac.port_domains")) {
+      auto ports = ac::getHardwarePortDomains(root);
+      auto layout = ac::getModulePortLayout(root);
+      auto clocks = implementation->getAttrOfType<DictionaryAttr>(
+          "ac.domain_clock_inputs");
+      if (failed(ports) || failed(layout) || !clocks)
+        return emitError() << "anchor port domains require verified root clocks";
+      json::Array rows;
+      auto append = [&](bool input) -> LogicalResult {
+        unsigned count = input ? layout->sourceInputCount
+                               : layout->sourceOutputCount;
+        const auto &portDomains = input ? ports->inputs : ports->outputs;
+        const auto &companions = input ? layout->inputValidity
+                                       : layout->outputValidity;
+        for (unsigned ordinal = 0; ordinal < count; ++ordinal) {
+          auto domain = portDomains[ordinal];
+          if (!domain) continue;
+          auto clock = clocks.getAs<IntegerAttr>(domain.getValue());
+          json::Object row{{"direction", input ? "input" : "output"},
+                           {"source_ordinal", ordinal},
+                           {"domain", domain.getValue()}};
+          if (clock) {
+            row["clock_input"] = clock.getInt();
+          } else if (domains->clockSources) {
+            const auto &rootClocks = domains->occurrences.front().clocks;
+            auto source = rootClocks.find(domain.getValue());
+            if (source == rootClocks.end())
+              return emitError() << "anchor port domain has no clock source";
+            row["clock_source"] = domainBindingJSON(
+                ac::getHardwareClockSourceIdentity(*domains->clockSources,
+                                                   source->second));
+          } else {
+            return emitError() << "anchor port domain has no actual root clock";
+          }
+          if (companions[ordinal] >= 0)
+            row["companion"] = companions[ordinal];
+          rows.emplace_back(std::move(row));
+        }
+        return success();
+      };
+      if (failed(append(true)) || failed(append(false))) return failure();
+      llvm::sort(rows, [](const json::Value &a, const json::Value &b) {
+        return *canonical(a) < *canonical(b);
+      });
+      result["port_domain_bindings"] = std::move(rows);
+    }
+    if (domains->clockSources)
+      result["clock_sources"] =
+          domainBindingJSON(ac::serializeHardwareClockSources(*domains->clockSources));
   }
   if (system->hasAttr("ac.entry_boundary"))
     result["implementation_root"] = json::Object{{"source", ownerJSON(implementation.getSourceOwner())},
@@ -812,10 +861,16 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   bool boundary = config && config->getObject("implementation_root");
   bool domains = document.getInteger("schema") == 6;
   if (!config || (domains && !config->getArray("domain_bindings")) ||
-      (!domains && config->get("domain_bindings")))
+      (!domains && config->get("domain_bindings")) ||
+      (config->get("port_domain_bindings") &&
+       (!domains || !config->getArray("port_domain_bindings"))) ||
+      (config->get("clock_sources") &&
+       (!domains || !config->getArray("clock_sources"))))
     return emitError() << "anchor domain configuration schema mismatch";
   json::Object configCore(*config);
   configCore.erase("domain_bindings");
+  configCore.erase("port_domain_bindings");
+  configCore.erase("clock_sources");
   auto definitions = document.getArray("definitions"), sources = document.getArray("sources");
   if (!definitions || definitions->empty() || !sources || sources->empty() ||
       !(boundary ? keys(&configCore, {"root", "implementation_root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})

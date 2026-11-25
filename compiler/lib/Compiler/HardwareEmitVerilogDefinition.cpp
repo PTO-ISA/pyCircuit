@@ -115,6 +115,11 @@ public:
     }
     if (!context.managesChecks())
       return success();
+    if (context.causalClocks())
+      for (auto source : definition.getBody().front().getOps<ac::ClockSourceOp>()) {
+        if (failed(net(source.getResult())))
+          return failure();
+      }
     for (auto [index, binding] :
          llvm::enumerate(context.sourceChecks().samplingBindings)) {
       if (binding.definition != definition)
@@ -122,14 +127,23 @@ public:
       auto clock = net(binding.clock);
       if (failed(clock))
         return failure();
+      bool causal = context.causalClocks();
+      auto seed = causal ? clockSeed(binding.clock)
+                         : FailureOr<std::string>(std::string("1'b0"));
+      if (failed(seed))
+        return failure();
       auto name = "pyc_sampling_" + std::to_string(binding.localOrdinal);
+      auto history = name + (causal ? "_wave_clock" : "_clock");
       samplingNames.try_emplace(index, name);
       localCompletions.push_back(name + "_complete");
       localSamplingErrors.push_back("(" + name + "_fault != 2'd0)");
       // These records observe the existing managed storage transaction; they
       // are verification instrumentation, not additional hardware state.
       out << "`ifndef SYNTHESIS\n"
-          << "  logic " << name << "_clock = 1'b0;\n"
+          << "  logic " << name << "_clock = " << *seed << ";\n";
+      if (causal)
+        out << "  logic " << history << " = " << *seed << ";\n";
+      out
           << "  logic " << name << "_pending_clock = 1'b0;\n"
           << "  logic " << name << "_pending_valid = 1'b0;\n"
           << "  logic " << name << "_complete = 1'b0;\n"
@@ -150,7 +164,7 @@ public:
           << "        if ($isunknown(" << name << "_sampled_clock))\n"
           << "          " << name << "_fault = 2'd1;\n"
           << "        else begin\n"
-          << "          " << name << "_rising = (" << name << "_clock === "
+          << "          " << name << "_rising = (" << history << " === "
           << (binding.edge == ac::RegisterEdge::Negedge ? "1'b1" : "1'b0")
           << ") && (" << name << "_sampled_clock === "
           << (binding.edge == ac::RegisterEdge::Negedge ? "1'b0" : "1'b1")
@@ -181,24 +195,30 @@ public:
           << "          end\n"
           << "        end\n"
           << "        " << name << "_complete = 1'b1;\n"
-          << "      end\n"
-          << "      3'd2: begin\n"
+          << "      end\n";
+      if (causal)
+        out << "      3'd5: " << history << " = " << name << "_clock;\n"
+            << "      3'd7: if (pyc_root_commit_ok === 1'b1) " << name
+            << "_clock = " << history << ";\n";
+      out << "      " << (causal ? "3'd6" : "3'd2") << ": begin\n"
           << "        if ((pyc_root_commit_ok === 1'b1) && (" << name
           << "_pending_valid === 1'b1)) begin\n"
-          << "          " << name << "_clock = " << name << "_pending_clock;\n"
+          << "          " << history << " = " << name << "_pending_clock;\n"
           << "          " << name << "_pending_valid = 1'b0;\n"
-          << "        end\n"
-          << "        if (pyc_root_commit_ok === 1'b1)\n"
-          << "          " << name << "_complete = 1'b0;\n"
-          << "      end\n"
+          << "        end\n";
+      if (!causal)
+        out << "        if (pyc_root_commit_ok === 1'b1)\n"
+            << "          " << name << "_complete = 1'b0;\n";
+      out << "      end\n"
           << "      3'd3, 3'd4: begin\n"
-          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_complete = "
+          << (causal ? "(pyc_phase == 3'd4)" : "1'b0") << ";\n"
           << "        " << name << "_sampled_clock = 1'b0;\n"
           << "        " << name << "_sampled_reset = 1'b0;\n"
           << "        " << name << "_rising = 1'b0;\n"
           << "        " << name << "_reset_active = 1'b0;\n"
           << "        " << name << "_fault = 2'd0;\n"
-          << "        " << name << "_pending_clock = 1'b0;\n"
+          << "        " << name << "_pending_clock = " << *seed << ";\n"
           << "        " << name << "_pending_valid = (pyc_phase == 3'd4);\n"
           << "      end\n"
           << "      default: begin end\n"
@@ -257,7 +277,9 @@ public:
             << "          " << name << "_complete = 1'b0;\n"
             << "      end\n"
             << "      3'd3, 3'd4: begin\n"
-            << "        " << name << "_complete = 1'b0;\n"
+            << "        " << name << "_complete = "
+            << (context.causalClocks() ? "(pyc_phase == 3'd4)" : "1'b0")
+            << ";\n"
             << "        " << name << "_condition = 1'b0;\n"
             << "        " << name << "_path = 1'b0;\n"
             << "      end\n"
@@ -305,7 +327,9 @@ public:
           << "          " << name << "_complete = 1'b0;\n"
           << "      end\n"
           << "      3'd3, 3'd4: begin\n"
-          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_complete = "
+          << (context.causalClocks() ? "(pyc_phase == 3'd4)" : "1'b0")
+          << ";\n"
           << "        " << name << "_condition = 1'b0;\n"
           << "        " << name << "_path = 1'b0;\n"
           << "        " << name << "_reset = 1'b0;\n"
@@ -389,6 +413,12 @@ public:
     auto *op = value.getDefiningOp();
     if (!op)
       return definition.emitOpError() << "RTL wire has no producer";
+    if (auto source = dyn_cast<ac::ClockSourceOp>(op)) {
+      auto name = net(source.getInput());
+      if (succeeded(name))
+        names.try_emplace(value, *name);
+      return name;
+    }
     if (isa<ac::InstanceOp, ac::CollectionOp>(op)) {
       auto name = "pyc_net_" + std::to_string(next++);
       auto type = context.rtlType(value.getType(), op);
@@ -1101,6 +1131,25 @@ public:
           options += ") ";
           parameters->insert(parameters->rfind(')'), options);
         }
+        if (context.causalClocks() && managedPrimitive) {
+          auto pins = ac::getRegisterPrimitiveLayout(callee);
+          if (failed(pins))
+            return failure();
+          auto seed = clockSeed(occurrence->getOperand(pins->clock));
+          if (failed(seed))
+            return failure();
+          parameters->insert(parameters->rfind(')'),
+                             ", .pyc_causal(1'b1), .pyc_initial_clock(" +
+                                 *seed + ") ");
+        }
+      }
+      if (kind.empty() && context.causalClocks()) {
+        auto parameter = ".pyc_clock_occurrence(" +
+                         childOccurrenceParameter(occurrence) + ")";
+        if (parameters->empty())
+          *parameters = " #(" + parameter + ")";
+        else
+          parameters->insert(parameters->rfind(')'), ", " + parameter + " ");
       }
       std::string i, count;
       if (collection) {
@@ -1254,7 +1303,7 @@ public:
   }
 
   void recordPhysicalLayout() {
-    if (context.isPhysical())
+    if (context.isPhysical() || context.causalClocks())
       for (const auto &entry : names)
         context.physicalLayout.nets.try_emplace(entry.first, entry.second);
   }
@@ -1282,6 +1331,33 @@ public:
   }
 
 private:
+  FailureOr<std::string> clockSeed(Value clock) const {
+    const auto &plan = *context.causalClocks();
+    std::string expression;
+    for (auto [id, owner] : llvm::enumerate(plan.occurrences)) {
+      if (owner.definition != definition)
+        continue;
+      auto source = ac::resolveHardwareClockSource(plan, clock, id);
+      if (failed(source))
+        return failure();
+      if (plan.sources[*source].initialLevel)
+        expression += "(pyc_clock_occurrence == " + std::to_string(id) + ") || ";
+    }
+    return expression + "1'b0";
+  }
+
+  std::string childOccurrenceParameter(Operation *allocation) const {
+    const auto &plan = *context.causalClocks();
+    std::string expression;
+    for (auto [id, owner] : llvm::enumerate(plan.occurrences)) {
+      auto child = owner.children.find(allocation);
+      if (child != owner.children.end())
+        expression += "(pyc_clock_occurrence == " + std::to_string(id) +
+                      ") ? " + std::to_string(child->second) + " : ";
+    }
+    return expression + "-1";
+  }
+
   HardwareEmitContext &context;
   ac::ModuleOp definition;
   raw_ostream &out;
@@ -1301,6 +1377,8 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
   auto &names = context.names(definition);
   out << "module " << names.rtl;
   SmallVector<std::string> parameters;
+  if (context.causalClocks())
+    parameters.push_back("parameter int pyc_clock_occurrence = 0");
   for (auto raw : definition.getParameters()) {
     auto formal = cast<DictionaryAttr>(raw);
     auto name = formal.getAs<StringAttr>("name");

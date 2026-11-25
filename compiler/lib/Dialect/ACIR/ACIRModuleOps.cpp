@@ -28,7 +28,7 @@ bool isCombinationalHardwareOperation(Operation *operation) {
              EnumCreateOp, EnumToBitsOp, EnumFromBitsOp, TableCreateOp,
              TableSplatOp, TableMapOp, TableViewOp, TableIndexOp, TableReadOp,
              TableGetOp, TableMatchOp, TableChooseOp, TableFoldOp, ValueMergeOp,
-             ValueRequireOp>(operation);
+             ValueRequireOp, ClockSourceOp>(operation);
 }
 
 LogicalResult verifyModuleSignature(Operation *op) {

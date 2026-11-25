@@ -82,6 +82,28 @@ the previous clock on failure and commit successful history through their
 existing Xfer/Discard lifecycle, including samples with a false data enable.
 The helper alone does not implement transaction guard checks or check histories.
 
+`collection_storage` also provides storage preparation for causal event waves.
+`begin_macrostep()` creates a private copy of committed state. Work reads this
+copy through `wave_current()`; `current()` continues to expose committed state.
+The seed-accessor overload can initialize private derived-clock history from
+the known old source level before any wave runs, preserving high startup levels
+without fabricating an edge.
+After all root checks for a wave succeed, `advance_wave()` applies the existing
+kernel transition to the private copy. Its output accessor must borrow private
+wires. Later waves can read the advanced copy, including its clock histories.
+Discard or a Work exception drops all waves in that owner. Before publication,
+the root must check every owner's `macrostep_ready()`, then call each owner's
+allocation-free `commit_macrostep()` and publish its staged outputs, sampling
+histories and observations at the same barrier. Ordinary Xfer during a
+macrostep cancels the candidate. Host reset also cancels it before preparing
+initialization.
+
+These storage hooks do not schedule events, stage source observations or enable
+derived clocks in compiler-generated models. Registered-source declaration,
+common source identity and event planning, anchor serialization, and matching
+native/RTL execution remain required for derived-clock support. Existing model
+generation continues to use the ordinary single-wave lifecycle.
+
 Synchronous memory reads old storage before concurrent writes commit. A read
 publishes known Q; the first subsequent idle rising edge holds it and the
 second makes it unknown. Each dual-read output has its own lifetime. Writes

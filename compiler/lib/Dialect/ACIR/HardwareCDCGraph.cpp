@@ -202,10 +202,13 @@ class Equations {
                 {b.getNamedAttr("resource",
                                 circuit.source->getAttr("occurrence")),
                  b.getNamedAttr("role", b.getStringAttr(role)),
-                 b.getNamedAttr("implementation", b.getI64IntegerAttr(2))}))};
+                 b.getNamedAttr("implementation", b.getI64IntegerAttr(
+                     hasIndependentCDCReset(circuit.source) ? 3 : 2))}))};
     if (resettable)
       attrs.push_back(b.getNamedAttr(
-          "reset_polarity", circuit.source->getAttr("reset_polarity")));
+          "reset_polarity", hasIndependentCDCReset(circuit.source)
+                                ? b.getStringAttr("high")
+                                : circuit.source->getAttrOfType<StringAttr>("reset_polarity")));
     if (auto table = dyn_cast<TableType>(type)) {
       attrs.push_back(b.getNamedAttr("shape", table.getShape()));
       auto splat = [&](Ref input) {
@@ -255,6 +258,32 @@ public:
   FailureOr<Circuit> run() {
     auto *source = circuit.source;
     Ref reset(inputs[2]);
+    bool independent = hasIndependentCDCReset(source);
+    if (independent) {
+      auto semantics = getHardwareResetSemantics(analysis.getPackage());
+      if (failed(semantics)) return failure();
+      bool strict = *semantics == HardwareResetSemantics::Strict;
+      SmallVector<Ref> normalized, known;
+      for (unsigned i = 0; i < 2; ++i) {
+        Ref raw(inputs[2 + i]);
+        auto polarity = source->getAttrOfType<StringAttr>(
+            i ? "read_reset_polarity" : "write_reset_polarity");
+        bool low = polarity.getValue() == "low";
+        normalized.push_back(strict ? (low ? invert(raw) : raw)
+                                    : equal(raw, low ? zeroBit : oneBit, "case_eq"));
+        if (strict)
+          known.push_back(binary("or", equal(raw, zeroBit, "case_eq"),
+                                 equal(raw, oneBit, "case_eq")));
+      }
+      reset = binary("or", normalized[0], normalized[1]);
+      if (strict) {
+        auto unknown = node(BitsConstant4Op::getOperationName(), {bit}, {},
+                            {b.getNamedAttr("pattern", b.getStringAttr("x"))});
+        // Preserve a fault on either raw pin even when the other is asserted.
+        reset = node(BitsSelectOp::getOperationName(), {bit},
+                     {binary("and", known[0], known[1]), reset, unknown});
+      }
+    }
     if (circuit.kind == "async_reg") {
       Ref clock(inputs[1]);
       auto edge = source->getAttrOfType<StringAttr>("target_edge").getValue();
@@ -303,16 +332,24 @@ public:
           "and", binary("and", writeReleased, peerReadReleased), invert(full));
       auto readAvailable = binary(
           "and", binary("and", readReleased, peerWriteReleased), invert(empty));
-      Value pushPayload = inputs[3];
-      Value pushIntent = inputs[4];
-      Value popIntent = inputs[5];
+      unsigned payload = independent ? 4 : 3;
+      Value pushPayload = inputs[payload];
+      Value pushIntent = inputs[payload + 1];
+      Value popIntent = inputs[payload + 2];
       Type payloadType = pushPayload.getType();
-      auto asserted =
-          source->getAttrOfType<StringAttr>("reset_polarity").getValue() ==
-                  "high"
-              ? oneBit
-              : zeroBit;
-      auto resetInactive = invert(equal(reset, asserted, "case_eq"));
+      Ref resetInactive;
+      if (independent) {
+        resetInactive = equal(reset, zeroBit, "case_eq");
+        writeAvailable = binary("and", writeAvailable, resetInactive);
+        readAvailable = binary("and", readAvailable, resetInactive);
+      } else {
+        auto asserted =
+            source->getAttrOfType<StringAttr>("reset_polarity").getValue() ==
+                    "high"
+                ? oneBit
+                : zeroBit;
+        resetInactive = invert(equal(reset, asserted, "case_eq"));
+      }
       auto push = binary("and", binary("and", Ref(pushIntent), writeAvailable),
                          resetInactive);
       auto pop = binary("and", binary("and", Ref(popIntent), readAvailable),
@@ -380,7 +417,9 @@ FailureOr<Circuit> getCircuit(Operation *source, SourceCheckBudget &budget) {
     if (failed(layout))
       return failure();
     SmallVector<Value> inputs{layout->sourceClock(), layout->targetClock(),
-                              layout->reset(), layout->input()};
+                              layout->writeReset()};
+    if (layout->hasIndependentReset()) inputs.push_back(layout->readReset());
+    inputs.push_back(layout->input());
     if (layout->isFIFO()) {
       inputs.push_back(layout->pushIntent());
       inputs.push_back(layout->popIntent());
@@ -393,7 +432,7 @@ FailureOr<Circuit> getCircuit(Operation *source, SourceCheckBudget &budget) {
   Attribute depth = source->getAttr("depth");
   SmallVector<Value> inputs;
   llvm::append_range(inputs, source->getOperands().take_front(
-                                kind.getValue() == "async_fifo" ? 6 : 4));
+      kind.getValue() == "async_fifo" ? (hasIndependentCDCReset(source) ? 7 : 6) : 4));
   return Equations(source, kind.getValue(), depth, inputs, budget).run();
 }
 Value resolve(Ref ref, const SmallVector<Operation *, 0> &nodes,
@@ -467,9 +506,10 @@ LogicalResult verifyFinalHardwareCDCComponent(Operation *witness) {
   auto kind = witness->getAttrOfType<StringAttr>("logical_kind");
   auto implementation = witness->getAttrOfType<IntegerAttr>("implementation");
   bool reg = kind && kind.getValue() == "async_reg";
+  bool independent = hasIndependentCDCReset(witness);
   if (!kind || (!reg && kind.getValue() != "async_fifo") || !implementation ||
-      implementation.getInt() != 2 ||
-      witness->getNumOperands() != (reg ? 5u : 9u) ||
+      implementation.getInt() != (independent ? 3 : 2) ||
+      witness->getNumOperands() != (reg ? 5u : (independent ? 10u : 9u)) ||
       witness->getNumResults() || witness->getNumRegions())
     return reject();
   detail::SourceCheckBudget budget(HardwareSourceCheckLimits{});
@@ -492,7 +532,7 @@ LogicalResult verifyFinalHardwareCDCComponent(Operation *witness) {
                                       witness, budget)))
     return failure();
   llvm::DenseSet<Value> exposed;
-  unsigned outputBase = reg ? 4 : 6;
+  unsigned outputBase = reg ? 4 : (independent ? 7 : 6);
   for (auto [i, ref] : llvm::enumerate(equations->outputs)) {
     auto output = resolve(ref, nodes, identity);
     if (output != witness->getOperand(outputBase + i))

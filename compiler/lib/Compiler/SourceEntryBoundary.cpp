@@ -168,7 +168,7 @@ FailureOr<OwningOpRef<ModuleOp>> normalizeEntryBoundary(ModuleOp original) {
   state.addAttribute("input_names", root.getInputNames());
   state.addAttribute("output_names", root.getOutputNames());
   if (auto domain = root->getAttr("ac.domain_inputs")) state.addAttribute("ac.domain_inputs", domain);
-  for (StringRef name : {"ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs"})
+  for (StringRef name : {"ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs", "ac.port_domains"})
     if (auto domain = root->getAttr(name)) state.addAttribute(name, domain);
   state.addRegion();
   auto adapter = cast<ac::ModuleOp>(Operation::create(state));

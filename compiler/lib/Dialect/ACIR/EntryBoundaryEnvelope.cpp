@@ -173,13 +173,13 @@ LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normali
       !adapter.getParameters().empty() || !adapter.getTypeParameters().empty() ||
       adapter->getAttr("ac.domain_inputs") != logical->getAttr("ac.domain_inputs"))
     return error() << "entry boundary owner, location, formals or domain mismatch";
-  for (StringRef name : {"ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs"})
+  for (StringRef name : {"ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs", "ac.port_domains"})
     if (adapter->getAttr(name) != logical->getAttr(name))
       return error() << "entry boundary domain contract mismatch";
   // The adapter has no source-call or source-state declaration authority.
   for (NamedAttribute attr : adapter->getAttrs()) {
     StringRef name = attr.getName().getValue();
-    if (llvm::is_contained(ArrayRef<StringRef>{"sym_name", "source_owner", "parameters", "type_parameters", "function_type", "input_names", "output_names", "ac.domain_inputs", "ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs"}, name)) continue;
+    if (llvm::is_contained(ArrayRef<StringRef>{"sym_name", "source_owner", "parameters", "type_parameters", "function_type", "input_names", "output_names", "ac.domain_inputs", "ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs", "ac.port_domains"}, name)) continue;
     if (!normalizedInput && llvm::is_contained(ArrayRef<StringRef>{"ac.internal_ports", "ac.input_validity", "ac.output_validity", "ac.routed_output_validity", "ac.transaction_wiring", "ac.queue_wiring", "ac.transaction_returns"}, name)) continue;
     return error() << "unexpected entry boundary declaration metadata: " << name;
   }

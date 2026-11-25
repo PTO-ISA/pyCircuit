@@ -72,6 +72,21 @@ def _text(value: object, name: str) -> str:
     return value
 
 
+def _clock_source(value: object) -> dict:
+    if type(value) is dict and value.get("kind") == "root_input":
+        source = _object(value, {"kind", "input"}, "root clock source")
+        if type(source["input"]) is int and 0 <= source["input"] < 2**32:
+            return source
+    elif type(value) is dict and value.get("kind") == "registered":
+        source = _object(
+            value, {"kind", "owner_path", "occurrence"}, "registered clock source"
+        )
+        path = _array(source["owner_path"], "clock owner path")
+        if type(source["occurrence"]) is dict and all(type(p) is dict for p in path):
+            return source
+    raise _PublicationError("anchor clock source identity is invalid")
+
+
 def _hash(value: object) -> str:
     if type(value) is not str or re.fullmatch(_HEX, value) is None:
         raise _PublicationError("anchor identity must be lowercase SHA256")
@@ -329,8 +344,19 @@ def _validate_manifest(value: object) -> None:
         raise _PublicationError("anchor definition has no retained source provenance")
     if referenced != set(files):
         raise _PublicationError("anchor inventory contains unreferenced payload files")
+    raw_configuration = manifest["configuration"]
+    derived_clocks = (
+        manifest["schema"] == 6
+        and type(raw_configuration) is dict
+        and "clock_sources" in raw_configuration
+    )
+    port_domains = (
+        manifest["schema"] == 6
+        and type(raw_configuration) is dict
+        and "port_domain_bindings" in raw_configuration
+    )
     configuration = _object(
-        manifest["configuration"],
+        raw_configuration,
         {
             "root",
             "integer_arguments",
@@ -341,7 +367,9 @@ def _validate_manifest(value: object) -> None:
             "definitions",
         }
         | ({"implementation_root"} if entry_boundary else set())
-        | ({"domain_bindings"} if manifest["schema"] == 6 else set()),
+        | ({"domain_bindings"} if manifest["schema"] == 6 else set())
+        | ({"port_domain_bindings"} if port_domains else set())
+        | ({"clock_sources"} if derived_clocks else set()),
         "configuration",
     )
     config_root = _object(
@@ -391,18 +419,51 @@ def _validate_manifest(value: object) -> None:
     if configuration["type_arguments"] != []:
         raise _PublicationError("anchor public root type arguments must be empty")
     _text(configuration["domain"], "domain")
+    if derived_clocks:
+        for raw in _array(configuration["clock_sources"], "clock sources"):
+            source = _clock_source(raw.get("identity") if type(raw) is dict else None)
+            fields = {"identity", "wave_depth", "initial_level"}
+            if source["kind"] == "registered":
+                fields |= {
+                    "parent",
+                    "storage_owner_path",
+                    "storage_occurrence",
+                    "bit_offset",
+                }
+            row = _object(raw, fields, "clock source")
+            if (
+                type(row["initial_level"]) is not int
+                or row["initial_level"] not in (0, 1)
+                or (type(row["wave_depth"]) is not int or row["wave_depth"] < 0)
+            ):
+                raise _PublicationError("anchor clock source startup is invalid")
+            if source["kind"] == "registered":
+                _clock_source(row["parent"])
+                path = _array(row["storage_owner_path"], "clock storage owner path")
+                if (
+                    any(type(part) is not dict for part in path)
+                    or type(row["storage_occurrence"]) is not dict
+                    or type(row["bit_offset"]) is not int
+                    or row["bit_offset"] < 0
+                ):
+                    raise _PublicationError("anchor clock storage binding is invalid")
     if manifest["schema"] == 6:
         previous = None
         for raw in _array(configuration["domain_bindings"], "domain bindings"):
-            row = _object(
-                raw, {"instance_path", "formal", "clock_input"}, "domain binding"
-            )
+            derived = derived_clocks and type(raw) is dict and "clock_source" in raw
+            clock_key = "clock_source" if derived else "clock_input"
+            row = _object(raw, {"instance_path", "formal", clock_key}, "domain binding")
             path = _array(row["instance_path"], "domain instance path")
             # Native validation owns hardware hierarchy depth. The directory
             # traversal limit applies to files, while this list is manifest data.
             if any(type(part) is not dict for part in path):
                 raise _PublicationError("anchor domain instance path is invalid")
-            if not _text(row["formal"], "domain formal") or (
+            if not _text(row["formal"], "domain formal"):
+                raise _PublicationError("anchor domain binding is invalid")
+            if derived:
+                if _clock_source(row["clock_source"])["kind"] != "registered":
+                    raise _PublicationError("anchor derived domain binding is invalid")
+            elif (
                 type(row["clock_input"]) is not int
                 or not 0 <= row["clock_input"] < 2**32
             ):
@@ -410,6 +471,41 @@ def _validate_manifest(value: object) -> None:
             identity = _canonical(row)
             if previous is not None and identity <= previous:
                 raise _PublicationError("anchor domain bindings are not canonical")
+            previous = identity
+    if port_domains:
+        previous = None
+        ports = set()
+        for raw in _array(
+            configuration["port_domain_bindings"], "port domain bindings"
+        ):
+            derived = derived_clocks and type(raw) is dict and "clock_source" in raw
+            clock_key = "clock_source" if derived else "clock_input"
+            row = _object(
+                raw,
+                {"direction", "source_ordinal", "domain", clock_key}
+                | (
+                    {"companion"}
+                    if isinstance(raw, dict) and "companion" in raw
+                    else set()
+                ),
+                "port domain binding",
+            )
+            if row["direction"] not in ("input", "output") or not _text(
+                row["domain"], "port domain"
+            ):
+                raise _PublicationError("anchor port domain binding is invalid")
+            if derived and _clock_source(row["clock_source"])["kind"] != "registered":
+                raise _PublicationError("anchor derived port domain binding is invalid")
+            for field in ("source_ordinal", "clock_input", "companion"):
+                if field in row and (
+                    type(row[field]) is not int or not 0 <= row[field] < 2**32
+                ):
+                    raise _PublicationError("anchor port domain ordinal is invalid")
+            port = (row["direction"], row["source_ordinal"])
+            identity = _canonical(row)
+            if port in ports or (previous is not None and identity <= previous):
+                raise _PublicationError("anchor port domain bindings are not canonical")
+            ports.add(port)
             previous = identity
     if configuration["reset_semantics"] not in ("strict", "if_one"):
         raise _PublicationError("anchor reset semantics is invalid")

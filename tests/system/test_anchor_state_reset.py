@@ -1441,3 +1441,636 @@ def test_schema6_deep_hardware_path_reaches_native_link(tmp_path, monkeypatch):
         == 33
     )
     _ok(_cli("link", "--from-anchor", str(anchor), "--verify-only"))
+
+
+PORT_DOMAIN_CPP = r"""
+#include "pycircuit_system.hpp"
+#include <stdexcept>
+using Bit=gfsim::wire<gfsim::Bits<1>>;
+static Bit bit(unsigned v){
+  if(v<2)return Bit::known(gfsim::Bits<1>{v});
+  return Bit::fromPacked(v==2 ? gfsim::FourState<1>::unknown()
+                             : gfsim::FourState<1>::highImpedance());
+}
+static void require(bool v){if(!v)throw std::runtime_error("port domain CDC oracle");}
+int main(){for(unsigned workers:{1u,2u}){
+  // The public adapter handles plain roots and checks primitive Work failures.
+  pyc_dut dut(workers);
+  unsigned wc=0,rc=0,reset=1,a=0,b=0;
+  auto pins=[&]{dut.drive({bit(a),bit(wc),bit(rc),bit(reset),bit(b)});};
+  auto step=[&]{pins();require(dut.system().Step()==gfsim::SimStepResult::Running);};
+  auto check=[&](unsigned expected_a,unsigned expected_b){
+    step();const auto output=dut.sample();
+    require(output.aq2_data.packed().parityEquivalent(bit(expected_a).packed()));
+    require(output.bq2_data.packed().parityEquivalent(bit(expected_b).packed()));
+    require(output.aq2_available.packed().parityEquivalent(bit(1).packed()));
+    require(output.bq2_available.packed().parityEquivalent(bit(1).packed()));
+  };
+  auto pulse=[&](bool write){for(unsigned i=0;i<8;++i){
+    (write?wc:rc)=0;step();(write?wc:rc)=1;step();
+  }(write?wc:rc)=0;step();};
+  pins();dut.system().Build();dut.system().Reset();step();check(0,0);
+  reset=0;a=1;b=1;step();pulse(true);check(1,0);
+  pulse(false);check(1,1);
+  a=2;b=0;step();pulse(true);check(0,1);
+  pulse(false);check(0,2);
+  a=3;b=1;step();pulse(true);check(1,2);
+  pulse(false);check(1,3);
+  reset=1;step();check(0,0); // asynchronous reset without either edge
+  reset=0;a=1;step();pulse(true);check(1,0);
+  pulse(false);check(1,1);
+}}
+"""
+
+
+PORT_DOMAIN_PHYSICAL_RTL = r"""
+module port_domain_probe;
+  logic wclk=0,rclk=0,rst=1,adata=0,bdata=0;
+  wire aq2_data,bq2_data,aq2_available,bq2_available;
+  pyc_root dut(.wclk(wclk),.rclk(rclk),.rst(rst),.adata(adata),.bdata(bdata),
+    .aq2_data(aq2_data),.bq2_data(bq2_data),
+    .aq2_available(aq2_available),.bq2_available(bq2_available));
+  task check(input logic a,b);
+    #1;if(aq2_data!==a || bq2_data!==b || aq2_available!==1 || bq2_available!==1)
+      $fatal(1,"independent W/R port domain oracle");
+  endtask
+  task pulse(input bit write_side);
+    repeat(8)begin
+      if(write_side)wclk<=0;else rclk<=0;#2;
+      if(write_side)wclk<=1;else rclk<=1;#2;
+    end
+    if(write_side)wclk<=0;else rclk<=0;#2;
+  endtask
+  initial begin
+    check(0,0);rst<=0;adata<=1;bdata<=1;#2;
+    pulse(1);check(1,0);pulse(0);check(1,1);
+    adata<=1'bx;bdata<=0;#2;
+    pulse(1);check(0,1);pulse(0);check(0,1'bx);
+    adata<=1'bz;bdata<=1;#2;
+    pulse(1);check(1,1'bx);pulse(0);check(1,1'bz);
+    rst<=1;check(0,0); // reset between clock edges flushes both synchronizers
+    rst<=0;adata<=1;#2;
+    pulse(1);check(1,0);pulse(0);check(1,1);
+    $display("PORT_DOMAIN_CDC_OK");$finish;
+  end
+endmodule
+"""
+
+
+def _assert_port_domain_metadata(ports):
+    inputs = {row["name"]: row for row in ports["inputs"]}
+    outputs = {row["name"]: row for row in ports["outputs"]}
+    for rows, name, domain, clock in (
+        (inputs, "adata", "W", 1),
+        (inputs, "bdata", "R", 2),
+        (outputs, "aq2_data", "W", 1),
+        (outputs, "bq2_data", "R", 2),
+    ):
+        assert (rows[name]["domain"], rows[name]["clock_input"]) == (domain, clock)
+    controls = {row["wire"]: row for row in ports["controls"]}
+    for name, domain, clock in (("aq2_data", "W", 1), ("bq2_data", "R", 2)):
+        companion = controls[outputs[name]["availability"]]
+        assert companion["role"] == "availability"
+        assert (companion["domain"], companion["clock_input"]) == (domain, clock)
+
+
+@pytest.mark.parametrize("boundary", [False, True], ids=["direct", "entry_boundary"])
+def test_port_domain_cdc_public_consumers(tmp_path, monkeypatch, boundary):
+    producer = Path(os.environ["PYC_BUILD_DIR"]) / "bin/ACIRAnchorArtifactTests"
+    anchor = tmp_path / "anchor"
+    variable = (
+        "PYCIRCUIT_TEST_PORT_DOMAIN_BOUNDARY_ANCHOR"
+        if boundary
+        else "PYCIRCUIT_TEST_PORT_DOMAIN_CDC_ANCHOR"
+    )
+    fixture = (
+        "PublishPortDomainEntryBoundaryForIndependentConsumers"
+        if boundary
+        else "PublishPortDomainCDCForIndependentConsumers"
+    )
+    monkeypatch.setenv(variable, str(anchor))
+    _ok(_run([str(producer), f"--gtest_filter=StateResetValueTest.{fixture}"]))
+    monkeypatch.delenv(variable)
+    original = {
+        p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
+    }
+    manifest = json.loads((anchor / "anchor.json").read_text())
+    bindings = manifest["configuration"]["port_domain_bindings"]
+    for direction, ordinal, domain, clock in (
+        ("input", 0, "W", 1),
+        ("input", 4, "R", 2),
+        ("output", 0, "W", 1),
+        ("output", 1, "R", 2),
+    ):
+        row = next(
+            row
+            for row in bindings
+            if (row["direction"], row["source_ordinal"]) == (direction, ordinal)
+        )
+        assert (row["domain"], row["clock_input"]) == (domain, clock)
+    _ok(_cli("link", "--from-anchor", str(anchor), "--verify-only"))
+    final = tmp_path / "domains.ac"
+    _ok(
+        _cli(
+            "link", "--from-anchor", str(anchor), "--target", "final", "-o", str(final)
+        )
+    )
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    _build_native_probe(final, tmp_path, PORT_DOMAIN_CPP)
+    cpp = tmp_path / "cpp"
+    _assert_port_domain_metadata(json.loads((cpp / "ports.json").read_text()))
+    rtl = tmp_path / "rtl"
+    _ok(
+        _cli(
+            "emit",
+            str(final),
+            "--target",
+            "verilog",
+            "--rtl-mode",
+            "physical",
+            "-o",
+            str(rtl),
+        )
+    )
+    _assert_port_domain_metadata(json.loads((rtl / "ports.json").read_text()))
+    bench = tmp_path / "domains.sv"
+    bench.write_text(PORT_DOMAIN_PHYSICAL_RTL)
+    assert "PORT_DOMAIN_CDC_OK" in _simulate_rtl(
+        rtl, bench, tmp_path / "domains.vvp", "port_domain_probe"
+    )
+    # The declaration cannot cast an R result into W. Failed replacement must
+    # leave a complete previously emitted target intact.
+    wrong = tmp_path / "wrong.ac"
+    correct_map = 'bq2_data = "R"'
+    assert correct_map in final.read_text()
+    wrong.write_text(final.read_text().replace(correct_map, 'bq2_data = "W"'))
+    before = {p.relative_to(cpp): p.read_bytes() for p in cpp.rglob("*") if p.is_file()}
+    assert _cli("emit", str(wrong), "--target", "cpp", "-o", str(cpp)).returncode != 0
+    assert before == {
+        p.relative_to(cpp): p.read_bytes() for p in cpp.rglob("*") if p.is_file()
+    }
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+    assert original == {
+        p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
+    }
+
+
+def _independent_reset_fifo_rows():
+    """Literal transfer/reset expectations; no emitted graph or DUT values."""
+    rows = []
+    pins = {"wclk": 0, "rclk": 0, "wrst": 1, "rrst": 0, "data": 0, "push": 0, "pop": 0}
+
+    def step(expected=(-1, -1, -1), failure=False, **changes):
+        pins.update(changes)
+        rows.append((*pins.values(), *expected, failure))
+
+    def pulse(side=None, blocked=False):
+        for _ in range(8):
+            expected = (0, 0, 0) if blocked else (-1, -1, -1)
+            step(expected, wclk=0, rclk=0)
+            step(expected, wclk=int(side != "read"), rclk=int(side != "write"))
+        step(expected, wclk=0, rclk=0)
+
+    def enqueue(value):
+        step((1, -1, -1), data=value, push=1)
+        step(wclk=1)
+        step(wclk=0, push=0)
+
+    def consume(value):
+        pulse()
+        step((1, 1, value))
+        step(rclk=1, pop=1)
+        step(rclk=0, pop=0)
+        pulse()
+        step((1, 0, 0))  # one fresh token, consumed once; no stale/duplicate head
+
+    step((0, 0, 0))
+    step(wrst=0)
+    pulse()
+    enqueue(11)
+    enqueue(22)
+    pulse()
+    step((1, 1, 11))
+    step((0, 0, 0), rrst=1)  # read-only reset, no clock event
+    step((0, 0, 0), rrst=0)
+    pulse("write", blocked=True)  # stopped read clock prevents both releases
+    pulse()
+    step((1, 0, 0))
+    enqueue(33)
+    consume(33)
+    enqueue(44)
+    enqueue(55)
+    pulse()
+    step((1, 1, 44))
+    step((0, 0, 0), wrst=1)  # write-only reset, no clock event
+    step((0, 0, 0), wrst=0)
+    pulse("read", blocked=True)  # stopped write clock also prevents recovery
+    pulse()
+    step((1, 0, 0))
+    enqueue(66)
+    consume(66)
+    enqueue(77)
+    pulse()
+    step((1, 1, 77))
+    # Both intents are zero. Strict raw-pin knownness is autonomous, including
+    # when the asserted peer would mask X in a simple Boolean reset OR.
+    step(failure=True, wrst=1, rrst=2)
+    step((1, 1, 77), wrst=0, rrst=0)  # discarded flush preserves queued data
+    return rows
+
+
+INDEPENDENT_RESET_FIFO_CPP = r"""
+#include "pycircuit_system.hpp"
+#include <stdexcept>
+#include <string>
+using Bit=gfsim::wire<gfsim::Bits<1>>;
+using Word=gfsim::wire<gfsim::Bits<9>>;
+static Bit bit(unsigned v){return v<2 ? Bit::known(gfsim::Bits<1>{v}) :
+  Bit::fromPacked(gfsim::FourState<1>::unknown());}
+static unsigned row_index;
+static void require(bool ok){if(!ok)throw std::runtime_error(
+  "independent FIFO reset oracle at row "+std::to_string(row_index));}
+struct Row{unsigned wc,rc,wr,rr,data,push,pop;int wa,ra,head;bool failure;};
+static const Row rows[]={PYC_ROWS};
+int main(){for(unsigned workers:{1u,2u}){
+  gfsim::WorkExecutor executor(workers);pyc_root dut("root",&executor);
+  auto pins=[&](const Row &r){dut.wclk=bit(r.wc);dut.rclk=bit(r.rc);
+    dut.wrst=bit(r.wr);dut.rrst=bit(r.rr);dut.push=bit(r.push);dut.pop=bit(r.pop);
+    dut.data=Word::known(gfsim::Bits<9>{r.data});};
+  auto check=[](auto value,int expected){if(expected<0)return;
+    require(value.packed().isFullyKnown());require(value.value().value()==unsigned(expected));};
+  pins(rows[0]);dut.Reset();dut.Xfer();
+  for(row_index=0;row_index<sizeof(rows)/sizeof(rows[0]);++row_index){
+    const auto &r=rows[row_index];pins(r);bool accepted=false;
+    // Strict primitive controls may fail before the root Check phase.
+    try{
+      dut.Work();gfsim::SimFailureInfo failure{};
+      accepted=dut.pyc_validate_checks(failure);
+    }catch(const gfsim::FourStateViolation &){}
+    require(accepted!=r.failure);
+    if(r.failure){dut.DiscardNext();continue;}
+    check(dut.write_available,r.wa);check(dut.read_available,r.ra);check(dut.head,r.head);
+    dut.Xfer();
+  }
+}}
+"""
+
+
+def _independent_reset_fifo_rtl(rows, *, physical):
+    controls = (
+        ""
+        if physical
+        else r"""
+    ,.pyc_phase(phase),.pyc_root_commit_ok(permit),.pyc_check_complete(complete),
+    .pyc_sampling_error(sampling),.pyc_local_error(error)
+"""
+    )
+    prepare = "#2;" if physical else "#1;phase=1;#1;"
+    validate = (
+        ""
+        if physical
+        else r"""
+    if(error!==failed || complete!==1 || $isunknown(sampling) || (!failed && sampling!==0))
+      $fatal(1,"FIFO reset check status at row %0d",row_index);
+"""
+    )
+    finish = (
+        ""
+        if physical
+        else r"""
+    permit=!failed;phase=failed?3:2;#1;phase=0;permit=0;#1;
+"""
+    )
+    initialize = (
+        "#2;" if physical else "phase=4;#1;permit=1;phase=2;#1;phase=0;permit=0;#1;"
+    )
+    calls = []
+    for wc, rc, wr, rr, data, push, pop, wa, ra, head, failure in rows:
+        calls.append(
+            f"step(1'b{wc},1'b{rc},1'b{wr},1'b{'x' if rr == 2 else rr},"
+            f"9'd{data},1'b{push},1'b{pop},{wa},{ra},{head},1'b{int(failure)});"
+        )
+    return f"""
+module independent_reset_fifo_probe;
+  logic wclk=0,rclk=0,wrst=1,rrst=0,push=0,pop=0,permit=0;
+  logic[8:0]data=0;logic[2:0]phase=0;
+  wire[8:0]head;wire write_available,read_available,complete,sampling,error;
+  integer row_index=0;
+  pyc_root dut(.wclk(wclk),.rclk(rclk),.wrst(wrst),.rrst(rrst),.data(data),
+    .push(push),.pop(pop),.head(head),.write_available(write_available),
+    .read_available(read_available){controls});
+  task step(input logic wc,rc,wr,rr,input logic[8:0]value,input logic pi,po,
+            input integer wa,ra,h,input bit failed);
+    data=value;push=pi;pop=po;#1;
+    wclk<=wc;rclk<=rc;wrst<=wr;rrst<=rr;{prepare}{validate}
+    if(!failed)begin
+      if(wa>=0 && write_available!==wa[0])$fatal(1,"FIFO write availability at row %0d",row_index);
+      if(ra>=0 && read_available!==ra[0])$fatal(1,"FIFO read availability at row %0d",row_index);
+      if(h>=0 && head!==h[8:0])$fatal(1,"FIFO flush/recovery/order oracle at row %0d",row_index);
+    end
+    {finish}
+    row_index=row_index+1;
+  endtask
+  initial begin
+    {initialize}
+    {''.join(calls)}
+    $display("INDEPENDENT_RESET_FIFO_OK");$finish;
+  end
+endmodule
+"""
+
+
+def test_independent_reset_fifo_flush_recovery_and_fault_rollback(
+    tmp_path, monkeypatch
+):
+    producer = Path(os.environ["PYC_BUILD_DIR"]) / "bin/ACIRAnchorArtifactTests"
+    anchor = tmp_path / "anchor"
+    variable = "PYCIRCUIT_TEST_INDEPENDENT_RESET_FIFO_ANCHOR"
+    monkeypatch.setenv(variable, str(anchor))
+    _ok(
+        _run(
+            [
+                str(producer),
+                "--gtest_filter=StateResetValueTest.PublishIndependentResetFIFOForConsumers",
+            ]
+        )
+    )
+    monkeypatch.delenv(variable)
+    original = {
+        p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
+    }
+    _ok(_cli("link", "--from-anchor", str(anchor), "--verify-only"))
+    final = tmp_path / "fifo.ac"
+    _ok(
+        _cli(
+            "link", "--from-anchor", str(anchor), "--target", "final", "-o", str(final)
+        )
+    )
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    rows = _independent_reset_fifo_rows()
+    cpp_rows = ",".join("{" + ",".join(str(int(v)) for v in row) + "}" for row in rows)
+    _build_native_probe(
+        final, tmp_path, INDEPENDENT_RESET_FIFO_CPP.replace("PYC_ROWS", cpp_rows)
+    )
+    for mode in ("managed", "physical"):
+        generated = tmp_path / mode
+        _ok(
+            _cli(
+                "emit",
+                str(final),
+                "--target",
+                "verilog",
+                "--rtl-mode",
+                mode,
+                "-o",
+                str(generated),
+            )
+        )
+        ports = json.loads((generated / "ports.json").read_text())
+        for name in ("wrst", "rrst"):
+            assert (
+                "reset"
+                in next(row for row in ports["inputs"] if row["name"] == name)["roles"]
+            )
+        bench = tmp_path / f"{mode}.sv"
+        bench.write_text(_independent_reset_fifo_rtl(rows, physical=mode == "physical"))
+        transcript = _simulate_rtl(
+            generated, bench, tmp_path / f"{mode}.vvp", "independent_reset_fifo_probe"
+        )
+        assert "INDEPENDENT_RESET_FIFO_OK" in transcript
+        if mode == "physical":
+            assert transcript.count("PYCIRCUIT_PHYSICAL_FAULT") == 1
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+    assert original == {
+        p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
+    }
+
+
+def _derived_clock_rows(initial_high):
+    """Independent divider/counter recurrence over committed macrosteps."""
+    rows = []
+    previous_clock = 0
+    count, phase, child = 0, int(initial_high), 0
+    echo = 0
+
+    def step(clock, limit, guard=1, reset=0, failure=False):
+        nonlocal previous_clock, count, phase, child, echo
+        next_count, next_phase, next_child = count, phase, child
+        if reset:
+            next_count, next_phase, next_child = 0, 0, 0
+        elif clock and not previous_clock:
+            if count == limit:
+                next_count, next_phase = 0, 1 - phase
+                if not phase:
+                    assert (guard == 2) == failure
+                    if guard == 1:
+                        next_child = (child + 1) & 511
+            else:
+                next_count = (count + 1) & 255
+        if not failure:
+            previous_clock = clock
+            count, phase, child = next_count, next_phase, next_child
+            echo = limit
+        rows.append(
+            (clock, reset, limit, guard, phase * 256 + count, child, echo, failure)
+        )
+
+    step(0, 0)  # an initially-high derived source is history, not a new edge
+    for limit in (0, 2, 1, 0):
+        for _ in range(8):
+            step(1, limit)
+            step(1, limit)  # held root level cannot produce another child event
+            step(0, limit)
+    # A dormant child's X guard does not fault until a real derived edge.
+    step(0, 0, guard=2)
+    if phase:
+        step(1, count)  # falling derived edge, no child write
+        step(0, 0)
+    # Publish a different combinational value on an actual root-clock event.
+    # The next failure changes limit, and must retain this committed echo.
+    committed_limit = (count + 2) & 255
+    step(1, committed_limit)
+    step(0, committed_limit)
+    assert count != committed_limit
+    # Parent is ready to toggle 0->1. The late child failure must discard the
+    # parent counter/phase and root-clock history along with the child's state.
+    step(1, count, guard=2, failure=True)
+    step(1, count, guard=1)  # retry exactly the same root edge
+    step(1, 0)
+    step(0, 0)
+    step(0, 0, reset=1)  # asynchronous reset with both clocks stopped
+    step(0, 0)
+    step(1, 0)
+    step(1, 0)
+    step(0, 0)
+    return rows
+
+
+DERIVED_CLOCK_CPP = r"""
+#include "pycircuit_system.hpp"
+#include <stdexcept>
+#include <string>
+using Bit=gfsim::wire<gfsim::Bits<1>>;
+static Bit bit(unsigned v){return v<2 ? Bit::known(gfsim::Bits<1>{v}) :
+  Bit::fromPacked(gfsim::FourState<1>::unknown());}
+struct Row{unsigned clock,reset,limit,guard,divider,child,echo;bool failed;};
+static const Row rows[]={PYC_ROWS};
+int main(){for(unsigned workers:{1u,2u}){
+  gfsim::WorkExecutor executor(workers);pyc_root dut("root",&executor);
+  auto pins=[&](const Row &r){dut.clock=bit(r.clock);dut.reset=bit(r.reset);
+    dut.guard=bit(r.guard);dut.limit=gfsim::wire<gfsim::Bits<8>>::known(gfsim::Bits<8>{r.limit});};
+  pins(rows[0]);dut.Reset();dut.Xfer();
+  for(unsigned i=0;i<sizeof(rows)/sizeof(rows[0]);++i){
+    const auto &r=rows[i];pins(r);bool accepted=false;
+    try{dut.Work();gfsim::SimFailureInfo failure{};
+      accepted=dut.pyc_validate_checks(failure) && dut.CanXfer();
+    }catch(const gfsim::FourStateViolation &){}
+    auto require=[&](bool ok){if(!ok)throw std::runtime_error(
+      "derived clock oracle at row "+std::to_string(i));};
+    require(accepted!=r.failed);
+    if(r.failed)dut.DiscardNext();else dut.Xfer();
+    require(dut.divider.isFullyKnown() && dut.divider.value().value()==r.divider);
+    require(dut.child_q.isFullyKnown() && dut.child_q.value().value()==r.child);
+    require(dut.echo.isFullyKnown() && dut.echo.value().value()==r.echo);
+  }
+}}
+"""
+
+
+def _derived_clock_rtl(rows, *, physical):
+    # Physical discards the same late failure, then remains sticky. Managed and
+    # native instead discard/retry and commit the exact same root edge.
+    selected = rows
+    if physical:
+        failure = next(i for i, row in enumerate(rows) if row[-1])
+        frozen = rows[failure][4:7]
+        selected = []
+        previous_event, echo = (0, 0), 0
+        for i, row in enumerate(rows):
+            if i >= failure:
+                selected.append((*row[:4], *frozen, row[-1]))
+                continue
+            event = row[:2]
+            if event != previous_event:
+                echo = row[2]
+            previous_event = event
+            selected.append((*row[:6], echo, row[-1]))
+    controls = (
+        ""
+        if physical
+        else (
+            ",.pyc_phase(phase),.pyc_root_commit_ok(permit),"
+            ".pyc_check_complete(complete),.pyc_sampling_error(sampling),.pyc_local_error(error)"
+        )
+    )
+    initialize = (
+        "#2;"
+        if physical
+        else ("#1;phase=4;#2;permit=1;phase=2;#2;phase=0;permit=0;#2;")
+    )
+    prepare = "#2;" if physical else "#1;phase=1;#2;"
+    finish = (
+        ""
+        if physical
+        else r"""
+    if(complete!==1 || error!==failed || $isunknown(sampling) || (!failed && sampling!==0))
+      $fatal(1,"derived clock check status at row %0d",row_index);
+    permit=!failed;phase=failed?3:2;#2;phase=0;permit=0;#2;
+"""
+    )
+    calls = []
+    for clock, reset, limit, guard, divider, child, echo, failed in selected:
+        calls.append(
+            f"step(1'b{clock},1'b{reset},8'd{limit},"
+            f"1'b{'x' if guard == 2 else guard},9'd{divider},9'd{child},8'd{echo},1'b{int(failed)});"
+        )
+    return f"""
+module derived_clock_probe;
+  logic clock=0,reset=0,guard=1,permit=0;logic[7:0]limit=0;logic[2:0]phase=0;
+  wire[8:0]divider,child_q;wire[7:0]echo;wire complete,sampling,error;integer row_index=0;
+  pyc_root dut(.clock(clock),.reset(reset),.limit(limit),.guard(guard),
+    .divider(divider),.child_q(child_q),.echo(echo){controls});
+  task step(input logic c,r,input logic[7:0]threshold,input logic g,
+            input logic[8:0]expected_divider,expected_child,
+            input logic[7:0]expected_echo,input bit failed);
+    limit=threshold;guard=g;#1;clock<=c;reset<=r;{prepare}{finish}
+    if(divider!==expected_divider || child_q!==expected_child || echo!==expected_echo)
+      $fatal(1,"derived clock counter/rollback oracle at row %0d",row_index);
+    row_index=row_index+1;
+  endtask
+  initial begin
+    {initialize}
+    {''.join(calls)}
+    $display("DERIVED_CLOCK_OK");$finish;
+  end
+endmodule
+"""
+
+
+@pytest.mark.parametrize("initial_high", [False, True], ids=["low", "high"])
+def test_programmable_derived_clock_cascades_and_rolls_back(
+    tmp_path, monkeypatch, initial_high
+):
+    producer = Path(os.environ["PYC_BUILD_DIR"]) / "bin/ACIRAnchorArtifactTests"
+    anchor = tmp_path / "anchor"
+    fixture = (
+        "PublishInitiallyHighDerivedClockForConsumers"
+        if initial_high
+        else "PublishDerivedClockDividerForConsumers"
+    )
+    variable = "PYCIRCUIT_TEST_DERIVED_CLOCK_ANCHOR"
+    monkeypatch.setenv(variable, str(anchor))
+    _ok(_run([str(producer), f"--gtest_filter=StateResetValueTest.{fixture}"]))
+    monkeypatch.delenv(variable)
+    original = {
+        p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
+    }
+    configuration = json.loads((anchor / "anchor.json").read_text())["configuration"]
+    parent, derived = configuration["clock_sources"]
+    assert parent["identity"] == {"kind": "root_input", "input": 1}
+    assert derived["parent"] == parent["identity"]
+    assert derived["identity"]["kind"] == "registered"
+    assert derived["initial_level"] == int(initial_high) and derived["bit_offset"] == 8
+    assert {
+        len(row["instance_path"])
+        for row in configuration["domain_bindings"]
+        if row.get("clock_source") == derived["identity"]
+    } == {0, 1, 2}
+    _ok(_cli("link", "--from-anchor", str(anchor), "--verify-only"))
+    final = tmp_path / "divider.ac"
+    _ok(
+        _cli(
+            "link", "--from-anchor", str(anchor), "--target", "final", "-o", str(final)
+        )
+    )
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    rows = _derived_clock_rows(initial_high)
+    cpp_rows = ",".join("{" + ",".join(str(int(v)) for v in row) + "}" for row in rows)
+    _build_native_probe(
+        final, tmp_path, DERIVED_CLOCK_CPP.replace("PYC_ROWS", cpp_rows)
+    )
+    for mode in ("managed", "physical"):
+        generated = tmp_path / mode
+        _ok(
+            _cli(
+                "emit",
+                str(final),
+                "--target",
+                "verilog",
+                "--rtl-mode",
+                mode,
+                "-o",
+                str(generated),
+            )
+        )
+        bench = tmp_path / f"{mode}.sv"
+        bench.write_text(_derived_clock_rtl(rows, physical=mode == "physical"))
+        transcript = _simulate_rtl(
+            generated, bench, tmp_path / f"{mode}.vvp", "derived_clock_probe"
+        )
+        assert "DERIVED_CLOCK_OK" in transcript
+        assert transcript.count("PYCIRCUIT_PHYSICAL_FAULT") == int(mode == "physical")
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+    assert original == {
+        p.relative_to(anchor): p.read_bytes() for p in anchor.rglob("*") if p.is_file()
+    }

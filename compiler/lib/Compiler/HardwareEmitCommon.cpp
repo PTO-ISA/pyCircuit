@@ -635,7 +635,7 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
   return *sourceChecks_;
 }
 bool HardwareEmitContext::managesChecks() {
-  return batchesPhysicalEvents() ||
+  return causalClocks() || batchesPhysicalEvents() ||
          (!physical_ &&
           (isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty())));
 }
@@ -678,6 +678,7 @@ std::string HardwareEmitContext::rtlReset(StringRef expression) const {
 }
 LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   sourceChecks_.reset();
+  clockSources_.reset();
   names_.clear();
   if (!package)
     return failure();
@@ -686,6 +687,14 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   auto checks = analysis.getSourceCheckPlan();
   if (failed(checks))
     return failure();
+  if (package.walk([](ac::ClockSourceOp) { return WalkResult::interrupt(); })
+          .wasInterrupted()) {
+    auto sources = ac::getHardwareClockSourcePlan(package);
+    if (failed(sources))
+      return failure();
+    if (sources->maxWaveDepth != 0)
+      clockSources_ = std::move(*sources);
+  }
   // The C++ native observation plan prepares through `prepareNativeChecks()`
   // and then re-closes the one instrumentation op it still cannot emit. This
   // shared gate stays closed for `ac.observe` because the Verilog target has no
@@ -1535,11 +1544,29 @@ rootControlSource(HardwareEmitContext &context, Value value, uint64_t owner,
     memo.try_emplace(key, *computed);
   return computed;
 }
+FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site);
+
 FailureOr<llvm::json::Array>
 domainEndpointMetadata(HardwareEmitContext &context,
                        llvm::DenseSet<unsigned> &resetInputs) {
   llvm::json::Array endpoints;
   const auto &plan = context.sourceChecks();
+  const auto *clocks = context.causalClocks();
+  SmallVector<unsigned> clockOwners;
+  if (clocks) {
+    for (const auto &entry : plan.owners) {
+      unsigned owner = 0;
+      for (const auto &step : entry.path) {
+        auto child = clocks->occurrences[owner].children.find(step.allocation);
+        if (child == clocks->occurrences[owner].children.end() ||
+            !step.coordinates.empty())
+          return context.package.emitOpError()
+                 << "clock metadata owner is absent from the source graph";
+        owner = child->second;
+      }
+      clockOwners.push_back(owner);
+    }
+  }
   llvm::DenseMap<RootControlKey, RootControlSource> memo;
   uint64_t remaining = ac::HardwareSourceCheckLimits{}.maxWorkUnits;
   auto source = [&](Value value, uint64_t owner) {
@@ -1550,10 +1577,22 @@ domainEndpointMetadata(HardwareEmitContext &context,
                       ArrayRef<ac::HardwareSamplingReset> resets,
                       StringRef kind, Operation *allocation,
                       ArrayRef<uint64_t> coordinates) -> LogicalResult {
-    auto clockSource = source(clock, owner);
-    if (failed(clockSource) || !clockSource->direct)
-      return context.package.emitOpError(
-          "verified clock metadata has no root identity");
+    std::optional<unsigned> clockInput;
+    DictionaryAttr clockIdentity;
+    if (clocks) {
+      auto id = ac::resolveHardwareClockSource(*clocks, clock, clockOwners[owner]);
+      if (failed(id))
+        return failure();
+      clockInput = clocks->sources[*id].rootInput;
+      if (!clockInput)
+        clockIdentity = ac::getHardwareClockSourceIdentity(*clocks, *id);
+    } else {
+      auto clockSource = source(clock, owner);
+      if (failed(clockSource) || !clockSource->direct)
+        return context.package.emitOpError(
+            "verified clock metadata has no root identity");
+      clockInput = *clockSource->direct;
+    }
     llvm::json::Array path, positions, resetRows;
     for (const auto &step : plan.owners[owner].path) {
       llvm::json::Array coordinates;
@@ -1593,9 +1632,16 @@ domainEndpointMetadata(HardwareEmitContext &context,
         {"kind", kind},
         {"owner", std::move(path)},
         {"coordinates", std::move(positions)},
-        {"clock_input", *clockSource->direct},
         {"edge", edge == ac::RegisterEdge::Negedge ? "negedge" : "posedge"},
         {"resets", std::move(resetRows)}};
+    if (clockInput) {
+      row["clock_input"] = *clockInput;
+    } else {
+      auto identity = metadataValue(clockIdentity, context.package);
+      if (failed(identity))
+        return failure();
+      row["clock_source"] = std::move(*identity);
+    }
     row["instance"] =
         allocation ? llvm::json::Value(
                          allocation->getAttrOfType<StringAttr>("instance_name")
@@ -1645,6 +1691,37 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
     return failure();
   auto signature = root.getFunctionType();
   llvm::json::Array inputs, outputs, controls;
+  std::optional<ac::HardwarePortDomains> portDomains;
+  if (root->hasAttr("ac.port_domains")) {
+    auto effective = ac::getHardwarePortDomains(root);
+    if (failed(effective))
+      return failure();
+    portDomains = std::move(*effective);
+  }
+  auto clocks = root->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+  auto addDomain = [&](llvm::json::Object &row,
+                       StringAttr domain) -> LogicalResult {
+    auto clock = domain && clocks
+                     ? clocks.getAs<IntegerAttr>(domain.getValue())
+                     : IntegerAttr();
+    row["domain"] =
+        domain ? llvm::json::Value(domain.getValue()) : llvm::json::Value(nullptr);
+    row["clock_input"] =
+        clock ? llvm::json::Value(clock.getInt()) : llvm::json::Value(nullptr);
+    if (domain && !clock && causalClocks()) {
+      const auto &rootSources = causalClocks()->occurrences.front().domains;
+      auto found = rootSources.find(domain.getValue());
+      if (found == rootSources.end())
+        return root.emitOpError() << "port domain has no verified clock source";
+      auto source = metadataValue(
+          ac::getHardwareClockSourceIdentity(*causalClocks(), found->second),
+          root);
+      if (failed(source))
+        return failure();
+      row["clock_source"] = std::move(*source);
+    }
+    return success();
+  };
   auto describe = [&](Type type, StringRef name,
                       unsigned ordinal) -> FailureOr<llvm::json::Object> {
     auto wire = legalizeIdentifier(name, [&] { return root.emitOpError(); });
@@ -1690,11 +1767,16 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
       if (failed(wire))
         return failure();
       (*row)["availability"] = *wire;
-      if (companions.insert(companion).second)
-        controls.emplace_back(llvm::json::Object{{"direction", "output"},
-                                                 {"role", "availability"},
-                                                 {"wire", *wire},
-                                                 {"width", 1}});
+      if (companions.insert(companion).second) {
+        llvm::json::Object availability{{"direction", "output"},
+                                        {"role", "availability"},
+                                        {"wire", *wire},
+                                        {"width", 1}};
+        if (portDomains &&
+            failed(addDomain(availability, portDomains->outputs[companion])))
+          return failure();
+        controls.emplace_back(std::move(availability));
+      }
     }
     outputs.emplace_back(std::move(*row));
   }
@@ -1728,6 +1810,12 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
                                {"wire", *name}});
       }
     domains["clock_sources"] = std::move(sources);
+    if (auto *clocks = causalClocks()) {
+      auto metadata = metadataValue(ac::serializeHardwareClockSources(*clocks), root);
+      if (failed(metadata))
+        return failure();
+      domains["clock_source_plan"] = std::move(*metadata);
+    }
     if (auto name = root->getAttrOfType<StringAttr>("ac.default_domain"))
       domains["default"] = name.getValue();
     else
@@ -1740,12 +1828,7 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
       sampledInputs.emplace_back(ordinal);
     domains["sample_inputs"] = std::move(sampledInputs);
     auto defaultDomain = root->getAttrOfType<StringAttr>("ac.default_domain");
-    auto clocks = root->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
-    auto defaultClock =
-        defaultDomain && clocks
-            ? clocks.getAs<IntegerAttr>(defaultDomain.getValue())
-            : IntegerAttr();
-    auto annotate = [&](llvm::json::Value &value, bool input) {
+    auto annotate = [&](llvm::json::Value &value, bool input) -> LogicalResult {
       auto &row = *value.getAsObject();
       unsigned ordinal = *row.getInteger("ordinal");
       llvm::json::Array roles;
@@ -1756,18 +1839,20 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
       if (roles.empty())
         roles.emplace_back("data");
       row["roles"] = std::move(roles);
-      bool ordinary = !input || !clockInputs.contains(ordinal);
-      row["domain"] = ordinary && defaultDomain
-                          ? llvm::json::Value(defaultDomain.getValue())
-                          : llvm::json::Value(nullptr);
-      row["clock_input"] = ordinary && defaultClock
-                               ? llvm::json::Value(defaultClock.getInt())
-                               : llvm::json::Value(nullptr);
+      auto domain = defaultDomain;
+      if (portDomains)
+        domain = input ? portDomains->inputs[ordinal]
+                       : portDomains->outputs[ordinal];
+      if (input && clockInputs.contains(ordinal))
+        domain = StringAttr();
+      return addDomain(row, domain);
     };
     for (auto &row : inputs)
-      annotate(row, true);
+      if (failed(annotate(row, true)))
+        return failure();
     for (auto &row : outputs)
-      annotate(row, false);
+      if (failed(annotate(row, false)))
+        return failure();
   }
   if (rtl && managesChecks() && !batchesPhysicalEvents()) {
     auto control = [&](StringRef direction, StringRef role, StringRef wire,

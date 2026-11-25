@@ -524,7 +524,7 @@ struct Engine {
       return out;
     }
     if (!isa<BitsUnaryOp, BitsBinaryOp, BitsCompareOp, BitsSelectOp,
-             BitsConcatOp, BitsExtractOp, BitsResizeOp>(op))
+             BitsConcatOp, BitsExtractOp, BitsResizeOp, ClockSourceOp>(op))
       return op->emitOpError() << "operation outside closed hardware graph";
     for (Value input : op->getOperands())
       if (failed(addAll(input)))

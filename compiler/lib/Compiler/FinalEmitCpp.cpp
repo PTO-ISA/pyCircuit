@@ -488,7 +488,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
              "&observation_sink_, 0))";
     else
       out << "root_(std::make_shared<pyc_root>(\"root\", &executor_))";
-    if (cppHasRootChecks(context, *root))
+    if (cppHasRootChecks(context, *root) || context.causalClocks())
       out << ", system_(*root_)";
     out << " {\n";
     if (observes)
@@ -517,7 +517,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
            "  gfsim::ObservationSlots &observations() { return observations_; "
            "}\n"
            "private:\n  class System final : public gfsim::SimSystem {\n";
-    if (cppHasRootChecks(context, *root))
+    if (cppHasRootChecks(context, *root) || context.causalClocks())
       out << "  public:\n    explicit System(pyc_root &root) noexcept : "
              "root_(root) {}\n"
              "  private:\n    bool Precheck() noexcept override {\n"

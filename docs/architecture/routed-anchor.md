@@ -155,7 +155,17 @@ constructible in IR and adds no Python capture or authoring syntax.
 
 Contract 7 keeps logical clock/reset SSA references and authenticates `domain`
 against `ac.domain_params`, actual `ac.domain_bindings` and root
-`ac.domain_clock_inputs`. It requires explicit edge, reset kind and initialization
+`ac.domain_clock_inputs`. An ordinary selected root can declare
+`ac.port_domains = {inputs = {adata = "W"}, outputs = {aq2_data = "W", bq2_data = "R"}}`.
+The sparse maps use public source port names; omitted data ports retain the
+default domain. Each mapped port belongs to one declared domain, including an
+aggregate port as a whole. Availability companions inherit their payload's
+domain. This contract is preserved and authenticated through a generated entry
+boundary; it does not waive ordinary cross-domain connection checks or change
+nested Module interfaces. Dedicated root clock inputs retain their actual clock
+identity rather than a data-port override.
+
+State requires explicit edge, reset kind and initialization
 kind; reset polarity exists only for resettable state. `operandSegmentSizes` is
 the dense i32 array `[1,R,I,V]` for clock/reset/init/reset-value. R=V=1 for
 sync/async and 0 for none; I=1 for explicit initialization and 0 for unspecified.
@@ -197,10 +207,11 @@ symbol, kind, formals, pin types and temporal dependency summaries together:
 | --- | --- | --- | --- |
 | `pycircuit.__builtins__.async_reg` / `async_reg` | none | source_clock, target_clock, whole_reset, input: all Bits1 | output: Bits1 |
 | `pycircuit.__builtins__.async_fifo` / `async_fifo` | T and required Integer DEPTH | write_clock, read_clock, whole_reset, push_payload:T, push_intent, pop_intent | head:T, write_available:Bits1, read_available:Bits1 |
+| `pycircuit.__builtins__.async_fifo_independent_reset` / `async_fifo` | T and required Integer DEPTH | write_clock, read_clock, write_reset, read_reset, push_payload:T, push_intent, pop_intent | head:T, write_available:Bits1, read_available:Bits1 |
 
-FIFO DEPTH is an ordinary StaticExpr parameter actual, with no duplicate depth
-attribute or default. Instance policy attributes retain `resource_contract=1`,
-occurrence, endpoint domains/edges and whole-reset polarity. Actual clock SSA and
+FIFO DEPTH is a required StaticExpr parameter. Whole-reset instance policy
+attributes use `resource_contract=1`, occurrence, endpoint domains and edges,
+and reset polarity. Actual clock SSA and
 instance bindings authenticate each endpoint. A nonzero FIFO intent must be its
 local sampled Rule final fire, admitted by that endpoint's availability and
 static transaction reset set; known-zero intent is dormant. Remote pop never
@@ -208,6 +219,17 @@ grants immediate write capacity, and endpoint connections do not form a
 cross-domain atomic transaction.
 In the same local Rule, Queue proposals and Memory writes and synchronous read
 requests include the AsyncFIFO availability in their commit conditions.
+
+Independent-reset FIFO uses `resource_contract=2`, `reset_policy="flush_on_either"`,
+and explicit `write_reset_polarity` and `read_reset_polarity`. Either asynchronous
+reset discards the queue and suppresses both admissions. After both pins
+deassert, local release and peer release synchronization advance on the
+respective clocks. A stopped endpoint prevents recovery of normal transfers.
+The payload bank can retain unreachable bits. Both raw reset pins contribute to
+each endpoint Rule's reset footprint. Strict reset interpretation rejects an
+unknown pin even while the other pin is asserted. Refinement implementation 3
+retains the two original reset pins and verifies the complete flush and release
+circuit. The whole-reset import continues to use contract 1 and implementation 2.
 
 Public expansion removes all logical CDC imports/instances and generates
 synchronizers, release state, pointers and typed banks using common IR. The
@@ -257,6 +279,49 @@ including asynchronous reset candidates. Later positive and negative events
 use the common policies. This restriction is versioned to the new adapter;
 legacy physical startup behavior is unchanged. Synthesis uses the same final
 graph with standard functional event controls.
+
+### Registered derived clocks
+
+`ac.clock.source` declares a new logical domain driven by one initialized
+registered bit. The `source_domain` names the producer register's sampling
+clock. The `domain` names its output clock and belongs to the declaring
+Module's domain formals. The input may be a static one-bit projection of a
+packed Q. An occurrence identifies the declaration within the Module instance
+path. For example, a divider registered on `D` can drive a child on `S`.
+
+```mlir
+%s = "ac.clock.source"(%divider_phase) {
+  contract = 1 : i64, domain = "S", source_domain = "D", occurrence = #clock
+} : (!b1) -> !b1
+```
+
+Bind the child's clock input to `%s` and its clock formal to `S`. A child can
+forward that pin and formal to its own children. Verification follows the
+actual SSA and occurrence paths, checks the initialized bit and rejects cycles
+among clock sources. The dedicated alias carries the derived identity. Ordinary
+data paths continue to use their verified domain assignments.
+
+```mermaid
+flowchart LR
+  Root["Root clock D"] --> Divider["Divider register"]
+  Divider --> Alias["Registered clock S"]
+  Alias --> Forward["Forwarding Module"]
+  Forward --> Child["Child register"]
+```
+
+C++ and managed or physical Verilog simulation freeze root inputs for each
+batch. A change to a registered clock starts a new sampling wave using the
+previous wave's tentative state. State, histories and public outputs commit
+once every wave has passed. Failure in a downstream wave discards the entire
+batch. The managed interface can retry the same edge after discard. The
+physical simulation wrapper latches its fault. Synthesis connects the actual
+registered clock net to the child clock pin.
+
+This profile admits scalar Module hierarchies with registers and sampled checks.
+Queue, Memory, CDC resources and source observations require separate wave
+contracts when combined with registered clock sources. The initializer must
+prove the selected clock bit known before the first batch, including an initial
+high level.
 
 ## Constrained ordinary extern declarations
 

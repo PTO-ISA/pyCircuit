@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/HardwareDomains.h"
 #include "ACIRSourceContracts.h"
+#include "EntryBoundary.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "HardwareSourceChecks.h"
 #include "mlir/IR/Builders.h"
@@ -11,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <set>
+#include <utility>
 #include <vector>
 using namespace mlir;
 namespace acir::ac {
@@ -40,11 +42,79 @@ FailureOr<bool> isKnownInRangeTableSelection(
   return ordinal->getZExtValue() < *size;
 }
 
+FailureOr<HardwarePortDomains> getHardwarePortDomains(ModuleOp module) {
+  auto layout = getModulePortLayout(module);
+  if (failed(layout))
+    return failure();
+  auto signature = module.getFunctionType();
+  auto fallback = module->getAttrOfType<StringAttr>("ac.default_domain");
+  HardwarePortDomains result;
+  result.inputs.assign(signature.getNumInputs(), fallback);
+  result.outputs.assign(signature.getNumResults(), fallback);
+  auto raw = module->getAttr("ac.port_domains");
+  if (!raw)
+    return result;
+  auto mapping = dyn_cast<DictionaryAttr>(raw);
+  if (!mapping)
+    return module.emitOpError("ac.port_domains requires a dictionary");
+  auto formals = module->getAttrOfType<ArrayAttr>("ac.domain_params");
+  auto clocks = module->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+  llvm::DenseSet<unsigned> clockOrdinals;
+  if (clocks)
+    for (auto entry : clocks) {
+      auto ordinal = dyn_cast<IntegerAttr>(entry.getValue());
+      if (!ordinal || !ordinal.getType().isSignlessInteger(32) ||
+          ordinal.getInt() < 0 ||
+          static_cast<uint64_t>(ordinal.getInt()) >= layout->sourceInputCount)
+        return module.emitOpError("invalid root clock input ordinal");
+      clockOrdinals.insert(ordinal.getInt());
+      result.inputs[ordinal.getInt()] = StringAttr();
+    }
+  for (auto entry : mapping) {
+    StringRef direction = entry.getName().getValue();
+    if (direction != "inputs" && direction != "outputs")
+      return module.emitOpError(
+          "ac.port_domains permits only inputs and outputs");
+    auto overrides = dyn_cast<DictionaryAttr>(entry.getValue());
+    if (!overrides)
+      return module.emitOpError("port domain overrides require a dictionary");
+    bool input = direction == "inputs";
+    auto names = input ? module.getInputNames() : module.getOutputNames();
+    unsigned count = input ? layout->sourceInputCount : layout->sourceOutputCount;
+    auto &domains = input ? result.inputs : result.outputs;
+    llvm::StringMap<unsigned> publicOrdinals;
+    for (unsigned ordinal = 0; ordinal < count; ++ordinal)
+      publicOrdinals.try_emplace(cast<StringAttr>(names[ordinal]).getValue(),
+                                 ordinal);
+    for (auto row : overrides) {
+      auto port = publicOrdinals.find(row.getName().getValue());
+      if (port == publicOrdinals.end())
+        return module.emitOpError()
+               << "port domain override names a nonpublic " << direction
+               << " port " << row.getName();
+      if (input && clockOrdinals.contains(port->second))
+        return module.emitOpError("clock inputs use ac.domain_clock_inputs");
+      auto domain = dyn_cast<StringAttr>(row.getValue());
+      if (!domain || !formals || !llvm::is_contained(formals, domain))
+        return module.emitOpError("port domain override requires a declared domain");
+      domains[port->second] = domain;
+    }
+  }
+  for (auto [domains, companions] :
+       {std::pair{&result.inputs, &layout->inputValidity},
+        std::pair{&result.outputs, &layout->outputValidity}})
+    for (auto [source, companion] : llvm::enumerate(*companions))
+      if (companion >= 0)
+        (*domains)[companion] = (*domains)[source];
+  return result;
+}
+
 namespace {
 using Domains = std::set<unsigned>;
 class Resolver {
   HardwareAnalysis analysis;
   detail::SourceCheckBudget budget;
+  HardwareSourceCheckLimits limits;
   HardwareDomainPlan plan;
   DenseSet<Operation *> active;
   bool forwardingBudgetExceeded = false;
@@ -58,6 +128,7 @@ class Resolver {
     DenseSet<Value> masks, cuts;
     DenseSet<Value> controls, visiting;
     SmallVector<Value> resets;
+    std::optional<HardwarePortDomains> portDomains;
   };
   std::vector<std::unique_ptr<Scope>> scopes;
   LogicalResult reject(Operation *op, StringRef reason) {
@@ -121,6 +192,16 @@ class Resolver {
   FailureOr<unsigned> clock(Value value, Scope &scope) {
     if (auto it = scope.clockValues.find(value); it != scope.clockValues.end())
       return it->second;
+    if (plan.clockSources) {
+      if (failed(budget.debit(256 + plan.clockSources->sources.size(),
+                              plan.occurrences[scope.occurrence].definition)))
+        return failure();
+      auto actual = resolveHardwareClockSource(*plan.clockSources, value,
+                                               scope.occurrence, limits);
+      if (succeeded(actual))
+        scope.clockValues[value] = *actual;
+      return actual;
+    }
     if (auto argument = dyn_cast<BlockArgument>(value)) {
       if (auto rule = dyn_cast<RuleOp>(argument.getOwner()->getParentOp()))
         return clock(rule.getCaptures()[argument.getArgNumber()], scope);
@@ -196,13 +277,15 @@ class Resolver {
     return reject(value.getParentBlock()->getParentOp(),
                   "clock must forward an actual root clock argument");
   }
-  FailureOr<unsigned> domain(Operation *op, StringRef field, Scope &scope) {
-    auto name = op->getAttrOfType<StringAttr>(field);
+  FailureOr<unsigned> namedDomain(Operation *op, StringAttr name, Scope &scope) {
     auto &clocks = plan.occurrences[scope.occurrence].clocks;
     auto found = name ? clocks.find(name.getValue()) : clocks.end();
     if (found == clocks.end())
       return reject(op, "unbound endpoint domain");
     return found->second;
+  }
+  FailureOr<unsigned> domain(Operation *op, StringRef field, Scope &scope) {
+    return namedDomain(op, op->getAttrOfType<StringAttr>(field), scope);
   }
   bool transactionControlResult(RuleOp rule, unsigned result) {
     auto sampled = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
@@ -333,6 +416,16 @@ class Resolver {
       return failure();
     unsigned index = plan.occurrences.size();
     plan.occurrences.push_back(std::move(occurrence));
+    if (plan.clockSources) {
+      if (index >= plan.clockSources->occurrences.size() ||
+          plan.clockSources->occurrences[index].definition != module ||
+          plan.clockSources->occurrences[index].allocation.getOperation() !=
+              plan.occurrences[index].allocation)
+        return reject(module,
+                      "clock source/domain occurrence inventory differs");
+      plan.occurrences[index].clocks =
+          plan.clockSources->occurrences[index].domains;
+    }
     scopes.push_back(std::make_unique<Scope>());
     Scope &scope = *scopes.back();
     if (plan.occurrences[index].parent)
@@ -340,6 +433,13 @@ class Resolver {
     scope.occurrence = index;
     scope.bindings = std::move(bindings);
     scope.clockValues = std::move(clocks);
+    if (plan.clockSources)
+      for (auto [sourceID, source] :
+           llvm::enumerate(plan.clockSources->sources))
+        if (source.ownerOccurrence == index && source.declaration) {
+          scope.clockValues[source.declaration.getResult()] = sourceID;
+          scope.values[source.declaration.getResult()] = {unsigned(sourceID)};
+        }
     auto ports = getModulePortLayout(module);
     if (failed(ports))
       return failure();
@@ -373,6 +473,12 @@ class Resolver {
         return failure();
       defaultDomain = *d;
     }
+    if (module->hasAttr("ac.port_domains")) {
+      auto effective = getHardwarePortDomains(module);
+      if (failed(effective))
+        return failure();
+      scope.portDomains = std::move(*effective);
+    }
     for (auto &entry : scope.clockValues)
       scope.controls.insert(entry.first);
     // Record reset sinks; their formal input roles are determined after the
@@ -382,29 +488,44 @@ class Resolver {
         if (state.getStateReset())
           scope.resets.push_back(state.getStateReset());
       }
-      if (isa<CDCRefinementOp>(op))
-        scope.resets.push_back(op.getOperand(2));
+      if (auto witness = dyn_cast<CDCRefinementOp>(op))
+        for (const auto &reset : getCDCRefinementResets(witness))
+          scope.resets.push_back(reset.value);
     }
-    for (auto arg : module.getBody().front().getArguments())
-      if (!scope.parent && defaultDomain)
-        scope.values[arg] = {*defaultDomain};
+    if (!scope.parent) {
+      for (auto [ordinal, arg] :
+           llvm::enumerate(module.getBody().front().getArguments())) {
+        if (scope.portDomains) {
+          auto name = scope.portDomains->inputs[ordinal];
+          if (!name)
+            continue;
+          auto resolved = namedDomain(module, name, scope);
+          if (failed(resolved))
+            return failure();
+          scope.values[arg] = {*resolved};
+        } else if (defaultDomain) {
+          scope.values[arg] = {*defaultDomain};
+        }
+      }
+    }
     for (auto &entry : scope.clockValues)
       if (!scope.parent)
         scope.values[entry.first] = {entry.second};
     for (auto &op : module.getBody().front()) {
-      if (isa<CDCRefinementOp>(op)) {
+      if (auto witness = dyn_cast<CDCRefinementOp>(op)) {
         bool reg = op.getAttrOfType<StringAttr>("logical_kind").getValue() ==
                    "async_reg";
         auto first = domain(&op, reg ? "target_domain" : "write_domain", scope);
         auto second = domain(&op, reg ? "target_domain" : "read_domain", scope);
         if (failed(first) || failed(second))
           return failure();
-        if (reg)
-          scope.values[op.getOperand(4)] = {*second};
-        else {
-          scope.values[op.getOperand(6)] = {*second};
-          scope.values[op.getOperand(7)] = {*first};
-          scope.values[op.getOperand(8)] = {*second};
+        unsigned payload = getCDCRefinementPayloadOperand(witness);
+        if (reg) {
+          scope.values[op.getOperand(payload + 1)] = {*second};
+        } else {
+          scope.values[op.getOperand(payload + 3)] = {*second};
+          scope.values[op.getOperand(payload + 4)] = {*first};
+          scope.values[op.getOperand(payload + 5)] = {*second};
         }
       }
       Operation *callee = nullptr;
@@ -423,7 +544,8 @@ class Resolver {
           scope.values[layout->writeAvailable()] = {*first};
           scope.values[layout->readAvailable()] = {*second};
         }
-        scope.resets.push_back(layout->reset());
+        for (const auto &reset : layout->resets())
+          scope.resets.push_back(reset.value);
       } else if (callee) {
         auto kind = analysis.getPrimitiveKind(callee);
         if (!kind.empty()) {
@@ -486,20 +608,22 @@ class Resolver {
             instance->getAttrOfType<DictionaryAttr>("occurrence"));
         auto map =
             instance->getAttrOfType<DictionaryAttr>("ac.domain_bindings");
-        if (auto names = child->getAttrOfType<ArrayAttr>("ac.domain_params"))
-          for (auto raw : names) {
-            auto name = cast<StringAttr>(raw);
-            auto target =
-                map ? map.getAs<StringAttr>(name.getValue()) : StringAttr();
-            if (!target ||
-                !plan.occurrences[index].clocks.count(target.getValue()))
-              return reject(
-                  instance,
-                  "child domain bindings must be explicit and complete");
-            next.clocks[name.getValue()] =
-                plan.occurrences[index].clocks.lookup(target.getValue());
-          }
-        if (map)
+        if (!plan.clockSources) {
+          if (auto names = child->getAttrOfType<ArrayAttr>("ac.domain_params"))
+            for (auto raw : names) {
+              auto name = cast<StringAttr>(raw);
+              auto target =
+                  map ? map.getAs<StringAttr>(name.getValue()) : StringAttr();
+              if (!target ||
+                  !plan.occurrences[index].clocks.count(target.getValue()))
+                return reject(
+                    instance,
+                    "child domain bindings must be explicit and complete");
+              next.clocks[name.getValue()] =
+                  plan.occurrences[index].clocks.lookup(target.getValue());
+            }
+        }
+        if (map && !plan.clockSources)
           for (auto row : map) {
             auto target = dyn_cast<StringAttr>(row.getValue());
             if (!next.clocks.count(row.getName().getValue()) || !target ||
@@ -509,6 +633,17 @@ class Resolver {
           }
         DenseMap<Value, unsigned> childClocks;
         for (auto [ordinal, input] : llvm::enumerate(instance->getOperands())) {
+          if (plan.clockSources) {
+            if (failed(budget.debit(256 + plan.clockSources->sources.size(),
+                                    instance)))
+              return failure();
+            auto actual = resolveHardwareClockSource(*plan.clockSources, input,
+                                                     index, limits, false);
+            if (succeeded(actual))
+              childClocks[child.getBody().front().getArgument(ordinal)] =
+                  *actual;
+            continue;
+          }
           auto found = scope.clockValues.find(input);
           if (found != scope.clockValues.end())
             childClocks[child.getBody().front().getArgument(ordinal)] =
@@ -595,6 +730,22 @@ class Resolver {
     for (auto &entry : scope.children) {
       auto &child = *scopes[entry.second];
       auto definition = plan.occurrences[child.occurrence].definition;
+      if (child.portDomains) {
+        auto mapping = definition->getAttrOfType<DictionaryAttr>("ac.port_domains");
+        auto explicitInputs = mapping.getAs<DictionaryAttr>("inputs");
+        for (auto [i, input] : llvm::enumerate(entry.first->getOperands())) {
+          auto argument = definition.getBody().front().getArgument(i);
+          auto name = child.portDomains->inputs[i];
+          bool explicitlyMapped = explicitInputs && explicitInputs.get(
+              cast<StringAttr>(definition.getInputNames()[i]).getValue());
+          if (!name || (child.controls.contains(argument) && !explicitlyMapped))
+            continue;
+          auto expected = namedDomain(definition, name, child);
+          if (failed(expected) || failed(check(input, *expected, scope, entry.first)))
+            return failure();
+        }
+        continue;
+      }
       if (!definition->hasAttr("ac.default_domain"))
         continue;
       auto expected = domain(definition, "ac.default_domain", child);
@@ -667,10 +818,11 @@ class Resolver {
         if (reg) {
           if (failed(check(op.getOperand(3), *a, scope, &op)))
             return failure();
-        } else if (isa<CDCRefinementOp>(op)) {
-          if (failed(check(op.getOperand(3), *a, scope, &op)) ||
-              failed(check(op.getOperand(4), *a, scope, &op, true)) ||
-              failed(check(op.getOperand(5), *b, scope, &op, true)))
+        } else if (auto witness = dyn_cast<CDCRefinementOp>(op)) {
+          unsigned payload = getCDCRefinementPayloadOperand(witness);
+          if (failed(check(op.getOperand(payload), *a, scope, &op)) ||
+              failed(check(op.getOperand(payload + 1), *a, scope, &op, true)) ||
+              failed(check(op.getOperand(payload + 2), *b, scope, &op, true)))
             return failure();
         } else if (layout) {
           if (failed(check(layout->input(), *a, scope, &op)) ||
@@ -679,8 +831,28 @@ class Resolver {
         }
       }
     }
-    if (defaultDomain) {
-      auto yield = cast<YieldOp>(module.getBody().front().back());
+    auto yield = cast<YieldOp>(module.getBody().front().back());
+    if (scope.portDomains) {
+      auto ports = getModulePortLayout(module);
+      if (failed(ports))
+        return failure();
+      for (unsigned i = 0; i < ports->sourceInputCount; ++i) {
+        auto arg = module.getBody().front().getArgument(i);
+        if (!scope.portDomains->inputs[i] && !scope.controls.contains(arg))
+          return reject(module, "ordinary public input requires a port domain");
+      }
+      for (auto [i, output] : llvm::enumerate(yield.getOperands())) {
+        auto name = scope.portDomains->outputs[i];
+        if (!name) {
+          if (i < ports->sourceOutputCount)
+            return reject(yield, "public output requires a port domain");
+          continue;
+        }
+        auto expected = namedDomain(module, name, scope);
+        if (failed(expected) || failed(check(output, *expected, scope, yield)))
+          return failure();
+      }
+    } else if (defaultDomain) {
       for (auto output : yield.getOperands())
         if (failed(check(output, *defaultDomain, scope, yield)))
           return failure();
@@ -690,7 +862,7 @@ class Resolver {
 
 public:
   Resolver(mlir::ModuleOp package, HardwareSourceCheckLimits limits)
-      : analysis(package), budget(limits) {
+      : analysis(package), budget(limits), limits(limits) {
     budget.setPhase("logical domain resolution");
   }
   FailureOr<HardwareDomainPlan> run() {
@@ -702,6 +874,34 @@ public:
     if (failed(bindings))
       return failure();
     plan.root = cast<ModuleOp>(bindings->owner);
+    ModuleOp logicalRoot;
+    for (auto module : analysis.getPackage().getOps<ModuleOp>()) {
+      if (!module->hasAttr("ac.port_domains"))
+        continue;
+      if (!logicalRoot) {
+        auto logical = detail::resolveHardwareLogicalRootBindings(analysis);
+        if (failed(logical))
+          return failure();
+        logicalRoot = cast<ModuleOp>(logical->owner);
+        if (logicalRoot != plan.root &&
+            failed(detail::verifyEntryBoundary(
+                analysis, false, [&](uint64_t units, Operation *site) {
+                  return budget.debit(units, site);
+                })))
+          return failure();
+      }
+      if ((module != plan.root && module != logicalRoot) ||
+          module->hasAttr("ac.root_kind"))
+        return reject(module, "ac.port_domains requires the selected ordinary root");
+    }
+    bool derived = false;
+    analysis.getPackage().walk([&](ClockSourceOp) { derived = true; });
+    if (derived) {
+      auto sources = getHardwareClockSourcePlan(analysis.getPackage(), limits);
+      if (failed(sources))
+        return failure();
+      plan.clockSources = std::move(*sources);
+    }
     HardwareDomainOccurrence root;
     root.definition = plan.root;
     auto clocks =
@@ -723,8 +923,12 @@ public:
           analysis.getPackedWidth(value.getType(), *bindings, plan.root);
       if (failed(width) || *width != 1)
         return reject(plan.root, "root clock must be one bit");
-      root.clocks[row.getName().getValue()] = index;
-      values[value] = index;
+      unsigned identity =
+          plan.clockSources ? plan.clockSources->occurrences[0].domains.lookup(
+                                  row.getName().getValue())
+                            : index;
+      root.clocks[row.getName().getValue()] = identity;
+      values[value] = identity;
       if (!llvm::is_contained(plan.clockInputs, index))
         plan.clockInputs.push_back(index);
     }
@@ -752,28 +956,32 @@ LogicalResult verifyHardwareDomains(mlir::ModuleOp package,
                                     HardwareSourceCheckLimits limits) {
   return success(succeeded(getHardwareDomainPlan(package, limits)));
 }
-FailureOr<ArrayAttr>
-serializeHardwareDomainBindings(mlir::ModuleOp package,
-                                HardwareSourceCheckLimits limits) {
-  auto plan = getHardwareDomainPlan(package, limits);
-  if (failed(plan))
-    return failure();
-  Builder b(package.getContext());
+ArrayAttr serializeHardwareDomainBindings(const HardwareDomainPlan &plan) {
+  Builder b(plan.root->getContext());
   SmallVector<Attribute> rows;
-  for (auto &occurrence : plan->occurrences) {
+  for (auto &occurrence : plan.occurrences) {
     SmallVector<Attribute> path(occurrence.instancePath.begin(),
                                 occurrence.instancePath.end());
     SmallVector<StringRef> names;
     for (auto &entry : occurrence.clocks)
       names.push_back(entry.getKey());
     llvm::sort(names);
-    for (auto name : names)
-      rows.push_back(b.getDictionaryAttr(
-          {b.getNamedAttr("instance_path", b.getArrayAttr(path)),
-           b.getNamedAttr("formal", b.getStringAttr(name)),
-           b.getNamedAttr(
-               "clock_input",
-               b.getI64IntegerAttr(occurrence.clocks.lookup(name)))}));
+    for (auto name : names) {
+      NamedAttrList row;
+      row.append("instance_path", b.getArrayAttr(path));
+      row.append("formal", b.getStringAttr(name));
+      auto identity = occurrence.clocks.lookup(name);
+      if (plan.clockSources) {
+        auto &source = plan.clockSources->sources[identity];
+        if (source.rootInput)
+          row.append("clock_input", b.getI64IntegerAttr(*source.rootInput));
+        else
+          row.append("clock_source", getHardwareClockSourceIdentity(
+                                         *plan.clockSources, identity));
+      } else
+        row.append("clock_input", b.getI64IntegerAttr(identity));
+      rows.push_back(row.getDictionary(b.getContext()));
+    }
   }
   return b.getArrayAttr(rows);
 }

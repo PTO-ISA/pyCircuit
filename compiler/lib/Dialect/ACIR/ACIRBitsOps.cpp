@@ -100,6 +100,37 @@ LogicalResult BitsSelectOp::verify() {
   return requireOneBit(getCondition().getType(), *this, "select condition");
 }
 
+LogicalResult ClockSourceOp::verify() {
+  auto package = (*this)->getParentOfType<mlir::ModuleOp>();
+  auto stage =
+      package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+  auto profile = package
+                     ? package->getAttrOfType<IntegerAttr>("ac.routed_contract")
+                     : IntegerAttr();
+  if (!isa<ModuleOp>((*this)->getParentOp()) || !stage ||
+      (stage.getValue() != "routed" && stage.getValue() != "final") ||
+      !profile || profile.getInt() != 7)
+    return emitOpError()
+           << "requires an immediate contract-7 routed/final Module";
+  if (getContract() != 1 || getDomain().empty() || getSourceDomain().empty() ||
+      getDomain() == getSourceDomain())
+    return emitOpError()
+           << "requires contract 1 and distinct nonempty domain names";
+  if (failed(
+          requireOneBit(getInput().getType(), *this, "clock source input")) ||
+      failed(
+          requireOneBit(getResult().getType(), *this, "clock source result")) ||
+      !areEquivalentHardwareTypes(getInput().getType(), getResult().getType()))
+    return emitOpError() << "requires an identity one-bit payload";
+  auto error = [&] { return emitOpError(); };
+  if (failed(detail::verifyOccurrence(getOccurrence(), error)))
+    return failure();
+  auto owner = cast<ModuleOp>((*this)->getParentOp());
+  return detail::verifyOriginDefinition(
+      getOccurrence(), FlatSymbolRefAttr::get(getContext(), owner.getSymName()),
+      "clock source", error);
+}
+
 LogicalResult ValueRequireOp::verify() {
   auto error = [&] { return emitOpError(); };
   auto package = (*this)->getParentOfType<mlir::ModuleOp>();

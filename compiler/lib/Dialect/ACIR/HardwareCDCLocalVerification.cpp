@@ -8,7 +8,7 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 LogicalResult resource(Operation *op, ArrayRef<StringRef> domains,
-                       ArrayRef<StringRef> edges) {
+                       ArrayRef<StringRef> edges, bool independent) {
   auto owner = dyn_cast_or_null<ModuleOp>(op->getParentOp());
   auto package =
       owner ? dyn_cast<mlir::ModuleOp>(owner->getParentOp()) : mlir::ModuleOp();
@@ -24,8 +24,8 @@ LogicalResult resource(Operation *op, ArrayRef<StringRef> domains,
         "CDC witness requires a contract-7 routed or final module graph");
   auto version = op->getAttrOfType<IntegerAttr>("resource_contract");
   if (!version || !version.getType().isSignlessInteger(64) ||
-      version.getInt() != 1)
-    return op->emitOpError("requires resource_contract = 1 : i64");
+      version.getInt() != (independent ? 2 : 1))
+    return op->emitOpError("requires canonical resource_contract : i64");
   auto name = op->getAttrOfType<StringAttr>("instance_name");
   if (!name || name.getValue().empty())
     return op->emitOpError("requires resource identity");
@@ -52,10 +52,18 @@ LogicalResult resource(Operation *op, ArrayRef<StringRef> domains,
     if (!edge || (edge.getValue() != "posedge" && edge.getValue() != "negedge"))
       return op->emitOpError("resource endpoint requires an explicit edge");
   }
-  auto polarity = op->getAttrOfType<StringAttr>("reset_polarity");
-  if (!polarity ||
-      (polarity.getValue() != "high" && polarity.getValue() != "low"))
-    return op->emitOpError("resource requires whole-reset polarity");
+  for (StringRef name : independent
+      ? SmallVector<StringRef>{"write_reset_polarity", "read_reset_polarity"}
+      : SmallVector<StringRef>{"reset_polarity"}) {
+    auto polarity = op->getAttrOfType<StringAttr>(name);
+    if (!polarity ||
+        (polarity.getValue() != "high" && polarity.getValue() != "low"))
+      return op->emitOpError("resource requires explicit reset polarity");
+  }
+  if (independent && (op->hasAttr("reset_polarity") ||
+      op->getAttrOfType<StringAttr>("reset_policy") !=
+          StringAttr::get(op->getContext(), "flush_on_either")))
+    return op->emitOpError("independent FIFO requires flush_on_either reset policy");
   return success();
 }
 } // namespace
@@ -68,11 +76,14 @@ LogicalResult verifyCDCRefinementContract(Operation *operation) {
       !rawImplementation.getType().isSignlessInteger(64))
     return operation->emitOpError("invalid typed CDC witness attributes");
   bool reg = witness.getLogicalKind() == "async_reg";
+  auto rawContract = operation->getAttrOfType<IntegerAttr>("resource_contract");
+  bool independent = rawContract && rawContract.getInt() == 2;
   if (witness.getLogicalKind() != "async_reg" &&
       witness.getLogicalKind() != "async_fifo")
     return witness.emitOpError("unknown logical CDC kind");
-  if (witness.getImplementation() != 2 ||
-      witness.getNumOperands() != (reg ? 5u : 9u) ||
+  if ((reg && independent) ||
+      witness.getImplementation() != (independent ? 3 : 2) ||
+      witness.getNumOperands() != (reg ? 5u : (independent ? 10u : 9u)) ||
       witness->getNumResults() || witness->getNumRegions() ||
       witness->getNumSuccessors())
     return witness.emitOpError("invalid CDC witness contract");
@@ -81,7 +92,8 @@ LogicalResult verifyCDCRefinementContract(Operation *operation) {
                    reg ? ArrayRef<StringRef>{"source_domain", "target_domain"}
                        : ArrayRef<StringRef>{"write_domain", "read_domain"},
                    reg ? ArrayRef<StringRef>{"target_edge"}
-                       : ArrayRef<StringRef>{"write_edge", "read_edge"})))
+                       : ArrayRef<StringRef>{"write_edge", "read_edge"},
+                   independent)))
     return failure();
   auto source = witness->getAttrOfType<DictionaryAttr>("ac.cdc_source");
   if (!source || source.size() != 2 ||
@@ -92,8 +104,9 @@ LogicalResult verifyCDCRefinementContract(Operation *operation) {
       witness->hasAttr("callee") || witness->hasAttr("parameters") ||
       witness->hasAttr("type_arguments"))
     return witness.emitOpError("requires exact inert source provenance");
+  unsigned payload = independent ? 4 : 3;
   for (auto [index, value] : llvm::enumerate(witness.getOperands())) {
-    if (!reg && (index == 3 || index == 6))
+    if (!reg && (index == payload || index == payload + 3))
       continue;
     if (failed(verifyLiteralControlWidth(witness, value,
                                          "CDC witness control")))
@@ -102,8 +115,8 @@ LogicalResult verifyCDCRefinementContract(Operation *operation) {
   if (!reg) {
     auto depth = witness->getAttrOfType<StaticExprAttr>("depth");
     if (!depth ||
-        !areEquivalentHardwareTypes(witness.getOperand(3).getType(),
-                                    witness.getOperand(6).getType()))
+        !areEquivalentHardwareTypes(witness.getOperand(payload).getType(),
+                                    witness.getOperand(payload + 3).getType()))
       return witness.emitOpError("invalid FIFO witness token/capacity");
   }
   return success();

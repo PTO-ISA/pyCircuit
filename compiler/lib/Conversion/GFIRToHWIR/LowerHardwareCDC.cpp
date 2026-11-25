@@ -80,6 +80,9 @@ DictionaryAttr witnessAttributes(const Circuit &circuit) {
                     "reset_polarity", "reset_policy", "release_cycles"})
     if (auto value = source->getAttr(name))
       attributes.set(name, value);
+  if (hasIndependentCDCReset(source))
+    for (StringRef name : {"write_reset_polarity", "read_reset_polarity"})
+      attributes.set(name, source->getAttr(name));
   auto instance = cast<InstanceOp>(source);
   HardwareAnalysis analysis(source->getParentOfType<mlir::ModuleOp>());
   auto *declaration = analysis.resolveCallee(instance);
@@ -90,7 +93,8 @@ DictionaryAttr witnessAttributes(const Circuit &circuit) {
           b.getNamedAttr("declaration",
                          provenance(declaration->getAttrDictionary(), b))}));
   attributes.set("logical_kind", b.getStringAttr(circuit.kind));
-  attributes.set("implementation", b.getI64IntegerAttr(2));
+  attributes.set("implementation", b.getI64IntegerAttr(
+      hasIndependentCDCReset(source) ? 3 : 2));
   if (circuit.depth)
     attributes.set("depth", circuit.depth);
   return attributes.getDictionary(b.getContext());

@@ -982,3 +982,267 @@ TEST_F(StateResetValueTest, PublishTableSelectedResetForManagedMetadata) {
   publishSaved(stateIR(false), text,
                "PYCIRCUIT_TEST_TABLE_RESET_ANCHOR");
 }
+
+// Publication provenance is hand-authored separately from the logical CDC body.
+// No capture, source routing or emitted topology supplies the oracle.
+std::string portDomainCDCIR(bool routed, bool boundary = false) {
+  const auto original = stateIR(false);
+  std::string text = original.substr(0, original.find("module attributes"));
+  text += R"ir(
+#sync_a = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 10 : i64}]}, expansion = []}
+#sync_b = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 11 : i64}]}, expansion = []}
+#entry_occ = {site = {definition = @"pycircuit.__link_entry__", ast_path = []}, expansion = []}
+)ir";
+  text += routed
+      ? "module attributes {ac.stage = \"routed\", ac.routed_contract = 7 : i64, ac.source_units = [#owner]} {\n"
+      : "module attributes {ac.stage = \"source\", ac.unit_kind = \"implementation\", ac.source_owner = #owner, ac.interfaces = [#owner], ac.exports = [], ac.import_bindings = []} {\n";
+  const std::string domains = R"ir(, ac.domain_params = ["W", "R"], ac.default_domain = "W", ac.domain_clock_inputs = {W = 1 : i32, R = 2 : i32}, ac.port_domains = {inputs = {adata = "W", bdata = "R"}, outputs = {aq2_data = "W", bq2_data = "R"}})ir";
+  const std::string signature = routed
+      ? "function_type = (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1, !b1), input_names = [\"adata\", \"wclk\", \"rclk\", \"rst\", \"bdata\"], output_names = [\"aq2_data\", \"bq2_data\", \"aq2_available\", \"bq2_available\"]"
+      : "function_type = (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1), input_names = [\"adata\", \"wclk\", \"rclk\", \"rst\", \"bdata\"], output_names = [\"aq2_data\", \"bq2_data\"]";
+  const std::string companions = R"ir(, ac.internal_ports = {source_inputs = 5 : i64, source_outputs = 2 : i64, root_inputs = []}, ac.input_validity = [-1 : i64, -1 : i64, -1 : i64, -1 : i64, -1 : i64], ac.output_validity = [2 : i64, 3 : i64])ir";
+  text += R"ir(
+  "ac.module"() ({
+  ^bb0(%adata: !b1, %wclk: !b1, %rclk: !b1, %rst: !b1, %bdata: !b1):
+)ir";
+  if (routed) text += R"ir(
+    %a = "ac.instance"(%rclk, %wclk, %rst, %bdata) {instance_name = "to_w", callee = @"pycircuit.__builtins__.async_reg", parameters = [], type_arguments = [], occurrence = #sync_a, source_domain = "R", target_domain = "W", target_edge = "posedge", reset_polarity = "high", resource_contract = 1 : i64} : (!b1, !b1, !b1, !b1) -> !b1
+    %b = "ac.instance"(%wclk, %rclk, %rst, %adata) {instance_name = "to_r", callee = @"pycircuit.__builtins__.async_reg", parameters = [], type_arguments = [], occurrence = #sync_b, source_domain = "W", target_domain = "R", target_edge = "posedge", reset_polarity = "high", resource_contract = 1 : i64} : (!b1, !b1, !b1, !b1) -> !b1
+    %one = "ac.bits.constant"() {value = #w1} : () -> !b1
+    "ac.yield"(%a, %b, %one, %one) : (!b1, !b1, !b1, !b1) -> () loc("fixture.py":1:1)
+)ir";
+  else text += "    \"ac.yield\"(%bdata, %adata) : (!b1, !b1) -> ()\n";
+  text += "  }) {sym_name = \"reset_value.fixture.Held\", source_owner = #owner, parameters = [], type_parameters = [], " + signature + domains + ", ac.origin = #occ, ac.declaration_role = \"definition\"";
+  if (routed) text += companions;
+  text += "} : () -> () loc(\"fixture.py\":1:1)\n";
+  if (routed && boundary) {
+    text += R"ir(
+  "ac.module"() ({
+  ^bb0(%adata: !b1, %wclk: !b1, %rclk: !b1, %rst: !b1, %bdata: !b1):
+    %a, %b, %av, %bv = "ac.instance"(%adata, %wclk, %rclk, %rst, %bdata) {instance_name = "entry", callee = @"reset_value.fixture.Held", parameters = [], type_arguments = [], occurrence = #entry_occ, ac.domain_bindings = {W = "W", R = "R"}} : (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1, !b1) loc("fixture.py":1:1)
+    "ac.yield"(%a, %b, %av, %bv) : (!b1, !b1, !b1, !b1) -> () loc("fixture.py":1:1)
+  }) {sym_name = "pycircuit.__link_entry__", source_owner = #owner, parameters = [], type_parameters = [], )ir" + signature + domains + companions + "} : () -> () loc(\"fixture.py\":1:1)\n";
+  }
+  if (routed) text += boundary
+      ? R"ir("ac.system"() {entry = {callee = @"pycircuit.__link_entry__", parameters = [], type_arguments = []}, domain = "default", ac.entry_boundary = {version = 1 : i64, logical_entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}}} : () -> ()
+)ir"
+      : R"ir("ac.system"() {entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+)ir";
+  text += "}\n";
+  return routed ? withNativeCDCImport(text, "async_reg") : text;
+}
+
+TEST_F(StateResetValueTest, PublishPortDomainCDCForIndependentConsumers) {
+  publishSaved(portDomainCDCIR(false), portDomainCDCIR(true),
+               "PYCIRCUIT_TEST_PORT_DOMAIN_CDC_ANCHOR");
+}
+
+TEST_F(StateResetValueTest, PublishPortDomainEntryBoundaryForIndependentConsumers) {
+  publishSaved(portDomainCDCIR(false), portDomainCDCIR(true, true),
+               "PYCIRCUIT_TEST_PORT_DOMAIN_BOUNDARY_ANCHOR");
+}
+
+TEST_F(StateResetValueTest, PortDomainMapDoesNotConvertCrossDomainData) {
+  auto text = portDomainCDCIR(true);
+  const std::string correct = "bq2_data = \"R\"";
+  const auto position = text.find(correct);
+  ASSERT_NE(position, std::string::npos);
+  text.replace(position, correct.size(), "bq2_data = \"W\"");
+  auto package = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
+  ASSERT_TRUE(package);
+  mlir::ScopedDiagnosticHandler expectedFailure(
+      &context, [](mlir::Diagnostic &) { return mlir::success(); });
+  EXPECT_TRUE(mlir::failed(ac::verifyRoutedPackage(*package)));
+}
+
+TEST_F(StateResetValueTest, PortDomainCompanionsAndResetDataKeepTheirDomains) {
+  for (bool resetAsData : {false, true}) {
+    auto package = mlir::parseSourceString<mlir::ModuleOp>(
+        portDomainCDCIR(true), &context);
+    ASSERT_TRUE(package);
+    ASSERT_TRUE(mlir::succeeded(ac::verifyHardwareDomains(*package)));
+    auto root = *package->getOps<ac::ModuleOp>().begin();
+    auto &body = root.getBody().front();
+    if (resetAsData) {
+      // rst is a reset sink for both resources, but its ordinary data default
+      // remains W. It cannot supply the R source payload of the return path.
+      root.walk([&](ac::InstanceOp instance) {
+        if (instance.getInstanceName() == "to_w")
+          instance->setOperand(3, body.getArgument(3));
+      });
+    } else {
+      // The hidden companion of aq2_data belongs to W, even though it is not
+      // a public map key. Giving it an R dependency must fail the domain proof.
+      body.back().setOperand(2, body.getArgument(4));
+    }
+    mlir::ScopedDiagnosticHandler expectedFailure(
+        &context, [](mlir::Diagnostic &) { return mlir::success(); });
+    EXPECT_TRUE(mlir::failed(ac::verifyHardwareDomains(*package)));
+  }
+}
+
+std::string independentResetFIFOIR(bool routed) {
+  const auto original = stateIR(false);
+  std::string text = original.substr(0, original.find("module attributes"));
+  text += R"ir(
+#depth = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<4>}, origin = #occ, location = #span}>
+#reader = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
+#fifo = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 3 : i64}]}, expansion = []}
+#rid = {registration = #reader, check = #reader, obligation = 0 : i64}
+)ir";
+  text += routed
+      ? "module attributes {ac.stage = \"routed\", ac.routed_contract = 7 : i64, ac.source_units = [#owner]} {\n"
+      : "module attributes {ac.stage = \"source\", ac.unit_kind = \"implementation\", ac.source_owner = #owner, ac.interfaces = [#owner], ac.exports = [], ac.import_bindings = []} {\n";
+  text += R"ir(
+  "ac.module"() ({
+  ^bb0(%data: !b9, %push: !b1, %pop: !b1, %wclk: !b1, %rclk: !b1, %wrst: !b1, %rrst: !b1):
+)ir";
+  if (routed) {
+    text += R"ir(
+    %head, %wa, %ra = "ac.instance"(%wclk, %rclk, %wrst, %rrst, %data, %wf, %rf) {instance_name = "requests", callee = @"pycircuit.__builtins__.async_fifo_independent_reset", parameters = [#depth], type_arguments = [!b9], occurrence = #fifo, write_domain = "W", read_domain = "R", write_edge = "posedge", read_edge = "posedge", write_reset_polarity = "high", read_reset_polarity = "high", reset_policy = "flush_on_either", resource_contract = 2 : i64} : (!b1, !b1, !b1, !b1, !b9, !b1, !b1) -> (!b9, !b1, !b1)
+)ir";
+    for (bool write : {true, false}) {
+      const std::string prefix = write ? "w" : "r";
+      text += "    %" + prefix + "f, %" + prefix + "raw, %" + prefix + "reached = \"ac.rule\"(%" + prefix + "clk, %wrst, %rrst, %" + (write ? "push, %wa" : "pop, %ra") + R"ir() ({
+    ^bb0(%clock: !b1, %write_reset: !b1, %read_reset: !b1, %intent: !b1, %available: !b1):
+      %one = "ac.bits.constant"() {value = #w1} : () -> !b1
+      %guard = "ac.bits.compare"(%intent, %one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
+      %fire = "ac.bits.binary"(%guard, %available) {opcode = "and"} : (!b1, !b1) -> !b1
+      "ac.yield"(%fire, %intent, %one) : (!b1, !b1, !b1) -> ()
+    }) {name = ")ir" + (write ? "push" : "pop") + "\", occurrence = #" + (write ? "writer" : "reader") + ", ac.required_checks = [{id = #" + (write ? "id" : "rid") + R"ir(, kind = "guard_known", location = #span}], ac.sampled_admission = {clock_capture = 0 : i64, edge = "posedge", resets = [{capture = 1 : i64, kind = "async", polarity = "high"}, {capture = 2 : i64, kind = "async", polarity = "high"}], fire_result = 0 : i64, controls = [{kind = "callable_guard", id = #)ir" + (write ? "id" : "rid") + R"ir(, invocation = [], predecessor = -1 : i64, path = {}}], body_checks = [], observations = []}} : (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1)
+)ir";
+      text += "    \"ac.expect\"(%" + prefix + "raw, %" + prefix + "reached, %" + prefix + "clk, %wrst, %rrst) {kind = \"guard_known\", location = #span, ac.check_id = #" + (write ? "id" : "rid") + "} : (!b1, !b1, !b1, !b1, !b1) -> ()\n";
+    }
+  } else {
+    text += R"ir(
+    %head = "ac.bits.constant"() {value = #w0} : () -> !b9
+    %wa = "ac.bits.constant"() {value = #w0} : () -> !b1
+    %ra = "ac.bits.constant"() {value = #w0} : () -> !b1
+)ir";
+  }
+  text += R"ir(
+    "ac.yield"(%head, %wa, %ra) : (!b9, !b1, !b1) -> ()
+  }) {sym_name = "reset_value.fixture.Held", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b9, !b1, !b1, !b1, !b1, !b1, !b1) -> (!b9, !b1, !b1), input_names = ["data", "push", "pop", "wclk", "rclk", "wrst", "rrst"], output_names = ["head", "write_available", "read_available"], ac.domain_params = ["W", "R"], ac.default_domain = "W", ac.domain_clock_inputs = {W = 3 : i32, R = 4 : i32}, ac.port_domains = {inputs = {pop = "R"}, outputs = {head = "R", read_available = "R"}}, ac.origin = #occ, ac.declaration_role = "definition"
+)ir";
+  if (routed) text += R"ir(, ac.transaction_wiring = {states = [], incoming = [], writers = [{registration = #writer, ordinary_results = 0 : i64, candidates = []}, {registration = #reader, ordinary_results = 0 : i64, candidates = []}]})ir";
+  text += "} : () -> ()\n";
+  if (routed) text += R"ir(
+  "ac.system"() {entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+)ir";
+  text += "}\n";
+  return routed ? withNativeCDCImport(text, "async_fifo_independent_reset") : text;
+}
+
+TEST_F(StateResetValueTest, PublishIndependentResetFIFOForConsumers) {
+  publishSaved(independentResetFIFOIR(false), independentResetFIFOIR(true),
+               "PYCIRCUIT_TEST_INDEPENDENT_RESET_FIFO_ANCHOR");
+}
+
+
+// The divider is specified directly in logical IR. Its packed high bit owns
+// the derived event; the two low-level consumers never supply expected values.
+std::string derivedClockDividerIR(bool routed, bool initialHigh = false) {
+  const auto original = stateIR(false);
+  std::string text = original.substr(0, original.find("module attributes"));
+  text += R"ir(
+#w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = #occ, location = #span}>
+#w256 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<256>}, origin = #occ, location = #span}>
+!b8 = !ac.bits<#w8>
+#child_occ = {site = {definition = @"reset_value.fixture.Child", ast_path = []}, expansion = []}
+#child_writer = {site = {definition = @"reset_value.fixture.Child", ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
+#child_id = {registration = #child_writer, check = #child_writer, obligation = 0 : i64}
+#child_state = {owner = {instance_path = []}, declaration = #child_occ, element = []}
+#clock_occ = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
+#forward_occ = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 3 : i64}]}, expansion = []}
+#forward_definition = {site = {definition = @"reset_value.fixture.Forward", ast_path = []}, expansion = []}
+#leaf_occ = {site = {definition = @"reset_value.fixture.Forward", ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
+)ir";
+  text += routed
+      ? "module attributes {ac.stage = \"routed\", ac.routed_contract = 7 : i64, ac.source_units = [#owner]} {\n"
+      : "module attributes {ac.stage = \"source\", ac.unit_kind = \"implementation\", ac.source_owner = #owner, ac.interfaces = [#owner], ac.exports = [], ac.import_bindings = []} {\n";
+  text += R"ir(
+  "ac.module"() ({
+  ^bb0(%guard: !b1, %clk: !b1, %rst: !b1):
+    %zero = "ac.bits.constant"() {value = #w0} : () -> !b9
+)ir";
+  if (routed) text += R"ir(
+    %q = "gfir.state"(%clk, %rst, %zero, %zero) {instance_name = "counter", occurrence = #child_occ, domain = "D", operandSegmentSizes = array<i32: 1, 1, 1, 1>, init_kind = "explicit", edge = "posedge", reset_kind = "async", reset_polarity = "high"} : (!b1, !b1, !b9, !b9) -> !b9
+    %next, %enable, %fire, %raw, %reached = "ac.rule"(%clk, %rst, %q, %guard) ({
+    ^bb0(%clock: !b1, %reset: !b1, %old: !b9, %allow: !b1):
+      %one = "ac.bits.constant"() {value = #w1} : () -> !b1
+      %step = "ac.bits.constant"() {value = #w1} : () -> !b9
+      %sum = "ac.bits.binary"(%old, %step) {opcode = "add"} : (!b9, !b9) -> !b9
+      %admit = "ac.bits.compare"(%allow, %one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
+      %write = "ac.bits.binary"(%admit, %one) {opcode = "and"} : (!b1, !b1) -> !b1
+      "ac.yield"(%sum, %write, %admit, %allow, %one) : (!b9, !b1, !b1, !b1, !b1) -> ()
+    }) {name = "count", occurrence = #child_writer, ac.required_checks = [{id = #child_id, kind = "guard_known", location = #span}], ac.sampled_admission = {clock_capture = 0 : i64, edge = "posedge", resets = [{capture = 1 : i64, kind = "async", polarity = "high"}], fire_result = 2 : i64, controls = [{kind = "callable_guard", id = #child_id, invocation = [], predecessor = -1 : i64, path = {}}], body_checks = [], observations = []}} : (!b1, !b1, !b9, !b1) -> (!b9, !b1, !b1, !b1, !b1)
+    "gfir.state.update"(%q, %next, %enable) : (!b9, !b9, !b1) -> ()
+    "ac.expect"(%raw, %reached, %clk, %rst) {kind = "guard_known", location = #span, ac.check_id = #child_id} : (!b1, !b1, !b1, !b1) -> ()
+    "ac.yield"(%q) : (!b9) -> ()
+)ir";
+  else text += "    \"ac.yield\"(%zero) : (!b9) -> ()\n";
+  text += R"ir(
+  }) {sym_name = "reset_value.fixture.Child", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1) -> !b9, input_names = ["guard", "clock", "reset"], output_names = ["q"], ac.domain_params = ["D"], ac.default_domain = "D", ac.origin = #child_occ, ac.declaration_role = "definition"
+)ir";
+  if (routed) text += R"ir(, ac.transaction_wiring = {states = [#child_occ], incoming = [], writers = [{registration = #child_writer, ordinary_results = 0 : i64, candidates = [{state = #child_state, data = 0 : i64, enable = 1 : i64}]}]})ir";
+  text += "} : () -> ()\n";
+  text += R"ir(
+  "ac.module"() ({
+  ^bb0(%guard: !b1, %clk: !b1, %rst: !b1):
+    %q = "ac.instance"(%guard, %clk, %rst) {instance_name = "leaf", callee = @"reset_value.fixture.Child", parameters = [], type_arguments = [], occurrence = #leaf_occ, ac.domain_bindings = {D = "D"}} : (!b1, !b1, !b1) -> !b9
+    "ac.yield"(%q) : (!b9) -> ()
+  }) {sym_name = "reset_value.fixture.Forward", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1) -> !b9, input_names = ["guard", "clock", "reset"], output_names = ["q"], ac.domain_params = ["D"], ac.default_domain = "D", ac.origin = #forward_definition, ac.declaration_role = "definition"} : () -> ()
+  "ac.module"() ({
+  ^bb0(%limit: !b8, %clk: !b1, %rst: !b1, %guard: !b1):
+)ir";
+  text += "    %initial = \"ac.bits.constant\"() {value = #w" + std::string(initialHigh ? "256" : "0") + "} : () -> !b9\n";
+  if (routed) text += R"ir(
+    %zero = "ac.bits.constant"() {value = #w0} : () -> !b9
+    %q = "gfir.state"(%clk, %rst, %initial, %zero) {instance_name = "divider", occurrence = #occ, domain = "D", operandSegmentSizes = array<i32: 1, 1, 1, 1>, init_kind = "explicit", edge = "posedge", reset_kind = "async", reset_polarity = "high"} : (!b1, !b1, !b9, !b9) -> !b9
+    %next, %enable, %fire, %raw, %reached = "ac.rule"(%clk, %rst, %q, %limit) ({
+    ^bb0(%clock: !b1, %reset: !b1, %old: !b9, %threshold: !b8):
+      %one = "ac.bits.constant"() {value = #w1} : () -> !b1
+      %step = "ac.bits.constant"() {value = #w1} : () -> !b8
+      %zero_count = "ac.bits.constant"() {value = #w0} : () -> !b8
+      %count = "ac.bits.extract"(%old) {low = #w0} : (!b9) -> !b8
+      %phase = "ac.bits.extract"(%old) {low = #w8} : (!b9) -> !b1
+      %hit = "ac.bits.compare"(%count, %threshold) {predicate = "eq"} : (!b8, !b8) -> !b1
+      %inc = "ac.bits.binary"(%count, %step) {opcode = "add"} : (!b8, !b8) -> !b8
+      %next_count = "ac.bits.select"(%hit, %zero_count, %inc) : (!b1, !b8, !b8) -> !b8
+      %next_phase = "ac.bits.binary"(%phase, %hit) {opcode = "xor"} : (!b1, !b1) -> !b1
+      %sum = "ac.bits.concat"(%next_phase, %next_count) : (!b1, !b8) -> !b9
+      %admit = "ac.bits.compare"(%one, %one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
+      %write = "ac.bits.binary"(%admit, %one) {opcode = "and"} : (!b1, !b1) -> !b1
+      "ac.yield"(%sum, %write, %admit, %one, %one) : (!b9, !b1, !b1, !b1, !b1) -> ()
+    }) {name = "divide", occurrence = #writer, ac.required_checks = [{id = #id, kind = "guard_known", location = #span}], ac.sampled_admission = {clock_capture = 0 : i64, edge = "posedge", resets = [{capture = 1 : i64, kind = "async", polarity = "high"}], fire_result = 2 : i64, controls = [{kind = "callable_guard", id = #id, invocation = [], predecessor = -1 : i64, path = {}}], body_checks = [], observations = []}} : (!b1, !b1, !b9, !b8) -> (!b9, !b1, !b1, !b1, !b1)
+    "gfir.state.update"(%q, %next, %enable) : (!b9, !b9, !b1) -> ()
+    "ac.expect"(%raw, %reached, %clk, %rst) {kind = "guard_known", location = #span, ac.check_id = #id} : (!b1, !b1, !b1, !b1) -> ()
+    %phase = "ac.bits.extract"(%q) {low = #w8} : (!b9) -> !b1
+    %slow = "ac.clock.source"(%phase) {domain = "S", source_domain = "D", occurrence = #clock_occ, contract = 1 : i64} : (!b1) -> !b1
+    %child = "ac.instance"(%guard, %slow, %rst) {instance_name = "forward", callee = @"reset_value.fixture.Forward", parameters = [], type_arguments = [], occurrence = #forward_occ, ac.domain_bindings = {D = "S"}} : (!b1, !b1, !b1) -> !b9
+    "ac.yield"(%q, %child, %limit) : (!b9, !b9, !b8) -> ()
+)ir";
+  else text += R"ir(
+    %child = "ac.bits.constant"() {value = #w0} : () -> !b9
+    "ac.yield"(%initial, %child, %limit) : (!b9, !b9, !b8) -> ()
+)ir";
+  text += R"ir(
+  }) {sym_name = "reset_value.fixture.Held", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1, !b1) -> (!b9, !b9, !b8), input_names = ["limit", "clock", "reset", "guard"], output_names = ["divider", "child_q", "echo"], ac.origin = #occ, ac.declaration_role = "definition"
+)ir";
+  if (routed) text += R"ir(, ac.domain_params = ["D", "S"], ac.default_domain = "D", ac.domain_clock_inputs = {D = 1 : i32}, ac.port_domains = {inputs = {guard = "S"}, outputs = {child_q = "S"}}, ac.transaction_wiring = {states = [#occ], incoming = [], writers = [{registration = #writer, ordinary_results = 0 : i64, candidates = [{state = #state_id, data = 0 : i64, enable = 1 : i64}]}]})ir";
+  text += "} : () -> ()\n";
+  if (routed) text += R"ir(
+  "ac.system"() {entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+)ir";
+  return text + "}\n";
+}
+
+TEST_F(StateResetValueTest, PublishDerivedClockDividerForConsumers) {
+  publishSaved(derivedClockDividerIR(false), derivedClockDividerIR(true),
+               "PYCIRCUIT_TEST_DERIVED_CLOCK_ANCHOR");
+}
+
+TEST_F(StateResetValueTest, PublishInitiallyHighDerivedClockForConsumers) {
+  publishSaved(derivedClockDividerIR(false, true), derivedClockDividerIR(true, true),
+               "PYCIRCUIT_TEST_DERIVED_CLOCK_ANCHOR");
+}

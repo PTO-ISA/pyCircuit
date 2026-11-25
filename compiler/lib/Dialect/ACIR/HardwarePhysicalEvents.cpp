@@ -95,9 +95,21 @@ FailureOr<HardwarePhysicalProjection> getBatchedPhysicalProjection(
     return success();
   };
   auto clock = [&](Value value, uint64_t owner) -> LogicalResult {
+    if (domains->clockSources) {
+      if (owner >= domains->occurrences.size() ||
+          domains->occurrences[owner].definition !=
+              plan.owners[owner].definition)
+        return root.emitOpError()
+               << "physical clock/source owner inventory differs";
+      auto actual = resolveHardwareClockSource(*domains->clockSources, value,
+                                               owner, limits);
+      return success(succeeded(actual));
+    }
     SmallVector<unsigned> inputs;
-    if (failed(trace(value, owner, true, 0, inputs))) return failure();
-    llvm::sort(inputs); inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
+    if (failed(trace(value, owner, true, 0, inputs)))
+      return failure();
+    llvm::sort(inputs);
+    inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
     if (inputs.size() != 1 || !llvm::is_contained(projection.clockInputs, inputs.front()))
       return root.emitOpError() << "physical clock does not resolve to a declared root clock";
     return success();

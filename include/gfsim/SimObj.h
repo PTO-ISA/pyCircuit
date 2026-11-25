@@ -19,6 +19,9 @@ public:
 
   virtual void Build() = 0;
   virtual void Work() = 0;
+  // A generated causal root preflights its complete private overlay here.
+  // SimSystem checks every root before invoking any publication callback.
+  virtual bool CanXfer() const noexcept { return true; }
   virtual void Xfer() noexcept = 0;
   virtual void DiscardNext() noexcept = 0;
   virtual void Reset() noexcept = 0;

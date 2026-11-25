@@ -71,6 +71,11 @@ LogicalResult detail::verifyHardwarePackageStage(
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
   bool domainProfile = marker && marker.getInt() == 7;
   auto closed = package.walk([&](Operation *operation) {
+    if (operation->hasAttr("ac.port_domains") &&
+        (!domainProfile || !isa<ModuleOp>(operation))) {
+      operation->emitOpError("ac.port_domains requires a contract-7 Module");
+      return WalkResult::interrupt();
+    }
     if (!domainProfile && isa<ModuleOp, ModuleImportOp>(operation)) {
       auto kind = operation->getAttrOfType<StringAttr>("ac.root_kind");
       auto samples =
@@ -137,8 +142,8 @@ LogicalResult detail::verifyHardwarePackageStage(
     if (!policy.admitRoutedLogicalStateByName ||
         operation == package.getOperation() ||
         isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, SystemOp, InstanceOp,
-            CollectionOp, RuleOp, YieldOp, SourceExpectOp,
-            SourceObserveOp, CDCRefinementOp>(operation) ||
+            CollectionOp, RuleOp, YieldOp, SourceExpectOp, SourceObserveOp,
+            CDCRefinementOp, ClockSourceOp>(operation) ||
         isCombinationalHardwareOperation(operation))
       return WalkResult::advance();
     // Closed routed admission: exactly the two concrete operations the GFIR

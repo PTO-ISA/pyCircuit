@@ -1,6 +1,7 @@
 #ifndef PYCIRCUIT_HARDWARE_EMIT_COMMON_H
 #define PYCIRCUIT_HARDWARE_EMIT_COMMON_H
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/HardwareClockSources.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -41,6 +42,9 @@ public:
   bool managesChecks();
   bool isPhysical() const { return physical_; }
   bool batchesPhysicalEvents() const;
+  const ac::HardwareClockSourcePlan *causalClocks() const {
+    return clockSources_ ? &*clockSources_ : nullptr;
+  }
   const ac::HardwarePhysicalProjection &physicalProjection() const {
     return *physicalProjection_;
   }
@@ -117,6 +121,7 @@ private:
   bool physical_ = false;
   std::optional<ac::HardwarePhysicalProjection> physicalProjection_;
   std::optional<ac::HardwareSourceCheckPlan> sourceChecks_;
+  std::optional<ac::HardwareClockSourcePlan> clockSources_;
   llvm::DenseMap<mlir::Operation *, EmitNames> names_;
 };
 mlir::LogicalResult emitHardwareCppDefinition(HardwareEmitContext &context,

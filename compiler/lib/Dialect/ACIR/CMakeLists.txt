@@ -99,6 +99,7 @@ add_acir_library(ACIRAnalysis SOURCES
   HardwareCDC.cpp
   HardwareCDCGraph.cpp
   HardwareDomains.cpp
+  HardwareClockSources.cpp
   HardwarePhysicalEvents.cpp
   HardwareAnalysis.cpp
   HardwareAnalysisDependencies.cpp
