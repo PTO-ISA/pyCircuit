@@ -1,0 +1,21 @@
+# Direct log/report demand a guarded scalar only when reached. Unavailable data
+# publishes nothing. Log retains X/Z; report compares that payload to itself.
+# Late false/X and an independent later failure suppress observations without
+# advancing state.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: cp %inputs/structured-gfir-available-observation.mlir %t.local.mlir
+# RUN: sed 's/pattern = "00000110"/pattern = "11111111"/' %inputs/structured-gfir-available-observation.mlir > %t.system.mlir
+# RUN: for mode in local system; do %pycircuit_opt %t.$mode.mlir --gfir-verify -o %t.$mode.gfir || exit; %pycircuit_emit %t.$mode.gfir --input-stage gfir --target cpp > %t.$mode.behavior.json || exit; %pycircuit_opt %t.$mode.gfir --gfir-to-hwir --ac-verify-hardware -o %t.$mode.hwir || exit; %pycircuit_emit %t.$mode.hwir --target cpp > %t.$mode.final.json || exit; done
+# RUN: for mode in local system; do for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$mode.$kind.json %t.$mode.$kind || exit; done; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for mode in local system; do for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$mode.$kind %t.$mode.$kind/simulation_main.cpp @%t.$mode.$kind/sources.rsp "$RTLIB" -o %t.$mode.$kind.exe || exit; done; done
+# RUN: not %t.local.behavior.exe --config %t.local.behavior/config.json > %t.local.behavior.stdout 2>&1
+# RUN: not %t.local.final.exe --config %t.local.final/config.json > %t.local.final.stdout 2>&1
+# RUN: not %t.system.behavior.exe --config %t.system.behavior/config.json > %t.system.behavior.stdout 2>&1
+# RUN: not %t.system.final.exe --config %t.system.final/config.json > %t.system.final.stdout 2>&1
+# RUN: for kind in behavior final; do %python %inputs/structured-gfir-system-result.py %t.local.$kind.stdout FAILED 20 || exit; %python %inputs/structured-gfir-system-result.py %t.system.$kind.stdout FAILED 23 || exit; done
+# RUN: for mode in local system; do %pycircuit_emit %t.$mode.hwir --target verilog --format source > %t.$mode.sv || exit; %iverilog -g2012 -s pycircuit_sim -o %t.$mode.vvp %t.$mode.sv %include/verilog/dffe.v || exit; done
+# RUN: not %vvp %t.local.vvp > %t.local.rtl.stdout 2>&1
+# RUN: not %vvp %t.system.vvp > %t.system.rtl.stdout 2>&1
+# RUN: %python %inputs/structured-gfir-system-result.py %t.local.rtl.stdout RTL_FAILED 20
+# RUN: %python %inputs/structured-gfir-system-result.py %t.system.rtl.stdout RTL_FAILED 23
+# RUN: for mode in local system; do %python %inputs/structured-gfir-available-observation-result.py $mode %t.$mode.behavior.stdout %t.$mode.final.stdout %t.$mode.rtl.stdout || exit; done

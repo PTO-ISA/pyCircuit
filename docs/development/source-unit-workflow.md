@@ -128,40 +128,49 @@ explicit wrapper receives its mapped pair and owns its clock history. Such
 wrappers use managed RTL, with the domain pins carried as ordinary public inputs
 and the legacy implicit domain pair recorded as null.
 The `structured-gfir-availability` compiler test exercises field-sensitive root
-output availability and failure rollback with gfsim and managed RTL. A clocked
-child result can carry sampled Rule availability to its caller. Distinct
+output availability and failure rollback with gfsim and managed RTL. Distinct
 ports and individual Struct fields retain their own conditions through
-construction and projection. A caller can export the result or consume a
-Bits1 field at a direct ordered guard. An exported aggregate is available
-when all of its fields are available.
+construction and projection. An exported aggregate is available when all of
+its fields are available. Pure and clocked Module calls can receive a scalar
+input together with its compiler-owned availability. A child Module can
+receive a Struct of Bits fields with a separate condition for each field.
+HWIR carries those leaves on private inputs and reconstructs the declared
+Struct in the child.
 
 Scalar Bits arithmetic, comparisons, bitwise operations, concatenation,
 slicing, and resizing require all operands to be available. A known carrier
-value can still be unavailable. Guard admission continues to use the
-availability condition derived from the actual operands.
+value can still be unavailable. A selection derives availability from the
+selector and the participating arms. A straight-line Rule checks availability
+where a guard, whole-state write or return requires a value, including through
+strict scalar computations and reads of the Rule's candidate.
 
 An ordered FIFO `view` or `out` obtains the committed head. An empty queue
 blocks the Rule at that statement. An ordered `in` requires committed capacity
-under `local_occupancy`. With `downstream_pop`, a raw recipient or another
-local Rule's admitted `out` can supply credit. A distinct consuming Rule can
-provide credit inside the selected root Module. The complete Rule's admission
-controls its result availability and all staged transfers. Ordered FIFO
-admission uses direct Rule bodies. Synchronous RAM results use the actual
-response port's live bit. The old head or response can be available on a held or
-falling sample. Transfers and response aging use successful rising edges.
+under `local_occupancy`. With `downstream_pop`, a raw recipient or a local
+Rule's admitted `out` can supply credit. An earlier `out` in the same Rule
+can supply credit to a later `in`. For a selected `out` the own-credit
+selector is a scalar Module input captured by the Rule. The complete Rule's
+admission controls its results and all staged transfers. An ordered
+`gfir.if` can select transactional Memory operations. Its zero-result arms
+can also use FIFO `in`, `out`, and `view`, with one contributor per driven
+direction. A direct Rule body can combine FIFO and RAM operations. A
+selected resource arm on a System root can record observations.
+Synchronous RAM results use the actual response port's live bit. The old head
+or response can be available on a held or falling sample. Transfers and response
+aging use successful rising edges.
 
 ```mermaid
 flowchart LR
     S["Committed FIFO head or RAM response"] --> R["Ordered child Rule"]
     R --> C["Actual child output and availability"]
-    C --> P["Parent projection of the required field"]
-    P --> G["Reached parent guard"]
+    C --> P["Parent projection or Module input"]
+    P --> G["Reached guard, write, or return"]
     P --> O["Parent output and availability"]
 ```
 
-A guard whose result is unavailable blocks at that statement. Earlier reached
-checks retain their order, and an available X or Z still follows the guard
-knownness check. The HWIR projection uses private, typed field results when
+A demand for an unavailable value blocks at that statement. Earlier reached
+checks retain their order, and an available X or Z still follows the consumer's
+four-state contract. The HWIR projection uses private, typed field results when
 callers use a Struct port whose fields have different availability. The
 behavioral path keeps the existing field evaluation schedule. An independent
 committed-state field can feed a peer before the child prepares its gated
@@ -172,29 +181,44 @@ transaction candidate throughout one sample. Its ordinal block argument is
 `i64`. The `gfir.ordinal_bits` operation converts that argument to a closed
 Bits width validated against the trip count. Behavioral C++ emits a loop.
 HWIR expands the same iterations into SSA within the shared expansion budget.
-A zero-trip loop returns its initial values and natural completion without
-executing the body.
+With `gfir.step (%next) : (!value) break_if %stop : !b1`, a known true stop
+returns the current iteration's carried values and clears natural completion.
+A reached unknown stop enters the sampled check sequence. A zero-trip loop
+returns its initial values and natural completion without executing the body.
 
-The selected default-domain root can call guard-free Methods on directly bound
-children with one Bits state each. Repeated and nested calls on the same receiver
-share its candidate and preserve returned value snapshots. Each Rule begins with
-committed state, and each actual receiver has a separate candidate even when the
-children share a definition. A late guard cancels all of that Rule's candidates.
-HWIR routes admitted candidates to the owning instances through private ports.
-Each child stages its own candidate once under the common commit barrier.
+An ordered Rule can call a guard-free Method along an instance path such as
+`@relay::@store["update"]`. The Rule gives each actual state declaration a
+candidate slot. Repeated calls see earlier writes to that slot, including
+when a receiver owns several Bits, Struct, or Table states. Each independent
+Rule starts with the same committed values. A late guard cancels all of its
+candidates. HWIR forwards admitted candidates along the same instance paths
+through private ports.
 
-A direct Rule on the selected generated-default-domain root can use
-`gfir.effect assert`. The predicate is captured at the statement. Each Work
-uses final Rule admission and the interpreted reset mask to activate it.
+A Method declares a writable formal with
+`attributes {writable = {owner = 0 : i64}}` and addresses it as `@owner`.
+An ordered call can use `bindings(0 = @relay::@store::@record["count"])`.
+Both `self` and instance receivers use this binding form. The bound formal is
+in the function type. The SSA operand list supplies the remaining formals.
+Bindings can identify a complete owner, a Struct field, or a proven in-range
+Table row. The caller evaluates the index at entry. A nested Method can
+forward that view, and the bound formal's SSA value is an entry snapshot.
+
+A Rule on the selected generated-default-domain root can use
+`gfir.effect assert` in its direct body or a selected arm. The predicate is
+captured at the statement. Each Work uses final Rule admission and the
+interpreted reset mask to activate it.
 Sampling and guard checks precede assertions. A failed assertion leaves state
 and clock history at their previous committed values, including in generated
 System runs.
 
-Direct Rules on a closed System root can use `gfir.effect log` and
-`gfir.effect report` with the shared observation spec. The effects preserve
-their statement values and publish through gfsim after the transaction admits
-and the whole sample succeeds. A late false guard suppresses earlier effects
-in the same Rule. Known admitted held, falling, and reset samples can publish.
+Rules on a closed System root can use `gfir.effect log` and
+`gfir.effect report` in the direct body or a selected arm. The effects
+preserve their statement values and publish through gfsim after the
+transaction admits and the whole sample succeeds. A direct observation can
+demand a scalar with compiler-owned availability. It blocks the Rule at
+that statement if the scalar is unavailable. Available X and Z remain
+payload bits. A late false guard suppresses earlier effects in the same
+Rule. Known admitted held, falling, and reset samples can publish.
 
 An optional `ac.payload_constraint` on a state variable, native FIFO or Memory
 declaration, or native resource instance uses the existing source hardware
