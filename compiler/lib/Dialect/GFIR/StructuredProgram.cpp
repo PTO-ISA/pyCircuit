@@ -1069,6 +1069,30 @@ public:
   }
 };
 
+class RecoverStructuredRowWritePass
+    : public PassWrapper<RecoverStructuredRowWritePass, OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RecoverStructuredRowWritePass)
+  StringRef getArgument() const final { return "gfir-recover-row-write"; }
+  StringRef getDescription() const final {
+    return "Recover a proven indexed state write from a whole record update";
+  }
+  void runOnOperation() final {
+    auto package = getOperation();
+    auto program = analyzeStructured(package);
+    if (failed(program)) {
+      signalPassFailure();
+      return;
+    }
+    if (!recoverStructuredRowWrite(package, *program)) {
+      markAllAnalysesPreserved();
+      return;
+    }
+    if (failed(mlir::verify(package)) || failed(analyzeStructured(package)))
+      signalPassFailure();
+  }
+};
+
 } // namespace
 
 FailureOr<StructuredProgram> analyzeStructured(mlir::ModuleOp package) {
@@ -1077,6 +1101,7 @@ FailureOr<StructuredProgram> analyzeStructured(mlir::ModuleOp package) {
 
 void registerStructuredGFIRPasses() {
   PassRegistration<VerifyStructuredPass>();
+  PassRegistration<RecoverStructuredRowWritePass>();
 }
 
 } // namespace acir::gfir

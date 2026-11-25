@@ -76,7 +76,8 @@ HWIR before emitting final C++ or Verilog.
 ```mermaid
 flowchart LR
     G["Closed GFIR package"] --> V["Structured verification"]
-    V --> B["Behavioral C++ with gfsim"]
+    V --> N["Recover indexed Table writes when proven"]
+    N --> B["Behavioral C++ with gfsim"]
     V --> H["Verified HWIR"]
     H --> C["Final C++ with gfsim"]
     H --> R["Verilog"]
@@ -89,6 +90,14 @@ pycircuit-opt verified.gfir.mlir --gfir-to-hwir --ac-verify-hardware -o final.ml
 pycircuit-emit final.mlir --target cpp > final-cpp.json
 pycircuit-emit final.mlir --target verilog > rtl.json
 ```
+
+Behavioral C++ generation can recover an indexed `gfir.write` from a whole
+Struct assignment when SSA and verified module bindings prove that the Table
+field performs one indexed update on the same committed Table. The rewrite
+preserves sibling field writes and four-state guard and index semantics. The
+emitter verifies the rewritten package before emission. To inspect it or use
+it as input to hardware lowering, run
+`pycircuit-opt verified.gfir.mlir --gfir-recover-row-write -o recovered.gfir.mlir`.
 
 Use the generated DUT interface and port metadata to apply the same samples to
 each result. The GFIR package declares logical bindings and ordered effects.

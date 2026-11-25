@@ -40,6 +40,13 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
   auto program = acir::gfir::analyzeStructured(package);
   if (failed(program))
     return failure();
+  if (acir::gfir::recoverStructuredRowWrite(package, *program)) {
+    if (failed(mlir::verify(package)))
+      return failure();
+    program = acir::gfir::analyzeStructured(package);
+    if (failed(program))
+      return failure();
+  }
   auto parts = acir::compiler::emitBehavioralCpp(package, *program);
   if (failed(parts))
     return failure();

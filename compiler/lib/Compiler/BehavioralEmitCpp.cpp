@@ -2,6 +2,7 @@
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "pycircuit/Dialect/GFIR/StructuredProgram.h"
+#include "pycircuit/Dialect/GFIR/StructuredTableMap.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -1567,62 +1568,34 @@ FailureOr<std::string> BehavioralEmitter::tableMapExpression(
   if (failed(type) || failed(size))
     return failure();
   auto &body = map.getBody().front();
-  auto yielded = cast<ac::YieldOp>(body.getTerminator()).getValues()[result];
-  auto inputTable = [&](Value row) -> std::optional<unsigned> {
-    auto argument = dyn_cast<BlockArgument>(row);
-    if (argument && argument.getOwner() == &body && argument.getArgNumber() > 0 &&
-        argument.getArgNumber() <= map.getTables().size())
-      return argument.getArgNumber() - 1;
-    return std::nullopt;
-  };
-  auto forwarded = inputTable(yielded);
+  gfir::detail::TableMapRow row(map, result);
+  auto yielded = row.getValue();
+  auto forwarded = row.tableOperand(yielded);
   if (auto select = yielded.getDefiningOp<ac::BitsSelectOp>()) {
-    auto yes = inputTable(select.getTrueValue());
-    auto no = inputTable(select.getFalseValue());
+    auto yes = row.tableOperand(select.getTrueValue());
+    auto no = row.tableOperand(select.getFalseValue());
     // A four-state mux of the same row preserves all three masks.
     if (yes && no && map.getTables()[*yes] == map.getTables()[*no])
       forwarded = yes;
     if (tableType.getShape().size() == 1 && isa<ac::BitsType>(tableType.getElementType())) {
-      auto uniform = [&](Value row) -> std::string {
-        auto blockArg = dyn_cast<BlockArgument>(row);
-        if (!blockArg || blockArg.getOwner() != &body || blockArg.getArgNumber() == 0)
-          return {};
-        unsigned index = blockArg.getArgNumber() - 1;
-        if (index >= map.getTables().size())
-          return args[index];
-        if (map.getTables()[index].getDefiningOp<ac::TableSplatOp>())
-          return args[index] + ".element(0)";
-        return {};
+      auto uniform = [&](const gfir::detail::TableMapRow::Uniform &input) {
+        return args[input.operand] + (input.splat ? ".element(0)" : "");
       };
-      auto condition = uniform(select.getCondition());
-      if (!forwarded && yes && no && !condition.empty())
-        return "pyc_behavior::selectRows(" + condition + ", " + args[*yes] + ", " +
+      auto condition = row.uniform(select.getCondition());
+      if (!forwarded && yes && no && condition)
+        return "pyc_behavior::selectRows(" + uniform(*condition) + ", " + args[*yes] + ", " +
                args[*no] + ")";
 
-      auto compare = select.getCondition().getDefiningOp<ac::BitsCompareOp>();
-      auto replacement = uniform(select.getTrueValue());
-      if (no && compare && compare.getPredicate() == "eq" && !replacement.empty()) {
-        auto ordinal = body.getArgument(0);
-        auto matchesOrdinal = [&](Value value) {
-          if (auto resize = value.getDefiningOp<ac::BitsResizeOp>();
-              resize && resize.getMode() == "zext")
-            value = resize.getInput();
-          return value == ordinal;
-        };
-        std::string index;
-        if (matchesOrdinal(compare.getLhs()))
-          index = uniform(compare.getRhs());
-        else if (matchesOrdinal(compare.getRhs()))
-          index = uniform(compare.getLhs());
-        if (!index.empty()) {
-          auto width = analysis.getPackedWidth(ordinal.getType(), {}, map);
-          if (failed(width))
-            return failure();
-          // A wrapped row ordinal can match more than one row.
-          if (std::bit_width(*size - 1) <= *width)
-            return "pyc_behavior::updatedTable(" + args[*no] + ", " + index + ", " +
-                   replacement + ")";
-        }
+      auto replacement = row.uniform(select.getTrueValue());
+      auto index = row.matchingIndex(select.getCondition());
+      if (no && replacement && index) {
+        auto width = analysis.getPackedWidth(body.getArgument(0).getType(), {}, map);
+        if (failed(width))
+          return failure();
+        // A wrapped row ordinal can match more than one row.
+        if (std::bit_width(*size - 1) <= *width)
+          return "pyc_behavior::updatedTable(" + args[*no] + ", " + uniform(*index) +
+                 ", " + uniform(*replacement) + ")";
       }
     }
   }

@@ -253,6 +253,9 @@ struct StructuredProgram {
 };
 
 mlir::FailureOr<StructuredProgram> analyzeStructured(mlir::ModuleOp package);
+/// Recover a proven local row write in an already verified package.
+/// On change the old analysis no longer applies. Reverify before emission.
+bool recoverStructuredRowWrite(mlir::ModuleOp package, const StructuredProgram &program);
 void registerStructuredGFIRPasses();
 
 } // namespace acir::gfir
