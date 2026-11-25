@@ -521,8 +521,19 @@ LogicalResult Analyzer::analyzeAvailability(
     return success();
   };
   for (unsigned index : definition.order) {
-    if (index >= definition.wires.size())
+    if (index >= definition.wires.size()) {
+      if (index < definition.firstClockedCallNode()) {
+        auto &rule = clocked.rules[index - definition.wires.size()];
+        for (Value capture : rule.operation.getCaptures())
+          if (llvm::any_of(definition.valueWires.find(capture)->second, [&](unsigned leaf) {
+                return !wireSources[leaf].empty();
+              })) {
+            rule.sampled = true;
+            rule.afterSnapshot = nullptr;
+          }
+      }
       continue;
+    }
     const auto &wire = definition.wires[index];
     if (auto argument = dyn_cast<BlockArgument>(wire.endpoint.value)) {
       if (llvm::any_of(definition.inputAvailability, [&](const auto &input) {
@@ -629,18 +640,28 @@ LogicalResult Analyzer::analyzeAvailability(
       const auto &leaves = definition.valueWires.find(capture)->second;
       if (llvm::none_of(leaves, [&](unsigned wire) { return !wireSources[wire].empty(); }))
         continue;
-      if (leaves.size() != 1 || !isa<ac::BitsType>(capture.getType()) ||
-          definition.wires[leaves.front()].width != 1)
-        return rule.emitOpError("gated guard capture requires Bits1");
+      if (leaves.size() != 1 || !isa<ac::BitsType>(capture.getType()))
+        return rule.emitOpError("available capture currently requires scalar Bits");
       auto argument = ordered.getArgument(index);
       if (argument.use_empty())
         return rule.emitOpError("gated capture requires a direct guard use");
       for (Operation *user : argument.getUsers()) {
         if (failed(budget.debit(1, user)))
           return failure();
-        if (!isa<GuardOp>(user) || user->getParentOp() != rule)
-          return user->emitOpError("gated capture may only supply a direct guard");
-        clocked.guardedCaptureUses.try_emplace(user, index);
+        if (isa<GuardOp>(user) && user->getParentOp() == rule &&
+            definition.wires[leaves.front()].width == 1) {
+          clocked.guardedCaptureUses.try_emplace(user, index);
+        } else if (auto write = dyn_cast<WriteOp>(user);
+                   write && write.getValue() == argument && !write.getIndex() &&
+                   write->getParentOp() == rule && !clocked.writePaths.contains(write)) {
+          clocked.dataCaptureUses[write].push_back({unsigned(index), 1, false});
+        } else if (auto yield = dyn_cast<YieldOp>(user); yield && yield->getParentOp() == rule) {
+          for (auto [ordinal, value] : llvm::enumerate(yield.getValues()))
+            if (value == argument)
+              clocked.dataCaptureUses[yield].push_back({unsigned(index), unsigned(ordinal), true});
+        } else {
+          return user->emitOpError("available capture requires a direct guard, state write or return");
+        }
       }
       const auto &sources = wireSources[leaves.front()];
       if (failed(budget.debit(sources.size(), rule)))

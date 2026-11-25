@@ -2596,6 +2596,25 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
   for (auto iterator = body.begin(); iterator != body.end();) {
     auto current = iterator++;
     Operation &op = *current;
+    if (auto uses = clocked.dataCaptureUses.find(&op); uses != clocked.dataCaptureUses.end()) {
+      for (auto [ordinal, use] : llvm::enumerate(uses->second)) {
+        auto available = "txn.pyc_capture_available_" + std::to_string(use.capture);
+        out << "    if (!";
+        if (definition.fourStateAvailability)
+          out << "pyc_behavior::isOne(" << available << ')';
+        else
+          out << available;
+        out << ") { ";
+        if (definition.fourStateAvailability)
+          out << "if (txn.pyc_check_active && !" << available
+              << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
+              << clocked.checkOffsets.lookup(&op) + ordinal << "; ";
+        out << "txn.pyc_running = false; ";
+        if (failed(emitBlockedReturn(out, body, ruleResults)))
+          return failure();
+        out << " }\n";
+      }
+    }
     if (snapshotBoundary == &op) {
       snapshot();
       out << "    if (!pyc_active) return;\n";

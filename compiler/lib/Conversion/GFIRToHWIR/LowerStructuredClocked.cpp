@@ -1070,6 +1070,33 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
   for (auto [argument, input] : llvm::zip(body.getArguments(), inputs))
     mapping.map(argument, input);
   for (Operation &op : body) {
+    if (sampled) {
+      if (auto uses = plan.dataCaptureUses.find(&op); uses != plan.dataCaptureUses.end()) {
+        for (const auto &use : uses->second) {
+          unsigned control = sampled->controls.size();
+          if (control >= sampled->plannedChecks.size())
+            return op.emitOpError("missing required data-use obligation");
+          const auto &check = sampled->plannedChecks[control];
+          Value payload = isa<gfir::WriteOp>(op)
+              ? cast<gfir::WriteOp>(op).getValue() : op.getOperand(use.operand);
+          Value available = sampled->guardAvailability.lookup(use.capture);
+          if (!available)
+            return op.emitOpError("missing required data-use availability");
+          Value required = make(ac::ValueRequireOp::getOperationName(),
+              {mapping.lookup(payload), available, sampled->path ? sampled->path : one}, {bit}, {
+              builder.getNamedAttr("occurrence", check.id.get("check")),
+              builder.getNamedAttr("source_location", check.location)})->getResult(0);
+          if (failed(addControl("value_available", &op, required)))
+            return failure();
+          sampled->requirements.push_back(builder.getDictionaryAttr({
+              builder.getNamedAttr("control", builder.getI64IntegerAttr(control)),
+              builder.getNamedAttr("kind", builder.getStringAttr(use.returned ? "return" : "state_write")),
+              builder.getNamedAttr("operand", builder.getI64IntegerAttr(use.operand)),
+              builder.getNamedAttr("occurrence", check.id.get("check")),
+              builder.getNamedAttr("location", check.location)}));
+        }
+      }
+    }
     if (isa<gfir::YieldOp, gfir::StepOp>(op)) {
       SmallVector<Value> values;
       for (Value value : op.getOperands())

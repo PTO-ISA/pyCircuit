@@ -760,6 +760,9 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
   SmallVector<uint64_t> methodSizes(plan.methods.size());
   auto visit = [&](auto &&recurse, Block &body, auto &&onCheck, auto &&onCall) -> void {
     for (Operation &op : body) {
+      if (auto uses = plan.dataCaptureUses.find(&op); uses != plan.dataCaptureUses.end())
+        for (const auto &use : uses->second)
+          onCheck(&op);
       if (plan.guardedCaptureUses.contains(&op))
         onCheck(&op);
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))

@@ -137,6 +137,12 @@ struct StructuredGuardCapture {
   StructuredAvailability sources;
 };
 
+struct StructuredDataCaptureUse {
+  unsigned capture;
+  unsigned operand;
+  bool returned;
+};
+
 struct StructuredRule {
   RuleOp operation;
   llvm::SmallVector<StructuredRequirement> requirements;
@@ -176,6 +182,7 @@ struct StructuredClocked {
   llvm::DenseSet<mlir::Operation *> checkedBranches;
   /// Relative ordinal of a check or callee entry in its callable's inventory.
   llvm::DenseMap<mlir::Operation *, uint64_t> checkOffsets;
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<StructuredDataCaptureUse>> dataCaptureUses;
   llvm::DenseMap<mlir::Operation *, unsigned> guardedCaptureUses;
   llvm::DenseMap<mlir::Operation *, mlir::DictionaryAttr> orderedOccurrences;
 };
