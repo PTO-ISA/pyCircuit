@@ -2973,20 +2973,27 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                remote != clocked.childMethodCalls.end()) {
       const auto &binding = remote->second;
       const auto &child = *program.definitions[binding.definition].clocked;
-      auto instance = instancePath(binding.path);
       auto operation = child.methods[binding.method];
       auto method = methodName(operation);
-      if (failed(instance) || failed(method))
+      if (failed(method))
         return failure();
       auto frame = "pyc_child_call_" + std::to_string(childCallOrdinal++);
-      SmallVector<std::string> candidates;
-      out << "    struct {\n";
-      for (auto [state, slot] : binding.states) {
-        auto candidate = "txn." + childCandidateName(slot);
-        out << "      decltype(" << candidate << ") &" << stateName(state) << ";\n";
-        candidates.push_back(std::move(candidate));
+      std::string receiver, transaction = "txn";
+      if (!binding.path.empty()) {
+        auto instance = instancePath(binding.path);
+        if (failed(instance))
+          return failure();
+        receiver = *instance + ".";
+        transaction = frame;
+        SmallVector<std::string> candidates;
+        out << "    struct {\n";
+        for (auto [state, slot] : binding.states) {
+          auto candidate = "txn." + childCandidateName(slot);
+          out << "      decltype(" << candidate << ") &" << stateName(state) << ";\n";
+          candidates.push_back(std::move(candidate));
+        }
+        out << "    } " << frame << '{' << join(candidates, ", ") << "};\n";
       }
-      out << "    } " << frame << '{' << join(candidates, ", ") << "};\n";
       if (!binding.formals.empty()) {
         SmallVector<std::pair<unsigned, std::string>> places;
         for (const auto &bound : binding.formals) {
@@ -3025,8 +3032,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         bindMethodArguments(out, operation, places, args, frame);
       }
       args.insert(args.begin(), "0");
-      args.insert(args.begin(), frame);
-      text = *instance + "." + *method + "(" + join(args, ", ") + ")";
+      args.insert(args.begin(), transaction);
+      text = receiver + *method + "(" + join(args, ", ") + ")";
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       auto memoryUse = clocked.transactionMemoryCalls.find(call);
       if (memoryUse != clocked.transactionMemoryCalls.end()) {

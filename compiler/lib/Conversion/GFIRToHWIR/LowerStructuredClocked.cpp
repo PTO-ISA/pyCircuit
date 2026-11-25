@@ -1092,6 +1092,8 @@ FailureOr<SmallVector<Value>> ClockedMaterializer::lowerChildMethod(
     auto formal = child.formalAccesses.find(op);
     if (formal != child.formalAccesses.end())
       return boundPlace(formal->second);
+    if (invocation.path.empty())
+      return MethodPlace{child.stateAccesses.lookup(op), nullptr, {}};
     for (auto [ordinal, receiver] : invocation.states)
       if (ordinal == child.stateAccesses.lookup(op))
         return MethodPlace{childSlots.lookup(receiver), nullptr, {}};

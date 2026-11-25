@@ -131,13 +131,9 @@ struct BodyUses {
 class ClockedAnalyzer {
 public:
   ClockedAnalyzer(ModuleOp module, const ac::HardwareAnalysis &hardware,
-                  ac::detail::SourceCheckBudget &budget,
-                  llvm::DenseMap<Operation *, StructuredChildMethod> childMethods,
-                  ArrayRef<StructuredChildState> childStates)
-      : module(module), hardware(hardware), budget(budget), childStates(childStates) {
-    plan.childMethodCalls = std::move(childMethods);
-  }
-  FailureOr<StructuredClocked> run();
+                  ac::detail::SourceCheckBudget &budget)
+      : module(module), hardware(hardware), budget(budget) {}
+  FailureOr<StructuredClocked> run(ClockedCallBinder bindCalls);
 
 private:
   LogicalResult collect();
@@ -150,12 +146,13 @@ private:
   LogicalResult bindTransactionMemory(CallOp call, unsigned index, unsigned rule);
   LogicalResult verifyBody(Operation *owner, Block &block, BodyUses &uses,
                            std::optional<unsigned> rule);
+  LogicalResult mergeUses(BodyUses &into, const BodyUses &from, Operation *site);
   LogicalResult resolveMethodEffects();
+  LogicalResult resolveRuleEffects(ArrayRef<StructuredChildState> childStates);
 
   ModuleOp module;
   const ac::HardwareAnalysis &hardware;
   ac::detail::SourceCheckBudget &budget;
-  ArrayRef<StructuredChildState> childStates;
   StructuredClocked plan;
   llvm::StringMap<unsigned> variables, fifos, memories, methods;
   SmallVector<BodyUses, 0> methodUses, ruleUses;
@@ -559,10 +556,17 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         return failure();
       if (auto child = plan.childMethodCalls.find(call);
           child != plan.childMethodCalls.end()) {
-        for (auto [state, slot] : child->second.states)
-          if (uses.childStates.insert(slot).second)
-            plan.rules[*rule].childStates.push_back(slot);
-        for (const auto &binding : child->second.formals) {
+        const auto &invocation = child->second;
+        if (invocation.path.empty()) {
+          const auto &effects = plan.directMethodEffects.find(invocation.method)->second;
+          uses.states.append(effects.states);
+          uses.writes.append(effects.writes);
+        } else {
+          for (auto [state, slot] : invocation.states)
+            if (uses.childStates.insert(slot).second)
+              plan.rules[*rule].childStates.push_back(slot);
+        }
+        for (const auto &binding : invocation.formals) {
           if (binding.local) {
             plan.boundVariables.insert(binding.slot);
             uses.states.push_back(binding.slot);
@@ -686,28 +690,30 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
   return success();
 }
 
+LogicalResult ClockedAnalyzer::mergeUses(BodyUses &into, const BodyUses &from,
+                                        Operation *site) {
+  if (failed(budget.debit(into.states.size() + into.writes.size() +
+                              from.states.size() + from.writes.size(), site)))
+    return failure();
+  auto append = [](SmallVector<unsigned> &to, ArrayRef<unsigned> source) {
+    to.append(source.begin(), source.end());
+    llvm::sort(to);
+    to.erase(std::unique(to.begin(), to.end()), to.end());
+  };
+  append(into.states, from.states);
+  append(into.writes, from.writes);
+  append(into.formalWrites, {});
+  into.expandedWork =
+      ac::detail::SourceCheckBudget::add(into.expandedWork, from.expandedWork);
+  into.sampledControls =
+      ac::detail::SourceCheckBudget::add(into.sampledControls, from.sampledControls);
+  into.hasFieldWrites |= from.hasFieldWrites;
+  return success();
+}
+
 LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   SmallVector<SmallVector<unsigned>> users(methodUses.size());
   SmallVector<unsigned> pending(methodUses.size()), order;
-  auto merge = [&](BodyUses &into, const BodyUses &from, Operation *site) {
-    if (failed(budget.debit(into.states.size() + into.writes.size() +
-                                from.states.size() + from.writes.size(), site)))
-      return failure();
-    auto append = [](SmallVector<unsigned> &to, ArrayRef<unsigned> source) {
-      to.append(source.begin(), source.end());
-      llvm::sort(to);
-      to.erase(std::unique(to.begin(), to.end()), to.end());
-    };
-    append(into.states, from.states);
-    append(into.writes, from.writes);
-    append(into.formalWrites, {});
-    into.expandedWork =
-        ac::detail::SourceCheckBudget::add(into.expandedWork, from.expandedWork);
-    into.sampledControls =
-        ac::detail::SourceCheckBudget::add(into.sampledControls, from.sampledControls);
-    into.hasFieldWrites |= from.hasFieldWrites;
-    return success();
-  };
   for (auto [index, body] : llvm::enumerate(methodUses)) {
     pending[index] = body.methods.size();
     if (body.methods.empty())
@@ -718,7 +724,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   for (unsigned head = 0; head < order.size(); ++head) {
     unsigned done = order[head];
     for (unsigned caller : users[done]) {
-      if (failed(merge(methodUses[caller], methodUses[done], plan.methods[caller])))
+      if (failed(mergeUses(methodUses[caller], methodUses[done], plan.methods[caller])))
         return failure();
       if (--pending[caller] == 0)
         order.push_back(caller);
@@ -736,7 +742,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
         if (llvm::is_contained(callee.formalWrites, formal))
           body.formalWrites.push_back(actual);
     }
-    if (failed(merge(methodUses[index], BodyUses{}, method)))
+    if (failed(mergeUses(methodUses[index], BodyUses{}, method)))
       return failure();
     const auto &uses = methodUses[index];
     if (uses.sampledControls != 0) {
@@ -763,14 +769,19 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
           index, StructuredMethodEffects{uses.expandedWork, depth, uses.states,
                                          uses.writes, uses.formalWrites});
   }
+  return success();
+}
+
+LogicalResult ClockedAnalyzer::resolveRuleEffects(
+    ArrayRef<StructuredChildState> childStates) {
   llvm::SmallDenseSet<unsigned> written;
   bool hasOrderedFifo = false;
   for (auto [index, body] : llvm::enumerate(ruleUses)) {
     auto &rule = plan.rules[index];
     for (unsigned callee : body.methods)
-      if (failed(merge(body, methodUses[callee], rule.operation)))
+      if (failed(mergeUses(body, methodUses[callee], rule.operation)))
         return failure();
-    if (failed(merge(body, BodyUses{}, rule.operation)))
+    if (failed(mergeUses(body, BodyUses{}, rule.operation)))
       return failure();
     if (failed(budget.debit(body.expandedWork, rule.operation)))
       return failure();
@@ -1047,7 +1058,7 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
 
 namespace {
 
-FailureOr<StructuredClocked> ClockedAnalyzer::run() {
+FailureOr<StructuredClocked> ClockedAnalyzer::run(ClockedCallBinder bindCalls) {
   if (failed(collect()))
     return failure();
   methodUses.resize(plan.methods.size());
@@ -1079,6 +1090,11 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
     if (failed(verifyBody(method, method.getBody().front(), methodUses[index], std::nullopt)))
       return failure();
   }
+  if (failed(resolveMethodEffects()))
+    return failure();
+  auto childStates = bindCalls(plan);
+  if (failed(childStates))
+    return failure();
   for (auto [index, rule] : llvm::enumerate(plan.rules)) {
     auto operation = rule.operation;
     for (Type type : operation.getFunctionType().getResults())
@@ -1088,7 +1104,7 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
                           ruleUses[index], unsigned(index))))
       return failure();
   }
-  if (failed(resolveMethodEffects()))
+  if (failed(resolveRuleEffects(*childStates)))
     return failure();
   return std::move(plan);
 }
@@ -1174,10 +1190,8 @@ describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware) {
 FailureOr<StructuredClocked>
 analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
                ac::detail::SourceCheckBudget &budget,
-               llvm::DenseMap<Operation *, StructuredChildMethod> childMethods,
-               ArrayRef<StructuredChildState> childStates) {
-  return ClockedAnalyzer(module, hardware, budget, std::move(childMethods),
-                         childStates).run();
+               ClockedCallBinder bindCalls) {
+  return ClockedAnalyzer(module, hardware, budget).run(bindCalls);
 }
 
 } // namespace acir::gfir::detail
