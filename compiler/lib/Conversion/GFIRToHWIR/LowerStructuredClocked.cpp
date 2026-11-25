@@ -46,7 +46,7 @@ private:
     unsigned pathResult = 0;
   };
 
-  struct ObservationSnapshot {
+  struct EffectSnapshot {
     SmallVector<Value> values;
     Value path;
     DictionaryAttr pathIdentity;
@@ -64,8 +64,7 @@ private:
     SmallVector<MemoryProposal> memoryProposals;
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
-    llvm::DenseMap<Operation *, Value> assertionConditions;
-    llvm::DenseMap<Operation *, ObservationSnapshot> observations;
+    llvm::DenseMap<Operation *, EffectSnapshot> effects;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -1089,16 +1088,11 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       local[target] = value;
       localIntents[target] = one;
     } else if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
-      if (effect.getKind() == "assert") {
-        sampled->assertionConditions.try_emplace(effect,
-            mapping.lookup(effect.getValues().front()));
-      } else {
-        auto &snapshot = sampled->observations[effect];
-        snapshot.path = sampled->path;
-        snapshot.pathIdentity = sampled->pathIdentity;
-        for (Value value : effect.getValues())
-          snapshot.values.push_back(mapping.lookup(value));
-      }
+      auto &snapshot = sampled->effects[effect];
+      snapshot.path = sampled->path;
+      snapshot.pathIdentity = sampled->pathIdentity;
+      for (Value value : effect.getValues())
+        snapshot.values.push_back(mapping.lookup(value));
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto captured = plan.guardedCaptureUses.find(guard);
           captured != plan.guardedCaptureUses.end()) {
@@ -1401,8 +1395,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   SmallVector<Attribute> observations;
   for (const auto &observation : plan.rules[index].observations) {
     auto effect = observation.operation;
-    auto found = context.observations.find(effect);
-    if (found == context.observations.end())
+    auto found = context.effects.find(effect);
+    if (found == context.effects.end())
       return effect.emitOpError("missing ordered observation snapshot");
     const auto &snapshot = found->second;
     observations.push_back(builder.getDictionaryAttr({
@@ -1446,9 +1440,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   for (auto assertion : assertions) {
     unsigned ordinal = context.checks.size();
     const auto &check = context.plannedChecks[ordinal];
-    Value condition = context.assertionConditions.lookup(assertion);
-    if (!condition)
+    auto found = context.effects.find(assertion);
+    if (found == context.effects.end())
       return assertion.emitOpError("missing ordered assertion condition");
+    const auto &snapshot = found->second;
     context.checks.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("id", check.id),
         builder.getNamedAttr("kind", builder.getStringAttr("assert")),
@@ -1456,8 +1451,9 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     bodyChecks.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("id", check.id),
         builder.getNamedAttr("invocation", builder.getArrayAttr({})),
-        builder.getNamedAttr("path", builder.getDictionaryAttr({}))}));
-    yielded.append({condition, context.prefix});
+        builder.getNamedAttr("path", snapshot.pathIdentity)}));
+    yielded.append({snapshot.values.front(), snapshot.path
+        ? binary("and", context.prefix, snapshot.path) : context.prefix});
   }
   SmallVector<Attribute> queueProposals, queueWriterProposals;
   for (auto &proposal : context.queueProposals) {

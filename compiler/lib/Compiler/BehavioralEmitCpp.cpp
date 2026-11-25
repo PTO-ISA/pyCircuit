@@ -2627,7 +2627,9 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     bool borrow = false;
     if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
       if (effect.getKind() == "assert") {
-        out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
+        unsigned ordinal = clocked.checkOffsets.lookup(effect);
+        out << "    txn.pyc_assert_reached_" << ordinal << " = true;\n"
+            << "    txn.pyc_assert_condition_" << ordinal
             << " = " << args.front() << ";\n";
       } else {
         const gfir::StructuredObservation *observation = nullptr;
@@ -3050,9 +3052,11 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
           << "    bool pyc_check_active = false;\n";
-    for (auto assertion : rule.assertions)
-      out << "    pyc_behavior::Level pyc_assert_condition_"
-          << clocked.checkOffsets.lookup(assertion) << ";\n";
+    for (auto assertion : rule.assertions) {
+      unsigned ordinal = clocked.checkOffsets.lookup(assertion);
+      out << "    bool pyc_assert_reached_" << ordinal << " = false;\n"
+          << "    pyc_behavior::Level pyc_assert_condition_" << ordinal << ";\n";
+    }
     for (const auto &observation : rule.observations) {
       auto effect = observation.operation;
       unsigned slot = observation.firstSlot;
@@ -3256,7 +3260,8 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   for (auto assertion : rule.assertions) {
     unsigned ordinal = definition.clocked->checkOffsets.lookup(assertion);
     out << "    {\n      const auto pyc_error = gfsim::bit_and(gfsim::bit_and("
-        << levelName << '(' << frameName(index) << ".pyc_running).packed(), "
+        << levelName << '(' << frameName(index) << ".pyc_running && "
+        << frameName(index) << ".pyc_assert_reached_" << ordinal << ").packed(), "
            "gfsim::bit_not(pyc_reset.packed())), gfsim::bit_not("
         << frameName(index) << ".pyc_assert_condition_" << ordinal << ".packed()));\n"
         << "      " << assertionName(index, ordinal)

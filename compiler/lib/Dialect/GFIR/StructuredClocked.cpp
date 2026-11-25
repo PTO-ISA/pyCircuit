@@ -520,8 +520,6 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         return effect.emitOpError("effect requires a Rule body or selected arm");
       auto &record = plan.rules[*rule];
       if (effect.getKind() == "assert") {
-        if (owner != record.operation)
-          return effect.emitOpError("assertion requires a direct Rule body");
         if (!isBitOne(hardware, effect.getValues().front().getType(), effect))
           return effect.emitOpError("assertion requires Bits1");
         record.assertions.push_back(effect);
@@ -566,11 +564,13 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       size_t firstCall = uses.methods.size();
       uint64_t earlierControls = uses.sampledControls;
       size_t firstObservation = rule ? plan.rules[*rule].observations.size() : 0;
+      size_t firstAssertion = rule ? plan.rules[*rule].assertions.size() : 0;
       for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
         if (failed(verifyBody(branch, arm->front(), uses, rule)))
           return failure();
       if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls ||
-          (rule && plan.rules[*rule].observations.size() != firstObservation)) {
+          (rule && (plan.rules[*rule].observations.size() != firstObservation ||
+                    plan.rules[*rule].assertions.size() != firstAssertion))) {
         plan.checkedBranches.insert(branch);
         ++uses.sampledControls;
       }
@@ -686,9 +686,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
         });
     if (!rule.assertions.empty() || !rule.observations.empty()) {
       auto unsupported = rule.operation.walk([&](Operation *op) {
-        if (isa<CallOp, LoopOp>(op) ||
-            (!rule.assertions.empty() && isa<IfOp>(op))) {
-          op->emitOpError("effect Rule supports selected observations without calls or loops");
+        if (isa<CallOp, LoopOp>(op)) {
+          op->emitOpError("effect Rule supports selected effects without calls or loops");
           return WalkResult::interrupt();
         }
         return WalkResult::advance();
