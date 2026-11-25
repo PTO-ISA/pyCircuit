@@ -1190,7 +1190,7 @@ LogicalResult BehavioralEmitter::emitWires(
       auto no = availabilityExpression(definition, select.no, instancePrefix);
       if (failed(yes) || failed(no))
         return failure();
-      out << "    const auto pyc_availability_select_" << ordinal << " = " << levelName
+      out << "    const auto pyc_availability_select_" << ordinal << " = pyc_behavior::Level"
           << "::fromPacked(gfsim::select(" << wireName(select.selector) << ", ("
           << *yes << ").packed(), (" << *no << ").packed()));\n";
     }
@@ -1869,12 +1869,12 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     }
   }
   for (const auto &output : definition.outputAvailability)
-    out << "  " << (definition.fourStateAvailability ? levelName.str() : "bool") << ' '
-        << availabilityName(output.port) << (definition.fourStateAvailability ? "{false};\n" : " = false;\n");
+    out << "  " << (definition.fourStateAvailability ? "pyc_behavior::Level" : "bool") << ' '
+        << availabilityName(output.port) << (definition.fourStateAvailability ? " = pyc_behavior::level(false);\n" : " = false;\n");
   for (auto [index, field] : llvm::enumerate(definition.fieldOutputs))
     if (!field.sources.empty())
-      out << "  " << (definition.fourStateAvailability ? levelName.str() : "bool") << ' '
-          << fieldAvailabilityName(index) << (definition.fourStateAvailability ? "{false};\n" : " = false;\n");
+      out << "  " << (definition.fourStateAvailability ? "pyc_behavior::Level" : "bool") << ' '
+          << fieldAvailabilityName(index) << (definition.fourStateAvailability ? " = pyc_behavior::level(false);\n" : " = false;\n");
   if (definition.incomingState) {
     unsigned state = *definition.incomingState;
     auto variable = definition.clocked->variables[state];
@@ -3080,9 +3080,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    " << moduleName(definition.childStates[receiver].definition)
           << "::ChildTxnState " << childCandidateName(receiver) << ";\n";
     for (const auto &capture : rule.guardCaptures)
-      out << "    " << (definition.fourStateAvailability ? levelName.str() : "bool")
+      out << "    " << (definition.fourStateAvailability ? "pyc_behavior::Level" : "bool")
           << " pyc_capture_available_" << capture.capture
-          << (definition.fourStateAvailability ? "{false};\n" : " = false;\n");
+          << (definition.fourStateAvailability ? " = pyc_behavior::level(false);\n" : " = false;\n");
     if (rule.sampled)
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
@@ -3227,7 +3227,7 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
       return levelName.str() + "(true)";
     std::string combined = terms.front();
     for (const auto &term : ArrayRef<std::string>(terms).drop_front())
-      combined = levelName.str() + "::fromPacked(gfsim::bit_and((" + combined +
+      combined = "pyc_behavior::Level::fromPacked(gfsim::bit_and((" + combined +
                  ").packed(), (" + term + ").packed()))";
     return combined;
   }
@@ -4108,9 +4108,15 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
              << ", " << value << ");\n";
     }
   }
-  for (const auto &[port, wire] : companions)
-    work << "    " << wire << " = " << levelName << "(pyc_body."
-           << availabilityName(port) << ");\n";
+  for (const auto &[port, wire] : companions) {
+    work << "    " << wire << " = ";
+    if (!definition.fourStateAvailability)
+      work << levelName << '(';
+    work << "pyc_body." << availabilityName(port);
+    if (!definition.fourStateAvailability)
+      work << ')';
+    work << ";\n";
+  }
   if (isClocked(definition))
     work << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
   work << "}\n";
