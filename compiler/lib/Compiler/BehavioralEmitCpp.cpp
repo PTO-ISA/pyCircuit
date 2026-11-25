@@ -1056,7 +1056,7 @@ FailureOr<std::string> BehavioralEmitter::nativeScalarExpression(
     if (predicate.starts_with("u") || predicate.starts_with("s"))
       predicate = predicate.drop_front();
     auto token = llvm::StringSwitch<StringRef>(predicate)
-                     .Cases("eq", "case_eq", "==").Case("ne", "!=")
+                     .Cases({"eq", "case_eq"}, "==").Case("ne", "!=")
                      .Case("lt", "<").Case("le", "<=").Case("gt", ">").Case("ge", ">=")
                      .Default("");
     return lhs + " " + token.str() + " " + rhs;

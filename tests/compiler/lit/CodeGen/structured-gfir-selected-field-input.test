@@ -1,10 +1,8 @@
-# A nested Struct mixes partial data with total controls. Its total ready
-# field feeds the producer; only payload/availability fields form a DAG.
-# The receiver projects scalar fields, then guards a state write and candidate
-# return. Its total ready field remains available before that transaction.
-# Selected value availability crosses a clocked Relay and Sink. The Sink guard
-# precedes its first value use (state-write/return). Two-owner snapshots and exact
-# select X/Z masks expose absent/unselected arms, discard and failed-edge retries.
+# A nested Struct mixes partial data with total controls through both a pure
+# and a clocked receiver. Its total ready field feeds the producer before the
+# receiving Rule demands the selected payload for a state write and return.
+# Independent snapshots and exact X/Z masks cover absent and unselected arms,
+# rollback, and failed-edge retries.
 # REQUIRES: rtl-four-state-parameter-types
 # RUN: %python %inputs/structured-gfir-selected-clocked-input-oracle.py > %t.rows
 # RUN: %pycircuit_opt %inputs/structured-gfir-selected-field-input.mlir --gfir-verify -o %t.gfir

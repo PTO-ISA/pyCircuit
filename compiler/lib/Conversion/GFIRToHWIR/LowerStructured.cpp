@@ -2,6 +2,7 @@
 // refinement turns those bindings into the common hardware graph directly.
 #include "pycircuit/Conversion/GFIRToHWIR.h"
 #include "LowerStructuredClocked.h"
+#include "LowerStructuredInputs.h"
 
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
@@ -18,7 +19,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/APSInt.h"
 #include <functional>
 #include <utility>
@@ -54,38 +54,11 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
   OperationState definition(source.getLoc(), ac::ModuleOp::getOperationName());
   for (StringRef name : {"sym_name", "source_owner"})
     definition.addAttribute(name, source->getAttr(name));
-  SmallVector<Type> inputTypes;
+  detail::StructuredInputLayout inputLayout(facts, builder);
+  auto inputTypes = std::move(inputLayout.types);
+  auto inputNames = std::move(inputLayout.names);
   SmallVector<Type> outputTypes(source.getFunctionType().getResults());
-  SmallVector<Attribute> inputNames;
   SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
-  SmallVector<SmallVector<unsigned>> inputSlots(source.getFunctionType().getNumInputs());
-  SmallVector<unsigned> companionSlots(facts.inputAvailability.size());
-  llvm::StringSet<> names;
-  for (auto list : {source.getInputNames(), source.getOutputNames()})
-    for (auto name : list) names.insert(cast<StringAttr>(name).getValue());
-  for (const auto &input : facts.inputAvailability) names.insert(input.name.getValue());
-  for (auto [port, type] : llvm::enumerate(source.getFunctionType().getInputs())) {
-    bool flattened = llvm::any_of(facts.inputAvailability, [&](const auto &input) {
-      return input.port == port && !input.path.empty();
-    });
-    if (flattened) {
-      for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
-        if (input.port != port) continue;
-        companionSlots[ordinal] = inputTypes.size();
-        inputSlots[port].push_back(inputTypes.size());
-        inputTypes.push_back(facts.wires[input.wire].type);
-        std::string name = "__pyc_field_in_" + std::to_string(port) + "_" + std::to_string(ordinal);
-        while (!names.insert(name).second) name += "_";
-        inputNames.push_back(builder.getStringAttr(name));
-      }
-    } else {
-      for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability))
-        if (input.port == port) companionSlots[ordinal] = inputTypes.size();
-      inputSlots[port].push_back(inputTypes.size());
-      inputTypes.push_back(type);
-      inputNames.push_back(source.getInputNames()[port]);
-    }
-  }
   unsigned sourceInputs = inputTypes.size();
   Type bit;
   if (!facts.inputAvailability.empty() || !facts.outputAvailability.empty() ||
@@ -111,7 +84,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     bit = ac::BitsType::get(builder.getContext(), width);
     SmallVector<Attribute> inputValidity(inputTypes.size(), builder.getI64IntegerAttr(-1));
     for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
-      inputValidity[companionSlots[ordinal]] = builder.getI64IntegerAttr(inputTypes.size());
+      inputValidity[inputLayout.companionPayloads[ordinal]] = builder.getI64IntegerAttr(inputTypes.size());
       inputTypes.push_back(bit);
       inputNames.push_back(input.name);
     }
@@ -145,42 +118,8 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     block->addArgument(inputTypes[index], source.getLoc());
   builder.setInsertionPointToEnd(block);
   ac::HardwareAnalysis inputAnalysis(package);
-  for (BlockArgument argument : source.getBody().front().getArguments()) {
-    unsigned port = argument.getArgNumber();
-    bool flattened = llvm::any_of(facts.inputAvailability, [&](const auto &input) {
-      return input.port == port && !input.path.empty();
-    });
-    if (!flattened) {
-      mapping.map(argument, block->getArgument(inputSlots[port].front()));
-      continue;
-    }
-    SmallVector<StringAttr> path;
-    std::function<FailureOr<Value>(Type)> rebuild = [&](Type type) -> FailureOr<Value> {
-      if (auto record = dyn_cast<ac::StructType>(type)) {
-        auto declaration = inputAnalysis.lookupStruct(record);
-        SmallVector<Value> values;
-        for (Attribute raw : declaration.getFields()) {
-          auto field = cast<DictionaryAttr>(raw);
-          path.push_back(field.getAs<StringAttr>("name"));
-          auto value = rebuild(field.getAs<TypeAttr>("type").getValue());
-          path.pop_back();
-          if (failed(value)) return failure();
-          values.push_back(*value);
-        }
-        OperationState create(source.getLoc(), ac::StructCreateOp::getOperationName());
-        create.addOperands(values);
-        create.addTypes(type);
-        return builder.create(create)->getResult(0);
-      }
-      for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability))
-        if (input.port == port && input.path == path)
-          return block->getArgument(companionSlots[ordinal]);
-      return failure();
-    };
-    auto value = rebuild(argument.getType());
-    if (failed(value)) return source.emitOpError("missing verified nominal input field");
-    mapping.map(argument, *value);
-  }
+  if (failed(inputLayout.mapInputs(*block, builder, inputAnalysis, mapping)))
+    return failure();
   llvm::DenseMap<unsigned, Value> inputCompanions;
   llvm::DenseMap<unsigned, Value> fieldInputCompanions;
   for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
@@ -246,10 +185,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
                                             found->second.ordinal, builder));
       if (const auto *child = childFor(call)) {
         auto target = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package, instance.getCalleeAttr()));
-        for (const auto &output : child->outputAvailability) {
-          auto position = target.getFunctionType().getNumResults() - child->outputAvailability.size();
-          state.addTypes(target.getFunctionType().getResult(position++));
-        }
+        state.addTypes(target.getFunctionType().getResults().take_back(child->outputAvailability.size()));
       }
     } else if (!isa<gfir::YieldOp>(operation)) {
       state.addAttributes(operation.getAttrs());

@@ -39,6 +39,16 @@ module attributes {gfir.contract = 1 : i64} {
       attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["value"], output_names = ["result"]} {
     gfir.yield %value : !b8
   }
+  gfir.module @Unpack(%packet: !Packet) -> (!b1, !b1, !b1, !b8, !b8)
+      attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["packet"], output_names = ["select", "permit", "run", "data", "fallback"]} {
+    %control = ac.struct.get %packet["control"] : (!Packet) -> !Control
+    %select = ac.struct.get %control["selector"] : (!Control) -> !b1
+    %permit = ac.struct.get %control["permit"] : (!Control) -> !b1
+    %run = ac.struct.get %control["run"] : (!Control) -> !b1
+    %data = ac.struct.get %packet["data"] : (!Packet) -> !b8
+    %fallback = ac.struct.get %packet["fallback"] : (!Packet) -> !b8
+    gfir.yield %select, %permit, %run, %data, %fallback : !b1, !b1, !b1, !b8, !b8
+  }
   gfir.module @Pick(%packet: !Packet) -> (!b8, !b1)
       attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["packet"], output_names = ["result", "ready"], domains = ["default"]} {
     %init = "ac.bits.constant4"() {pattern = "00000000"} : () -> !b8
@@ -73,9 +83,13 @@ module attributes {gfir.contract = 1 : i64} {
     %produced = gfir.result @produce[0] : !b8
     %control = ac.struct.create(%select, %offer, %run) : (!b1, !b1, !b1) -> !Control
     %packet = ac.struct.create(%control, %produced, %fallback) : (!Control, !b8, !b8) -> !Packet
+    gfir.instance @unpack of @Unpack
+    %choice, %permit, %running, %payload, %alternate = gfir.call @unpack(%packet) : (!Packet) -> (!b1, !b1, !b1, !b8, !b8)
+    %passed_control = ac.struct.create(%choice, %permit, %running) : (!b1, !b1, !b1) -> !Control
+    %passed_packet = ac.struct.create(%passed_control, %payload, %alternate) : (!Control, !b8, !b8) -> !Packet
     gfir.instance @pick of @Pick
     // ready depends only on the total permit field, before produce admits.
-    %chosen, %ready = gfir.call @pick(%packet) : (!Packet) -> (!b8, !b1)
+    %chosen, %ready = gfir.call @pick(%passed_packet) : (!Packet) -> (!b8, !b1)
     gfir.instance @relay of @Relay
     %result, %old = gfir.call @relay(%chosen, %run) : (!b8, !b1) -> (!b8, !b8)
     %producer_old = gfir.read @issued : !b8
