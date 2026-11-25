@@ -286,6 +286,42 @@ std::optional<unsigned> forwardedBits(
   return std::nullopt;
 }
 
+std::optional<unsigned> forwardedTable(
+    const gfir::StructuredDefinition &definition, unsigned index) {
+  const auto &wire = definition.wires[index];
+  if (!isa<ac::TableType>(wire.type))
+    return std::nullopt;
+  auto *op = wire.endpoint.value.getDefiningOp();
+  if (wire.dependencies.size() == 1 &&
+      isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp>(op)) {
+    unsigned input = wire.dependencies.front();
+    if (definition.wires[input].type == wire.type)
+      return input;
+  }
+  auto map = dyn_cast_or_null<ac::TableMapOp>(op);
+  if (!map)
+    return std::nullopt;
+  gfir::detail::TableMapRow row(map,
+      cast<OpResult>(wire.endpoint.value).getResultNumber());
+  auto forwarded = row.tableOperand(row.getValue());
+  if (auto select = row.getValue().getDefiningOp<ac::BitsSelectOp>()) {
+    auto yes = row.tableOperand(select.getTrueValue());
+    auto no = row.tableOperand(select.getFalseValue());
+    if (yes && no && map.getTables()[*yes] == map.getTables()[*no])
+      forwarded = yes;
+  }
+  if (!forwarded)
+    return std::nullopt;
+  Value input = map.getTables()[*forwarded];
+  if (input.getType() != wire.type)
+    return std::nullopt;
+  auto wires = definition.valueWires.find(input);
+  if (wires != definition.valueWires.end() && wires->second.size() == 1 &&
+      llvm::is_contained(wire.dependencies, wires->second.front()))
+    return wires->second.front();
+  return std::nullopt;
+}
+
 SelectSchedule planSelects(const gfir::StructuredDefinition &definition,
                            const llvm::BitVector &needed) {
   const unsigned count = definition.order.size();
@@ -1071,29 +1107,84 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
 FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
     const OutputGroup &group, ArrayRef<unsigned> roots) {
+  auto forwarded = [&](unsigned index) {
+    auto bits = forwardedBits(definition, index);
+    return bits ? bits : forwardedTable(definition, index);
+  };
   auto needed = wireClosure(definition, roots, [&](unsigned index, unsigned input) {
-    auto forwarded = forwardedBits(definition, index);
-    return forwarded && *forwarded != input;
+    auto source = forwarded(index);
+    return source && *source != input;
   });
+  for (unsigned root : roots)
+    if (!isa<ac::BitsType>(definition.wires[root].type) ||
+        definition.wires[root].width > 64)
+      return false;
+  auto leaf = [&](Value value) -> std::optional<unsigned> {
+    auto found = definition.valueWires.find(value);
+    if (found == definition.valueWires.end() || found->second.size() != 1)
+      return std::nullopt;
+    return found->second.front();
+  };
+  auto tablePort = [&](unsigned index) -> std::optional<unsigned> {
+    for (unsigned depth = 0; depth < definition.wires.size(); ++depth) {
+      if (isa<BlockArgument>(definition.wires[index].endpoint.value))
+        return index;
+      auto source = forwardedTable(definition, index);
+      if (!source)
+        return std::nullopt;
+      index = *source;
+    }
+    return std::nullopt;
+  };
+  struct TableRead {
+    unsigned table, key;
+    bool range;
+  };
+  llvm::DenseMap<unsigned, TableRead> tableReads;
   SmallVector<unsigned> origins(definition.wires.size()), uses(definition.wires.size());
   SmallVector<unsigned> inputs, operations;
+  bool readsRows = false;
   for (unsigned index : definition.order) {
     if (!needed.test(index))
       continue;
     const auto &wire = definition.wires[index];
+    origins[index] = index;
+    if (auto source = forwarded(index)) {
+      origins[index] = origins[*source];
+      continue;
+    }
+    if (isa<ac::TableType>(wire.type)) {
+      if (!isa<BlockArgument>(wire.endpoint.value) ||
+          !llvm::is_contained(group.inputs, index))
+        return false;
+      continue;
+    }
     if (!isa<ac::BitsType>(wire.type) || wire.width > 64)
       return false;
-    origins[index] = index;
-    if (auto source = forwardedBits(definition, index)) {
-      origins[index] = origins[*source];
-    } else if (isa<BlockArgument>(wire.endpoint.value)) {
+    if (isa<BlockArgument>(wire.endpoint.value)) {
       if (!llvm::is_contained(group.inputs, index))
         return false;
       inputs.push_back(index);
     } else {
       auto *op = wire.endpoint.value.getDefiningOp();
-      if (!op || !isNativeScalar(*op, /*allowShifts=*/true))
+      if (auto get = dyn_cast_or_null<ac::TableGetOp>(op)) {
+        auto table = cast<ac::TableType>(get.getInput().getType());
+        auto source = leaf(get.getInput()), key = leaf(get.getIndex());
+        auto size = analysis.getTableSize(table, {}, get);
+        auto keyWidth = analysis.getPackedWidth(get.getIndex().getType(), {}, get);
+        auto elementWidth = analysis.getPackedWidth(table.getElementType(), {}, get);
+        if (table.getShape().size() != 1 || !isa<ac::BitsType>(table.getElementType()) ||
+            !source || !key || !tablePort(*source) || failed(size) ||
+            failed(keyWidth) || *keyWidth == 0 || *keyWidth >= 64 ||
+            (uint64_t{1} << *keyWidth) > *size ||
+            failed(elementWidth) || *elementWidth == 0 || *elementWidth > 64)
+          return false;
+        bool range = cast<OpResult>(wire.endpoint.value).getResultNumber() == 1;
+        tableReads.try_emplace(index, TableRead{*source, *key, range});
+        readsRows |= !range;
+      } else if (!op || !isNativeScalar(*op, /*allowShifts=*/true)) {
         return false;
+      }
       operations.push_back(index);
       for (unsigned input : wire.dependencies)
         ++uses[origins[input]];
@@ -1108,6 +1199,8 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
   for (unsigned input : inputs)
     known.push_back(wireName(input) + ".isFullyKnown()");
   out << "    if (" << join(known, " &&\n        ") << ") {\n";
+  if (readsRows)
+    out << "      do {\n";
   SmallVector<std::string> expressions(definition.wires.size());
   for (unsigned input : inputs) {
     expressions[input] = "pyc_native_" + std::to_string(input);
@@ -1116,6 +1209,21 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
   }
   for (unsigned index : operations) {
     const auto &wire = definition.wires[index];
+    if (auto read = tableReads.find(index); read != tableReads.end()) {
+      if (read->second.range) {
+        expressions[index] = "1ULL";
+      } else {
+        auto row = "pyc_row_" + std::to_string(index);
+        out << "      const auto &" << row << " = "
+            << wireName(origins[read->second.table]) << ".element("
+            << expressions[origins[read->second.key]] << ");\n"
+            << "      if (!" << row << ".isFullyKnown()) break;\n";
+        expressions[index] = "pyc_native_" + std::to_string(index);
+        out << "      const auto " << expressions[index] << " = "
+            << row << ".value().value();\n";
+      }
+      continue;
+    }
     SmallVector<std::string> operands;
     for (unsigned input : wire.dependencies)
       operands.push_back(expressions[origins[input]]);
@@ -1140,7 +1248,10 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     results.push_back(carrier(width) + "::known(gfsim::Bits<" + std::to_string(width) +
                       ">{" + expressions[origins[root]] + "})");
   }
-  out << "      return {" << join(results, ", ") << "};\n    }\n";
+  out << "      return {" << join(results, ", ") << "};\n";
+  if (readsRows)
+    out << "      } while (false);\n";
+  out << "    }\n";
   return true;
 }
 

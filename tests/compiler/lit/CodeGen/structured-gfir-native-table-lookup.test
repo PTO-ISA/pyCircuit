@@ -1,0 +1,15 @@
+# One shared pure group borrows a rank-one Table and reads a full-domain index.
+# Eight scalar calculations follow the selected row. Exact character oracles
+# cover unselected/selected X/Z rows and existing unknown-index semantics.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-native-table-lookup.mlir --gfir-verify -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: %python -c 'import pathlib,re,sys; s="\n".join(p.read_text() for p in pathlib.Path(sys.argv[1]).rglob("*.cpp")); bodies=re.findall(r"output_group_\d+\([^;]*?\) const\s*\{(.*?)\n\}",s,re.S); assert any("const auto &" in b and ".element(" in b and "isFullyKnown()" in b and "evaluateFourState" in b for b in bodies)' %t.behavior
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-native-table-lookup.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe > %t.$kind.rows || exit; done
+# RUN: diff -u %t.behavior.rows %t.final.rows
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %inputs/structured-gfir-native-table-lookup.sv
+# RUN: %vvp %t.vvp +rows=%t.behavior.rows
