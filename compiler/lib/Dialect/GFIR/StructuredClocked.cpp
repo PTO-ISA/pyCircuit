@@ -857,7 +857,8 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
       auto occurrence = plan.orderedOccurrences.lookup(op);
       if (activeIteration) {
         auto [loop, ordinal] = *activeIteration;
-        SmallVector<Attribute> expansion(occurrence.getAs<ArrayAttr>("expansion"));
+        auto originalExpansion = occurrence.getAs<ArrayAttr>("expansion");
+        SmallVector<Attribute> expansion(originalExpansion.begin(), originalExpansion.end());
         expansion.push_back(builder.getDictionaryAttr({
             builder.getNamedAttr("kind", builder.getStringAttr("iteration")),
             builder.getNamedAttr("site", plan.orderedOccurrences.lookup(loop).get("site")),
