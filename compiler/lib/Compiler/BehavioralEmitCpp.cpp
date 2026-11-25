@@ -429,6 +429,22 @@ struct WholeOutput {
   bool snapshot;
 };
 
+struct RecordFieldLayout {
+  unsigned low;
+  unsigned width;
+  Type type;
+  std::string wire;
+  bool written = false;
+  unsigned indexWidth = 0;
+};
+
+using RecordStateLayout = SmallVector<RecordFieldLayout>;
+
+struct RecordCaptureLayout {
+  SmallVector<unsigned> fields;
+  std::string type;
+};
+
 std::string outputGroupName(unsigned index) {
   return "output_group_" + std::to_string(index);
 }
@@ -497,6 +513,18 @@ private:
                                       const OutputGroup &group, ArrayRef<unsigned> roots);
   LogicalResult emitOutputGroups();
   LogicalResult planWholeOutputs();
+  LogicalResult planRecordStates();
+  const RecordStateLayout *recordLayout(
+      const gfir::StructuredDefinition &definition, unsigned state) const;
+  std::optional<std::string> recordField(
+      const gfir::StructuredDefinition &definition, const gfir::StructuredWire &wire,
+      StringRef instancePrefix) const;
+  void declareRecordState(raw_ostream &out, const RecordStateLayout &layout,
+                          StringRef payload, unsigned state);
+  void emitRecordWrite(raw_ostream &out, const RecordStateLayout &layout,
+                       gfir::WriteOp write, const gfir::StructuredWritePath &path,
+                       StringRef frame, const llvm::DenseMap<Value, std::string> &values);
+  FailureOr<std::string> ruleInputType(BlockArgument argument, gfir::RuleOp rule);
   void planEvaluationMemoization();
   LogicalResult declareModule(raw_ostream &out, unsigned index);
   LogicalResult emitModule(raw_ostream &out, unsigned index, raw_ostream *header);
@@ -579,7 +607,11 @@ private:
   SmallVector<llvm::DenseMap<unsigned, WholeOutput>> wholeOutputs;
   llvm::BitVector memoizedRules;
   SmallVector<uint64_t> groupWorkRemaining;
+  llvm::DenseMap<Operation *, RecordStateLayout> recordLayouts;
+  llvm::DenseMap<Value, RecordCaptureLayout> recordCaptures;
 };
+
+#include "BehavioralRecordState.inc"
 
 FailureOr<std::string>
 BehavioralEmitter::expression(const gfir::StructuredWire &wire,
@@ -635,8 +667,11 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
     }
     return graphLeaf(wire, read);
   }
-  if (wire.state)
+  if (wire.state) {
+    if (auto field = recordField(definition, wire, instancePrefix))
+      return *field;
     return graphLeaf(wire, instancePrefix.str() + stateName(*wire.state) + ".value()");
+  }
   if (wire.ruleResult) {
     auto [rule, result] = *wire.ruleResult;
     return graphLeaf(wire, frameName(rule) + "." + resultName(result));
@@ -646,6 +681,8 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
     auto key = graphWire(get.getIndex(), definition, get, wire.dependencies);
     if (failed(key))
       return failure();
+    if (auto field = recordField(definition, *packedTable, instancePrefix))
+      return graphLeaf(wire, "std::get<0>(pyc_behavior::lookup(" + *field + ", " + *key + "))");
     auto type = graphType(*packedTable, tableWireTypes);
     auto state = instancePrefix.str() + stateName(*packedTable->state) + ".value()";
     auto value = "std::get<0>(pyc_behavior::lookupPacked<" + type + ">(" +
@@ -1008,6 +1045,7 @@ LogicalResult BehavioralEmitter::emitWires(
     if (failed(value))
       return failure();
     const bool borrow =
+        recordField(definition, wire, instancePrefix).has_value() ||
         (groupSelects && forwardedBits(definition, index).has_value()) ||
         (isa<ac::TableType>(wire.type) &&
          isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp, ac::TableMapOp>(
@@ -1513,8 +1551,8 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
       if (rule.afterSnapshot) {
         auto operation = rule.operation;
         SmallVector<std::string> types;
-        for (Value value : operation.getCaptures()) {
-          auto type = typedWire(value.getType(), operation);
+        for (BlockArgument value : operation.getBody().front().getArguments()) {
+          auto type = ruleInputType(value, operation);
           if (failed(type))
             return failure();
           types.push_back(std::move(*type));
@@ -2347,6 +2385,10 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       if (clocked.conditionalWrites.contains(index))
         out << "    txn." << intentName(index) << " = " << levelName << "(true);\n";
       if (auto path = clocked.writePaths.find(write); path != clocked.writePaths.end()) {
+        if (const auto *layout = recordLayout(definition, index)) {
+          emitRecordWrite(out, *layout, write, path->second, frame, values);
+          continue;
+        }
         out << "    {\n      if (!" << frame << ") " << frame << ".emplace(" << state
             << ".value());\n";
         if (write.getIndex()) {
@@ -2495,18 +2537,24 @@ LogicalResult BehavioralEmitter::emitBranch(
     out << "const auto " << elseValue << " = ";
   out << elseName << '(' << elseFrame << ");\n";
   for (unsigned state : clocked.branchWrites.find(branch)->second) {
-    auto variable = clocked.variables[state];
-    auto type = typedWire(variable.getInitial().getType(), variable);
-    if (failed(type))
-      return failure();
-    auto candidate = [&](StringRef frame) {
-      auto slot = frame.str() + '.' + stateName(state);
-      return pack(slot + " ? *" + slot + " : " + stateName(state) + ".value()");
-    };
-    auto selected = "gfsim::select(" + pack(predicate) + ", " +
-                    candidate(thenFrame) + ", " + candidate(elseFrame) + ")";
-    out << "      txn." << stateName(state) << " = " << unpack(*type, selected) << ";\n"
-        << "      txn." << intentName(state)
+    if (recordLayout(definition, state)) {
+      const auto owner = stateName(state);
+      out << "      " << owner << ".fields.merge(txn." << owner << ", " << predicate
+          << ", " << thenFrame << '.' << owner << ", " << elseFrame << '.' << owner << ");\n";
+    } else {
+      auto variable = clocked.variables[state];
+      auto type = typedWire(variable.getInitial().getType(), variable);
+      if (failed(type))
+        return failure();
+      auto candidate = [&](StringRef frame) {
+        auto slot = frame.str() + '.' + stateName(state);
+        return pack(slot + " ? *" + slot + " : " + stateName(state) + ".value()");
+      };
+      auto selected = "gfsim::select(" + pack(predicate) + ", " +
+                      candidate(thenFrame) + ", " + candidate(elseFrame) + ")";
+      out << "      txn." << stateName(state) << " = " << unpack(*type, selected) << ";\n";
+    }
+    out << "      txn." << intentName(state)
         << " = pyc_behavior::Level::fromPacked(gfsim::select(" << predicate
         << ".packed(), " << thenFrame << '.' << intentName(state) << ".packed(), "
         << elseFrame << '.' << intentName(state) << ".packed()));\n";
@@ -2561,7 +2609,10 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     auto type = common.cppType(variable.getInitial().getType(), variable);
     if (failed(type) || failed(emitInitial(out, variable, index)))
       return failure();
-    out << "  pyc_behavior::State<" << *type << "> " << stateName(index) << ";\n";
+    if (const auto *layout = recordLayout(definition, index))
+      declareRecordState(out, *layout, *type, index);
+    else
+      out << "  pyc_behavior::State<" << *type << "> " << stateName(index) << ";\n";
   }
   if (!clocked.variables.empty()) {
     out << "  void pyc_reset_state() noexcept {\n";
@@ -2613,11 +2664,15 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       }
     }
     for (unsigned state : rule.states) {
-      auto variable = clocked.variables[state];
-      auto wire = typedWire(variable.getInitial().getType(), variable);
-      if (failed(wire))
-        return failure();
-      out << "    std::optional<" << *wire << "> " << stateName(state) << ";\n";
+      if (recordLayout(definition, state)) {
+        out << "    " << recordLayoutName(state) << "::Candidate " << stateName(state) << ";\n";
+      } else {
+        auto variable = clocked.variables[state];
+        auto wire = typedWire(variable.getInitial().getType(), variable);
+        if (failed(wire))
+          return failure();
+        out << "    std::optional<" << *wire << "> " << stateName(state) << ";\n";
+      }
       if (clocked.conditionalWrites.contains(state))
         out << "    pyc_behavior::Level " << intentName(state)
             << " = " << levelName << "(false);\n";
@@ -2661,8 +2716,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     out << "  };\n  void " << ruleName(index) << "(" << name << " &txn";
     if (rule.afterSnapshot)
       out << ", bool pyc_active";
-    for (auto [input, type] : llvm::enumerate(operation.getFunctionType().getInputs())) {
-      auto wire = typedWire(type, operation);
+    for (auto [input, value] : llvm::enumerate(operation.getBody().front().getArguments())) {
+      auto wire = ruleInputType(value, operation);
       if (failed(wire))
         return failure();
       out << ", const " << *wire << " &" << wireName(input);
@@ -2845,7 +2900,15 @@ FailureOr<SmallVector<std::string>> BehavioralEmitter::captureExpressions(
     const gfir::StructuredDefinition &definition, const gfir::StructuredRule &rule) {
   auto operation = rule.operation;
   SmallVector<std::string> values;
-  for (Value capture : operation.getCaptures()) {
+  for (auto [argument, capture] :
+       llvm::zip_equal(operation.getBody().front().getArguments(), operation.getCaptures())) {
+    if (auto fields = recordCaptures.find(argument); fields != recordCaptures.end()) {
+      SmallVector<std::string> parts;
+      for (unsigned field : fields->second.fields)
+        parts.push_back(wireName(field));
+      values.push_back("std::tuple{" + join(parts, ", ") + "}");
+      continue;
+    }
     auto value = graphWire(capture, definition, operation);
     if (failed(value))
       return failure();
@@ -3577,7 +3640,7 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
       tableWireTypes.try_emplace(wire.type, std::move(*type));
     }
   }
-  if (failed(planWholeOutputs()))
+  if (failed(planWholeOutputs()) || failed(planRecordStates()))
     return failure();
   planEvaluationMemoization();
   outputGroups.resize(program.definitions.size());
@@ -3614,6 +3677,8 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
     parts.supportHeader += "#include <gfsim/sampled_clock.h>\n";
   if (usesModelSupport)
     parts.supportHeader += behavioralCppSupport.str();
+  if (!recordLayouts.empty())
+    parts.supportHeader += behavioralRecordSupport.str();
   if (system)
     parts.supportHeader += cppSystemClockSupport().str();
   llvm::raw_string_ostream support(parts.supportHeader);

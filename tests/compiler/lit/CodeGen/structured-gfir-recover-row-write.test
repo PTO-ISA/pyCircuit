@@ -1,5 +1,8 @@
 # REQUIRES: rtl-four-state-parameter-types
 # An indexed update on old Q keeps sibling writes and the original write intent.
+# The 152-bit record also exposes a full packed mirror. Its immutable wide
+# sibling, nested X/Z branches and row planes survive commit, discard and reset.
+# Recovery captures the nested 5+3-bit Tag as one composite field assignment.
 # RUN: %pycircuit_opt %inputs/structured-gfir-recover-row-write.mlir --gfir-verify -o %t.input
 # RUN: %pycircuit_opt %t.input --gfir-recover-row-write -o %t.recovered
 # RUN: %FileCheck %s --check-prefix=RECOVERED --input-file=%t.recovered

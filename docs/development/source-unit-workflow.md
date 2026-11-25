@@ -108,6 +108,13 @@ For an eligible unsampled Rule with direct local Method calls, the native path
 checks inputs and state once. The Methods share one private candidate frame,
 which supplies proposals to the existing commit path.
 
+An eligible wide Struct with one local writer uses fields and Table rows for
+committed state. Ordered writes stage the affected fields and row edits. A
+Struct capture used only to replace a matching field can carry its individual
+leaves through the Rule. Commit updates the affected positions of the packed
+value used by the public ports. The packed value and field reads observe the
+same committed state, including all four-state planes.
+
 Use the generated DUT interface and port metadata to apply the same samples to
 each result. The GFIR package declares logical bindings and ordered effects.
 Sampling, preparation, checks, and whole-system commit use the existing runtime

@@ -424,3 +424,126 @@ void replacePackedRows(wire<State> &state, unsigned low,
 
 } // namespace pyc_behavior
 )cpp";
+
+constexpr llvm::StringLiteral behavioralRecordSupport = R"cpp(namespace pyc_behavior {
+
+template <class Wire, class Layout> class RecordState {
+public:
+  using Candidate = typename Layout::Candidate;
+
+  Layout fields;
+  const Wire &value() const noexcept { return mirror_; }
+
+  void prepare(const Level &enabled, const Candidate &candidate) {
+    if (!enabled.isFullyKnown())
+      throw gfsim::FourStateViolation("dffe enable must be known at posedge");
+    if (isOne(enabled)) {
+      reset_.reset();
+      pending_ = candidate;
+    } else {
+      hold();
+    }
+  }
+
+  void hold() noexcept {
+    pending_.reset();
+    reset_.reset();
+  }
+
+  void reset(const Wire &initial) noexcept {
+    pending_.reset();
+    reset_ = initial;
+  }
+
+  void commit() noexcept {
+    if (reset_) {
+      mirror_ = *reset_;
+      fields.load(mirror_);
+    } else if (pending_) {
+      fields.apply(mirror_, *pending_);
+    }
+  }
+
+private:
+  Wire mirror_;
+  std::optional<Wire> reset_;
+  std::optional<Candidate> pending_;
+};
+
+template <unsigned Low, class State, class Field>
+void applyRecordField(State &mirror, Field &current,
+                      const std::optional<Field> &edit) noexcept {
+  if (edit) {
+    current = *edit;
+    mirror.assignSlice(Low, pack(current));
+  }
+}
+
+template <class Field>
+std::optional<Field> mergeRecordField(const Level &condition, const Field &current,
+                                      const std::optional<Field> &yes,
+                                      const std::optional<Field> &no) noexcept {
+  if (!yes && !no)
+    return std::nullopt;
+  return Field::fromPacked(gfsim::select(condition.packed(),
+      pack(yes ? *yes : current), pack(no ? *no : current)));
+}
+
+enum class RowMerge { None, NewValue, OldValue };
+
+template <class Index, class Row> struct RecordRowEdit {
+  Index index;
+  Row value;
+  RowMerge merge = RowMerge::None;
+};
+
+template <class Edit>
+std::optional<Edit> mergeRecordRowEdit(std::optional<Edit> yes,
+                                        std::optional<Edit> no) noexcept {
+  // A single lexical row write with no loop or call can reach both arms
+  // only if it precedes the branch. Both candidates then contain that same
+  // edit. One-sided edits meet the committed row, but keep the true arm's
+  // value plane even where the output becomes unknown.
+  if (yes) {
+    if (!no && yes->merge == RowMerge::None)
+      yes->merge = RowMerge::NewValue;
+    return yes;
+  }
+  if (no)
+    no->merge = RowMerge::OldValue;
+  return no;
+}
+
+template <unsigned Low, class State, class Table, class Edit>
+void applyRecordRow(State &mirror, Table &current,
+                    const std::optional<Edit> &candidate) noexcept {
+  if (!candidate)
+    return;
+  const auto &edit = *candidate;
+  using Row = wire<typename Table::element_type>;
+  auto apply = [&](std::size_t index, const Row &value) {
+    auto &old = current.element(index);
+    if (edit.merge == RowMerge::OldValue)
+      old = Row::fromPacked(gfsim::select(FourState<1>::unknown(), old.packed(), value.packed()));
+    else if (edit.merge == RowMerge::NewValue)
+      old = Row::fromPacked(gfsim::select(FourState<1>::unknown(), value.packed(), old.packed()));
+    else
+      old = value;
+    mirror.assignSlice(Low + (Table::size - 1 - index) * Row::width, old.packed());
+  };
+  if (edit.index.isFullyKnown()) {
+    const auto index = edit.index.value().value();
+    if (index < Table::size)
+      apply(index, edit.value);
+    return;
+  }
+  evaluateFourState([&] {
+    auto updated = current;
+    replace(updated, edit.index, edit.value);
+    for (std::size_t index = 0; index < Table::size; ++index)
+      apply(index, updated.element(index));
+  });
+}
+
+} // namespace pyc_behavior
+)cpp";
