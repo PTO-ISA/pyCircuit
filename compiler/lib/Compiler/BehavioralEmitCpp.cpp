@@ -139,6 +139,24 @@ constexpr StringLiteral noCheck = "std::numeric_limits<unsigned>::max()";
 constexpr unsigned minScalarOperations = 8;
 constexpr unsigned maxScalarOperations = 64;
 
+enum class ResourceDemandKind { Boundary, Queue, MemoryLive, Branch };
+struct OrderedFifoBranchEmission {
+  struct Control {
+    unsigned ordinal;
+    ResourceDemandKind kind;
+    std::optional<std::pair<unsigned, bool>> path;
+  };
+  SmallVector<Control> controls;
+  std::optional<std::pair<unsigned, bool>> path;
+};
+
+bool hasOrderedFifoBranches(const gfir::StructuredRule &rule) {
+  auto operation = rule.operation;
+  return rule.sampled && !rule.requirements.empty() &&
+      llvm::any_of(operation.getBody().front(),
+                   [](Operation &op) { return isa<gfir::IfOp>(op); });
+}
+
 std::string cppString(StringRef value) {
   std::string text;
   llvm::raw_string_ostream out(text);
@@ -749,7 +767,8 @@ private:
                          const gfir::StructuredRule *rule = nullptr,
                          const llvm::DenseMap<Value, std::string> *outer = nullptr,
                          ArrayRef<std::string> stepTargets = {},
-                         StringRef stepNatural = {}, StringRef stepOrdinal = {});
+                         StringRef stepNatural = {}, StringRef stepOrdinal = {},
+                         OrderedFifoBranchEmission *ordered = nullptr);
   LogicalResult emitLoop(raw_ostream &out, gfir::LoopOp loop,
                          const gfir::StructuredDefinition &definition,
                          const llvm::DenseMap<Value, std::string> &values,
@@ -757,7 +776,8 @@ private:
   LogicalResult emitBranch(raw_ostream &out, gfir::IfOp branch,
                            const gfir::StructuredDefinition &definition,
                            const llvm::DenseMap<Value, std::string> &values,
-                           ArrayRef<std::string> results);
+                           ArrayRef<std::string> results,
+                           OrderedFifoBranchEmission *ordered = nullptr);
   LogicalResult emitBlockedReturn(raw_ostream &out, Block &body, bool ruleResults);
   LogicalResult declareClocked(raw_ostream &out, const gfir::StructuredDefinition &definition);
   FailureOr<std::string> recipient(const gfir::StructuredDefinition &definition,
@@ -2691,12 +2711,36 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredRule *rule,
                                           const llvm::DenseMap<Value, std::string> *outer,
                                           ArrayRef<std::string> stepTargets,
-                                          StringRef stepNatural, StringRef stepOrdinal) {
+                                          StringRef stepNatural, StringRef stepOrdinal,
+                                          OrderedFifoBranchEmission *ordered) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
   unsigned childCallOrdinal = 0;
   bool orderedFifo = rule && rule->sampled && !rule->requirements.empty();
-  enum class DemandKind { Boundary, Queue, MemoryLive };
+  using DemandKind = ResourceDemandKind;
+  OrderedFifoBranchEmission branchControls;
+  bool ownsBranchControls = rule && hasOrderedFifoBranches(*rule);
+  if (ownsBranchControls) {
+    ordered = &branchControls;
+    out << "    txn.pyc_raw_controls.fill(" << levelName << "(true));\n"
+           "    txn.pyc_control_reached.fill(false);\n"
+           "    txn.pyc_pop_reached.fill(false);\n"
+           "    txn.pyc_raw_pops.fill(" << levelName << "(false));\n";
+    auto operation = rule->operation;
+    auto initialized = operation.walk([&](gfir::CallOp call) {
+      auto use = clocked.fifoCalls.find(call);
+      if (use == clocked.fifoCalls.end() ||
+          (use->second.access != gfir::StructuredFifoAccess::Out &&
+           use->second.access != gfir::StructuredFifoAccess::View))
+        return WalkResult::advance();
+      auto name = instanceName(clocked.fifos[use->second.fifo].instance);
+      if (failed(name)) return WalkResult::interrupt();
+      out << "    txn.pyc_raw_controls[" << clocked.checkOffsets.lookup(call)
+          << "] = " << *name << ".valid();\n";
+      return WalkResult::advance();
+    });
+    if (initialized.wasInterrupted()) return failure();
+  }
   struct ReachedControl {
     unsigned ordinal;
     DemandKind demand;
@@ -2713,6 +2757,19 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
   };
   auto requireKnownOne = [&](StringRef predicate, Operation *site,
                             DemandKind demand = DemandKind::Boundary) -> LogicalResult {
+    if (ordered) {
+      unsigned ordinal = clocked.checkOffsets.lookup(site);
+      auto raw = "txn.pyc_raw_controls[" + std::to_string(ordinal) + "]";
+      out << "    " << raw << " = " << predicate << ";\n"
+          << "    txn.pyc_control_reached[" << ordinal << "] = txn.pyc_running;\n"
+          << "    txn.pyc_running = txn.pyc_running && ";
+      if (demand == DemandKind::Branch)
+        out << raw << ".isFullyKnown();\n";
+      else
+        out << "pyc_behavior::isOne(" << raw << ");\n";
+      ordered->controls.push_back({ordinal, demand, ordered->path});
+      return success();
+    }
     if (orderedFifo) {
       unsigned ordinal = clocked.checkOffsets.lookup(site);
       auto raw = "pyc_control_" + std::to_string(ordinal);
@@ -2890,6 +2947,10 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
       if (clocked.checkedBranches.contains(branch)) {
         auto predicate = values.lookup(branch.getPredicate());
+        if (ordered) {
+          if (failed(requireKnownOne(predicate, branch, DemandKind::Branch)))
+            return failure();
+        } else {
         out << "    if (!" << predicate << ".isFullyKnown()) {\n"
             << "      if (txn.pyc_check_active) txn.pyc_failed_check = pyc_check_base + "
             << clocked.checkOffsets.lookup(branch) << ";\n"
@@ -2897,10 +2958,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         if (failed(emitBlockedReturn(out, body, ruleResults)))
           return failure();
         out << "    }\n";
+        }
       }
-      if (failed(emitBranch(out, branch, definition, values, results)))
+      if (failed(emitBranch(out, branch, definition, values, results, ordered)))
         return failure();
-      if (clocked.checkedBranches.contains(branch)) {
+      if (clocked.checkedBranches.contains(branch) && !ordered) {
         out << "    if (!txn.pyc_running) { ";
         if (failed(emitBlockedReturn(out, body, ruleResults)))
           return failure();
@@ -3016,7 +3078,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           auto name = instanceName(fifo.instance);
           if (failed(name))
             return failure();
-          if (rule && rule->sampled) {
+          if ((rule && rule->sampled) || ordered) {
             // Before initialization all local FIFOs share unknown committed
             // controls. Once initialized, unknown readiness can only come
             // from an effective raw pop, which the FIFO reports during Work.
@@ -3024,10 +3086,15 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
             out << "    const auto " << available << " = " << *name;
             if (isInput) {
               out << ".ready(";
-              if (fifo.downstreamPop)
-                out << "txn." << recipientName(fifoIndex);
-              else
+              if (fifo.downstreamPop) {
+                if (ordered)
+                  out << "pyc_behavior::Level::fromPacked(gfsim::bit_or(txn.pyc_raw_pops["
+                      << fifoIndex << "].packed(), txn." << recipientName(fifoIndex) << ".packed()))";
+                else
+                  out << "txn." << recipientName(fifoIndex);
+              } else {
                 out << levelName << "(false)";
+              }
               out << ')';
             } else {
               out << ".valid()";
@@ -3039,8 +3106,14 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           // Reads use old Q. Payload writes are staged in the caller's frame.
           if (isInput)
             text = "txn." + payloadName(fifoIndex) + " = " + args.front();
-          else
+          else {
+            if (ordered && use->second.access == gfir::StructuredFifoAccess::Out)
+              out << "    txn.pyc_pop_reached[" << fifoIndex << "] = txn.pyc_running;\n";
+            if (ordered && use->second.access == gfir::StructuredFifoAccess::Out &&
+                !ordered->path)
+              out << "    txn.pyc_raw_pops[" << fifoIndex << "] = " << levelName << "(true);\n";
             text = *name + ".data()";
+          }
         } else {
           auto target = clocked.methods[clocked.methodCalls.lookup(call)];
           auto callee = methodName(target);
@@ -3138,7 +3211,52 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       out << "    }\n";
     }
   }
-  if (orderedFifo) {
+  if (ownsBranchControls) {
+    SmallVector<SmallVector<unsigned>> blocks(1 + 2 * rule->checks.size());
+    for (auto [index, control] : llvm::enumerate(ordered->controls)) {
+      unsigned block = control.path
+          ? 1 + 2 * control.path->first + (control.path->second ? 0 : 1) : 0;
+      blocks[block].push_back(index);
+    }
+    auto raw = [](unsigned ordinal) {
+      return "txn.pyc_raw_controls[" + std::to_string(ordinal) + "]";
+    };
+    unsigned nextDemand = 0;
+    std::function<std::string(unsigned, std::string)> fold =
+        [&](unsigned block, std::string continuation) -> std::string {
+      for (unsigned index : llvm::reverse(blocks[block])) {
+        const auto &control = ordered->controls[index];
+        if (control.kind == DemandKind::MemoryLive) continue;
+        auto name = "pyc_demand_" + std::to_string(nextDemand++);
+        std::string expression;
+        if (control.kind == DemandKind::Branch) {
+          auto yes = fold(1 + 2 * control.ordinal, continuation);
+          auto no = fold(2 + 2 * control.ordinal, continuation);
+          expression = "pyc_behavior::Level::fromPacked(gfsim::select(" +
+              raw(control.ordinal) + ".packed(), " + yes + ".packed(), " + no + ".packed()))";
+        } else if (control.kind == DemandKind::Queue) {
+          expression = "pyc_behavior::Level::fromPacked(gfsim::bit_and(" +
+              raw(control.ordinal) + ".packed(), " + continuation + ".packed()))";
+        } else {
+          expression = "(pyc_behavior::isOne(" + raw(control.ordinal) + ") ? " +
+              continuation + " : " + levelName.str() + "(true))";
+        }
+        out << "    const auto " << name << " = " << expression << ";\n";
+        continuation = name;
+      }
+      return continuation;
+    };
+    auto demand = fold(0, levelName.str() + "(true)");
+    out << "    const auto pyc_resource_demand = " << demand << ";\n"
+           "    if (txn.pyc_check_active && (!pyc_resource_demand.isFullyKnown() || "
+           "pyc_resource_demand.value().toBool())) {\n";
+    for (auto [index, control] : llvm::enumerate(ordered->controls))
+      out << "      " << (index ? "else " : "") << "if (txn.pyc_control_reached["
+          << control.ordinal << "] && !" << raw(control.ordinal)
+          << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
+          << control.ordinal << ";\n";
+    out << "    }\n";
+  } else if (orderedFifo) {
     // Match the independently verified HWIR diagnostic demand. Continue only
     // private value/candidate work after a failed control, retaining each actual
     // source-point reach. A later unavailable Queue can suppress an earlier
@@ -3206,7 +3324,7 @@ LogicalResult BehavioralEmitter::emitLoop(
 LogicalResult BehavioralEmitter::emitBranch(
     raw_ostream &out, gfir::IfOp branch, const gfir::StructuredDefinition &definition,
     const llvm::DenseMap<Value, std::string> &values,
-    ArrayRef<std::string> results) {
+    ArrayRef<std::string> results, OrderedFifoBranchEmission *ordered) {
   const auto &clocked = *definition.clocked;
   const auto suffix = std::to_string(nextBranch++);
   const auto thenName = "pyc_then_" + suffix;
@@ -3216,13 +3334,29 @@ LogicalResult BehavioralEmitter::emitBranch(
   const auto thenValue = "pyc_then_value_" + suffix;
   const auto elseValue = "pyc_else_value_" + suffix;
   const auto predicate = values.lookup(branch.getPredicate());
+  auto savedPath = ordered ? ordered->path : std::nullopt;
   for (auto [arm, name] : {std::pair{&branch.getThenBody(), thenName},
                           std::pair{&branch.getElseBody(), elseName}}) {
+    if (ordered) {
+      bool positive = arm == &branch.getThenBody();
+      ordered->path = std::pair{unsigned(clocked.checkOffsets.lookup(branch)), positive};
+      for (auto call : arm->front().getOps<gfir::CallOp>()) {
+        auto use = clocked.fifoCalls.find(call);
+        if (use == clocked.fifoCalls.end() ||
+            use->second.access != gfir::StructuredFifoAccess::Out)
+          continue;
+        auto packed = predicate + ".packed()";
+        if (!positive) packed = "gfsim::bit_not(" + packed + ")";
+        out << "    txn.pyc_raw_pops[" << use->second.fifo
+            << "] = pyc_behavior::Level::fromPacked(" << packed << ");\n";
+      }
+    }
     out << "    const auto " << name << " = [&](auto &txn) {\n";
-    if (failed(emitBody(out, arm->front(), definition, nullptr, &values)))
+    if (failed(emitBody(out, arm->front(), definition, nullptr, &values, {}, {}, {}, ordered)))
       return failure();
     out << "    };\n";
   }
+  if (ordered) ordered->path = savedPath;
   for (auto [index, result] : llvm::enumerate(branch.getResults())) {
     auto type = typedWire(result.getType(), branch);
     if (failed(type))
@@ -3385,6 +3519,13 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
           << "    bool pyc_check_active = false;\n";
+    if (hasOrderedFifoBranches(rule))
+      out << "    std::array<pyc_behavior::Level, " << rule.checks.size()
+          << "> pyc_raw_controls;\n"
+          << "    std::array<bool, " << rule.checks.size() << "> pyc_control_reached{};\n"
+          << "    std::array<pyc_behavior::Level, " << clocked.fifos.size()
+          << "> pyc_raw_pops;\n"
+          << "    std::array<bool, " << clocked.fifos.size() << "> pyc_pop_reached{};\n";
     for (auto assertion : rule.assertions) {
       unsigned ordinal = clocked.checkOffsets.lookup(assertion);
       out << "    bool pyc_assert_reached_" << ordinal << " = false;\n"
@@ -3487,8 +3628,15 @@ BehavioralEmitter::recipient(const gfir::StructuredDefinition &definition,
       return call.emitOpError("FIFO recipient has no single-bit graph value");
     return "pyc_behavior::Level::fromPacked(" + wireName(wires->second.front()) + ")";
   }
-  if (fifo.consumer && fifo.consumer != rule)
+  if (fifo.consumer && fifo.consumer != rule) {
+    if (hasOrderedFifoBranches(definition.clocked->rules[*fifo.consumer])) {
+      unsigned index = &fifo - definition.clocked->fifos.data();
+      auto frame = frameName(*fifo.consumer);
+      return levelName.str() + "(" + frame + ".pyc_running && " + frame +
+             ".pyc_pop_reached[" + std::to_string(index) + "])";
+    }
     return wireName(definition.wires.size() + *fifo.consumer);
+  }
   return levelName.str() + (ownPop ? "(true)" : "(false)");
 }
 
@@ -3584,7 +3732,8 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
       const auto &fifo = definition.clocked->fifos[requirement.fifo];
       if (!requirement.requiresReady || !fifo.downstreamPop)
         continue;
-      auto ready = recipient(definition, fifo, index);
+      auto ready = recipient(definition, fifo, index,
+                             requirement.ownPop && !hasOrderedFifoBranches(rule));
       if (failed(ready))
         return failure();
       out << "    " << frameName(index) << '.' << recipientName(requirement.fifo)

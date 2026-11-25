@@ -36,9 +36,7 @@ for clock, reset, stops in stimuli:
         if stop == "1":
             natural = False
             break
-    expected = (
-        (candidate << 18) | (left << 10) | (right << 2) | (int(natural) << 1) | 1
-    )
+    expected = (candidate << 18) | (left << 10) | (right << 2) | (int(natural) << 1) | 1
     fault = clock and not history and not reset and not valid
     print(
         clock,
