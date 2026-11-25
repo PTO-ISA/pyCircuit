@@ -513,8 +513,6 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         } else {
           if (failed(bindFifo(call, rule, popped)))
             return failure();
-          if (isArm && plan.fifoCalls.lookup(call).access == Access::In)
-            return call.emitOpError("selected FIFO ingress requires proposal merging");
         }
       } else if (failed(bindMethod(call, uses))) {
         return failure();
@@ -782,9 +780,9 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
                 isa<ac::TableGetOp, ac::TableSplatOp>(nested))
               continue;
             auto access = plan.fifoCalls.find(&nested);
-            if (access != plan.fifoCalls.end() && access->second.access != Access::In)
+            if (access != plan.fifoCalls.end())
               continue;
-            return nested.emitOpError("selected FIFO arms support values and out/view only");
+            return nested.emitOpError("selected FIFO arms support values and FIFO accesses only");
           }
       } else if (isa<LoopOp>(op) ||
           (isa<CallOp>(op) && !plan.fifoCalls.contains(&op) &&
