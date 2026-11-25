@@ -42,7 +42,7 @@ def GFIR_InstanceOp : GFIR_Op<"instance", [Symbol]> {
 def GFIR_CallOp : GFIR_Op<"call", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Invoke a logical interface on an existing receiver";
-  let arguments = (ins OptionalAttr<FlatSymbolRefAttr>:$receiver,
+  let arguments = (ins OptionalAttr<SymbolRefAttr>:$receiver,
       OptionalAttr<StrAttr>:$interface, Variadic<AnyType>:$inputs);
   let results = (outs Variadic<AnyType>:$outputs);
   let hasCustomAssemblyFormat = 1;

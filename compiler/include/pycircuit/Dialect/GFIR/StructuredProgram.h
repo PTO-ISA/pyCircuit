@@ -83,16 +83,33 @@ struct StructuredWritePath {
   unsigned width;
 };
 
-struct StructuredChildState {
-  InstanceOp receiver;
+/// One actual state declaration, relative to the Module that owns the plan.
+/// An empty path refers to that Module's own state.
+struct StructuredStateRoute {
+  llvm::SmallVector<InstanceOp, 2> path;
   unsigned definition;
   unsigned state;
+
+  bool operator==(const StructuredStateRoute &) const = default;
+};
+
+struct StructuredChildState {
+  StructuredStateRoute route;
   std::optional<unsigned> writer;
 };
 
+struct StructuredIncomingState {
+  StructuredStateRoute route;
+  /// Pure remote readers need Q but do not acquire a proposal input.
+  bool writable;
+};
+
 struct StructuredChildMethod {
-  unsigned receiver;
+  llvm::SmallVector<InstanceOp, 2> path;
+  unsigned definition;
   unsigned method;
+  /// Callee state ordinal and transaction slot in the calling definition.
+  llvm::SmallVector<std::pair<unsigned, unsigned>> states;
 };
 
 struct StructuredObservation {
@@ -105,7 +122,8 @@ struct StructuredObservation {
 struct StructuredMethodEffects {
   uint64_t expandedWork;
   unsigned depth;
-  bool writes;
+  llvm::SmallVector<unsigned> states;
+  llvm::SmallVector<unsigned> writes;
 };
 
 struct StructuredAvailabilitySource {
@@ -209,7 +227,6 @@ struct StructuredClockedCall {
   unsigned definition;
   llvm::SmallVector<unsigned> dependencies;
   std::optional<std::pair<unsigned, unsigned>> domainInputs;
-  std::optional<unsigned> childState;
 };
 
 struct StructuredDefinition {
@@ -224,7 +241,7 @@ struct StructuredDefinition {
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;
   std::optional<StructuredClocked> clocked;
   llvm::SmallVector<StructuredChildState> childStates;
-  std::optional<unsigned> incomingState;
+  llvm::SmallVector<StructuredIncomingState> incomingStates;
   llvm::SmallVector<StructuredClockedCall> clockedCalls;
   llvm::SmallVector<unsigned> preparationInputs;
   uint64_t sourceCheckCount = 0;

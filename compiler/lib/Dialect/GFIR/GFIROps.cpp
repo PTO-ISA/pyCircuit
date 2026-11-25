@@ -187,6 +187,9 @@ LogicalResult CallOp::verify() {
     return emitOpError("requires a module graph or ordered body");
   if (!getReceiverAttr() && !getInterfaceAttr())
     return emitOpError("self call requires a named interface");
+  if (auto receiver = getReceiverAttr(); receiver && !receiver.getNestedReferences().empty() &&
+      (!getInterfaceAttr() || !isOrderedOwner((*this)->getParentOp())))
+    return emitOpError("an instance path requires an ordered Method call");
   if (getInterfaceAttr() && getInterfaceAttr().getValue().empty())
     return emitOpError("interface name must be nonempty");
   return success();
@@ -212,7 +215,7 @@ LogicalResult YieldOp::verify() {
 
 ParseResult CallOp::parse(OpAsmParser &parser, OperationState &result) {
   if (failed(parser.parseOptionalKeyword("self"))) {
-    FlatSymbolRefAttr receiver;
+    SymbolRefAttr receiver;
     if (parser.parseAttribute(receiver, "receiver", result.attributes))
       return failure();
   }

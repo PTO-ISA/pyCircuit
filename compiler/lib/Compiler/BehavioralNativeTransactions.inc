@@ -6,7 +6,7 @@ FailureOr<bool> BehavioralEmitter::emitNativeTransaction(
     const gfir::StructuredRule &rule) {
   const auto &clocked = *definition.clocked;
   if (clocked.rules.size() != 1 || rule.sampled || rule.afterSnapshot ||
-      definition.hasChecks() || definition.incomingState ||
+      definition.hasChecks() || hasIncomingWrites(definition) ||
       !definition.childStates.empty() || !definition.clockedCalls.empty() ||
       !clocked.fifos.empty() || !clocked.memories.empty() ||
       !rule.requirements.empty() || !rule.guardCaptures.empty() ||

@@ -178,7 +178,7 @@ std::optional<Recovery> planRecovery(mlir::ModuleOp package,
                                      const StructuredProgram &program) {
   auto selected = program.root;
   const auto &root = program.definitions[program.rootIndex];
-  if (selected.getKind() != "module" || !root.clocked || root.incomingState ||
+  if (selected.getKind() != "module" || !root.clocked || !root.incomingStates.empty() ||
       !root.clockedCalls.empty() || root.hasChecks())
     return std::nullopt;
   const auto &clocked = *root.clocked;

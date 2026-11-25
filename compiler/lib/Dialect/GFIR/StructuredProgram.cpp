@@ -128,7 +128,6 @@ private:
   llvm::DenseMap<Operation *, unsigned> done;
   llvm::DenseMap<Operation *, InstanceOp> receivers;
   llvm::DenseMap<Operation *, llvm::BitVector> usedResultPorts;
-  llvm::DenseSet<Operation *> allocatedModules;
   llvm::DenseSet<Operation *> clockedModules;
   StructuredProgram result;
 };
@@ -188,7 +187,6 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
     } else {
       if (instance->hasAttr("ac.payload_constraint"))
         return instance.emitOpError("payload constraint requires a native resource instance");
-      allocatedModules.insert(callee);
     }
     const bool inheritsClock = native || clockedModules.contains(callee);
     if (inheritsClock && !clocked && !explicitRoot)
@@ -230,7 +228,7 @@ LogicalResult Analyzer::verifyDefinition(ModuleOp module, bool clocked) {
       if (failed(verifyAttributes(call, {"receiver"})))
         return failure();
       auto receiverAttr = call.getReceiverAttr();
-      auto receiver = receiverAttr ? instances.lookup(receiverAttr.getValue())
+      auto receiver = receiverAttr ? instances.lookup(receiverAttr.getRootReference().getValue())
                                    : InstanceOp();
       if (!receiver)
         return call.emitOpError("receiver must be a declared local instance");
@@ -281,43 +279,45 @@ FailureOr<llvm::DenseMap<Operation *, StructuredChildMethod>>
 Analyzer::bindChildMethods(StructuredDefinition &definition) {
   llvm::DenseMap<Operation *, StructuredChildMethod> calls;
   auto module = definition.module;
-  if (module.getSymName() != result.root.getCalleeAttr().getValue())
-    return calls;
   auto &body = module.getBody().front();
-  llvm::StringMap<InstanceOp> instances;
-  llvm::DenseMap<Operation *, unsigned> childStates;
-  for (auto instance : body.getOps<InstanceOp>())
-    instances.try_emplace(instance.getSymName(), instance);
   for (auto [index, rule] : llvm::enumerate(body.getOps<RuleOp>())) {
     auto &ordered = rule.getBody().front();
     bool usesChild = false;
     for (auto call : ordered.getOps<CallOp>()) {
       auto receiver = call.getReceiverAttr();
-      auto instance = receiver ? instances.lookup(receiver.getValue()) : InstanceOp();
-      if (!instance)
+      if (!receiver)
         continue;
-      auto *callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
+      auto first = dyn_cast_or_null<InstanceOp>(
+          SymbolTable::lookupSymbolIn(module, receiver.getRootReference()));
+      if (!first)
+        continue;
+      auto *callee = hardware.lookupDefinition(first.getCalleeAttr().getValue());
+      if (receiver.getNestedReferences().empty() && isa_and_nonnull<PrimitiveOp>(callee))
+        continue;
+      SmallVector<InstanceOp, 2> path{first};
+      SmallVector<unsigned, 2> definitions;
+      for (auto component : receiver.getNestedReferences()) {
+        auto owner = dyn_cast_or_null<ModuleOp>(callee);
+        auto instance = owner ? dyn_cast_or_null<InstanceOp>(
+                                    SymbolTable::lookupSymbolIn(owner, component))
+                              : InstanceOp();
+        if (!instance)
+          return call.emitOpError("Method path requires declared ordinary instances");
+        definitions.push_back(done.lookup(callee));
+        path.push_back(instance);
+        callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
+      }
       if (!isa_and_nonnull<ModuleOp>(callee))
-        continue;
+        return call.emitOpError("Method path must end at an ordinary Module");
       if (!call.getInterfaceAttr())
         return call.emitOpError("ordered instance call requires a Method name");
-      if (allocatedModules.contains(module))
-        return call.emitOpError("child Method requires a receiver on the selected standalone root");
       unsigned childIndex = done.lookup(callee);
+      definitions.push_back(childIndex);
       const auto &child = result.definitions[childIndex].clocked;
-      auto [state, inserted] = childStates.try_emplace(instance, definition.childStates.size());
-      if (inserted) {
-        if (!child || child->variables.size() != 1)
-          return call.emitOpError("child Method requires one state on the default domain");
-        auto variable = child->variables.front();
-        if (!isa<ac::BitsType>(variable.getInitial().getType()))
-          return call.emitOpError("child Method requires Bits state");
-        if (llvm::any_of(child->rules, [](const StructuredRule &entry) {
-              return !entry.writes.empty();
-            }))
-          return call.emitOpError("child Method state overlaps a local Rule writer");
-        definition.childStates.push_back({instance, childIndex, 0, {}});
-      }
+      if (!child || llvm::any_of(definitions, [&](unsigned owner) {
+            return !result.definitions[owner].clocked;
+          }))
+        return call.emitOpError("child Method path must share the caller's default domain");
       if (failed(budget.debit(child->methods.size(), call)))
         return failure();
       auto found = llvm::find_if(child->methods, [&](MethodOp method) {
@@ -332,15 +332,48 @@ Analyzer::bindChildMethods(StructuredDefinition &definition) {
       auto effects = child->directMethodEffects.find(methodIndex);
       if (effects == child->directMethodEffects.end())
         return call.emitOpError("child Method requires a bounded guard-free chain of state and value operations");
-      if (failed(budget.debit(effects->second.expandedWork, call)))
+      const auto &effect = effects->second;
+      if (failed(budget.debit(effect.expandedWork, call)) ||
+          failed(budget.debit(path.size() * (1 + effect.states.size()), call)))
         return failure();
-      if (effects->second.writes) {
-        auto &writer = definition.childStates[state->second].writer;
-        if (writer && *writer != index)
-          return call.emitOpError("child state write overlaps another Rule");
-        writer = index;
+      StructuredChildMethod binding{path, childIndex, methodIndex, {}};
+      for (unsigned state : effect.states) {
+        const bool writes = llvm::is_contained(effect.writes, state);
+        StructuredStateRoute route{path, childIndex, state};
+        auto existing = llvm::find_if(definition.childStates, [&](const auto &entry) {
+          return entry.route == route;
+        });
+        if (existing == definition.childStates.end()) {
+          definition.childStates.push_back({route, {}});
+          existing = std::prev(definition.childStates.end());
+        }
+        if (writes) {
+          if (existing->writer && *existing->writer != index)
+            return call.emitOpError("child state write overlaps another Rule");
+          if (llvm::any_of(child->rules, [&](const StructuredRule &entry) {
+                return llvm::is_contained(entry.writes, state);
+              }))
+            return call.emitOpError("child Method state overlaps a local Rule writer");
+          existing->writer = index;
+        }
+        binding.states.emplace_back(state, existing - definition.childStates.begin());
+        for (auto [segment, ordinal] : llvm::enumerate(definitions)) {
+          auto &owner = result.definitions[ordinal];
+          route.path.erase(route.path.begin());
+          if (writes && llvm::any_of(owner.childStates, [&](const auto &entry) {
+                return entry.route == route && entry.writer;
+              }))
+            return call.emitOpError("child Method state overlaps a descendant Rule writer");
+          auto incoming = llvm::find_if(owner.incomingStates, [&](const auto &entry) {
+            return entry.route == route;
+          });
+          if (incoming == owner.incomingStates.end())
+            owner.incomingStates.push_back({route, writes});
+          else
+            incoming->writable |= writes;
+        }
       }
-      calls.try_emplace(call, StructuredChildMethod{state->second, methodIndex});
+      calls.try_emplace(call, std::move(binding));
       usesChild = true;
     }
     if (usesChild)
@@ -719,9 +752,6 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     return {call.getInputs()[arg], source.path};
   };
   llvm::DenseMap<Operation *, unsigned> clockedCallNodes;
-  llvm::DenseMap<Operation *, unsigned> childStateSlots;
-  for (auto [index, state] : llvm::enumerate(definition.childStates))
-    childStateSlots.try_emplace(state.receiver, index);
   for (auto call : body.getOps<CallOp>()) {
     if (call.getInterfaceAttr())
       continue;
@@ -755,11 +785,9 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
         return failure();
       prepare.dependencies.push_back(*parent);
     }
-    if (auto state = childStateSlots.find(receiver); state != childStateSlots.end()) {
-      prepare.childState = state->second;
-      if (auto writer = definition.childStates[state->second].writer)
-        prepare.dependencies.push_back(definition.wires.size() + *writer);
-    }
+    for (const auto &state : definition.childStates)
+      if (state.route.path.front() == receiver && state.writer)
+        prepare.dependencies.push_back(definition.wires.size() + *state.writer);
   }
   size_t count = definition.firstClockedCallNode() + definition.clockedCalls.size();
   SmallVector<SmallVector<unsigned>> dependents(count);
@@ -943,8 +971,6 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     for (unsigned input : preparationInputs.set_bits())
       definition.preparationInputs.push_back(input);
   }
-  for (const auto &child : definition.childStates)
-    result.definitions[child.definition].incomingState = child.state;
   return definition;
 }
 

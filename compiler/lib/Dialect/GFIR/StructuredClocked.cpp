@@ -363,7 +363,7 @@ LogicalResult ClockedAnalyzer::bindFifo(CallOp call, std::optional<unsigned> rul
   auto receiver = call.getReceiverAttr();
   if (!interface || !receiver)
     return call.emitOpError("FIFO calls require an instance and interface");
-  auto found = fifos.find(receiver.getValue());
+  auto found = fifos.find(receiver.getRootReference().getValue());
   if (found == fifos.end())
     return call.emitOpError("FIFO interface requires a local native FIFO instance");
   auto &fifo = plan.fifos[found->second];
@@ -495,15 +495,15 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         return failure();
       if (auto child = plan.childMethodCalls.find(call);
           child != plan.childMethodCalls.end()) {
-        unsigned receiver = child->second.receiver;
-        if (uses.childStates.insert(receiver).second)
-          plan.rules[*rule].childStates.push_back(receiver);
+        for (auto [state, slot] : child->second.states)
+          if (uses.childStates.insert(slot).second)
+            plan.rules[*rule].childStates.push_back(slot);
       } else if (call.getReceiverAttr()) {
         if (isArm)
           return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
           return call.emitOpError("native resource access is limited to a Rule in this profile");
-        auto memory = memories.find(call.getReceiverAttr().getValue());
+        auto memory = memories.find(call.getReceiverAttr().getRootReference().getValue());
         if (memory != memories.end()) {
           if (failed(bindTransactionMemory(call, memory->second, *rule)))
             return failure();
@@ -642,7 +642,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
       continue;
     }
     auto method = plan.methods[index];
-    if (uses.hasFieldWrites || llvm::any_of(method.getBody().front(), [](Operation &op) {
+    if (llvm::any_of(method.getBody().front(), [](Operation &op) {
           return !isa<ReadOp, WriteOp, YieldOp, CallOp>(op) && !isCombinational(&op);
         }))
       continue;
@@ -658,7 +658,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     // Use the same source transaction call depth as the staged ownership proof.
     if (depth && depth <= 128)
       plan.directMethodEffects.try_emplace(
-          index, StructuredMethodEffects{uses.expandedWork, depth, !uses.writes.empty()});
+          index, StructuredMethodEffects{uses.expandedWork, depth, uses.states, uses.writes});
   }
   llvm::SmallDenseSet<unsigned> written;
   bool hasOrderedFifo = false;
@@ -872,7 +872,7 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
   for (Operation &op : module.getBody().front()) {
     if (auto call = dyn_cast<CallOp>(op); call && call.getInterfaceAttr()) {
       auto receiver = call.getReceiverAttr();
-      auto memory = receiver ? memories.find(receiver.getValue()) : memories.end();
+      auto memory = receiver ? memories.find(receiver.getRootReference().getValue()) : memories.end();
       if (memory != memories.end()) {
         if (failed(bindRawMemory(call, memory->second)))
           return failure();

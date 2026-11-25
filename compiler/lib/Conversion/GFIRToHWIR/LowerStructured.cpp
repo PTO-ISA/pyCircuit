@@ -91,7 +91,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     OperationState state(operation.getLoc(), name);
     state.addTypes(operation.getResultTypes());
     if (auto call = dyn_cast<gfir::CallOp>(operation)) {
-      auto found = instances.find(call.getReceiverAttr().getValue());
+      auto found = instances.find(call.getReceiverAttr().getRootReference().getValue());
       // The shared analysis proves this binding; keep construction total if
       // its admitted profile changes independently of this refinement.
       if (found == instances.end())

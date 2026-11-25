@@ -50,12 +50,21 @@ std::string intentName(unsigned index) { return "pyc_intent_" + std::to_string(i
 std::string childCandidateName(unsigned receiver) {
   return "pyc_child_candidate_" + std::to_string(receiver);
 }
+std::string incomingCandidateName(unsigned index) {
+  return "candidate_" + std::to_string(index);
+}
 std::string observationName(unsigned slot) {
   return "pyc_observation_" + std::to_string(slot);
 }
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
+}
+
+bool hasIncomingWrites(const gfir::StructuredDefinition &definition) {
+  return llvm::any_of(definition.incomingStates, [](const auto &state) {
+    return state.writable;
+  });
 }
 
 bool inlineRootWork(const gfir::StructuredProgram &program) {
@@ -570,8 +579,8 @@ void preparationSignature(raw_ostream &out,
   else
     for (unsigned input : definition.preparationInputs)
       parameter(graphType(definition.wires[input], tables), wireName(input));
-  if (definition.incomingState)
-    out << ", const ChildTxnState &pyc_incoming, bool pyc_incoming_enabled";
+  if (hasIncomingWrites(definition))
+    parameter("IncomingState", "pyc_incoming");
   if (hasObservations(definition))
     out << ", const pyc_observation_sink *pyc_sink, std::size_t pyc_observation_base";
   out << ')';
@@ -1716,7 +1725,7 @@ void BehavioralEmitter::planEvaluationMemoization() {
   memoizedRules.resize(program.definitions.size());
   for (auto [index, definition] : llvm::enumerate(program.definitions)) {
     if (!definition.clocked || definition.explicitDomains || definition.hasChecks() ||
-        definition.incomingState || !definition.clockedCalls.empty() ||
+        hasIncomingWrites(definition) || !definition.clockedCalls.empty() ||
         !definition.childStates.empty())
       continue;
     const auto &plan = *definition.clocked;
@@ -1859,15 +1868,20 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   for (auto [index, field] : llvm::enumerate(definition.fieldOutputs))
     if (!field.sources.empty())
       out << "  bool " << fieldAvailabilityName(index) << " = false;\n";
-  if (definition.incomingState) {
-    unsigned state = *definition.incomingState;
-    auto variable = definition.clocked->variables[state];
-    auto type = typedWire(variable.getInitial().getType(), variable);
-    if (failed(type))
-      return failure();
-    out << "  struct ChildTxnState {\n"
-        << "    std::optional<" << *type << "> " << stateName(state) << ";\n"
-        << "  };\n";
+  if (hasIncomingWrites(definition)) {
+    out << "  struct IncomingState {\n";
+    for (auto [index, incoming] : llvm::enumerate(definition.incomingStates)) {
+      if (!incoming.writable)
+        continue;
+      const auto &route = incoming.route;
+      auto variable = program.definitions[route.definition].clocked->variables[route.state];
+      auto type = typedWire(variable.getInitial().getType(), variable);
+      if (failed(type))
+        return failure();
+      out << "    const std::optional<" << *type << "> *" << incomingCandidateName(index)
+          << " = nullptr;\n";
+    }
+    out << "  };\n";
   }
   if (isClocked(definition)) {
     out << "  ";
@@ -2555,7 +2569,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           ArrayRef<std::string> stepTargets) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
-  unsigned nextObservation = 0;
+  unsigned nextObservation = 0, childCallOrdinal = 0;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
@@ -2683,16 +2697,30 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       continue;
     } else if (auto remote = clocked.childMethodCalls.find(&op);
                remote != clocked.childMethodCalls.end()) {
-      unsigned receiver = remote->second.receiver;
-      const auto &binding = definition.childStates[receiver];
+      const auto &binding = remote->second;
       const auto &child = *program.definitions[binding.definition].clocked;
-      auto instance = instanceName(binding.receiver);
-      auto method = methodName(child.methods[remote->second.method]);
-      if (failed(instance) || failed(method))
+      SmallVector<std::string> members;
+      for (auto instance : binding.path) {
+        auto name = instanceName(instance);
+        if (failed(name))
+          return failure();
+        members.push_back(std::move(*name));
+      }
+      auto method = methodName(child.methods[binding.method]);
+      if (failed(method))
         return failure();
+      auto frame = "pyc_child_call_" + std::to_string(childCallOrdinal++);
+      SmallVector<std::string> candidates;
+      out << "    struct {\n";
+      for (auto [state, slot] : binding.states) {
+        auto candidate = "txn." + childCandidateName(slot);
+        out << "      decltype(" << candidate << ") &" << stateName(state) << ";\n";
+        candidates.push_back(std::move(candidate));
+      }
+      out << "    } " << frame << '{' << join(candidates, ", ") << "};\n";
       args.insert(args.begin(), "0");
-      args.insert(args.begin(), "txn." + childCandidateName(receiver));
-      text = *instance + "." + *method + "(" + join(args, ", ") + ")";
+      args.insert(args.begin(), frame);
+      text = join(members, ".") + "." + *method + "(" + join(args, ", ") + ")";
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       auto memoryUse = clocked.transactionMemoryCalls.find(call);
       if (memoryUse != clocked.transactionMemoryCalls.end()) {
@@ -3031,9 +3059,14 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
   for (auto [index, rule] : llvm::enumerate(clocked.rules)) {
     auto name = "TxnFrame" + std::to_string(index);
     out << "  struct " << name << " {\n";
-    for (unsigned receiver : rule.childStates)
-      out << "    " << moduleName(definition.childStates[receiver].definition)
-          << "::ChildTxnState " << childCandidateName(receiver) << ";\n";
+    for (unsigned slot : rule.childStates) {
+      const auto &route = definition.childStates[slot].route;
+      auto variable = program.definitions[route.definition].clocked->variables[route.state];
+      auto type = typedWire(variable.getInitial().getType(), variable);
+      if (failed(type))
+        return failure();
+      out << "    std::optional<" << *type << "> " << childCandidateName(slot) << ";\n";
+    }
     for (const auto &capture : rule.guardCaptures)
       out << "    bool pyc_capture_available_" << capture.capture << " = false;\n";
     if (rule.sampled)
@@ -3437,16 +3470,29 @@ LogicalResult BehavioralEmitter::emitClockedCall(
       out << ", " << wireName(*leaf);
     }
   }
-  if (child.incomingState) {
-    auto writer = call.childState ? definition.childStates[*call.childState].writer
-                                 : std::nullopt;
-    if (writer) {
-      auto frame = frameName(*writer);
-      out << ", " << frame << '.' << childCandidateName(*call.childState)
-          << ", " << frame << ".pyc_running";
-    } else {
-      out << ", {}, false";
+  if (hasIncomingWrites(child)) {
+    SmallVector<std::string> candidates;
+    for (const auto &incoming : child.incomingStates) {
+      if (!incoming.writable)
+        continue;
+      auto route = incoming.route;
+      route.path.insert(route.path.begin(), call.receiver);
+      auto slot = llvm::find_if(definition.childStates, [&](const auto &state) {
+        return state.route == route && state.writer;
+      });
+      if (slot != definition.childStates.end()) {
+        auto frame = frameName(*slot->writer);
+        candidates.push_back(frame + ".pyc_running ? &" + frame + "." +
+                             childCandidateName(slot - definition.childStates.begin()) + " : nullptr");
+        continue;
+      }
+      auto parent = llvm::find_if(definition.incomingStates, [&](const auto &state) {
+        return state.route == route && state.writable;
+      });
+      candidates.push_back(parent == definition.incomingStates.end() ? "nullptr" :
+          "pyc_incoming." + incomingCandidateName(parent - definition.incomingStates.begin()));
     }
+    out << ", {" << join(candidates, ", ") << '}';
   }
   out << ");\n";
   return success();
@@ -3581,7 +3627,7 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
     for (unsigned state : rule.writes)
       writers.try_emplace(state, index);
   for (unsigned index = 0; index < plan.variables.size(); ++index) {
-    out << "        " << stateName(index);
+    auto state = stateName(index);
     if (auto writer = writers.find(index); writer != writers.end()) {
       std::string enabled = wireName(definition.wires.size() + writer->second);
       if (plan.rules[writer->second].sampled)
@@ -3590,13 +3636,19 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
       if (plan.conditionalWrites.contains(index))
         enabled = "pyc_behavior::Level::fromPacked(gfsim::bit_and(" + enabled +
                   ".packed(), " + frameName(writer->second) + '.' + intentName(index) + ".packed()))";
-      out << ".prepare(" << enabled
+      out << "        " << state << ".prepare(" << enabled
           << ", " << frameName(writer->second) << '.' << stateName(index) << ");\n";
-    } else if (definition.incomingState == index) {
-      out << ".prepare(" << levelName << "(pyc_incoming_enabled), pyc_incoming."
-          << stateName(index) << ");\n";
     } else {
-      out << ".hold();\n";
+      auto incoming = llvm::find_if(definition.incomingStates, [&](const auto &state) {
+        return state.writable && state.route.path.empty() && state.route.state == index;
+      });
+      if (incoming != definition.incomingStates.end()) {
+        out << "        if (const auto *candidate = pyc_incoming."
+            << incomingCandidateName(incoming - definition.incomingStates.begin()) << ")\n"
+            << "          " << state << ".prepare(" << levelName << "(true), *candidate);\n"
+               "        else\n  ";
+      }
+      out << "        " << state << ".hold();\n";
     }
   }
   out << "      }\n    }\n";
@@ -3983,6 +4035,8 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
     else
       for (unsigned input : definition.preparationInputs)
         inputArgument(wireName(input));
+    if (hasIncomingWrites(definition))
+      inputArgument("{}");
     if (observes)
       work << ", pyc_sink_, pyc_observation_base_";
     work << ");\n";

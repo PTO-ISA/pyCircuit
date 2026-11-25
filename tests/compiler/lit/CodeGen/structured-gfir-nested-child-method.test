@@ -1,0 +1,18 @@
+# A scoped Method path addresses one actual grandchild. Two state objects share
+# its candidate across repeated Methods; an independent Rule observes old Q.
+# Late false/X/Z rolls back both objects, including failed-edge history. An
+# unused instance of the same definitions stays separate across resets/retries.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %python %inputs/structured-gfir-nested-child-method-oracle.py > %t.rows
+# RUN: %pycircuit_opt %inputs/structured-gfir-nested-child-method.mlir --gfir-verify -o %t.gfir
+# RUN: %python -c 'from pathlib import Path; import sys; s=Path(sys.argv[1]).read_text(); print(s.replace("    // OVERLAP", "    gfir.rule @overlap(%%key = %%index : !b1) -> () {\n      %%one = \"ac.bits.constant4\"() {pattern = \"00000001\"} : () -> !b8\n      %%a, %%b = gfir.call @relay::@leaf[\"apply\"](%%one, %%key) : (!b8, !b1) -> (!b8, !b8)\n      gfir.yield\n    }"),end="")' %inputs/structured-gfir-nested-child-method.mlir > %t.overlap
+# RUN: not %pycircuit_opt %t.overlap --gfir-verify -o /dev/null
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: %python -c 'import json,pathlib,sys; a,b=[json.load(open(p))["port_availability"] for p in sys.argv[1:3]]; assert a==b; outputs=a["outputs"]; w=next(o["availability"] for o in outputs if o["name"]=="candidate"); assert isinstance(w,str) and w; assert all(o["availability"] is None for o in outputs if o["name"]!="candidate"); p=pathlib.Path(sys.argv[3]); p.mkdir(exist_ok=True); (p/"nested_method_ports.hpp").write_text("#define PYC_CANDIDATE_VALID "+w+"\n"); (p/"nested_method_ports.svh").write_text("`define PYC_CANDIDATE_VALID "+w+"\n")' %t.behavior.json %t.final.json %t
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t -I%t.$kind %inputs/structured-gfir-nested-child-method.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %t.rows || exit; done
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -I%t -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/structured-gfir-nested-child-method.sv
+# RUN: %vvp %t.vvp +rows=%t.rows
