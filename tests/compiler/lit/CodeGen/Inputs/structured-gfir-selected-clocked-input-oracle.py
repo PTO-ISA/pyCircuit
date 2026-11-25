@@ -33,17 +33,33 @@ stimuli = [
 old = produced = "00000000"
 history = 0
 for clock, reset, offer, data, selector, fallback, run, discard in stimuli:
-    available = selector == "0" or offer == "1"
-    valid = available and run == "1"
+    # A(select) is total: raw availability is select(selector, A(produced), 1),
+    # so X/Z with unequal arm availability remains X until a reached require.
+    if selector == "0":
+        available = "1"
+    elif selector == "1":
+        available = "1" if offer == "1" else "0"
+    else:
+        available = "1" if offer == "1" else "x"
+    valid = available == "1" and run == "1"
     if selector == "0":
         chosen = fallback
     elif selector == "1":
         chosen = data
     else:
         # Unknown selection preserves only matching four-state symbols.
-        chosen = "".join(a if a == b else "x" for a, b in zip(data, fallback, strict=True))
-    fault = clock and not history and not reset and (
-        offer in ("x", "z") or run in ("x", "z")
+        chosen = "".join(
+            a if a == b else "x" for a, b in zip(data, fallback, strict=True)
+        )
+    fault = (
+        clock
+        and not history
+        and not reset
+        and (
+            offer in ("x", "z")
+            or run in ("x", "z")
+            or (run == "1" and available == "x")
+        )
     )
     print(
         clock,
