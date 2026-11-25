@@ -581,8 +581,11 @@ void EffectOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult EffectOp::verify() {
-  if (!isa<RuleOp>((*this)->getParentOp()))
-    return emitOpError("effect requires a direct Rule body");
+  Operation *owner = (*this)->getParentOp();
+  while (isa_and_nonnull<IfOp>(owner))
+    owner = owner->getParentOp();
+  if (!isa_and_nonnull<RuleOp>(owner))
+    return emitOpError("effect requires a Rule body or selected arm");
   if (getKind() == "assert") {
     if (getValues().size() != 1 || !isa<ac::BitsType>(getValues().front().getType()) ||
         getSpecAttr())

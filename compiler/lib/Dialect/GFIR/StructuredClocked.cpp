@@ -780,6 +780,7 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
     return failure();
 
   SmallVector<uint64_t> methodSizes(plan.methods.size());
+  std::optional<std::pair<LoopOp, uint64_t>> activeIteration;
   auto visit = [&](auto &&recurse, Block &body, auto &&onCheck, auto &&onCall) -> void {
     for (Operation &op : body) {
       if (plan.guardedCaptureUses.contains(&op))
@@ -801,9 +802,14 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
         recurse(recurse, branch.getElseBody().front(), onCheck, onCall);
       } else if (auto loop = dyn_cast<LoopOp>(op)) {
         auto step = cast<StepOp>(loop.getBody().front().getTerminator());
-        if (step.getBreakIf())
-          for (uint64_t i = 0, count = loop.getTripCountAttr().getInt(); i < count; ++i)
+        if (step.getBreakIf()) {
+          auto saved = activeIteration;
+          for (uint64_t i = 0, count = loop.getTripCountAttr().getInt(); i < count; ++i) {
+            activeIteration = std::pair{loop, i};
             recurse(recurse, loop.getBody().front(), onCheck, onCall);
+          }
+          activeIteration = saved;
+        }
       }
     }
   };
@@ -848,11 +854,27 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
       return failure();
     rule.checks.reserve(count);
     auto add = [&](Operation *op) {
+      auto occurrence = plan.orderedOccurrences.lookup(op);
+      if (activeIteration) {
+        auto [loop, ordinal] = *activeIteration;
+        SmallVector<Attribute> expansion(occurrence.getAs<ArrayAttr>("expansion"));
+        expansion.push_back(builder.getDictionaryAttr({
+            builder.getNamedAttr("kind", builder.getStringAttr("iteration")),
+            builder.getNamedAttr("site", plan.orderedOccurrences.lookup(loop).get("site")),
+            builder.getNamedAttr("ordinal", builder.getI64IntegerAttr(ordinal)),
+            builder.getNamedAttr("value", builder.getDictionaryAttr({
+                builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+                builder.getNamedAttr("value", ac::MathIntAttr::get(
+                    builder.getContext(), llvm::APSInt::getUnsigned(ordinal)))}))}));
+        occurrence = builder.getDictionaryAttr({
+            builder.getNamedAttr("site", occurrence.get("site")),
+            builder.getNamedAttr("expansion", builder.getArrayAttr(expansion))});
+      }
       auto id = builder.getDictionaryAttr({
           builder.getNamedAttr("registration", registration),
-          builder.getNamedAttr("check", plan.orderedOccurrences.lookup(op)),
+          builder.getNamedAttr("check", occurrence),
           builder.getNamedAttr("obligation", builder.getI64IntegerAttr(rule.checks.size()))});
-      rule.checks.push_back({id, location(op)});
+      rule.checks.push_back({id, location(op), op});
     };
     add(rule.operation);
     auto expand = [&](auto &&self, Operation *, unsigned method) -> void {

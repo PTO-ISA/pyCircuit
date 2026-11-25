@@ -74,6 +74,7 @@ struct StructuredRequirement {
 struct StructuredCheckSite {
   mlir::DictionaryAttr id;
   mlir::DictionaryAttr location;
+  mlir::Operation *operation = nullptr;
 };
 
 struct StructuredWritePath {

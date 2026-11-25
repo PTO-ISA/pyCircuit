@@ -352,8 +352,7 @@ FailureOr<unsigned> ClockedMaterializer::addControl(StringRef kind, Operation *s
                                                     Value raw) {
   unsigned ordinal = sampled->controls.size();
   if (ordinal >= sampled->plannedChecks.size() ||
-      sampled->plannedChecks[ordinal].id.get("check") !=
-          plan.orderedOccurrences.lookup(site))
+      sampled->plannedChecks[ordinal].operation != site)
     return site->emitOpError("sampled refinement disagrees with the verified check order");
   const auto &check = sampled->plannedChecks[ordinal];
   sampled->controls.push_back(builder.getDictionaryAttr({
