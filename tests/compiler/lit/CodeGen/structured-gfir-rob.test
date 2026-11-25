@@ -11,6 +11,7 @@
 # RUN: diff -u %t.behavior.1.trace %t.behavior.2.trace
 # RUN: diff -u %t.behavior.1.trace %t.final.1.trace
 # RUN: diff -u %t.behavior.1.trace %t.final.2.trace
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-rob-repeated-request.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.repeat.exe || exit; %t.$kind.repeat.exe || exit; done
 # RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
 # RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %src/examples/rob/rtl_tb.sv
 # RUN: %vvp %t.vvp > %t.rtl.stdout

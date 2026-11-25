@@ -101,6 +101,12 @@ namespace pyc_behavior {
 
 using Level = wire<Bits<1>>;
 
+template <unsigned W>
+bool sameMasks(const FourState<W> &left, const FourState<W> &right) noexcept {
+  return left.value() == right.value() && left.knownMask() == right.knownMask() &&
+         left.zMask() == right.zMask();
+}
+
 inline Level level(bool value) noexcept {
   return Level::known(Bits<1>{value});
 }

@@ -299,6 +299,7 @@ private:
                                   llvm::BitVector &emitted, StringRef instancePrefix);
   LogicalResult emitOutputGroups();
   LogicalResult planWholeOutputs();
+  void planEvaluationMemoization();
   LogicalResult declareModule(raw_ostream &out, unsigned index);
   LogicalResult emitModule(raw_ostream &out, unsigned index);
   LogicalResult emitRoot(FinalCppSourceGroup &group);
@@ -336,6 +337,11 @@ private:
                                     std::optional<unsigned> rule = {}, bool ownPop = false);
   LogicalResult emitGrant(raw_ostream &out, const gfir::StructuredDefinition &definition,
                           unsigned grant, StringRef instancePrefix);
+  FailureOr<SmallVector<std::string>>
+  captureExpressions(const gfir::StructuredDefinition &definition,
+                     const gfir::StructuredRule &rule);
+  LogicalResult emitMemoizedRule(raw_ostream &out,
+                                 const gfir::StructuredDefinition &definition);
   FailureOr<std::string> availabilityExpression(
       const gfir::StructuredDefinition &definition,
       ArrayRef<gfir::StructuredAvailabilitySource> sources,
@@ -350,7 +356,7 @@ private:
   LogicalResult prepareMemory(raw_ostream &out, const gfir::StructuredDefinition &definition,
                               const gfir::StructuredMemory &memory, StringRef clock);
   LogicalResult emitLifecycle(raw_ostream &out, const gfir::StructuredDefinition &definition,
-                              StringRef name);
+                              StringRef name, bool memoized);
 
   const gfir::StructuredProgram &program;
   ac::HardwareAnalysis analysis;
@@ -362,6 +368,7 @@ private:
   unsigned nextLoop = 0;
   SmallVector<SmallVector<OutputGroup>> outputGroups;
   SmallVector<llvm::DenseMap<unsigned, WholeOutput>> wholeOutputs;
+  SmallVector<unsigned> memoKeyWidths;
   SmallVector<uint64_t> groupWorkRemaining;
 };
 
@@ -760,6 +767,59 @@ LogicalResult BehavioralEmitter::planWholeOutputs() {
   return success();
 }
 
+void BehavioralEmitter::planEvaluationMemoization() {
+  memoKeyWidths.resize(program.definitions.size());
+  for (auto [index, definition] : llvm::enumerate(program.definitions)) {
+    if (!definition.clocked || definition.explicitDomains || definition.hasChecks() ||
+        definition.incomingState || !definition.clockedCalls.empty() ||
+        !definition.childStates.empty())
+      continue;
+    const auto &plan = *definition.clocked;
+    if (plan.rules.size() != 1 || plan.variables.empty() || !plan.fifos.empty() ||
+        !plan.memories.empty() || !plan.childMethodCalls.empty())
+      continue;
+    const auto &rule = plan.rules.front();
+    if (rule.sampled || rule.resultUses.empty() || !rule.requirements.empty() ||
+        !rule.guardCaptures.empty() || !rule.assertions.empty() ||
+        !rule.observations.empty())
+      continue;
+    // Other outputs may read committed state via the ordinary getters.
+    if (llvm::any_of(definition.outputs, [&](const gfir::StructuredOutput &output) {
+          return output.requiresPreparation && !wholeOutputs[index].contains(output.port.port);
+        }))
+      continue;
+
+    uint64_t keyWidth = 0;
+    for (unsigned input : definition.preparationInputs) {
+      const auto &wire = definition.wires[input];
+      if (isa<ac::TableType>(wire.type)) {
+        keyWidth = 0;
+        break;
+      }
+      keyWidth += wire.width;
+    }
+    if (!keyWidth || keyWidth > std::numeric_limits<unsigned>::max())
+      continue;
+
+    // Limit the first profile to call-heavy previews. In a split Rule, only
+    // the captures are reusable because pyc_active still affects its frame.
+    bool hasCall = false;
+    if (rule.afterSnapshot) {
+      auto closure = wireClosure(definition, {unsigned(definition.wires.size())});
+      for (auto [wire, value] : llvm::enumerate(definition.wires))
+        hasCall |= closure.test(wire) && value.call.has_value();
+    } else {
+      auto operation = rule.operation;
+      hasCall = operation->walk([&](gfir::CallOp call) {
+        return plan.methodCalls.contains(call) ? WalkResult::interrupt()
+                                               : WalkResult::advance();
+      }).wasInterrupted();
+    }
+    if (hasCall)
+      memoKeyWidths[index] = keyWidth;
+  }
+}
+
 LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
   out << "struct " << moduleName(index) << " {\n";
@@ -838,6 +898,23 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   if (isClocked(definition)) {
     out << "private:\n";
+    if (unsigned width = memoKeyWidths[index]) {
+      const auto &rule = definition.clocked->rules.front();
+      out << "  std::optional<" << carrier(width) << "> pyc_memo_key;\n";
+      if (rule.afterSnapshot) {
+        auto operation = rule.operation;
+        SmallVector<std::string> types;
+        for (Value value : operation.getCaptures()) {
+          auto type = typedWire(value.getType(), operation);
+          if (failed(type))
+            return failure();
+          types.push_back(std::move(*type));
+        }
+        out << "  std::optional<std::tuple<" << join(types, ", ") << ">> pyc_memo_values;\n";
+      } else {
+        out << "  std::optional<TxnFrame0> pyc_memo_frame;\n";
+      }
+    }
     if (definition.hasChecks())
       out << "  bool pyc_checks_valid = false;\n"
              "  gfsim::SampledClockFault pyc_sampling_fault = gfsim::SampledClockFault::None;\n"
@@ -891,7 +968,7 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
     if (failed(emitTemporalWork(out, index)))
       return failure();
     out << "}\n";
-    if (failed(emitLifecycle(out, definition, moduleName(index))))
+    if (failed(emitLifecycle(out, definition, moduleName(index), memoKeyWidths[index] != 0)))
       return failure();
   }
   if (definition.hasChecks()) {
@@ -1859,13 +1936,11 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   out << instancePrefix << ruleName(index) << '(' << frameName(index);
   if (rule.afterSnapshot)
     out << ", pyc_active";
-  auto operation = rule.operation;
-  for (Value capture : operation.getCaptures()) {
-    auto value = graphWire(capture, definition, operation);
-    if (failed(value))
-      return failure();
-    out << ", " << *value;
-  }
+  auto captures = captureExpressions(definition, rule);
+  if (failed(captures))
+    return failure();
+  for (const auto &value : *captures)
+    out << ", " << value;
   out << ");\n";
   if (orderedFifo)
     out << "    const auto " << wireName(grant) << " = " << levelName << '('
@@ -1911,6 +1986,56 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
         << "      pyc_failed_rule = " << index << ";\n"
         << "      pyc_failed_check = " << frameName(index) << ".pyc_failed_check;\n"
         << "    }\n";
+  return success();
+}
+
+FailureOr<SmallVector<std::string>> BehavioralEmitter::captureExpressions(
+    const gfir::StructuredDefinition &definition, const gfir::StructuredRule &rule) {
+  auto operation = rule.operation;
+  SmallVector<std::string> values;
+  for (Value capture : operation.getCaptures()) {
+    auto value = graphWire(capture, definition, operation);
+    if (failed(value))
+      return failure();
+    values.push_back(std::move(*value));
+  }
+  return values;
+}
+
+LogicalResult BehavioralEmitter::emitMemoizedRule(
+    raw_ostream &out, const gfir::StructuredDefinition &definition) {
+  const auto &rule = definition.clocked->rules.front();
+  const unsigned grant = definition.wires.size();
+  SmallVector<std::string> inputs;
+  for (unsigned input : definition.preparationInputs)
+    inputs.push_back(wireName(input));
+  out << "    const auto " << wireName(grant) << " = " << levelName << "(true);\n"
+      << "    const auto pyc_key = " << concatenate(inputs) << ";\n"
+      << "    if (!pyc_memo_key || !pyc_behavior::sameMasks(*pyc_memo_key, pyc_key)) {\n"
+         "      pyc_memo_key.reset();\n";
+  if (failed(emitWires(out, definition, rule.dependencies)))
+    return failure();
+  auto captures = captureExpressions(definition, rule);
+  if (failed(captures))
+    return failure();
+  if (rule.afterSnapshot) {
+    out << "      pyc_memo_values.emplace(" << join(*captures, ", ") << ");\n";
+  } else {
+    out << "      " << ruleName(0) << "(pyc_memo_frame.emplace()";
+    for (const auto &capture : *captures)
+      out << ", " << capture;
+    out << ");\n";
+  }
+  out << "      pyc_memo_key = pyc_key;\n    }\n";
+  if (rule.afterSnapshot) {
+    out << "    TxnFrame0 " << frameName(0) << ";\n"
+        << "    " << ruleName(0) << '(' << frameName(0) << ", pyc_active";
+    for (unsigned i = 0; i < captures->size(); ++i)
+      out << ", std::get<" << i << ">(*pyc_memo_values)";
+    out << ");\n";
+  } else {
+    out << "    const auto &" << frameName(0) << " = *pyc_memo_frame;\n";
+  }
   return success();
 }
 
@@ -2002,7 +2127,9 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
   }
   for (unsigned index = 0; index < definition.clockedCalls.size(); ++index)
     needed.push_back(definition.firstClockedCallNode() + index);
-  if (failed(emitWires(out, definition, needed)))
+  auto emitted = memoKeyWidths[module] ? emitMemoizedRule(out, definition)
+                                       : emitWires(out, definition, needed);
+  if (failed(emitted))
     return failure();
   if (definition.clocked && failed(emitPreparation(out, definition, "pyc_clock")))
     return failure();
@@ -2189,9 +2316,11 @@ LogicalResult BehavioralEmitter::prepareMemory(
 
 LogicalResult BehavioralEmitter::emitLifecycle(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
-    StringRef name) {
+    StringRef name, bool memoized) {
   for (StringRef action : {"reset", "discard", "commit"}) {
     out << "void " << name << "::" << action << "() noexcept {\n";
+    if (memoized && action != "commit")
+      out << "  pyc_memo_key.reset();\n";
     if (definition.hasChecks())
       out << "  pyc_checks_valid = false;\n";
     for (const auto &call : definition.clockedCalls) {
@@ -2217,6 +2346,8 @@ LogicalResult BehavioralEmitter::emitLifecycle(
       if (needsDomain(plan)) {
         if (action == "commit") {
           out << "  if (pyc_domain.commit()) {\n";
+          if (memoized)
+            out << "    pyc_memo_key.reset();\n";
           for (unsigned index = 0; index < plan.variables.size(); ++index)
             out << "    " << stateName(index) << ".commit();\n";
           out << "  }\n";
@@ -2583,6 +2714,7 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   }
   if (failed(planWholeOutputs()))
     return failure();
+  planEvaluationMemoization();
   outputGroups.resize(program.definitions.size());
   groupWorkRemaining.resize(program.definitions.size());
   for (auto [index, definition] : llvm::enumerate(program.definitions))
