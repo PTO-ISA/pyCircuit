@@ -99,7 +99,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     definition.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
         builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(source.getFunctionType().getNumInputs())),
         builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
-        builder.getNamedAttr("input_defaults", builder.getArrayAttr(defaults))}));
+        builder.getNamedAttr("root_inputs", builder.getArrayAttr(defaults))}));
   }
   definition.addAttribute("function_type", TypeAttr::get(builder.getFunctionType(inputTypes, outputTypes)));
   definition.addAttribute("input_names", builder.getArrayAttr(inputNames));
