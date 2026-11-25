@@ -65,6 +65,7 @@ private:
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
     llvm::DenseMap<Operation *, EffectSnapshot> effects;
+    SmallVector<Value> rawAncestors;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -79,6 +80,7 @@ private:
   Value binary(StringRef opcode, Value left, Value right);
   Value merge(Value base, Value guard, Value value);
   Value known(Value value, bool high);
+  Value rawStatementPath();
   FailureOr<unsigned> addControl(StringRef kind, Operation *site, Value raw);
   LogicalResult lowerFifo(gfir::CallOp call,
                          const gfir::StructuredFifoUse &use,
@@ -348,6 +350,15 @@ Value ClockedMaterializer::known(Value value, bool high) {
       ->getResult(0);
 }
 
+Value ClockedMaterializer::rawStatementPath() {
+  Value path = one;
+  // The canonical resource witness walks from the innermost source arm to
+  // its ancestors, then appends the local authored path (one in this profile).
+  for (Value ancestor : llvm::reverse(sampled->rawAncestors))
+    path = binary("and", path, ancestor);
+  return binary("and", path, one);
+}
+
 FailureOr<unsigned> ClockedMaterializer::addControl(StringRef kind, Operation *site,
                                                     Value raw) {
   unsigned ordinal = sampled->controls.size();
@@ -451,10 +462,7 @@ LogicalResult ClockedMaterializer::lowerMemory(
     IRMapping &mapping) {
   if (!sampled)
     return call.emitOpError("transaction Memory requires sampled Rule refinement");
-  // This slice has direct ordered calls, without branch ancestry or an
-  // additional authored path. Retain the canonical raw-statement path shape
-  // required by the independent resource and pin proofs.
-  Value rawPath = binary("and", one, one);
+  Value rawPath = rawStatementPath();
   const auto &memory = plan.memories[use.memory];
   if (use.access == gfir::StructuredMemoryAccess::Result) {
     auto outputs = sampled->memoryOutputs.find(use.memory);
@@ -1178,6 +1186,7 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         sampled->pathIdentity = builder.getDictionaryAttr({
             builder.getNamedAttr("selection", builder.getI64IntegerAttr(*selection)),
             builder.getNamedAttr("when_true", builder.getBoolAttr(true))});
+        sampled->rawAncestors.push_back(predicate);
       }
       SmallVector<Value> thenState(local), thenIntents(localIntents);
       auto thenValues = lowerBody(branch.getThenBody().front(), {}, thenState,
@@ -1185,6 +1194,9 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       if (failed(thenValues))
         return failure();
       if (selection) {
+        sampled->rawAncestors.back() = make(ac::BitsUnaryOp::getOperationName(),
+            {predicate}, {bit}, {
+            builder.getNamedAttr("opcode", builder.getStringAttr("not"))})->getResult(0);
         sampled->path = known(predicate, false);
         if (parentPath)
           sampled->path = binary("and", parentPath, sampled->path);
@@ -1198,6 +1210,7 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       if (failed(elseValues))
         return failure();
       if (selection) {
+        sampled->rawAncestors.pop_back();
         sampled->path = parentPath;
         sampled->pathIdentity = parentPathIdentity;
       }
@@ -1290,8 +1303,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   SmallVector<std::pair<unsigned, unsigned>> memoryCaptures;
   SmallVector<std::pair<unsigned, unsigned>> fifoCaptures;
-  for (Operation &operation : rule.getBody().front()) {
-    if (auto use = plan.fifoCalls.find(&operation);
+  // Capture physical snapshots once in lexical source order, including Memory
+  // responses consumed by selected nested arms.
+  rule.walk([&](gfir::CallOp operation) {
+    if (auto use = plan.fifoCalls.find(operation);
         use != plan.fifoCalls.end() &&
         llvm::none_of(fifoCaptures, [&](const auto &capture) {
           return capture.first == use->second.fifo;
@@ -1301,18 +1316,18 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       captures.append({fifos[fifo]->getResult(3), fifos[fifo]->getResult(1),
                        fifos[fifo]->getResult(2)});
     }
-    auto use = plan.transactionMemoryCalls.find(&operation);
+    auto use = plan.transactionMemoryCalls.find(operation);
     if (use == plan.transactionMemoryCalls.end() ||
         (use->second.access != gfir::StructuredMemoryAccess::Result &&
          use->second.access != gfir::StructuredMemoryAccess::Read) ||
         llvm::any_of(memoryCaptures, [&](const auto &capture) {
           return capture.first == use->second.memory;
         }))
-      continue;
+      return;
     unsigned memory = use->second.memory;
     memoryCaptures.emplace_back(memory, captures.size());
     llvm::append_range(captures, memories[memory]->getResults());
-  }
+  });
   // External pop controls are dedicated contiguous captures. Use the raw
   // recipient or the distinct consumer's authenticated pop proposal path.
   SmallVector<std::pair<unsigned, unsigned>> externalCaptures;

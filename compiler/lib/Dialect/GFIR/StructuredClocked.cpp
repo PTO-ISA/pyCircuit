@@ -502,8 +502,6 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         if (uses.childStates.insert(receiver).second)
           plan.rules[*rule].childStates.push_back(receiver);
       } else if (call.getReceiverAttr()) {
-        if (isArm)
-          return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
           return call.emitOpError("native resource access is limited to a Rule in this profile");
         auto memory = memories.find(call.getReceiverAttr().getValue());
@@ -511,8 +509,11 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
           if (failed(bindTransactionMemory(call, memory->second, *rule)))
             return failure();
           uses.sampledControls += std::max<unsigned>(1, call.getInputs().size());
-        } else if (failed(bindFifo(call, rule, popped))) {
-          return failure();
+        } else {
+          if (isArm)
+            return call.emitOpError("conditional FIFO calls require selected admission");
+          if (failed(bindFifo(call, rule, popped)))
+            return failure();
         }
       } else if (failed(bindMethod(call, uses))) {
         return failure();
