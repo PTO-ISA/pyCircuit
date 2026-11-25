@@ -104,6 +104,9 @@ required scalar inputs are fully known. A proven in-range Table lookup checks
 the selected row when it is read. A scalar Rule can evaluate only the demanded
 calculations for a known branch after saving its result snapshot. The four-state
 evaluator handles X and Z using the existing transaction and sampling contract.
+For an eligible unsampled Rule with direct local Method calls, the native path
+checks inputs and state once. The Methods share one private candidate frame,
+which supplies proposals to the existing commit path.
 
 Use the generated DUT interface and port metadata to apply the same samples to
 each result. The GFIR package declares logical bindings and ordered effects.
