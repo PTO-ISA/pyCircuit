@@ -138,11 +138,12 @@ availability condition derived from the actual operands.
 
 An ordered FIFO `view` or `out` obtains the committed head. An empty queue
 blocks the Rule at that statement. An ordered `in` requires committed capacity
-under `local_occupancy` or readiness with a raw recipient under
-`downstream_pop`. The complete Rule's admission controls its result
-availability and all staged transfers. This profile uses direct Rule bodies
-for ordered FIFO admission. Synchronous RAM results use the actual response
-port's live bit. The old head or response can be available on a held or
+under `local_occupancy`. With `downstream_pop`, a raw recipient or another
+local Rule's admitted `out` can supply credit. A distinct consuming Rule can
+provide credit inside the selected root Module. The complete Rule's admission
+controls its result availability and all staged transfers. Ordered FIFO
+admission uses direct Rule bodies. Synchronous RAM results use the actual
+response port's live bit. The old head or response can be available on a held or
 falling sample. Transfers and response aging use successful rising edges.
 
 ```mermaid

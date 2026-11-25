@@ -34,6 +34,8 @@ struct StructuredFifo {
   CallOp rawOutput;
   std::optional<unsigned> producer;
   std::optional<unsigned> consumer;
+  /// Ordered producer receives the admitted pop of a distinct local Rule.
+  bool localPopCredit = false;
 };
 
 enum class StructuredMemoryAccess { Request, Result, Write, Read };

@@ -1052,6 +1052,24 @@ FailureOr<StructuredProgram> Analyzer::run() {
     result.definitions.push_back(std::move(*definition));
   }
   result.rootIndex = done.lookup(top);
+  for (auto [index, definition] : llvm::enumerate(result.definitions)) {
+    if (!definition.clocked)
+      continue;
+    auto &fifos = definition.clocked->fifos;
+    auto credit = llvm::find_if(fifos, [](const auto &fifo) { return fifo.localPopCredit; });
+    if (credit == fifos.end())
+      continue;
+    // This local route closes the incoming proposal at the ABI boundary.
+    // Child routes need corresponding private actual operands.
+    if (index != result.rootIndex ||
+        llvm::any_of(result.definitions, [&](const auto &parent) {
+          return llvm::any_of(parent.clockedCalls, [&](const auto &call) {
+            return call.definition == index;
+          });
+        }))
+      return credit->instance->emitOpError(
+          "ordered local FIFO credit requires a selected root without parent instances");
+  }
   return std::move(result);
 }
 

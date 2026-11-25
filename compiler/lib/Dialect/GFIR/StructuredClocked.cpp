@@ -694,11 +694,14 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   if (hasOrderedFifo) {
     // The HWIR Queue wiring inventory covers every local transactional driver.
     // Keep each direction in this Module under the checked proposal contract.
-    for (const auto &fifo : plan.fifos) {
+    for (auto &fifo : plan.fifos) {
       if (fifo.producer) {
-        if (fifo.downstreamPop && !fifo.rawOutput)
-          return fifo.instance->emitOpError(
-              "ordered downstream FIFO ingress requires a raw recipient");
+        if (fifo.downstreamPop && !fifo.rawOutput) {
+          if (!fifo.consumer || fifo.consumer == fifo.producer)
+            return fifo.instance->emitOpError(
+                "ordered downstream FIFO ingress requires a raw recipient or a distinct consuming Rule");
+          fifo.localPopCredit = true;
+        }
         plan.rules[*fifo.producer].sampled = true;
       }
       if (fifo.consumer)

@@ -132,6 +132,8 @@ private:
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
   SmallVector<Value> fifoPopPaths, fifoPushPaths;
+  SmallVector<Value> fifoIncomingPops, fifoPopUnions;
+  SmallVector<unsigned> fifoIncomingOrder;
   SmallVector<Attribute> queueWriters, externalPops;
   bool sampledQueues = false;
   SmallVector<Value> sampledEnables;
@@ -586,11 +588,32 @@ LogicalResult ClockedMaterializer::makeModule() {
     names.push_back(privateName("__ac_state_data"));
     names.push_back(privateName("__ac_state_enable"));
   }
+  // Keep incoming demand order identical to the actual sampled Rule/resource
+  // inventory. These root-default-zero ports follow the existing state suffix.
+  fifoIncomingPops.resize(plan.fifos.size());
+  fifoPopUnions.resize(plan.fifos.size());
+  SmallVector<std::pair<unsigned, unsigned>> fifoInputs;
+  for (unsigned node : definition.order) {
+    if (node < definition.wires.size() || node >= definition.firstClockedCallNode())
+      continue;
+    auto rule = plan.rules[node - definition.wires.size()].operation;
+    for (auto call : rule.getBody().front().getOps<gfir::CallOp>()) {
+      auto use = plan.fifoCalls.find(call);
+      if (use == plan.fifoCalls.end() ||
+          use->second.access != gfir::StructuredFifoAccess::In ||
+          !plan.fifos[use->second.fifo].localPopCredit)
+        continue;
+      unsigned fifo = use->second.fifo;
+      fifoIncomingOrder.push_back(fifo);
+      fifoInputs.emplace_back(fifo, inputs.size());
+      inputs.push_back(bit);
+      names.push_back(privateName("__ac_queue_pop_" + std::to_string(fifo)));
+    }
+  }
   if (definition.incomingState || !definition.outputAvailability.empty() ||
-      !definition.fieldOutputs.empty()) {
-    SmallVector<Attribute> defaults;
-    if (definition.incomingState)
-      defaults.assign(2, builder.getI64IntegerAttr(0));
+      !definition.fieldOutputs.empty() || !fifoInputs.empty()) {
+    SmallVector<Attribute> defaults(inputs.size() - sourceInputs,
+                                    builder.getI64IntegerAttr(0));
     state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
         builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(sourceInputs)),
         builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
@@ -620,6 +643,8 @@ LogicalResult ClockedMaterializer::makeModule() {
     incomingData = body->getArgument(sourceInputs);
     incomingEnable = body->getArgument(sourceInputs + 1);
   }
+  for (auto [fifo, input] : fifoInputs)
+    fifoIncomingPops[fifo] = body->getArgument(input);
   builder.setInsertionPointToEnd(body);
   one = constant(true);
   none = constant(false);
@@ -1243,8 +1268,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     memoryCaptures.emplace_back(memory, captures.size());
     llvm::append_range(captures, memories[memory]->getResults());
   }
-  // External pop controls are dedicated contiguous captures. They retain the
-  // actual authored raw endpoint, independently of this Rule's final fire.
+  // External pop controls are dedicated contiguous captures. Use the raw
+  // recipient or the distinct consumer's authenticated pop proposal path.
   SmallVector<std::pair<unsigned, unsigned>> externalCaptures;
   for (Operation &operation : rule.getBody().front()) {
     auto use = plan.fifoCalls.find(&operation);
@@ -1257,10 +1282,21 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       continue;
     unsigned fifo = use->second.fifo;
     auto raw = plan.fifos[fifo].rawOutput;
-    if (!raw)
+    Value external;
+    if (plan.fifos[fifo].localPopCredit) {
+      // readyDependency orders the distinct consuming Rule before this one.
+      // Keep the ancestor input first in the canonical contributor inventory.
+      if (!fifoIncomingPops[fifo] || !fifoPopPaths[fifo])
+        return rule.emitOpError("missing verified local FIFO pop-credit dependency");
+      fifoPopUnions[fifo] = binary("or", fifoIncomingPops[fifo], fifoPopPaths[fifo]);
+      external = fifoPopUnions[fifo];
+    } else if (raw) {
+      external = graph.lookup(raw.getInputs().front());
+    }
+    if (!external)
       return rule.emitOpError("downstream FIFO in requires authored raw output");
     externalCaptures.emplace_back(fifo, captures.size());
-    captures.push_back(graph.lookup(raw.getInputs().front()));
+    captures.push_back(external);
   }
 
   auto region = std::make_unique<Region>();
@@ -1589,15 +1625,21 @@ void ClockedMaterializer::bindTransactionWiring() {
 void ClockedMaterializer::bindQueueWiring() {
   if (!sampledQueues)
     return;
-  SmallVector<Attribute> queues;
+  SmallVector<Attribute> queues, incoming;
   for (auto [index, fifo] : llvm::enumerate(plan.fifos))
     queues.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("declaration", fifos[index]->getAttr("occurrence")),
         builder.getNamedAttr("unbound_push", builder.getBoolAttr(!fifo.rawInput)),
         builder.getNamedAttr("unbound_pop", builder.getBoolAttr(!fifo.rawOutput))}));
+  for (unsigned fifo : fifoIncomingOrder)
+    incoming.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("queue", localQueueID(fifo)),
+        builder.getNamedAttr("kind", builder.getStringAttr("pop")),
+        builder.getNamedAttr("path", builder.getI64IntegerAttr(
+            cast<BlockArgument>(fifoIncomingPops[fifo]).getArgNumber()))}));
   NamedAttrList wiring({
       builder.getNamedAttr("queues", builder.getArrayAttr(queues)),
-      builder.getNamedAttr("incoming", builder.getArrayAttr({})),
+      builder.getNamedAttr("incoming", builder.getArrayAttr(incoming)),
       builder.getNamedAttr("writers", builder.getArrayAttr(queueWriters))});
   if (!externalPops.empty())
     wiring.append("external_pops", builder.getArrayAttr(externalPops));
@@ -1755,6 +1797,11 @@ LogicalResult ClockedMaterializer::bindStorage() {
       if ((fifo.producer && !fifoPushPaths[index]) ||
           (fifo.consumer && !fifoPopPaths[index]))
         return source.emitOpError("FIFO wiring requires sampled transactional writers");
+      if (fifo.localPopCredit) {
+        if (!fifoPopUnions[index])
+          return source.emitOpError("missing verified local FIFO pop-credit route");
+        outputReady = fifoPopUnions[index];
+      }
     }
     auto rawInput = fifo.rawInput;
     auto rawOutput = fifo.rawOutput;
