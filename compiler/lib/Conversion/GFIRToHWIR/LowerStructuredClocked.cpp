@@ -989,6 +989,16 @@ FailureOr<Value> ClockedMaterializer::availability(
       value = childCompanions.lookup({source.index, source.port}); break;
     case gfir::StructuredAvailabilitySource::Kind::ChildField:
       value = childFieldCompanions.lookup({source.index, source.port}); break;
+    case gfir::StructuredAvailabilitySource::Kind::Select: {
+      const auto &select = definition.availabilitySelects[source.index];
+      const auto &endpoint = definition.wires[select.selector].endpoint;
+      auto condition = projectField(graph.lookup(endpoint.value), endpoint.path);
+      auto yes = availability(select.yes), no = availability(select.no);
+      if (failed(condition) || failed(yes) || failed(no))
+        return failure();
+      value = make(ac::BitsSelectOp::getOperationName(), {*condition, *yes, *no}, {bit})->getResult(0);
+      break;
+    }
     }
     if (!value)
       return this->source.emitOpError("missing verified availability source");

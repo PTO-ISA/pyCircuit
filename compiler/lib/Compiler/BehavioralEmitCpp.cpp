@@ -1855,10 +1855,12 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     }
   }
   for (const auto &output : definition.outputAvailability)
-    out << "  bool " << availabilityName(output.port) << " = false;\n";
+    out << "  " << (definition.fourStateAvailability ? levelName.str() : "bool") << ' '
+        << availabilityName(output.port) << (definition.fourStateAvailability ? "{false};\n" : " = false;\n");
   for (auto [index, field] : llvm::enumerate(definition.fieldOutputs))
     if (!field.sources.empty())
-      out << "  bool " << fieldAvailabilityName(index) << " = false;\n";
+      out << "  " << (definition.fourStateAvailability ? levelName.str() : "bool") << ' '
+          << fieldAvailabilityName(index) << (definition.fourStateAvailability ? "{false};\n" : " = false;\n");
   if (definition.incomingState) {
     unsigned state = *definition.incomingState;
     auto variable = definition.clocked->variables[state];
@@ -2652,8 +2654,18 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto capture = clocked.guardedCaptureUses.find(guard);
           capture != clocked.guardedCaptureUses.end()) {
-        out << "    if (!txn.pyc_capture_available_" << capture->second
-            << ") { txn.pyc_running = false; ";
+        auto available = "txn.pyc_capture_available_" + std::to_string(capture->second);
+        out << "    if (!";
+        if (definition.fourStateAvailability)
+          out << "pyc_behavior::isOne(" << available << ')';
+        else
+          out << available;
+        out << ") { ";
+        if (definition.fourStateAvailability)
+          out << "if (txn.pyc_check_active && !" << available
+              << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
+              << clocked.checkOffsets.lookup(guard) - 1 << "; ";
+        out << "txn.pyc_running = false; ";
         if (failed(emitBlockedReturn(out, body, ruleResults)))
           return failure();
         out << " }\n";
@@ -3035,7 +3047,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    " << moduleName(definition.childStates[receiver].definition)
           << "::ChildTxnState " << childCandidateName(receiver) << ";\n";
     for (const auto &capture : rule.guardCaptures)
-      out << "    bool pyc_capture_available_" << capture.capture << " = false;\n";
+      out << "    " << (definition.fourStateAvailability ? levelName.str() : "bool")
+          << " pyc_capture_available_" << capture.capture
+          << (definition.fourStateAvailability ? "{false};\n" : " = false;\n");
     if (rule.sampled)
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
@@ -3150,8 +3164,19 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     StringRef instancePrefix) {
   SmallVector<std::string> terms;
   for (const auto &source : sources) {
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::Select) {
+      const auto &select = definition.availabilitySelects[source.index];
+      auto yes = availabilityExpression(definition, select.yes, instancePrefix);
+      auto no = availabilityExpression(definition, select.no, instancePrefix);
+      if (failed(yes) || failed(no))
+        return failure();
+      terms.push_back(levelName.str() + "::fromPacked(gfsim::select(" +
+          wireName(select.selector) + ", (" + *yes + ").packed(), (" + *no + ").packed()))");
+      continue;
+    }
     if (source.kind == gfir::StructuredAvailabilitySource::Kind::Rule) {
-      terms.push_back(frameName(source.index) + ".pyc_running");
+      auto value = frameName(source.index) + ".pyc_running";
+      terms.push_back(definition.fourStateAvailability ? levelName.str() + "(" + value + ")" : value);
       continue;
     }
     auto member = instanceName(definition.clockedCalls[source.index].receiver);
@@ -3160,8 +3185,23 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     auto result = source.kind == gfir::StructuredAvailabilitySource::Kind::ChildField
                       ? fieldAvailabilityName(source.port)
                       : availabilityName(source.port);
-    terms.push_back(instancePrefix.str() + *member + "." + result);
+    auto value = instancePrefix.str() + *member + "." + result;
+    if (definition.fourStateAvailability &&
+        !program.definitions[definition.clockedCalls[source.index].definition].fourStateAvailability)
+      value = levelName.str() + "(" + value + ")";
+    terms.push_back(std::move(value));
   }
+  if (definition.fourStateAvailability) {
+    if (terms.empty())
+      return levelName.str() + "(true)";
+    std::string combined = terms.front();
+    for (const auto &term : ArrayRef<std::string>(terms).drop_front())
+      combined = levelName.str() + "::fromPacked(gfsim::bit_and((" + combined +
+                 ").packed(), (" + term + ").packed()))";
+    return combined;
+  }
+  if (terms.empty())
+    return std::string("true");
   return join(terms, " && ");
 }
 

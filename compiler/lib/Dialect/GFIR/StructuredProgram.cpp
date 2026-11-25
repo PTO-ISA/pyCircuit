@@ -492,6 +492,9 @@ LogicalResult Analyzer::analyzeAvailability(
   });
   if (!hasLocalResults && !hasChildResults)
     return success();
+  definition.fourStateAvailability = llvm::any_of(definition.clockedCalls, [&](const auto &call) {
+    return result.definitions[call.definition].fourStateAvailability;
+  });
 
   using Source = StructuredAvailabilitySource;
   SmallVector<StructuredAvailability> wireSources(definition.wires.size());
@@ -518,6 +521,29 @@ LogicalResult Analyzer::analyzeAvailability(
       continue;
     }
     auto *site = wire.endpoint.value.getDefiningOp();
+    if (auto select = dyn_cast_or_null<ac::BitsSelectOp>(site)) {
+      auto condition = findWire(definition, {select.getCondition(), {}}, select);
+      auto yes = findWire(definition, {select.getTrueValue(), {}}, select);
+      auto no = findWire(definition, {select.getFalseValue(), {}}, select);
+      if (failed(condition) || failed(yes) || failed(no))
+        return failure();
+      if (failed(merge(wireSources[index], wireSources[*condition], select)))
+        return failure();
+      if (wireSources[*yes] == wireSources[*no]) {
+        if (failed(merge(wireSources[index], wireSources[*yes], select)))
+          return failure();
+      } else {
+        if (failed(budget.debit(1 + wireSources[*yes].size() + wireSources[*no].size(), select)))
+          return failure();
+        unsigned expression = definition.availabilitySelects.size();
+        definition.availabilitySelects.push_back({*condition, wireSources[*yes], wireSources[*no]});
+        definition.fourStateAvailability = true;
+        StructuredAvailability selected{{Source::Kind::Select, expression}};
+        if (failed(merge(wireSources[index], selected, select)))
+          return failure();
+      }
+      continue;
+    }
     if (wire.call) {
       const auto &child = result.definitions[wire.call->definition];
       const auto &output = child.outputs[wire.call->output];
