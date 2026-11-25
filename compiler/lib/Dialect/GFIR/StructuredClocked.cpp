@@ -13,6 +13,49 @@
 using namespace mlir;
 
 namespace acir::gfir::detail {
+FailureOr<StructuredWritePath>
+describeStateFields(const ac::HardwareAnalysis &hardware,
+                    ac::detail::SourceCheckBudget &budget, Type type,
+                    ArrayAttr fields, Operation *op) {
+  StructuredWritePath path{fields, {}, 0, 0};
+  uint64_t low = 0;
+  for (Attribute raw : fields) {
+    auto structure = dyn_cast<ac::StructType>(type);
+    auto declaration = structure ? hardware.lookupStruct(structure) : ac::StructOp();
+    if (!declaration)
+      return op->emitOpError("field path requires a declared Struct at every step");
+    if (failed(budget.debit(declaration.getFields().size(), op)))
+      return failure();
+    Type selected;
+    uint64_t offset = 0;
+    for (Attribute item : llvm::reverse(declaration.getFields())) {
+      auto field = cast<DictionaryAttr>(item);
+      Type fieldType = field.getAs<TypeAttr>("type").getValue();
+      if (field.getAs<StringAttr>("name") == raw) {
+        selected = fieldType;
+        break;
+      }
+      auto width = hardware.getPackedWidth(fieldType, {}, op);
+      if (failed(width) || *width > std::numeric_limits<unsigned>::max() - offset)
+        return op->emitOpError("field path exceeds the supported packed width");
+      offset += *width;
+    }
+    if (!selected)
+      return op->emitOpError("field path names an undeclared Struct field");
+    if (offset > std::numeric_limits<unsigned>::max() - low)
+      return op->emitOpError("field path exceeds the supported packed width");
+    low += offset;
+    type = selected;
+    path.types.push_back(type);
+  }
+  auto width = hardware.getPackedWidth(type, {}, op);
+  if (failed(width) || *width > std::numeric_limits<unsigned>::max() - low)
+    return op->emitOpError("field path exceeds the supported packed width");
+  path.low = low;
+  path.width = *width;
+  return path;
+}
+
 namespace {
 
 using Access = StructuredFifoAccess;
@@ -296,43 +339,11 @@ LogicalResult ClockedAnalyzer::bindState(Operation *op, FlatSymbolRefAttr target
   auto ordinal = found->second;
   Type type = plan.variables[ordinal].getInitial().getType();
   if (auto fields = op->getAttrOfType<ArrayAttr>("fields")) {
-    StructuredWritePath path{fields, {}, 0, 0};
-    uint64_t low = 0;
-    for (Attribute raw : fields) {
-      auto structure = dyn_cast<ac::StructType>(type);
-      auto declaration = structure ? hardware.lookupStruct(structure) : ac::StructOp();
-      if (!declaration)
-        return op->emitOpError("field path requires a declared Struct at every step");
-      if (failed(budget.debit(declaration.getFields().size(), op)))
-        return failure();
-      Type selected;
-      uint64_t offset = 0;
-      for (Attribute item : llvm::reverse(declaration.getFields())) {
-        auto field = cast<DictionaryAttr>(item);
-        Type fieldType = field.getAs<TypeAttr>("type").getValue();
-        if (field.getAs<StringAttr>("name") == raw) {
-          selected = fieldType;
-          break;
-        }
-        auto width = hardware.getPackedWidth(fieldType, {}, op);
-        if (failed(width) || *width > std::numeric_limits<unsigned>::max() - offset)
-          return op->emitOpError("field path exceeds the supported packed width");
-        offset += *width;
-      }
-      if (!selected)
-        return op->emitOpError("field path names an undeclared Struct field");
-      if (offset > std::numeric_limits<unsigned>::max() - low)
-        return op->emitOpError("field path exceeds the supported packed width");
-      low += offset;
-      type = selected;
-      path.types.push_back(type);
-    }
-    auto width = hardware.getPackedWidth(type, {}, op);
-    if (failed(width) || *width > std::numeric_limits<unsigned>::max() - low)
-      return op->emitOpError("field path exceeds the supported packed width");
-    path.low = low;
-    path.width = *width;
-    plan.writePaths.try_emplace(op, std::move(path));
+    auto path = describeStateFields(hardware, budget, type, fields, op);
+    if (failed(path))
+      return failure();
+    type = path->types.back();
+    plan.writePaths.try_emplace(op, std::move(*path));
     body->hasFieldWrites = true;
   }
   if (index) {
@@ -382,6 +393,8 @@ LogicalResult ClockedAnalyzer::bindMethod(CallOp call, BodyUses &body) {
     auto &planBindings = plan.forwardedFormals[call];
     for (auto raw : bindings) {
       auto row = cast<DictionaryAttr>(raw);
+      if (row.contains("fields") || row.contains("index_operand"))
+        return call.emitOpError("self must forward the current writable view");
       unsigned formal = row.getAs<IntegerAttr>("ordinal").getValue().getZExtValue();
       auto owner = dyn_cast<FlatSymbolRefAttr>(row.getAs<SymbolRefAttr>("owner"));
       auto source = owner ? outer.getAs<IntegerAttr>(owner.getValue()) : IntegerAttr();

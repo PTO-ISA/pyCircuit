@@ -10,6 +10,10 @@ mlir::LogicalResult verifyAttributes(mlir::Operation *op,
                                      llvm::ArrayRef<llvm::StringRef> allowed);
 bool isCombinational(mlir::Operation *op);
 bool isStructuredLeaf(mlir::Type type);
+mlir::FailureOr<StructuredWritePath>
+describeStateFields(const ac::HardwareAnalysis &hardware,
+                    ac::detail::SourceCheckBudget &budget, mlir::Type type,
+                    mlir::ArrayAttr fields, mlir::Operation *site);
 bool matchesSignature(CallOp call, mlir::FunctionType type);
 bool hasGeneratedDomain(RootOp root);
 mlir::LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,

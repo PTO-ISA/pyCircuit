@@ -375,9 +375,14 @@ LogicalResult Analyzer::bindMethodFormals(StructuredDefinition &caller,
   llvm::SmallDenseSet<unsigned> formalOrdinals;
   for (auto row : writable)
     formalOrdinals.insert(cast<IntegerAttr>(row.getValue()).getValue().getZExtValue());
-  SmallVector<StructuredStateRoute> places;
+  struct Place {
+    StructuredStateRoute route;
+    uint64_t low, high;
+  };
+  SmallVector<Place> places;
   for (unsigned state : effect.states)
-    places.push_back({binding.path, binding.definition, state});
+    places.push_back({{binding.path, binding.definition, state},
+                      0, std::numeric_limits<uint64_t>::max()});
   for (auto raw : bindings) {
     auto row = cast<DictionaryAttr>(raw);
     unsigned formal = row.getAs<IntegerAttr>("ordinal").getValue().getZExtValue();
@@ -397,22 +402,49 @@ LogicalResult Analyzer::bindMethodFormals(StructuredDefinition &caller,
       return call.emitOpError("bound owner must resolve to an actual gfir.var");
     auto variable = *var;
     unsigned state = std::distance(declared.begin(), var);
-    if (!ac::areEquivalentHardwareTypes(variable.getInitial().getType(),
+    Type actual = variable.getInitial().getType();
+    StructuredFormalBinding bound{formal, state, local,
+                                  llvm::is_contained(effect.formalWrites, formal)};
+    if (auto fields = row.getAs<ArrayAttr>("fields")) {
+      auto projection = detail::describeStateFields(hardware, budget, actual, fields, call);
+      if (failed(projection))
+        return failure();
+      actual = projection->types.back();
+      bound.projection = std::move(*projection);
+    }
+    auto width = hardware.getPackedWidth(actual, {}, call);
+    if (failed(width))
+      return failure();
+    uint64_t low = bound.projection ? bound.projection->low : 0;
+    if (auto rowIndex = row.getAs<IntegerAttr>("index_operand")) {
+      auto table = dyn_cast<ac::TableType>(actual);
+      if (!table || table.getShape().size() != 1 ||
+          !isa<ac::BitsType>(table.getElementType()))
+        return call.emitOpError("indexed writable binding requires a rank-one Bits Table");
+      bound.indexOperand = rowIndex.getValue().getZExtValue();
+      if (failed(hardware.verifySourceIndex(call.getInputs()[*bound.indexOperand],
+                                            table, {}, call)))
+        return failure();
+      bound.table = table;
+      actual = table.getElementType();
+    }
+    if (!ac::areEquivalentHardwareTypes(actual,
                                         method.getFunctionType().getInput(formal)))
       return call.emitOpError("writable binding payload must match the nominal formal type");
     StructuredStateRoute place{path->instances, owner, state};
-    if (llvm::is_contained(places, place))
+    // An unknown or dynamic index may touch every row of the selected table.
+    if (llvm::any_of(places, [&](const auto &other) {
+          return other.route == place && low < other.high && other.low < low + *width;
+        }))
       return call.emitOpError("writable formals overlap another actual owner of this invocation");
-    places.push_back(std::move(place));
-    bool writes = llvm::is_contained(effect.formalWrites, formal);
-    if (local) {
-      binding.formals.push_back({formal, state, true, writes});
-    } else {
-      auto slot = bindStateRoute(caller, *path, state, writes, rule, call);
+    places.push_back({std::move(place), low, low + *width});
+    if (!local) {
+      auto slot = bindStateRoute(caller, *path, state, bound.writes, rule, call);
       if (failed(slot))
         return failure();
-      binding.formals.push_back({formal, *slot, false, writes});
+      bound.slot = *slot;
     }
+    binding.formals.push_back(std::move(bound));
   }
   return success();
 }
