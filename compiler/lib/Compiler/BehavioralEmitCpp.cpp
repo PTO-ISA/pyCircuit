@@ -5,9 +5,11 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include <algorithm>
 #include <limits>
 #include <map>
@@ -82,10 +84,17 @@ std::string cppString(StringRef value) {
 }
 
 std::string concatenate(ArrayRef<std::string> fields) {
-  std::string result = fields.front();
-  for (const auto &field : fields.drop_front())
-    result = "gfsim::concat(" + result + ", " + field + ")";
-  return result;
+  if (fields.size() == 1)
+    return fields.front();
+  return "pyc_behavior::concatenate(" + join(fields, ", ") + ")";
+}
+
+std::string pack(StringRef value) {
+  return "pyc_behavior::pack(" + value.str() + ")";
+}
+
+std::string unpack(StringRef wire, StringRef value) {
+  return "pyc_behavior::unpack<" + wire.str() + ">(" + value.str() + ")";
 }
 
 std::string bitWords(const llvm::APInt &plane) {
@@ -144,30 +153,71 @@ FailureOr<std::string> instanceName(gfir::InstanceOp instance) {
   return "pyc_child_" + *name;
 }
 
+using TableWireTypes = llvm::DenseMap<Type, std::string>;
+
+std::string graphType(const gfir::StructuredWire &wire,
+                      const TableWireTypes &tables) {
+  auto type = tables.find(wire.type);
+  return type == tables.end() ? carrier(wire.width) : type->second;
+}
+
 void signature(raw_ostream &out, const gfir::StructuredDefinition &definition,
-               unsigned result, StringRef owner = {}) {
+               const TableWireTypes &tables, unsigned result, StringRef owner = {}) {
   const auto &output = definition.outputs[result];
-  out << carrier(definition.wires[output.wire].width) << ' ' << owner
+  out << graphType(definition.wires[output.wire], tables) << ' ' << owner
       << functionName(result) << '(';
   ArrayRef<unsigned> inputs = output.requiresPreparation ? ArrayRef<unsigned>{}
                                                          : ArrayRef<unsigned>(output.inputs);
   llvm::interleaveComma(inputs, out, [&](unsigned input) {
-    out << "const " << carrier(definition.wires[input].width) << " &"
+    out << "const " << graphType(definition.wires[input], tables) << " &"
         << wireName(input);
   });
   out << ") const";
 }
 
 llvm::BitVector wireClosure(const gfir::StructuredDefinition &definition,
-                            ArrayRef<unsigned> outputs) {
+                            ArrayRef<unsigned> outputs,
+                            llvm::function_ref<bool(unsigned, unsigned)> skip = {}) {
   llvm::BitVector needed(definition.order.size());
   for (unsigned output : outputs)
     needed.set(output);
   for (unsigned index : llvm::reverse(definition.order))
     if (needed.test(index))
       for (unsigned input : definition.dependencies(index))
-        needed.set(input);
+        if (!skip || !skip(index, input))
+          needed.set(input);
   return needed;
+}
+
+std::optional<unsigned> packedStateTable(const gfir::StructuredDefinition &definition,
+                                         unsigned index) {
+  // Record construction and projection forward a leaf without changing it.
+  while (true) {
+    const auto &wire = definition.wires[index];
+    if (wire.state && isa<ac::StructType>(wire.endpoint.value.getType()))
+      return index;
+    if (wire.dependencies.size() != 1 ||
+        !isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp>(
+            wire.endpoint.value.getDefiningOp()))
+      return std::nullopt;
+    index = wire.dependencies.front();
+  }
+}
+
+bool canBorrowTableRead(gfir::ReadOp read) {
+  Value table = read.getValue();
+  if (!isa<ac::TableType>(table.getType()) || !table.hasOneUse())
+    return false;
+  auto lookup = dyn_cast<ac::TableGetOp>(*table.getUsers().begin());
+  if (!lookup || lookup->getBlock() != read->getBlock() ||
+      !read->isBeforeInBlock(lookup))
+    return false;
+  // The lookup consumes the rows before this snapshot could be invalidated.
+  for (auto *op = read->getNextNode(); op != lookup.getOperation();
+       op = op->getNextNode())
+    if (!isMemoryEffectFree(op))
+      return false;
+  return true;
 }
 
 struct OutputGroup {
@@ -184,17 +234,19 @@ std::string outputGroupType(unsigned index) {
 }
 
 void groupSignature(raw_ostream &out, const gfir::StructuredDefinition &definition,
-                    const OutputGroup &group, unsigned index, StringRef owner = {}) {
+                    const TableWireTypes &tables, const OutputGroup &group,
+                    unsigned index, StringRef owner = {}) {
   out << owner << outputGroupType(index) << ' ' << owner
       << outputGroupName(index) << '(';
   llvm::interleaveComma(group.inputs, out, [&](unsigned input) {
-    out << "const " << carrier(definition.wires[input].width) << " &" << wireName(input);
+    out << "const " << graphType(definition.wires[input], tables) << " &" << wireName(input);
   });
   out << ") const";
 }
 
 void preparationSignature(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
+                          const TableWireTypes &tables,
                           StringRef owner = {}) {
   out << "void " << owner << "prepare(";
   bool comma = !definition.explicitDomains;
@@ -204,7 +256,7 @@ void preparationSignature(raw_ostream &out,
   for (unsigned input : definition.preparationInputs) {
     if (comma)
       out << ", ";
-    out << "const " << carrier(definition.wires[input].width) << " &" << wireName(input);
+    out << "const " << graphType(definition.wires[input], tables) << " &" << wireName(input);
     comma = true;
   }
   if (definition.incomingState)
@@ -225,7 +277,8 @@ private:
                                         ArrayRef<std::string> args);
   FailureOr<std::string> expression(const gfir::StructuredWire &wire,
                                     const gfir::StructuredDefinition &definition,
-                                    StringRef instancePrefix);
+                                    StringRef instancePrefix,
+                                    const gfir::StructuredWire *packedTable = nullptr);
   LogicalResult emitWires(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
                           ArrayRef<unsigned> outputs, StringRef instancePrefix = {});
@@ -242,6 +295,8 @@ private:
       const gfir::StructuredDefinition &definition);
   FailureOr<FinalCppSourceGroup *> getGroup(gfir::ModuleOp module);
   FailureOr<std::string> typedWire(Type type, Operation *site);
+  FailureOr<unsigned> fieldOffset(ac::StructGetOp get);
+  std::string graphLeaf(const gfir::StructuredWire &wire, StringRef value) const;
   FailureOr<std::string> graphWire(Value value,
                                    const gfir::StructuredDefinition &definition,
                                    Operation *site,
@@ -289,6 +344,7 @@ private:
   const gfir::StructuredProgram &program;
   ac::HardwareAnalysis analysis;
   HardwareEmitContext common;
+  TableWireTypes tableWireTypes;
   llvm::StringMap<unsigned> groups;
   FinalCppSourceParts parts;
   unsigned nextBranch = 0;
@@ -300,7 +356,8 @@ private:
 FailureOr<std::string>
 BehavioralEmitter::expression(const gfir::StructuredWire &wire,
                              const gfir::StructuredDefinition &definition,
-                             StringRef instancePrefix) {
+                             StringRef instancePrefix,
+                             const gfir::StructuredWire *packedTable) {
   auto *op = wire.endpoint.value.getDefiningOp();
   SmallVector<std::string> args;
   for (unsigned dep : wire.dependencies)
@@ -322,8 +379,7 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
       return failure();
     std::string read = instancePrefix.str() + *name;
     if (query == gfir::StructuredFifoQuery::Data)
-      return "gfsim::extract<" + std::to_string(wire.width) + ">(" +
-             read + ".data().packed(), " + std::to_string(wire.low) + ")";
+      return graphLeaf(wire, read + ".data()");
     if (query == gfir::StructuredFifoQuery::Valid)
       return read + ".valid().packed()";
     auto ready = fifo.downstreamPop
@@ -349,18 +405,25 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
       unsigned port = cast<OpResult>(wire.endpoint.value).getResultNumber();
       read += ".result(" + std::to_string(port) + ")";
     }
-    return "gfsim::extract<" + std::to_string(wire.width) + ">(" + read +
-           ".packed(), " + std::to_string(wire.low) + ")";
+    return graphLeaf(wire, read);
   }
   if (wire.state)
-    return "gfsim::extract<" + std::to_string(wire.width) + ">(" +
-           instancePrefix.str() + stateName(*wire.state) + ".value().packed(), " +
-           std::to_string(wire.low) + ")";
+    return graphLeaf(wire, instancePrefix.str() + stateName(*wire.state) + ".value()");
   if (wire.ruleResult) {
     auto [rule, result] = *wire.ruleResult;
-    return "gfsim::extract<" + std::to_string(wire.width) + ">(" +
-           frameName(rule) + "." + resultName(result) + ".packed(), " +
-           std::to_string(wire.low) + ")";
+    return graphLeaf(wire, frameName(rule) + "." + resultName(result));
+  }
+  if (packedTable) {
+    auto get = cast<ac::TableGetOp>(op);
+    auto key = graphWire(get.getIndex(), definition, get, wire.dependencies);
+    if (failed(key))
+      return failure();
+    auto type = graphType(*packedTable, tableWireTypes);
+    auto state = instancePrefix.str() + stateName(*packedTable->state) + ".value()";
+    auto value = "std::get<0>(pyc_behavior::lookupPacked<" + type + ">(" +
+                 pack(state) + ", " + std::to_string(packedTable->low) + ", " +
+                 *key + "))";
+    return graphLeaf(wire, value);
   }
   if (isa<ac::TableSplatOp, ac::TableGetOp, ac::TableMapOp>(op)) {
     SmallVector<std::string> operands;
@@ -373,8 +436,7 @@ BehavioralEmitter::expression(const gfir::StructuredWire &wire,
     auto value = valueExpression(wire.endpoint.value, operands);
     if (failed(value))
       return failure();
-    return "gfsim::extract<" + std::to_string(wire.width) + ">(" + *value +
-           ".packed(), " + std::to_string(wire.low) + ")";
+    return graphLeaf(wire, *value);
   }
   if (isa<ac::StructCreateOp, ac::StructGetOp>(op))
     return args.front();
@@ -416,7 +478,7 @@ BehavioralEmitter::bitExpression(Operation *op, unsigned bitWidth,
     auto low = integer(extract.getLow(), analysis, op);
     if (failed(low))
       return failure();
-    return "gfsim::extract<" + width + ">(" + args.front() + ", " +
+    return "pyc_behavior::slice<" + width + ">(" + args.front() + ", " +
            std::to_string(low->getZExtValue()) + ")";
   }
   if (auto resize = dyn_cast<ac::BitsResizeOp>(op)) {
@@ -433,7 +495,23 @@ BehavioralEmitter::bitExpression(Operation *op, unsigned bitWidth,
 LogicalResult BehavioralEmitter::emitWires(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
     ArrayRef<unsigned> outputs, StringRef instancePrefix) {
-  auto needed = wireClosure(definition, outputs);
+  llvm::DenseMap<unsigned, unsigned> packedLookups;
+  auto needed = wireClosure(definition, outputs, [&](unsigned index, unsigned input) {
+    if (index >= definition.wires.size() || input >= definition.wires.size() ||
+        !isa<ac::TableType>(definition.wires[input].type))
+      return false;
+    auto result = dyn_cast<OpResult>(definition.wires[index].endpoint.value);
+    if (!result || result.getResultNumber() != 0)
+      return false;
+    auto get = dyn_cast<ac::TableGetOp>(result.getOwner());
+    if (!get || definition.wires[input].endpoint.value != get.getInput())
+      return false;
+    if (auto origin = packedStateTable(definition, input)) {
+      packedLookups.try_emplace(index, *origin);
+      return true;
+    }
+    return false;
+  });
   llvm::BitVector emitted(definition.order.size());
   for (auto [index, wire] : llvm::enumerate(definition.wires))
     if (isa<BlockArgument>(wire.endpoint.value))
@@ -469,10 +547,17 @@ LogicalResult BehavioralEmitter::emitWires(
       return failure();
     if (*grouped)
       continue;
-    auto value = expression(wire, definition, instancePrefix);
+    auto lookup = packedLookups.find(index);
+    auto value = expression(wire, definition, instancePrefix,
+                            lookup == packedLookups.end() ? nullptr
+                                                         : &definition.wires[lookup->second]);
     if (failed(value))
       return failure();
-    out << "    const auto " << wireName(index) << " = " << *value << ";\n";
+    const bool borrow = isa<ac::TableType>(wire.type) &&
+                        isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp,
+                                        ac::TableMapOp>(wire.endpoint.value.getDefiningOp());
+    out << "    const auto " << (borrow ? "&" : "") << wireName(index)
+        << " = " << *value << ";\n";
     emitted.set(index);
   }
   return success();
@@ -564,7 +649,7 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
   for (unsigned index : members) {
     unsigned original = bindings.at(definition.wires[index].call->output);
     if (index != original)
-      out << "    const auto " << wireName(index) << " = " << wireName(original) << ";\n";
+      out << "    const auto &" << wireName(index) << " = " << wireName(original) << ";\n";
     emitted.set(index);
   }
   return true;
@@ -581,7 +666,8 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
     llvm::raw_string_ostream out((*group)->source);
     for (unsigned ordinal = 0; ordinal < outputGroups[index].size(); ++ordinal) {
       const auto &outputs = outputGroups[index][ordinal];
-      groupSignature(out, definition, outputs, ordinal, moduleName(index) + "::");
+      groupSignature(out, definition, tableWireTypes, outputs, ordinal,
+                     moduleName(index) + "::");
       out << " {\n";
       SmallVector<unsigned> roots;
       SmallVector<std::string> values;
@@ -603,17 +689,17 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   out << "struct " << moduleName(index) << " {\n";
   for (unsigned result = 0; result < definition.outputs.size(); ++result) {
     out << "  ";
-    signature(out, definition, result);
+    signature(out, definition, tableWireTypes, result);
     out << ";\n";
   }
   for (auto [ordinal, group] : llvm::enumerate(outputGroups[index])) {
     out << "  struct " << outputGroupType(ordinal) << " {\n";
     for (unsigned output : group.outputs)
-      out << "    " << carrier(definition.wires[definition.outputs[output].wire].width)
+      out << "    " << graphType(definition.wires[definition.outputs[output].wire], tableWireTypes)
           << ' ' << resultName(output) << ";\n";
     out << "  };\n";
     out << "  ";
-    groupSignature(out, definition, group, ordinal);
+    groupSignature(out, definition, tableWireTypes, group, ordinal);
     out << ";\n";
   }
   for (const auto &output : definition.outputAvailability)
@@ -633,7 +719,7 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   if (isClocked(definition)) {
     out << "  ";
-    preparationSignature(out, definition);
+    preparationSignature(out, definition, tableWireTypes);
     out << ";\n  void reset() noexcept;\n  void discard() noexcept;\n"
            "  void commit() noexcept;\n";
   }
@@ -678,7 +764,7 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     for (auto [result, output] : llvm::enumerate(definition.outputs)) {
       if (!output.requiresPreparation)
         continue;
-      auto type = carrier(definition.wires[output.wire].width);
+      auto type = graphType(definition.wires[output.wire], tableWireTypes);
       out << "  " << type << ' ' << preparedName(result) << " = " << type
           << "::unknown();\n";
     }
@@ -690,7 +776,7 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
 LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
   for (auto [result, output] : llvm::enumerate(definition.outputs)) {
-    signature(out, definition, result, moduleName(index) + "::");
+    signature(out, definition, tableWireTypes, result, moduleName(index) + "::");
     out << " {\n";
     if (output.requiresPreparation) {
       out << "    return " << preparedName(result) << ";\n}\n";
@@ -701,7 +787,7 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
     }
   }
   if (isClocked(definition)) {
-    preparationSignature(out, definition, moduleName(index) + "::");
+    preparationSignature(out, definition, tableWireTypes, moduleName(index) + "::");
     out << " {\n";
     if (failed(emitTemporalWork(out, definition)))
       return failure();
@@ -807,25 +893,58 @@ FailureOr<std::string> BehavioralEmitter::typedWire(Type type, Operation *site) 
   return "gfsim::wire<" + *payload + ">";
 }
 
+FailureOr<unsigned> BehavioralEmitter::fieldOffset(ac::StructGetOp get) {
+  auto leaves = analysis.getLeaves(get.getValue().getType(), {}, get);
+  if (failed(leaves))
+    return failure();
+  auto field = llvm::find_if(llvm::reverse(*leaves), [&](const ac::PackedLeaf &leaf) {
+    return !leaf.path.empty() && leaf.path.front().getValue() == get.getField();
+  });
+  if (field == leaves->rend() || field->low > std::numeric_limits<unsigned>::max())
+    return get.emitOpError("behavioral field has no packed layout");
+  return static_cast<unsigned>(field->low);
+}
+
+std::string BehavioralEmitter::graphLeaf(const gfir::StructuredWire &wire,
+                                         StringRef value) const {
+  const bool table = isa<ac::TableType>(wire.type);
+  if (table && isa<ac::TableType>(wire.endpoint.value.getType()))
+    return value.str();
+  auto slice = "pyc_behavior::slice<" + std::to_string(wire.width) + ">(" +
+               pack(value) + ", " + std::to_string(wire.low) + ")";
+  return table ? unpack(graphType(wire, tableWireTypes), slice) : slice;
+}
+
 FailureOr<std::string>
 BehavioralEmitter::graphWire(Value value,
                              const gfir::StructuredDefinition &definition,
                              Operation *site,
                              std::optional<ArrayRef<unsigned>> available) {
-  auto type = typedWire(value.getType(), site);
   auto values = definition.valueWires.find(value);
-  if (failed(type) || values == definition.valueWires.end())
+  if (values == definition.valueWires.end())
+    return failure();
+  if (isa<ac::TableType>(value.getType())) {
+    unsigned index = values->second.front();
+    if (!available || llvm::is_contained(*available, index))
+      return wireName(index);
+    return graphType(definition.wires[index], tableWireTypes) + "::unknown()";
+  }
+  auto type = typedWire(value.getType(), site);
+  if (failed(type))
     return failure();
   SmallVector<unsigned> ordered(values->second);
   llvm::sort(ordered, [&](unsigned a, unsigned b) {
     return definition.wires[a].low > definition.wires[b].low;
   });
   SmallVector<std::string> fields;
-  for (unsigned at : ordered)
-    fields.push_back(!available || llvm::is_contained(*available, at)
-                        ? wireName(at)
-                        : carrier(definition.wires[at].width) + "::unknown()");
-  return *type + "::fromPacked(" + concatenate(fields) + ")";
+  for (unsigned at : ordered) {
+    const auto &field = definition.wires[at];
+    if (available && !llvm::is_contained(*available, at))
+      fields.push_back(carrier(field.width) + "::unknown()");
+    else
+      fields.push_back(isa<ac::TableType>(field.type) ? pack(wireName(at)) : wireName(at));
+  }
+  return unpack(*type, concatenate(fields));
 }
 
 FailureOr<std::string>
@@ -856,26 +975,20 @@ BehavioralEmitter::valueExpression(Value result, ArrayRef<std::string> args) {
     return failure();
   SmallVector<std::string> packed;
   for (const auto &arg : args)
-    packed.push_back(arg + ".packed()");
-  std::string prefix = *wire + "::fromPacked(";
+    packed.push_back(pack(arg));
   if (isa<ac::StructCreateOp>(op))
-    return prefix + concatenate(packed) + ")";
+    return unpack(*wire, concatenate(packed));
   if (auto get = dyn_cast<ac::StructGetOp>(op)) {
-    auto leaves = analysis.getLeaves(get.getValue().getType(), {}, op);
-    if (failed(leaves))
+    auto low = fieldOffset(get);
+    if (failed(low))
       return failure();
-    auto field = llvm::find_if(llvm::reverse(*leaves), [&](const ac::PackedLeaf &leaf) {
-      return !leaf.path.empty() && leaf.path.front().getValue() == get.getField();
-    });
-    if (field == leaves->rend())
-      return get.emitOpError("behavioral field has no packed layout");
-    return prefix + "gfsim::extract<" + std::to_string(*width) + ">(" +
-           packed.front() + ", " + std::to_string(field->low) + "))";
+    return unpack(*wire, "pyc_behavior::slice<" + std::to_string(*width) + ">(" +
+                             packed.front() + ", " + std::to_string(*low) + ")");
   }
   auto computed = bitExpression(op, *width, packed);
   if (failed(computed))
     return failure();
-  return prefix + *computed + ")";
+  return unpack(*wire, *computed);
 }
 
 FailureOr<std::string> BehavioralEmitter::tableMapExpression(
@@ -886,6 +999,24 @@ FailureOr<std::string> BehavioralEmitter::tableMapExpression(
     return failure();
   auto &body = map.getBody().front();
   auto yielded = cast<ac::YieldOp>(body.getTerminator()).getValues()[result];
+  auto inputTable = [&](Value row) -> std::optional<unsigned> {
+    auto argument = dyn_cast<BlockArgument>(row);
+    if (argument && argument.getOwner() == &body && argument.getArgNumber() > 0 &&
+        argument.getArgNumber() <= map.getTables().size())
+      return argument.getArgNumber() - 1;
+    return std::nullopt;
+  };
+  auto forwarded = inputTable(yielded);
+  if (auto select = yielded.getDefiningOp<ac::BitsSelectOp>()) {
+    auto yes = inputTable(select.getTrueValue());
+    auto no = inputTable(select.getFalseValue());
+    // A four-state mux of the same row preserves all three masks.
+    if (yes && no && map.getTables()[*yes] == map.getTables()[*no])
+      forwarded = yes;
+  }
+  if (forwarded && map.getTables()[*forwarded].getType() == map.getResult(result).getType())
+    return args[*forwarded];
+
   llvm::SmallDenseSet<Value> needed;
   SmallVector<Value> pending{yielded};
   while (!pending.empty()) {
@@ -900,7 +1031,7 @@ FailureOr<std::string> BehavioralEmitter::tableMapExpression(
   out << "([&]() {\n    " << *type << " pyc_mapped;\n";
   for (auto [index, argument] : llvm::enumerate(body.getArguments().drop_front()))
     if (needed.contains(argument))
-      out << "    const auto pyc_map_input_" << index << " = " << args[index] << ";\n";
+      out << "    const auto &pyc_map_input_" << index << " = " << args[index] << ";\n";
   out << "    for (std::size_t pyc_row = 0; pyc_row < " << *size << "; ++pyc_row) {\n";
   llvm::DenseMap<Value, std::string> values;
   for (auto [index, argument] : llvm::enumerate(body.getArguments())) {
@@ -1043,6 +1174,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       values.try_emplace(result, results.back());
     }
     std::string text;
+    bool borrow = false;
     if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
       if (effect.getKind() == "assert") {
         out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
@@ -1187,6 +1319,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     } else if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       auto state = stateName(clocked.stateAccesses.lookup(read));
       text = "txn." + state + " ? *txn." + state + " : " + state + ".value()";
+      borrow = canBorrowTableRead(read);
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
       unsigned index = clocked.stateAccesses.lookup(write);
       auto state = stateName(index);
@@ -1196,18 +1329,19 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       if (auto path = clocked.writePaths.find(write); path != clocked.writePaths.end()) {
         out << "    {\n      if (!" << frame << ") " << frame << ".emplace(" << state
             << ".value());\n";
-        std::string replacement = values.lookup(write.getValue()) + ".packed()";
+        std::string replacement = pack(values.lookup(write.getValue()));
         if (write.getIndex()) {
           auto type = typedWire(path->second.types.back(), write);
           if (failed(type))
             return failure();
-          out << "      auto pyc_field = " << *type << "::fromPacked(gfsim::extract<"
-              << path->second.width << ">(" << frame << "->packed(), "
-              << path->second.low << "));\n"
+          auto slice = "pyc_behavior::slice<" + std::to_string(path->second.width) +
+                       ">(" + frame + "->packed(), " +
+                       std::to_string(path->second.low) + ")";
+          out << "      auto pyc_field = " << unpack(*type, slice) << ";\n"
               << "      pyc_behavior::replace(pyc_field, "
               << values.lookup(write.getIndex()) << ", "
               << values.lookup(write.getValue()) << ");\n";
-          replacement = "pyc_field.packed()";
+          replacement = pack("pyc_field");
         }
         out << "      " << frame << "->assignSlice(" << path->second.low << ", "
             << replacement << ");\n    }\n";
@@ -1240,7 +1374,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     }
     out << "    ";
     if (results.size() == 1)
-      out << "const auto " << results.front() << " = ";
+      out << "const auto " << (borrow ? "&" : "") << results.front() << " = ";
     else if (!results.empty())
       out << "const auto [" << join(results, ", ") << "] = ";
     out << text << ";\n";
@@ -1348,11 +1482,11 @@ LogicalResult BehavioralEmitter::emitBranch(
       return failure();
     auto candidate = [&](StringRef frame) {
       auto slot = frame.str() + '.' + stateName(state);
-      return "(" + slot + " ? *" + slot + " : " + stateName(state) + ".value()).packed()";
+      return pack(slot + " ? *" + slot + " : " + stateName(state) + ".value()");
     };
-    out << "      txn." << stateName(state) << " = " << *type
-        << "::fromPacked(gfsim::select(" << predicate << ".packed(), "
-        << candidate(thenFrame) << ", " << candidate(elseFrame) << "));\n"
+    auto selected = "gfsim::select(" + pack(predicate) + ", " +
+                    candidate(thenFrame) + ", " + candidate(elseFrame) + ")";
+    out << "      txn." << stateName(state) << " = " << unpack(*type, selected) << ";\n"
         << "      txn." << intentName(state)
         << " = pyc_behavior::Level::fromPacked(gfsim::select(" << predicate
         << ".packed(), " << thenFrame << '.' << intentName(state) << ".packed(), "
@@ -1366,9 +1500,9 @@ LogicalResult BehavioralEmitter::emitBranch(
       return results.size() == 1 ? arm.str()
           : "std::get<" + std::to_string(index) + ">(" + arm.str() + ")";
     };
-    out << "      " << results[index] << " = " << *type
-        << "::fromPacked(gfsim::select(" << predicate << ".packed(), "
-        << returned(thenValue) << ".packed(), " << returned(elseValue) << ".packed()));\n";
+    auto selected = "gfsim::select(" + pack(predicate) + ", " +
+                    pack(returned(thenValue)) + ", " + pack(returned(elseValue)) + ")";
+    out << "      " << results[index] << " = " << unpack(*type, selected) << ";\n";
   }
   out << "    }\n";
   return success();
@@ -2209,8 +2343,9 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
         !declaredInputs.contains(index))
       continue;
     auto arg = cast<BlockArgument>(wire.endpoint.value).getArgNumber();
-    source << "    const auto " << wireName(index) << " = gfsim::extract<"
-           << wire.width << ">(" << inputs[arg] << ".packed(), " << wire.low << ");\n";
+    const bool directTable = isa<ac::TableType>(wire.endpoint.value.getType());
+    source << "    const auto " << (directTable ? "&" : "") << wireName(index)
+           << " = " << graphLeaf(wire, inputs[arg]) << ";\n";
   }
   if (isClocked(definition)) {
     source << "    pyc_body.prepare(";
@@ -2246,13 +2381,15 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     if (!output.requiresPreparation)
       for (unsigned input : output.inputs)
         actuals.push_back(wireName(input));
-    if (isa<ac::TableType>(type.getResult(output.port.port)))
-      source << "    " << outputs[output.port.port] << " = decltype("
-             << outputs[output.port.port] << ")::fromPacked(pyc_body." << functionName(index)
-             << '(' << join(actuals, ", ") << "));\n";
-    else
+    auto value = "pyc_body." + functionName(index) + '(' + join(actuals, ", ") + ')';
+    if (isa<ac::TableType>(type.getResult(output.port.port))) {
+      source << "    " << outputs[output.port.port] << " = " << value << ";\n";
+    } else {
+      if (isa<ac::TableType>(leaf->type))
+        value = pack(value);
       source << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
-             << ", pyc_body." << functionName(index) << '(' << join(actuals, ", ") << "));\n";
+             << ", " << value << ");\n";
+    }
   }
   for (const auto &[port, wire] : companions)
     source << "    " << wire << " = " << levelName << "(pyc_body."
@@ -2319,6 +2456,14 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
     auto name = qualifiedName(module.getSymName(), module);
     if (failed(name) || failed(names.insert(*name, module)))
       return failure();
+    for (const auto &wire : definition.wires) {
+      if (!isa<ac::TableType>(wire.type) || tableWireTypes.contains(wire.type))
+        continue;
+      auto type = typedWire(wire.type, module);
+      if (failed(type))
+        return failure();
+      tableWireTypes.try_emplace(wire.type, std::move(*type));
+    }
   }
   outputGroups.resize(program.definitions.size());
   groupWorkRemaining.resize(program.definitions.size());
@@ -2340,6 +2485,7 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
     parts.supportHeader += "namespace gfsim { struct SimFailureInfo; }\n";
   if (hasObservations(program.definitions[program.rootIndex]))
     parts.supportHeader += cppObservationSupport().str();
+  parts.supportHeader += behavioralValueSupport.str();
   bool usesModelSupport = llvm::any_of(program.definitions, [](const auto &definition) {
     return isClocked(definition) || llvm::any_of(definition.wires,
         [](const gfir::StructuredWire &wire) {

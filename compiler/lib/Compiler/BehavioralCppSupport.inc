@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Compiler-owned adapters emitted into the structured GFIR C++ support header.
-constexpr llvm::StringLiteral behavioralCppSupport = R"cpp(#include <gfsim/byte_mem.h>
-#include <gfsim/fifo.h>
-#include <gfsim/sync_mem.h>
-
-#include <array>
-#include <bit>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
+constexpr llvm::StringLiteral behavioralValueSupport = R"cpp(#include <cstddef>
 
 namespace pyc_behavior {
 
@@ -16,6 +8,96 @@ using gfsim::Bits;
 using gfsim::FourState;
 using gfsim::table;
 using gfsim::wire;
+
+template <unsigned Out, unsigned In>
+Bits<Out> sliceWords(const Bits<In> &value, unsigned low) noexcept {
+  Bits<Out> result{};
+  const unsigned first = low / 64;
+  const unsigned shift = low % 64;
+  for (unsigned i = 0; i < Bits<Out>::kWords; ++i) {
+    auto word = value.word(first + i) >> shift;
+    if (shift)
+      word |= value.word(first + i + 1) << (64 - shift);
+    result.setWord(i, word);
+  }
+  return result;
+}
+
+template <unsigned Out, unsigned In>
+FourState<Out> slice(const FourState<In> &value, unsigned low) noexcept {
+  if constexpr (Out > In) {
+    return FourState<Out>::unknown();
+  } else if constexpr (Out == In) {
+    return low == 0 ? value : FourState<Out>::unknown();
+  } else if constexpr (In <= 64) {
+    return gfsim::extract<Out>(value, low);
+  } else {
+    if (low > In - Out)
+      return FourState<Out>::unknown();
+    return FourState<Out>::fromMasks(sliceWords<Out>(value.value(), low),
+                                     sliceWords<Out>(value.knownMask(), low),
+                                     sliceWords<Out>(value.zMask(), low));
+  }
+}
+
+template <unsigned... Width>
+auto concatenate(const FourState<Width> &...fields) noexcept {
+  constexpr unsigned total = (Width + ...);
+  if constexpr (sizeof...(Width) == 2 && total <= 64) {
+    return gfsim::concat(fields...);
+  } else {
+    auto result = FourState<total>::unknown();
+    unsigned low = total;
+    (result.assignSlice(low -= Width, fields), ...);
+    return result;
+  }
+}
+
+template <class T> const auto &pack(const wire<T> &value) noexcept {
+  return value.packed();
+}
+
+template <class T, std::size_t... Extents>
+auto pack(const wire<table<T, Extents...>> &rows) noexcept {
+  using Table = wire<table<T, Extents...>>;
+  if constexpr (Table::width <= 64) {
+    return rows.packed();
+  } else {
+    auto result = Table::packed_type::unknown();
+    constexpr unsigned width = wire<T>::width;
+    for (std::size_t i = 0; i < Table::size; ++i)
+      result.assignSlice((Table::size - 1 - i) * width, pack(rows.element(i)));
+    return result;
+  }
+}
+
+template <class Wire>
+Wire unpack(const typename Wire::packed_type &value) noexcept {
+  if constexpr (requires { typename Wire::element_type; } && Wire::width > 64) {
+    using Lane = wire<typename Wire::element_type>;
+    Wire result;
+    for (std::size_t i = 0; i < Wire::size; ++i)
+      result.element(i) =
+          unpack<Lane>(slice<Lane::width>(value, (Wire::size - 1 - i) * Lane::width));
+    return result;
+  } else {
+    return Wire::fromPacked(value);
+  }
+}
+
+} // namespace pyc_behavior
+)cpp";
+
+constexpr llvm::StringLiteral behavioralCppSupport = R"cpp(#include <gfsim/byte_mem.h>
+#include <gfsim/fifo.h>
+#include <gfsim/sync_mem.h>
+
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <optional>
+
+namespace pyc_behavior {
 
 using Level = wire<Bits<1>>;
 
@@ -233,6 +315,17 @@ std::tuple<wire<T>, Level> lookup(const wire<table<T, Size>> &rows,
   if (isOne(range))
     return {rows.element(index.value().value()), range};
   return {wire<T>::unknown(), range};
+}
+
+template <class Table, unsigned Width, unsigned IndexWidth>
+auto lookupPacked(const FourState<Width> &value, unsigned low,
+                  const wire<Bits<IndexWidth>> &index) noexcept {
+  using Lane = wire<typename Table::element_type>;
+  auto range = Level::fromPacked(inRange<Table::size>(index));
+  if (!isOne(range))
+    return std::tuple{Lane::unknown(), range};
+  unsigned offset = (Table::size - 1 - index.value().value()) * Lane::width;
+  return std::tuple{unpack<Lane>(slice<Lane::width>(value, low + offset)), range};
 }
 
 template <class T, std::size_t Size, unsigned IndexWidth>

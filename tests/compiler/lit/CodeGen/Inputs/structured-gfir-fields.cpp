@@ -9,7 +9,9 @@ template <unsigned W> auto bits(const std::string &text) {
   B value{0}, known{0}, z{0};
   require(text.size() == W);
   for (unsigned i = 0; i < W; ++i) {
-    B bit{std::uint64_t{1} << (W - 1 - i)};
+    const unsigned position = W - 1 - i;
+    B bit{};
+    bit.setWord(position / 64, std::uint64_t{1} << (position % 64));
     if (text[i] == '0' || text[i] == '1') known = known | bit;
     if (text[i] == '1') value = value | bit;
     if (text[i] == 'z') z = z | bit;
@@ -17,7 +19,7 @@ template <unsigned W> auto bits(const std::string &text) {
   return gfsim::wire<B>::fromPacked(gfsim::FourState<W>::fromMasks(value, known, z));
 }
 template <class T> void expect(const T &actual, const std::string &expected) {
-  auto reference = bits<40>(expected).packed();
+  auto reference = bits<T::width>(expected).packed();
   auto observed = actual.packed();
   require(observed.knownMask() == reference.knownMask());
   require(observed.zMask() == reference.zMask());
@@ -30,14 +32,16 @@ int main(int argc, char **argv) {
   root.pyc_7079635f636c6b = bits<1>("0");
   root.pyc_7079635f727374 = bits<1>("0");
   root.Reset(); root.Xfer();
-  std::string clock, reset, raw, data, tag, old, snapshot, candidate;
+  std::string clock, reset, raw, data, tag, old, snapshot, candidate, selected, inRange;
   unsigned count = 0;
-  while (rows >> clock >> reset >> raw >> data >> tag >> old >> snapshot >> candidate) {
+  while (rows >> clock >> reset >> raw >> data >> tag >> old >> snapshot >> candidate
+              >> selected >> inRange) {
     root.pyc_7079635f636c6b = bits<1>(clock);
     root.pyc_7079635f727374 = bits<1>(reset);
-    root.raw = bits<2>(raw); root.data = bits<8>(data); root.tag = bits<8>(tag);
+    root.raw = bits<2>(raw); root.data = bits<23>(data); root.tag = bits<23>(tag);
     root.Work();
     expect(root.old, old); expect(root.snapshot, snapshot); expect(root.candidate, candidate);
+    expect(root.selected, selected); expect(root.in_range, inRange);
     gfsim::SimFailureInfo failure; require(root.pyc_validate_checks(failure));
     root.Xfer(); ++count;
   }
