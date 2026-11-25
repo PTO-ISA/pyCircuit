@@ -657,18 +657,18 @@ LogicalResult ClockedMaterializer::makeModule() {
     if (node < definition.wires.size() || node >= definition.firstClockedCallNode())
       continue;
     auto rule = plan.rules[node - definition.wires.size()].operation;
-    for (auto call : rule.getBody().front().getOps<gfir::CallOp>()) {
+    rule.walk([&](gfir::CallOp call) {
       auto use = plan.fifoCalls.find(call);
       if (use == plan.fifoCalls.end() ||
           use->second.access != gfir::StructuredFifoAccess::In ||
           !plan.fifos[use->second.fifo].localPopCredit)
-        continue;
+        return;
       unsigned fifo = use->second.fifo;
       fifoIncomingOrder.push_back(fifo);
       fifoInputs.emplace_back(fifo, inputs.size());
       inputs.push_back(bit);
       names.push_back(privateName("__ac_queue_pop_" + std::to_string(fifo)));
-    }
+    });
   }
   SmallVector<std::pair<unsigned, unsigned>> availabilityInputs;
   SmallVector<Attribute> inputValidity(sourceInputs, builder.getI64IntegerAttr(-1));
@@ -1619,38 +1619,46 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   // External pop controls are dedicated contiguous captures. Use the raw
   // recipient or the distinct consumer's authenticated pop proposal path.
   SmallVector<std::pair<unsigned, unsigned>> externalCaptures;
-  for (Operation &operation : rule.getBody().front()) {
-    auto use = plan.fifoCalls.find(&operation);
+  auto capturedExternal = rule.walk([&](gfir::CallOp operation) {
+    auto use = plan.fifoCalls.find(operation);
     if (use == plan.fifoCalls.end() ||
         use->second.access != gfir::StructuredFifoAccess::In ||
         !plan.fifos[use->second.fifo].downstreamPop ||
         llvm::any_of(externalCaptures, [&](const auto &capture) {
           return capture.first == use->second.fifo;
         }))
-      continue;
+      return WalkResult::advance();
     unsigned fifo = use->second.fifo;
     auto raw = plan.fifos[fifo].rawOutput;
     Value external;
     if (plan.fifos[fifo].localPopCredit) {
-      if (!fifoIncomingPops[fifo])
-        return rule.emitOpError("missing verified local FIFO pop-credit dependency");
+      if (!fifoIncomingPops[fifo]) {
+        rule.emitOpError("missing verified local FIFO pop-credit dependency");
+        return WalkResult::interrupt();
+      }
       external = fifoIncomingPops[fifo];
       if (plan.fifos[fifo].consumer != index) {
         // A distinct consumer is ordered first by readyDependency. Own prior
         // pops are instead raw proposal paths inside this Rule's readiness.
-        if (!fifoPopPaths[fifo])
-          return rule.emitOpError("missing verified distinct FIFO pop path");
+        if (!fifoPopPaths[fifo]) {
+          rule.emitOpError("missing verified distinct FIFO pop path");
+          return WalkResult::interrupt();
+        }
         fifoPopUnions[fifo] = binary("or", external, fifoPopPaths[fifo]);
         external = fifoPopUnions[fifo];
       }
     } else if (raw) {
       external = graph.lookup(raw.getInputs().front());
     }
-    if (!external)
-      return rule.emitOpError("downstream FIFO in requires authored raw output");
+    if (!external) {
+      rule.emitOpError("downstream FIFO in requires authored raw output");
+      return WalkResult::interrupt();
+    }
     externalCaptures.emplace_back(fifo, captures.size());
     captures.push_back(external);
-  }
+    return WalkResult::advance();
+  });
+  if (capturedExternal.wasInterrupted()) return failure();
 
   auto region = std::make_unique<Region>();
   auto *body = new Block;

@@ -148,7 +148,18 @@ struct OrderedFifoBranchEmission {
   };
   SmallVector<Control> controls;
   std::optional<std::pair<unsigned, bool>> path;
+  const gfir::StructuredRule *rule = nullptr;
 };
+
+std::string orderedFifoCredit(const OrderedFifoBranchEmission &ordered, unsigned fifo) {
+  auto external = "txn." + recipientName(fifo);
+  if (!llvm::any_of(ordered.rule->requirements, [&](const auto &requirement) {
+        return requirement.fifo == fifo && requirement.requiresReady && requirement.ownPop;
+      }))
+    return external;
+  return "pyc_behavior::Level::fromPacked(gfsim::bit_or(txn.pyc_raw_pops[" +
+      std::to_string(fifo) + "].packed(), " + external + ".packed()))";
+}
 
 bool hasOrderedFifoBranches(const gfir::StructuredRule &rule) {
   auto operation = rule.operation;
@@ -2722,9 +2733,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
   bool ownsBranchControls = rule && hasOrderedFifoBranches(*rule);
   if (ownsBranchControls) {
     ordered = &branchControls;
+    ordered->rule = rule;
     out << "    txn.pyc_raw_controls.fill(" << levelName << "(true));\n"
            "    txn.pyc_control_reached.fill(false);\n"
            "    txn.pyc_pop_reached.fill(false);\n"
+           "    txn.pyc_push_reached.fill(false);\n"
            "    txn.pyc_raw_pops.fill(" << levelName << "(false));\n";
     auto operation = rule->operation;
     auto initialized = operation.walk([&](gfir::CallOp call) {
@@ -3095,8 +3108,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
               out << ".ready(";
               if (fifo.downstreamPop) {
                 if (ordered)
-                  out << "pyc_behavior::Level::fromPacked(gfsim::bit_or(txn.pyc_raw_pops["
-                      << fifoIndex << "].packed(), txn." << recipientName(fifoIndex) << ".packed()))";
+                  out << orderedFifoCredit(*ordered, fifoIndex);
                 else
                   out << "txn." << recipientName(fifoIndex);
               } else {
@@ -3111,9 +3123,11 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
               return failure();
           }
           // Reads use old Q. Payload writes are staged in the caller's frame.
-          if (isInput)
+          if (isInput) {
+            if (ordered)
+              out << "    txn.pyc_push_reached[" << fifoIndex << "] = txn.pyc_running;\n";
             text = "txn." + payloadName(fifoIndex) + " = " + args.front();
-          else {
+          } else {
             if (ordered && use->second.access == gfir::StructuredFifoAccess::Out)
               out << "    txn.pyc_pop_reached[" << fifoIndex << "] = txn.pyc_running;\n";
             if (ordered && use->second.access == gfir::StructuredFifoAccess::Out &&
@@ -3357,6 +3371,19 @@ LogicalResult BehavioralEmitter::emitBranch(
         out << "    txn.pyc_raw_pops[" << use->second.fifo
             << "] = pyc_behavior::Level::fromPacked(" << packed << ");\n";
       }
+      for (auto call : arm->front().getOps<gfir::CallOp>()) {
+        auto use = clocked.fifoCalls.find(call);
+        if (use == clocked.fifoCalls.end() ||
+            use->second.access != gfir::StructuredFifoAccess::In)
+          continue;
+        const auto &fifo = clocked.fifos[use->second.fifo];
+        auto name = instanceName(fifo.instance);
+        if (failed(name)) return failure();
+        out << "    txn.pyc_raw_controls[" << clocked.checkOffsets.lookup(call)
+            << "] = " << *name << ".ready("
+            << (fifo.downstreamPop ? orderedFifoCredit(*ordered, use->second.fifo)
+                                   : levelName.str() + "(false)") << ");\n";
+      }
     }
     out << "    const auto " << name << " = [&](auto &txn) {\n";
     if (failed(emitBody(out, arm->front(), definition, nullptr, &values, {}, {}, {}, ordered)))
@@ -3532,7 +3559,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
           << "    std::array<bool, " << rule.checks.size() << "> pyc_control_reached{};\n"
           << "    std::array<pyc_behavior::Level, " << clocked.fifos.size()
           << "> pyc_raw_pops;\n"
-          << "    std::array<bool, " << clocked.fifos.size() << "> pyc_pop_reached{};\n";
+          << "    std::array<bool, " << clocked.fifos.size() << "> pyc_pop_reached{};\n"
+          << "    std::array<bool, " << clocked.fifos.size() << "> pyc_push_reached{};\n";
     for (auto assertion : rule.assertions) {
       unsigned ordinal = clocked.checkOffsets.lookup(assertion);
       out << "    bool pyc_assert_reached_" << ordinal << " = false;\n"
@@ -4115,6 +4143,11 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
     } else if (fifo.producer) {
       enabled = wireName(definition.wires.size() + *fifo.producer);
       data = frameName(*fifo.producer) + "." + payloadName(index);
+      if (hasOrderedFifoBranches(plan.rules[*fifo.producer])) {
+        auto frame = frameName(*fifo.producer);
+        enabled = levelName.str() + "(" + frame + ".pyc_running && " + frame +
+                  ".pyc_push_reached[" + std::to_string(index) + "])";
+      }
     }
     out << "    " << *name << ".prepare(" << clock << ", pyc_reset, "
         << enabled << ", " << data << ", " << *outReady << ");\n";
