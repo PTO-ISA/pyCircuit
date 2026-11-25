@@ -46,6 +46,12 @@ private:
     unsigned pathResult = 0;
   };
 
+  struct EffectSnapshot {
+    SmallVector<Value> values;
+    Value path;
+    DictionaryAttr pathIdentity;
+  };
+
   struct SampledContext {
     DictionaryAttr registration;
     ArrayRef<gfir::StructuredCheckSite> plannedChecks;
@@ -58,8 +64,8 @@ private:
     SmallVector<MemoryProposal> memoryProposals;
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
-    llvm::DenseMap<Operation *, Value> assertionConditions;
-    llvm::DenseMap<Operation *, SmallVector<Value>> observationValues;
+    llvm::DenseMap<Operation *, EffectSnapshot> effects;
+    SmallVector<Value> rawAncestors;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -75,6 +81,7 @@ private:
   Value merge(Value base, Value guard, Value value);
   FailureOr<Value> closeIncoming(Value previous, Value candidate, Value enable, Value mask);
   Value known(Value value, bool high);
+  Value rawStatementPath();
   FailureOr<unsigned> addControl(StringRef kind, Operation *site, Value raw);
   LogicalResult lowerFifo(gfir::CallOp call,
                          const gfir::StructuredFifoUse &use,
@@ -370,12 +377,20 @@ Value ClockedMaterializer::known(Value value, bool high) {
       ->getResult(0);
 }
 
+Value ClockedMaterializer::rawStatementPath() {
+  Value path = one;
+  // The canonical resource witness walks from the innermost source arm to
+  // its ancestors, then appends the local authored path (one in this profile).
+  for (Value ancestor : llvm::reverse(sampled->rawAncestors))
+    path = binary("and", path, ancestor);
+  return binary("and", path, one);
+}
+
 FailureOr<unsigned> ClockedMaterializer::addControl(StringRef kind, Operation *site,
                                                     Value raw) {
   unsigned ordinal = sampled->controls.size();
   if (ordinal >= sampled->plannedChecks.size() ||
-      sampled->plannedChecks[ordinal].id.get("check") !=
-          plan.orderedOccurrences.lookup(site))
+      sampled->plannedChecks[ordinal].operation != site)
     return site->emitOpError("sampled refinement disagrees with the verified check order");
   const auto &check = sampled->plannedChecks[ordinal];
   sampled->controls.push_back(builder.getDictionaryAttr({
@@ -474,10 +489,7 @@ LogicalResult ClockedMaterializer::lowerMemory(
     IRMapping &mapping) {
   if (!sampled)
     return call.emitOpError("transaction Memory requires sampled Rule refinement");
-  // This slice has direct ordered calls, without branch ancestry or an
-  // additional authored path. Retain the canonical raw-statement path shape
-  // required by the independent resource and pin proofs.
-  Value rawPath = binary("and", one, one);
+  Value rawPath = rawStatementPath();
   const auto &memory = plan.memories[use.memory];
   if (use.access == gfir::StructuredMemoryAccess::Result) {
     auto outputs = sampled->memoryOutputs.find(use.memory);
@@ -1154,7 +1166,9 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
   for (Operation &op : body) {
     if (isa<gfir::YieldOp, gfir::StepOp>(op)) {
       SmallVector<Value> values;
-      for (Value value : op.getOperands())
+      ValueRange returned = isa<gfir::StepOp>(op)
+          ? ValueRange(cast<gfir::StepOp>(op).getValues()) : ValueRange(op.getOperands());
+      for (Value value : returned)
         values.push_back(mapping.lookup(value));
       return values;
     }
@@ -1170,7 +1184,17 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       for (Value initial : loop.getInitial())
         carried.push_back(mapping.lookup(initial));
       auto &body = loop.getBody().front();
+      auto step = cast<gfir::StepOp>(body.getTerminator());
       uint64_t count = loop.getTripCountAttr().getInt();
+      Value continuation = one;
+      Value parentPath;
+      DictionaryAttr parentPathIdentity;
+      if (step.getBreakIf() && count) {
+        if (!sampled)
+          return loop.emitOpError("break_if requires sampled Rule refinement");
+        parentPath = sampled->path;
+        parentPathIdentity = sampled->pathIdentity;
+      }
       for (uint64_t iteration = 0; iteration < count; ++iteration) {
         // Every iteration starts with the enclosing immutable SSA bindings.
         // Candidates and write intent belong to the same transaction and flow
@@ -1179,15 +1203,46 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         for (auto [argument, value] :
              llvm::zip(body.getArguments().drop_front(), carried))
           nested.map(argument, value);
+        SmallVector<Value> previous;
+        if (step.getBreakIf() && iteration)
+          previous.assign(local.begin(), local.end());
         auto next = lowerBody(body, {}, local, localIntents, nested, iteration);
         if (failed(next))
           return failure();
+        if (step.getBreakIf()) {
+          // Later unrolled bodies still have immutable SSA definitions, but
+          // only iterations reached before a stop may replace candidates or
+          // carried values. Every body write is direct in this bounded profile,
+          // so its intent is already present after the first reached iteration.
+          if (iteration) {
+            for (unsigned state = 0; state < local.size(); ++state)
+              if (local[state] && local[state] != previous[state])
+                local[state] = merge(previous[state], continuation, local[state]);
+            for (auto [value, old] : llvm::zip(*next, carried))
+              value = merge(old, continuation, value);
+          }
+          Value stop = nested.lookup(step.getBreakIf());
+          auto selection = addControl("branch_select", step, stop);
+          if (failed(selection))
+            return failure();
+          Value keepGoing = known(stop, false);
+          continuation = binary("and", continuation, keepGoing);
+          sampled->path = sampled->path
+              ? binary("and", sampled->path, keepGoing) : keepGoing;
+          sampled->pathIdentity = builder.getDictionaryAttr({
+              builder.getNamedAttr("selection", builder.getI64IntegerAttr(*selection)),
+              builder.getNamedAttr("when_true", builder.getBoolAttr(false))});
+        }
         carried = std::move(*next);
+      }
+      if (step.getBreakIf() && count) {
+        sampled->path = parentPath;
+        sampled->pathIdentity = parentPathIdentity;
       }
       for (auto [result, value] :
            llvm::zip(loop.getResults().drop_back(), carried))
         mapping.map(result, value);
-      mapping.map(loop.getResults().back(), one);
+      mapping.map(loop.getResults().back(), step.getBreakIf() ? continuation : one);
     } else if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       mapping.map(read.getValue(), local[plan.stateAccesses.lookup(read)]);
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
@@ -1214,13 +1269,11 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       local[target] = value;
       localIntents[target] = one;
     } else if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
-      if (effect.getKind() == "assert") {
-        sampled->assertionConditions.try_emplace(effect,
-            mapping.lookup(effect.getValues().front()));
-      } else {
-        auto &values = sampled->observationValues[effect];
-        for (Value value : effect.getValues()) values.push_back(mapping.lookup(value));
-      }
+      auto &snapshot = sampled->effects[effect];
+      snapshot.path = sampled->path;
+      snapshot.pathIdentity = sampled->pathIdentity;
+      for (Value value : effect.getValues())
+        snapshot.values.push_back(mapping.lookup(value));
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto captured = plan.guardedCaptureUses.find(guard);
           captured != plan.guardedCaptureUses.end()) {
@@ -1264,6 +1317,7 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         sampled->pathIdentity = builder.getDictionaryAttr({
             builder.getNamedAttr("selection", builder.getI64IntegerAttr(*selection)),
             builder.getNamedAttr("when_true", builder.getBoolAttr(true))});
+        sampled->rawAncestors.push_back(predicate);
       }
       SmallVector<Value> thenState(local), thenIntents(localIntents);
       auto thenValues = lowerBody(branch.getThenBody().front(), {}, thenState,
@@ -1271,6 +1325,9 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       if (failed(thenValues))
         return failure();
       if (selection) {
+        sampled->rawAncestors.back() = make(ac::BitsUnaryOp::getOperationName(),
+            {predicate}, {bit}, {
+            builder.getNamedAttr("opcode", builder.getStringAttr("not"))})->getResult(0);
         sampled->path = known(predicate, false);
         if (parentPath)
           sampled->path = binary("and", parentPath, sampled->path);
@@ -1284,6 +1341,7 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       if (failed(elseValues))
         return failure();
       if (selection) {
+        sampled->rawAncestors.pop_back();
         sampled->path = parentPath;
         sampled->pathIdentity = parentPathIdentity;
       }
@@ -1376,8 +1434,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   SmallVector<std::pair<unsigned, unsigned>> memoryCaptures;
   SmallVector<std::pair<unsigned, unsigned>> fifoCaptures;
-  for (Operation &operation : rule.getBody().front()) {
-    if (auto use = plan.fifoCalls.find(&operation);
+  // Capture physical snapshots once in lexical source order, including Memory
+  // responses consumed by selected nested arms.
+  rule.walk([&](gfir::CallOp operation) {
+    if (auto use = plan.fifoCalls.find(operation);
         use != plan.fifoCalls.end() &&
         llvm::none_of(fifoCaptures, [&](const auto &capture) {
           return capture.first == use->second.fifo;
@@ -1387,18 +1447,18 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       captures.append({fifos[fifo]->getResult(3), fifos[fifo]->getResult(1),
                        fifos[fifo]->getResult(2)});
     }
-    auto use = plan.transactionMemoryCalls.find(&operation);
+    auto use = plan.transactionMemoryCalls.find(operation);
     if (use == plan.transactionMemoryCalls.end() ||
         (use->second.access != gfir::StructuredMemoryAccess::Result &&
          use->second.access != gfir::StructuredMemoryAccess::Read) ||
         llvm::any_of(memoryCaptures, [&](const auto &capture) {
           return capture.first == use->second.memory;
         }))
-      continue;
+      return;
     unsigned memory = use->second.memory;
     memoryCaptures.emplace_back(memory, captures.size());
     llvm::append_range(captures, memories[memory]->getResults());
-  }
+  });
   // External pop controls are dedicated contiguous captures. Use the raw
   // recipient or the distinct consumer's authenticated pop proposal path.
   SmallVector<std::pair<unsigned, unsigned>> externalCaptures;
@@ -1523,15 +1583,17 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   SmallVector<Attribute> observations;
   for (const auto &observation : plan.rules[index].observations) {
     auto effect = observation.operation;
-    auto found = context.observationValues.find(effect);
-    if (found == context.observationValues.end())
+    auto found = context.effects.find(effect);
+    if (found == context.effects.end())
       return effect.emitOpError("missing ordered observation snapshot");
+    const auto &snapshot = found->second;
     observations.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("id", observation.id),
-        builder.getNamedAttr("path", builder.getDictionaryAttr({})),
-        builder.getNamedAttr("value_count", builder.getI64IntegerAttr(found->second.size()))}));
-    yielded.push_back(context.prefix);
-    yielded.append(found->second);
+        builder.getNamedAttr("path", snapshot.pathIdentity),
+        builder.getNamedAttr("value_count", builder.getI64IntegerAttr(snapshot.values.size()))}));
+    yielded.push_back(snapshot.path ? binary("and", context.prefix, snapshot.path)
+                                   : context.prefix);
+    yielded.append(snapshot.values);
   }
   unsigned checkBase = yielded.size();
   if (!context.resources.empty()) {
@@ -1566,9 +1628,10 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   for (auto assertion : assertions) {
     unsigned ordinal = context.checks.size();
     const auto &check = context.plannedChecks[ordinal];
-    Value condition = context.assertionConditions.lookup(assertion);
-    if (!condition)
+    auto found = context.effects.find(assertion);
+    if (found == context.effects.end())
       return assertion.emitOpError("missing ordered assertion condition");
+    const auto &snapshot = found->second;
     context.checks.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("id", check.id),
         builder.getNamedAttr("kind", builder.getStringAttr("assert")),
@@ -1576,8 +1639,9 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     bodyChecks.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("id", check.id),
         builder.getNamedAttr("invocation", builder.getArrayAttr({})),
-        builder.getNamedAttr("path", builder.getDictionaryAttr({}))}));
-    yielded.append({condition, context.prefix});
+        builder.getNamedAttr("path", snapshot.pathIdentity)}));
+    yielded.append({snapshot.values.front(), snapshot.path
+        ? binary("and", context.prefix, snapshot.path) : context.prefix});
   }
   SmallVector<Attribute> queueProposals, queueWriterProposals;
   for (auto &proposal : context.queueProposals) {

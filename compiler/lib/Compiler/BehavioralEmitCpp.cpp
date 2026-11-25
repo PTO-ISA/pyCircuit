@@ -79,6 +79,9 @@ void bindMethodArguments(raw_ostream &out, gfir::MethodOp method,
 std::string observationName(unsigned slot) {
   return "pyc_observation_" + std::to_string(slot);
 }
+std::string observationReachedName(unsigned slot) {
+  return observationName(slot) + "_reached";
+}
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
@@ -715,7 +718,8 @@ private:
                          const gfir::StructuredDefinition &definition,
                          const gfir::StructuredRule *rule = nullptr,
                          const llvm::DenseMap<Value, std::string> *outer = nullptr,
-                         ArrayRef<std::string> stepTargets = {});
+                         ArrayRef<std::string> stepTargets = {},
+                         StringRef stepNatural = {}, StringRef stepOrdinal = {});
   LogicalResult emitLoop(raw_ostream &out, gfir::LoopOp loop,
                          const gfir::StructuredDefinition &definition,
                          const llvm::DenseMap<Value, std::string> &values,
@@ -2600,10 +2604,19 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredDefinition &definition,
                                           const gfir::StructuredRule *rule,
                                           const llvm::DenseMap<Value, std::string> *outer,
-                                          ArrayRef<std::string> stepTargets) {
+                                          ArrayRef<std::string> stepTargets,
+                                          StringRef stepNatural, StringRef stepOrdinal) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
-  unsigned nextObservation = 0, childCallOrdinal = 0;
+  unsigned childCallOrdinal = 0;
+  bool orderedFifo = rule && rule->sampled && !rule->requirements.empty();
+  enum class DemandKind { Boundary, Queue, MemoryLive };
+  struct ReachedControl {
+    unsigned ordinal;
+    DemandKind demand;
+    std::string raw, reached;
+  };
+  SmallVector<ReachedControl> orderedControls;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
@@ -2612,7 +2625,19 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     for (auto [index, value] : llvm::enumerate(yield.getValues()))
       out << "    txn." << resultName(index) << " = " << values.lookup(value) << ";\n";
   };
-  auto requireKnownOne = [&](StringRef predicate, Operation *site) -> LogicalResult {
+  auto requireKnownOne = [&](StringRef predicate, Operation *site,
+                            DemandKind demand = DemandKind::Boundary) -> LogicalResult {
+    if (orderedFifo) {
+      unsigned ordinal = clocked.checkOffsets.lookup(site);
+      auto raw = "pyc_control_" + std::to_string(ordinal);
+      auto reached = raw + "_reached";
+      out << "    const auto " << raw << " = " << predicate << ";\n"
+          << "    const bool " << reached << " = txn.pyc_running;\n"
+          << "    txn.pyc_running = txn.pyc_running && pyc_behavior::isOne("
+          << raw << ");\n";
+      orderedControls.push_back({ordinal, demand, std::move(raw), std::move(reached)});
+      return success();
+    }
     out << "    if (!pyc_behavior::isOne(" << predicate << ")) {\n"
         << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
         << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(site) << ";\n"
@@ -2673,10 +2698,20 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     bool borrow = false;
     if (auto effect = dyn_cast<gfir::EffectOp>(op)) {
       if (effect.getKind() == "assert") {
-        out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
+        unsigned ordinal = clocked.checkOffsets.lookup(effect);
+        out << "    txn.pyc_assert_reached_" << ordinal << " = true;\n"
+            << "    txn.pyc_assert_condition_" << ordinal
             << " = " << args.front() << ";\n";
       } else {
-        unsigned slot = rule->observations[nextObservation++].firstSlot;
+        const gfir::StructuredObservation *observation = nullptr;
+        for (const auto &owner : clocked.rules)
+          for (const auto &candidate : owner.observations)
+            if (candidate.operation == effect)
+              observation = &candidate;
+        if (!observation)
+          return effect.emitOpError("missing verified observation slot");
+        unsigned slot = observation->firstSlot;
+        out << "    txn." << observationReachedName(slot) << " = true;\n";
         for (const auto &argument : args)
           out << "    txn." << observationName(slot++) << " = " << argument << ";\n";
       }
@@ -2684,6 +2719,13 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     } else if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
       if (failed(emitLoop(out, loop, definition, values, results)))
         return failure();
+      if (cast<gfir::StepOp>(loop.getBody().front().getTerminator()).getBreakIf() &&
+          loop.getTripCountAttr().getInt() != 0) {
+        out << "    if (!txn.pyc_running) { ";
+        if (failed(emitBlockedReturn(out, body, ruleResults)))
+          return failure();
+        out << "    }\n";
+      }
       continue;
     } else if (auto ordinal = dyn_cast<gfir::OrdinalBitsOp>(op)) {
       auto type = typedWire(ordinal.getValue().getType(), ordinal);
@@ -2692,10 +2734,22 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         return failure();
       text = *type + "::known(gfsim::Bits<" + std::to_string(*width) + ">{" +
              values.lookup(ordinal.getOrdinal()) + "})";
-    } else if (isa<gfir::StepOp>(op)) {
+    } else if (auto step = dyn_cast<gfir::StepOp>(op)) {
       if (!stepTargets.empty())
-        out << "    {\n      const auto pyc_next = std::tuple{" << join(args, ", ")
+        out << "    {\n      const auto pyc_next = std::tuple{"
+            << join(ArrayRef<std::string>(args).take_front(step.getValues().size()), ", ")
             << "};\n      std::tie(" << join(stepTargets, ", ") << ") = pyc_next;\n    }\n";
+      if (step.getBreakIf()) {
+        auto predicate = values.lookup(step.getBreakIf());
+        out << "    if (!" << predicate << ".isFullyKnown()) {\n"
+            << "      if (txn.pyc_check_active) txn.pyc_failed_check = pyc_check_base + "
+            << clocked.checkOffsets.lookup(step) << " + " << stepOrdinal << ";\n"
+               "      txn.pyc_running = false;\n"
+            << "      " << stepNatural << " = " << levelName << "(false);\n"
+               "      break;\n    }\n"
+            << "    if (pyc_behavior::isOne(" << predicate << ")) { "
+            << stepNatural << " = " << levelName << "(false); break; }\n";
+      }
       continue;
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto capture = clocked.guardedCaptureUses.find(guard);
@@ -2782,14 +2836,27 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           return failure();
         if (use.access == gfir::StructuredMemoryAccess::Read) {
           out << "    txn." << memoryPinName(use.memory, 0, 0) << " = " << args.front() << ";\n"
-              << "    txn." << memoryPinName(use.memory, 0, 3) << " = true;\n";
-          text = *name + ".read(" + args.front() + ")";
+              << "    txn." << memoryPinName(use.memory, 0, 3) << " = "
+              << (orderedFifo ? "txn.pyc_running" : "true") << ";\n";
+          auto address = args.front();
+          if (orderedFifo) {
+            auto width = std::to_string(memory.addressWidth);
+            address = "(txn.pyc_running ? " + address +
+                " : gfsim::wire<gfsim::Bits<" + width + ">>::known(gfsim::Bits<" + width + ">{0}))";
+          }
+          text = *name + ".read(" + address + ")";
         } else if (use.access == gfir::StructuredMemoryAccess::Result) {
-          out << "    if (!pyc_behavior::isOne(" << *name << ".live(" << use.port
-              << "))) { txn.pyc_running = false; ";
-          if (failed(emitBlockedReturn(out, body, ruleResults)))
-            return failure();
-          out << " }\n";
+          if (orderedFifo) {
+            if (failed(requireKnownOne(*name + ".live(" + std::to_string(use.port) + ")",
+                                       call, DemandKind::MemoryLive)))
+              return failure();
+          } else {
+            out << "    if (!pyc_behavior::isOne(" << *name << ".live(" << use.port
+                << "))) { txn.pyc_running = false; ";
+            if (failed(emitBlockedReturn(out, body, ruleResults)))
+              return failure();
+            out << " }\n";
+          }
           text = *name + ".result(" + std::to_string(use.port) + ")";
         } else {
           // Typed local arguments are total. Payload knownness belongs to the
@@ -2797,7 +2864,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           unsigned port = use.access == gfir::StructuredMemoryAccess::Write ? 2 : use.port;
           for (auto [argument, value] : llvm::enumerate(args))
             out << "    txn." << memoryPinName(use.memory, port, argument) << " = " << value << ";\n";
-          out << "    txn." << memoryPinName(use.memory, port, 3) << " = true;\n";
+          out << "    txn." << memoryPinName(use.memory, port, 3) << " = "
+              << (orderedFifo ? "txn.pyc_running" : "true") << ";\n";
           continue;
         }
       } else {
@@ -2826,7 +2894,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
               out << ".valid()";
             }
             out << ";\n";
-            if (failed(requireKnownOne(available, call)))
+            if (failed(requireKnownOne(available, call, DemandKind::Queue)))
               return failure();
           }
           // Reads use old Q. Payload writes are staged in the caller's frame.
@@ -2931,6 +2999,28 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       out << "    }\n";
     }
   }
+  if (orderedFifo) {
+    // Match the independently verified HWIR diagnostic demand. Continue only
+    // private value/candidate work after a failed control, retaining each actual
+    // source-point reach. A later unavailable Queue can suppress an earlier
+    // unknown Queue, but an explicit false/unknown guard preserves diagnostics.
+    out << "    auto pyc_resource_demand = " << levelName << "(true);\n";
+    for (const auto &control : llvm::reverse(orderedControls)) {
+      if (control.demand == DemandKind::Queue)
+        out << "    pyc_resource_demand = pyc_behavior::Level::fromPacked(gfsim::bit_and("
+            << control.raw << ".packed(), pyc_resource_demand.packed()));\n";
+      else if (control.demand == DemandKind::Boundary)
+        out << "    if (!pyc_behavior::isOne(" << control.raw
+            << ")) pyc_resource_demand = " << levelName << "(true);\n";
+    }
+    out << "    if (txn.pyc_check_active && (!pyc_resource_demand.isFullyKnown() || "
+           "pyc_resource_demand.value().toBool())) {\n";
+    for (auto [index, control] : llvm::enumerate(orderedControls))
+      out << "      " << (index ? "else " : "") << "if (" << control.reached
+          << " && !" << control.raw << ".isFullyKnown()) txn.pyc_failed_check = "
+          << "pyc_check_base + " << control.ordinal << ";\n";
+    out << "    }\n";
+  }
   if (coldSuffix)
     out << "    });\n";
   return success();
@@ -2949,6 +3039,10 @@ LogicalResult BehavioralEmitter::emitLoop(
     out << "    " << *type << ' ' << name << " = " << values.lookup(initial) << ";\n";
   }
   uint64_t count = loop.getTripCountAttr().getInt();
+  auto step = cast<gfir::StepOp>(loop.getBody().front().getTerminator());
+  bool canBreak = static_cast<bool>(step.getBreakIf());
+  if (canBreak)
+    out << "    auto " << results.back() << " = " << levelName << "(true);\n";
   if (count) {
     auto ordinal = "pyc_ordinal_" + std::to_string(nextLoop++);
     out << "    for (std::uint64_t " << ordinal << " = 0; " << ordinal << " < "
@@ -2960,11 +3054,13 @@ LogicalResult BehavioralEmitter::emitLoop(
          llvm::zip(body.getArguments().drop_front(), results.drop_back()))
       iteration.try_emplace(argument, name);
     if (failed(emitBody(out, body, definition, nullptr, &iteration,
-                        results.drop_back())))
+                        results.drop_back(), canBreak ? StringRef(results.back()) : StringRef{},
+                        ordinal)))
       return failure();
     out << "    }\n";
   }
-  out << "    const auto " << results.back() << " = " << levelName << "(true);\n";
+  if (!canBreak)
+    out << "    const auto " << results.back() << " = " << levelName << "(true);\n";
   return success();
 }
 
@@ -3148,12 +3244,15 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
           << "    bool pyc_check_active = false;\n";
-    for (auto assertion : rule.assertions)
-      out << "    pyc_behavior::Level pyc_assert_condition_"
-          << clocked.checkOffsets.lookup(assertion) << ";\n";
+    for (auto assertion : rule.assertions) {
+      unsigned ordinal = clocked.checkOffsets.lookup(assertion);
+      out << "    bool pyc_assert_reached_" << ordinal << " = false;\n"
+          << "    pyc_behavior::Level pyc_assert_condition_" << ordinal << ";\n";
+    }
     for (const auto &observation : rule.observations) {
       auto effect = observation.operation;
       unsigned slot = observation.firstSlot;
+      out << "    bool " << observationReachedName(slot) << " = false;\n";
       for (Value value : effect.getValues()) {
         auto type = typedWire(value.getType(), effect);
         if (failed(type))
@@ -3353,7 +3452,8 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
   for (auto assertion : rule.assertions) {
     unsigned ordinal = definition.clocked->checkOffsets.lookup(assertion);
     out << "    {\n      const auto pyc_error = gfsim::bit_and(gfsim::bit_and("
-        << levelName << '(' << frameName(index) << ".pyc_running).packed(), "
+        << levelName << '(' << frameName(index) << ".pyc_running && "
+        << frameName(index) << ".pyc_assert_reached_" << ordinal << ").packed(), "
            "gfsim::bit_not(pyc_reset.packed())), gfsim::bit_not("
         << frameName(index) << ".pyc_assert_condition_" << ordinal << ".packed()));\n"
         << "      " << assertionName(index, ordinal)
@@ -3366,6 +3466,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     for (const auto &observation : rule.observations) {
       auto effect = observation.operation;
       unsigned slot = observation.firstSlot;
+      out << "      if (" << frame << '.' << observationReachedName(slot) << ") {\n";
       auto stage = [&](StringRef packed, bool eventBool) {
         out << "      pyc_sink->slots->StagePacked(pyc_observation_base + " << slot++
             << ", " << packed << ", " << (eventBool ? "true" : "false")
@@ -3373,6 +3474,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
       };
       if (effect.getValues().empty()) {
         stage("pyc_behavior::level(true).packed()", true);
+        out << "      }\n";
         continue;
       }
       for (Value value : effect.getValues()) {
@@ -3382,6 +3484,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
         stage(frame + "." + observationName(slot) + ".packed()",
               effect.getKind() == "log" && *width == 1);
       }
+      out << "      }\n";
     }
     out << "    }\n";
   }

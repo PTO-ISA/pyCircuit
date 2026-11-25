@@ -520,6 +520,9 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         uses.states.append(iteration.states.begin(), iteration.states.end());
         uses.writes.append(iteration.writes.begin(), iteration.writes.end());
         uses.hasFieldWrites |= iteration.hasFieldWrites;
+        uses.sampledControls = ac::detail::SourceCheckBudget::add(
+            uses.sampledControls,
+            ac::detail::SourceCheckBudget::multiply(count, iteration.sampledControls));
       }
     } else if (auto ordinal = dyn_cast<OrdinalBitsOp>(op)) {
       if (!isLoop || failed(verifyAttributes(ordinal, {})))
@@ -558,8 +561,6 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       } else if (call.getReceiverAttr()) {
         if (call.getBindingsAttr())
           return call.emitOpError("writable formals require an ordinary Method receiver");
-        if (isArm)
-          return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
           return call.emitOpError("native resource access is limited to a Rule in this profile");
         auto memory = memories.find(call.getReceiverAttr().getRootReference().getValue());
@@ -567,16 +568,19 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
           if (failed(bindTransactionMemory(call, memory->second, *rule)))
             return failure();
           uses.sampledControls += std::max<unsigned>(1, call.getInputs().size());
-        } else if (failed(bindFifo(call, rule, popped))) {
-          return failure();
+        } else {
+          if (isArm)
+            return call.emitOpError("conditional FIFO calls require selected admission");
+          if (failed(bindFifo(call, rule, popped)))
+            return failure();
         }
       } else if (failed(bindMethod(call, uses))) {
         return failure();
       }
     } else if (auto effect = dyn_cast<EffectOp>(op)) {
-      if (!rule || owner != plan.rules[*rule].operation ||
+      if (!rule || (!isArm && owner != plan.rules[*rule].operation) ||
           failed(verifyAttributes(effect, {"kind", "message", "spec"})))
-        return effect.emitOpError("effect requires a direct Rule body");
+        return effect.emitOpError("effect requires a Rule body or selected arm");
       auto &record = plan.rules[*rule];
       if (effect.getKind() == "assert") {
         if (!isBitOne(hardware, effect.getValues().front().getType(), effect))
@@ -622,10 +626,14 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       unsigned firstWrite = uses.writes.size();
       size_t firstCall = uses.methods.size();
       uint64_t earlierControls = uses.sampledControls;
+      size_t firstObservation = rule ? plan.rules[*rule].observations.size() : 0;
+      size_t firstAssertion = rule ? plan.rules[*rule].assertions.size() : 0;
       for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
         if (failed(verifyBody(branch, arm->front(), uses, rule)))
           return failure();
-      if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls) {
+      if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls ||
+          (rule && (plan.rules[*rule].observations.size() != firstObservation ||
+                    plan.rules[*rule].assertions.size() != firstAssertion))) {
         plan.checkedBranches.insert(branch);
         ++uses.sampledControls;
       }
@@ -637,7 +645,15 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       written.erase(std::unique(written.begin(), written.end()), written.end());
       plan.conditionalWrites.insert(written.begin(), written.end());
       plan.branchWrites.try_emplace(branch, std::move(written));
-    } else if (isa<YieldOp, StepOp>(op)) {
+    } else if (auto step = dyn_cast<StepOp>(op)) {
+      if (failed(verifyAttributes(step, {"operandSegmentSizes"})))
+        return failure();
+      if (step.getBreakIf()) {
+        if (!isBitOne(hardware, step.getBreakIf().getType(), step))
+          return step.emitOpError("break_if requires one bit");
+        ++uses.sampledControls;
+      }
+    } else if (isa<YieldOp>(op)) {
       if (failed(verifyAttributes(&op, {})))
         return failure();
     } else {
@@ -752,9 +768,15 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
           return childStates[receiver].writer == index;
         });
     if (!rule.assertions.empty() || !rule.observations.empty()) {
-      for (Operation &op : rule.operation.getBody().front())
-        if (isa<CallOp, IfOp, LoopOp>(op))
-          return op.emitOpError("effect Rule requires a direct ordered body");
+      auto unsupported = rule.operation.walk([&](Operation *op) {
+        if (isa<CallOp, LoopOp>(op)) {
+          op->emitOpError("effect Rule supports selected effects without calls or loops");
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (unsupported.wasInterrupted())
+        return failure();
       rule.sampled = true;
     }
     if (!rule.requirements.empty() && (rule.sampled || !rule.resultUses.empty())) {
@@ -792,7 +814,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
       continue;
     for (Operation &op : rule.operation.getBody().front())
       if (isa<IfOp, LoopOp>(op) ||
-          (isa<CallOp>(op) && !plan.fifoCalls.contains(&op)))
+          (isa<CallOp>(op) && !plan.fifoCalls.contains(&op) &&
+           !plan.transactionMemoryCalls.contains(&op)))
         return op.emitOpError("ordered FIFO admission requires a direct Rule body");
   }
   return success();
@@ -829,11 +852,14 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
     return failure();
 
   SmallVector<uint64_t> methodSizes(plan.methods.size());
+  std::optional<std::pair<LoopOp, uint64_t>> activeIteration;
   auto visit = [&](auto &&recurse, Block &body, auto &&onCheck, auto &&onCall) -> void {
     for (Operation &op : body) {
       if (plan.guardedCaptureUses.contains(&op))
         onCheck(&op);
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))
+        onCheck(&op);
+      if (auto step = dyn_cast<StepOp>(op); step && step.getBreakIf())
         onCheck(&op);
       if (plan.fifoCalls.contains(&op))
         onCheck(&op);
@@ -846,6 +872,16 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
       if (auto branch = dyn_cast<IfOp>(op)) {
         recurse(recurse, branch.getThenBody().front(), onCheck, onCall);
         recurse(recurse, branch.getElseBody().front(), onCheck, onCall);
+      } else if (auto loop = dyn_cast<LoopOp>(op)) {
+        auto step = cast<StepOp>(loop.getBody().front().getTerminator());
+        if (step.getBreakIf()) {
+          auto saved = activeIteration;
+          for (uint64_t i = 0, count = loop.getTripCountAttr().getInt(); i < count; ++i) {
+            activeIteration = std::pair{loop, i};
+            recurse(recurse, loop.getBody().front(), onCheck, onCall);
+          }
+          activeIteration = saved;
+        }
       }
     }
   };
@@ -890,11 +926,28 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
       return failure();
     rule.checks.reserve(count);
     auto add = [&](Operation *op) {
+      auto occurrence = plan.orderedOccurrences.lookup(op);
+      if (activeIteration) {
+        auto [loop, ordinal] = *activeIteration;
+        auto originalExpansion = occurrence.getAs<ArrayAttr>("expansion");
+        SmallVector<Attribute> expansion(originalExpansion.begin(), originalExpansion.end());
+        expansion.push_back(builder.getDictionaryAttr({
+            builder.getNamedAttr("kind", builder.getStringAttr("iteration")),
+            builder.getNamedAttr("site", plan.orderedOccurrences.lookup(loop).get("site")),
+            builder.getNamedAttr("ordinal", builder.getI64IntegerAttr(ordinal)),
+            builder.getNamedAttr("value", builder.getDictionaryAttr({
+                builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+                builder.getNamedAttr("value", ac::MathIntAttr::get(
+                    builder.getContext(), llvm::APSInt::getUnsigned(ordinal)))}))}));
+        occurrence = builder.getDictionaryAttr({
+            builder.getNamedAttr("site", occurrence.get("site")),
+            builder.getNamedAttr("expansion", builder.getArrayAttr(expansion))});
+      }
       auto id = builder.getDictionaryAttr({
           builder.getNamedAttr("registration", registration),
-          builder.getNamedAttr("check", plan.orderedOccurrences.lookup(op)),
+          builder.getNamedAttr("check", occurrence),
           builder.getNamedAttr("obligation", builder.getI64IntegerAttr(rule.checks.size()))});
-      rule.checks.push_back({id, location(op)});
+      rule.checks.push_back({id, location(op), op});
     };
     add(rule.operation);
     auto expand = [&](auto &&self, Operation *, unsigned method) -> void {
@@ -975,8 +1028,6 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
                           ruleUses[index], unsigned(index))))
       return failure();
   }
-  if (!plan.transactionMemoryCalls.empty() && !plan.fifos.empty())
-    return module.emitOpError("transaction Memory cannot yet combine with native FIFO");
   if (failed(resolveMethodEffects()))
     return failure();
   return std::move(plan);

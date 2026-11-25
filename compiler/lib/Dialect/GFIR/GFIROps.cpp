@@ -612,6 +612,8 @@ LogicalResult StepOp::verify() {
     return emitOpError("must terminate a gfir.loop body");
   if (!llvm::equal(getValues().getTypes(), loop.getInitial().getTypes()))
     return emitOpError("values must exactly match loop carried types");
+  if (getBreakIf() && !isa<ac::BitsType>(getBreakIf().getType()))
+    return emitOpError("break_if requires a Bits predicate");
   return success();
 }
 
@@ -663,8 +665,11 @@ void EffectOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult EffectOp::verify() {
-  if (!isa<RuleOp>((*this)->getParentOp()))
-    return emitOpError("effect requires a direct Rule body");
+  Operation *owner = (*this)->getParentOp();
+  while (isa_and_nonnull<IfOp>(owner))
+    owner = owner->getParentOp();
+  if (!isa_and_nonnull<RuleOp>(owner))
+    return emitOpError("effect requires a Rule body or selected arm");
   if (getKind() == "assert") {
     if (getValues().size() != 1 || !isa<ac::BitsType>(getValues().front().getType()) ||
         getSpecAttr())

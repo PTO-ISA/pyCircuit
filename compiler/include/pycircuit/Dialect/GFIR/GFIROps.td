@@ -137,10 +137,10 @@ def GFIR_LoopOp : GFIR_Op<"loop", [SingleBlock, RecursiveMemoryEffects]> {
   let hasRegionVerifier = 1;
 }
 
-def GFIR_StepOp : GFIR_Op<"step", [Terminator, MemoryEffects<[]>]> {
+def GFIR_StepOp : GFIR_Op<"step", [Terminator, MemoryEffects<[]>, AttrSizedOperandSegments]> {
   let summary = "Carry values to the next fixed-range iteration";
-  let arguments = (ins Variadic<AnyType>:$values);
-  let assemblyFormat = "`(` $values `)` attr-dict `:` `(` type($values) `)`";
+  let arguments = (ins Variadic<AnyType>:$values, Optional<AnyType>:$break_if);
+  let assemblyFormat = "`(` $values `)` attr-dict `:` `(` type($values) `)` (`break_if` $break_if^ `:` type($break_if))?";
   let hasVerifier = 1;
 }
 
