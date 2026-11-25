@@ -2932,8 +2932,23 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
             committed = *owner + "." + stateName(route.state);
             candidate = childCandidateName(bound.slot);
           }
-          out << "    pyc_behavior::BoundState " << place << '{' << committed
-              << ".value(), txn." << candidate << "};\n";
+          std::string owner = "pyc_behavior::BoundState{" + committed +
+                              ".value(), txn." + candidate + "}";
+          unsigned low = bound.projection ? bound.projection->low : 0;
+          if (bound.indexOperand) {
+            auto table = typedWire(bound.table, &op);
+            if (failed(table))
+              return failure();
+            owner = "pyc_behavior::bindRow<" + *table + ", " + std::to_string(low) +
+                    ">(" + owner + ", " + args[*bound.indexOperand] + ")";
+          } else if (bound.projection) {
+            auto type = typedWire(bound.projection->types.back(), &op);
+            if (failed(type))
+              return failure();
+            owner = "pyc_behavior::bindField<" + *type + ", " + std::to_string(low) +
+                    ">(" + owner + ")";
+          }
+          out << "    auto " << place << " = " << owner << ";\n";
           places.emplace_back(bound.formal, std::move(place));
         }
         bindMethodArguments(out, operation, places, args, frame);

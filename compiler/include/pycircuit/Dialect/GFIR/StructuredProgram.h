@@ -111,6 +111,9 @@ struct StructuredFormalBinding {
   unsigned slot;
   bool local;
   bool writes;
+  std::optional<StructuredWritePath> projection;
+  std::optional<unsigned> indexOperand;
+  mlir::Type table;
 };
 
 struct StructuredChildMethod {

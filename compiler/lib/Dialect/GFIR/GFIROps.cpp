@@ -202,21 +202,42 @@ LogicalResult CallOp::verify() {
     return emitOpError("bindings require a nonempty ordered Method call signature");
   auto type = cast<FunctionType>(signature.getValue());
   llvm::SmallDenseSet<unsigned> bound;
+  llvm::SmallDenseSet<unsigned> indexOperands;
+  if (bindings.size() > type.getNumInputs())
+    return emitOpError("bindings exceed the number of Method formals");
+  unsigned ordinary = type.getNumInputs() - bindings.size();
   for (auto raw : bindings) {
     auto binding = dyn_cast<DictionaryAttr>(raw);
     auto index = binding ? binding.getAs<IntegerAttr>("ordinal") : IntegerAttr();
-    if (!binding || binding.size() != 2 || !binding.getAs<SymbolRefAttr>("owner") ||
+    auto fields = binding ? binding.getAs<ArrayAttr>("fields") : ArrayAttr{};
+    auto row = binding ? binding.getAs<IntegerAttr>("index_operand") : IntegerAttr{};
+    if (!binding || binding.size() != 2 + unsigned(bool(fields)) + unsigned(bool(row)) ||
+        !binding.getAs<SymbolRefAttr>("owner") ||
         !index || index.getValue().isNegative() ||
         index.getValue().getActiveBits() > 32 ||
         index.getValue().getZExtValue() >= type.getNumInputs() ||
         !bound.insert(index.getValue().getZExtValue()).second)
       return emitOpError("bindings require distinct formal ordinals and static owners");
+    if (fields && (fields.empty() || llvm::any_of(fields, [](Attribute raw) {
+          auto name = dyn_cast<StringAttr>(raw);
+          return !name || name.getValue().empty();
+        })))
+      return emitOpError("binding fields must name a nonempty Struct path");
+    if (row) {
+      auto operand = row.getValue();
+      if (operand.isNegative() || operand.getActiveBits() > 32 ||
+          operand.getZExtValue() < ordinary || operand.getZExtValue() >= getInputs().size() ||
+          !indexOperands.insert(operand.getZExtValue()).second ||
+          !isa<ac::BitsType>(getInputs()[operand.getZExtValue()].getType()))
+        return emitOpError("binding indices must be distinct typed index operands");
+    }
   }
   SmallVector<Type> supplied;
   for (auto [index, input] : llvm::enumerate(type.getInputs()))
     if (!bound.contains(index))
       supplied.push_back(input);
-  if (!llvm::equal(getInputs().getTypes(), supplied) ||
+  if (getInputs().size() != ordinary + indexOperands.size() ||
+      !llvm::equal(getInputs().take_front(ordinary).getTypes(), supplied) ||
       !llvm::equal(getOutputs().getTypes(), type.getResults()))
     return emitOpError("binding signature disagrees with supplied operands or results");
   return success();
@@ -258,6 +279,8 @@ ParseResult CallOp::parse(OpAsmParser &parser, OperationState &result) {
     return failure();
   SmallVector<Attribute> bindings;
   llvm::SmallDenseSet<unsigned> bound;
+  SmallVector<OpAsmParser::UnresolvedOperand> indices;
+  SmallVector<Type> indexTypes;
   if (succeeded(parser.parseOptionalKeyword("bindings"))) {
     auto &builder = parser.getBuilder();
     if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&]() -> ParseResult {
@@ -267,9 +290,32 @@ ParseResult CallOp::parse(OpAsmParser &parser, OperationState &result) {
             return failure();
           if (!bound.insert(ordinal).second)
             return parser.emitError(parser.getCurrentLocation(), "duplicate writable formal");
-          bindings.push_back(builder.getDictionaryAttr({
+          SmallVector<NamedAttribute> row{
               builder.getNamedAttr("ordinal", builder.getI64IntegerAttr(ordinal)),
-              builder.getNamedAttr("owner", owner)}));
+              builder.getNamedAttr("owner", owner)};
+          SmallVector<Attribute> fields;
+          while (succeeded(parser.parseOptionalLSquare())) {
+            std::string field;
+            if (succeeded(parser.parseOptionalString(&field))) {
+              if (parser.parseRSquare())
+                return failure();
+              fields.push_back(builder.getStringAttr(field));
+              continue;
+            }
+            OpAsmParser::UnresolvedOperand index;
+            Type type;
+            if (parser.parseOperand(index) || parser.parseColonType(type) ||
+                parser.parseRSquare())
+              return failure();
+            row.push_back(builder.getNamedAttr("index_operand",
+                builder.getI64IntegerAttr(inputs.size() + indices.size())));
+            indices.push_back(index);
+            indexTypes.push_back(type);
+            break;
+          }
+          if (!fields.empty())
+            row.push_back(builder.getNamedAttr("fields", builder.getArrayAttr(fields)));
+          bindings.push_back(builder.getDictionaryAttr(row));
           return success();
         }))
       return failure();
@@ -283,6 +329,8 @@ ParseResult CallOp::parse(OpAsmParser &parser, OperationState &result) {
     if (!bound.contains(index))
       supplied.push_back(input);
   if (parser.resolveOperands(inputs, supplied, parser.getCurrentLocation(), result.operands))
+    return failure();
+  if (parser.resolveOperands(indices, indexTypes, parser.getCurrentLocation(), result.operands))
     return failure();
   if (!bindings.empty()) {
     result.addAttribute("bindings", parser.getBuilder().getArrayAttr(bindings));
@@ -303,20 +351,35 @@ void CallOp::print(OpAsmPrinter &printer) {
     printer.printAttributeWithoutType(interface);
     printer << ']';
   }
-  printer << '(' << getInputs() << ')';
-  if (auto bindings = getBindingsAttr()) {
+  auto bindings = getBindingsAttr();
+  auto signature = getBindingTypeAttr();
+  unsigned ordinary = bindings ? cast<FunctionType>(signature.getValue()).getNumInputs() -
+                                    bindings.size()
+                               : getInputs().size();
+  printer << '(' << getInputs().take_front(ordinary) << ')';
+  if (bindings) {
     printer << " bindings(";
     llvm::interleaveComma(bindings, printer, [&](Attribute raw) {
       auto binding = cast<DictionaryAttr>(raw);
       printer << binding.getAs<IntegerAttr>("ordinal").getInt() << " = ";
       printer.printAttributeWithoutType(binding.getAs<SymbolRefAttr>("owner"));
+      if (auto fields = binding.getAs<ArrayAttr>("fields"))
+        for (auto field : fields) {
+          printer << '[';
+          printer.printAttributeWithoutType(field);
+          printer << ']';
+        }
+      if (auto row = binding.getAs<IntegerAttr>("index_operand")) {
+        auto index = getInputs()[row.getValue().getZExtValue()];
+        printer << '[' << index << " : " << index.getType() << ']';
+      }
     });
     printer << ')';
   }
   printer.printOptionalAttrDict((*this)->getAttrs(),
                                 {"receiver", "interface", "bindings", "binding_type"});
   printer << " : ";
-  if (auto signature = getBindingTypeAttr())
+  if (signature)
     printer << signature.getValue();
   else
     printer.printFunctionalType(getInputs().getTypes(), getOutputs().getTypes());

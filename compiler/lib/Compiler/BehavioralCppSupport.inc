@@ -2,6 +2,7 @@
 // Compiler-owned adapters emitted into the structured GFIR C++ support header.
 constexpr llvm::StringLiteral behavioralValueSupport = R"cpp(#include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace pyc_behavior {
 
@@ -359,6 +360,11 @@ template <class Wire> struct BoundState {
 
   const Wire &value() const noexcept { return candidate ? *candidate : committed; }
   void write(const Wire &next) noexcept { candidate = next; }
+  Wire &edit() noexcept {
+    if (!candidate)
+      candidate.emplace(committed);
+    return *candidate;
+  }
 };
 
 template <std::size_t Size, class T>
@@ -453,12 +459,47 @@ void replacePackedRows(wire<State> &state, unsigned low,
   state.assignSlice(low, pack(rows));
 }
 
+template <class Field, unsigned Low, class Whole> struct BoundField {
+  BoundState<Whole> owner;
+  Field value() const noexcept {
+    return unpack<Field>(slice<Field::width>(pack(owner.value()), Low));
+  }
+  void write(const Field &next) noexcept { owner.edit().assignSlice(Low, pack(next)); }
+};
+
+template <class Field, unsigned Low, class Whole>
+auto bindField(BoundState<Whole> owner) noexcept {
+  return BoundField<Field, Low, Whole>{owner};
+}
+
+template <class Table, unsigned Low, class Whole, class Index> struct BoundRow {
+  using Row = wire<typename Table::element_type>;
+  BoundState<Whole> owner;
+  Index index;
+
+  Row value() const noexcept {
+    if constexpr (std::is_same_v<Whole, Table>)
+      return std::get<0>(lookup(owner.value(), index));
+    else
+      return std::get<0>(lookupPacked<Table>(owner.value().packed(), Low, index));
+  }
+  void write(const Row &next) noexcept {
+    if constexpr (std::is_same_v<Whole, Table>)
+      replace(owner.edit(), index, next);
+    else
+      replacePackedRows<Table>(owner.edit(), Low, index, next);
+  }
+};
+
+template <class Table, unsigned Low, class Whole, class Index>
+auto bindRow(BoundState<Whole> owner, const Index &index) noexcept {
+  return BoundRow<Table, Low, Whole, Index>{owner, index};
+}
+
 } // namespace pyc_behavior
 )cpp";
 
-constexpr llvm::StringLiteral behavioralRecordSupport = R"cpp(#include <type_traits>
-
-namespace pyc_behavior {
+constexpr llvm::StringLiteral behavioralRecordSupport = R"cpp(namespace pyc_behavior {
 
 template <class Wire, class Layout> class RecordState {
 public:

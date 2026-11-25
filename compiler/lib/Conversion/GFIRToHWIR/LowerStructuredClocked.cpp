@@ -108,9 +108,15 @@ private:
   FailureOr<Value> indexedWrite(Value previous, Value index, Value replacement);
   LogicalResult bindStorage();
   LogicalResult bindObservations();
-  FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call, const gfir::StructuredChildMethod &invocation, unsigned methodIndex,
+  struct MethodPlace {
+    unsigned slot;
+    const gfir::StructuredWritePath *projection = nullptr;
+    Value index;
+  };
+  FailureOr<SmallVector<Value>> lowerChildMethod(
+      gfir::CallOp call, const gfir::StructuredChildMethod &invocation, unsigned methodIndex,
       SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping,
-      ArrayRef<std::pair<unsigned, unsigned>> forwarded = {});
+      ArrayRef<std::pair<unsigned, MethodPlace>> forwarded = {});
   DictionaryAttr localStateID(Operation *storage);
   DictionaryAttr childStateID(unsigned receiver);
   FailureOr<Value> availability(const gfir::StructuredAvailability &sources);
@@ -1048,89 +1054,107 @@ FailureOr<Value> ClockedMaterializer::indexedWrite(Value previous, Value index,
   return mapped->getResult(0);
 }
 
-FailureOr<SmallVector<Value>>
-ClockedMaterializer::lowerChildMethod(gfir::CallOp call, const gfir::StructuredChildMethod &invocation, unsigned methodIndex,
+FailureOr<SmallVector<Value>> ClockedMaterializer::lowerChildMethod(
+    gfir::CallOp call, const gfir::StructuredChildMethod &invocation, unsigned methodIndex,
     SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping,
-    ArrayRef<std::pair<unsigned, unsigned>> forwarded) {
-  const auto &child = program.definitions[invocation.definition];
-  auto stateSlot = [&](unsigned state) -> std::optional<unsigned> {
-    for (auto [ordinal, receiver] : invocation.states)
-      if (ordinal == state) {
-        auto slot = childSlots.find(receiver);
-        if (slot != childSlots.end()) return slot->second;
-      }
-    return {};
-  };
-  auto method = child.clocked->methods[methodIndex];
-  auto boundSlot = [&](unsigned ordinal) -> std::optional<unsigned> {
+    ArrayRef<std::pair<unsigned, MethodPlace>> forwarded) {
+  const auto &child = *program.definitions[invocation.definition].clocked;
+  auto method = child.methods[methodIndex];
+  auto boundPlace = [&](unsigned ordinal) -> std::optional<MethodPlace> {
     if (!call.getBindingsAttr())
       return std::nullopt;
     if (!forwarded.empty()) {
-      for (auto [formal, slot] : forwarded)
+      for (const auto &[formal, place] : forwarded)
         if (formal == ordinal)
-          return slot;
+          return place;
       return std::nullopt;
     }
-    for (const auto &bound : invocation.formals)
-      if (bound.formal == ordinal)
-        return bound.local ? bound.slot : childSlots.lookup(bound.slot);
+    for (const auto &bound : invocation.formals) {
+      if (bound.formal != ordinal)
+        continue;
+      return MethodPlace{bound.local ? bound.slot : childSlots.lookup(bound.slot),
+                         bound.projection ? &*bound.projection : nullptr,
+                         bound.indexOperand ? mapping.lookup(call.getInputs()[*bound.indexOperand])
+                                            : Value{}};
+    }
     return std::nullopt;
   };
-  auto accessSlot = [&](Operation *op) {
-    auto formal = child.clocked->formalAccesses.find(op);
-    return formal == child.clocked->formalAccesses.end()
-        ? stateSlot(child.clocked->stateAccesses.lookup(op)) : boundSlot(formal->second);
+  auto statePlace = [&](Operation *op) -> std::optional<MethodPlace> {
+    auto formal = child.formalAccesses.find(op);
+    if (formal != child.formalAccesses.end())
+      return boundPlace(formal->second);
+    for (auto [ordinal, receiver] : invocation.states)
+      if (ordinal == child.stateAccesses.lookup(op))
+        return MethodPlace{childSlots.lookup(receiver), nullptr, {}};
+    return std::nullopt;
+  };
+  auto project = [&](Value value, const gfir::StructuredWritePath *path) {
+    if (path)
+      for (auto [field, type] : llvm::zip(path->fields, path->types))
+        value = make(ac::StructGetOp::getOperationName(), {value}, {type}, {
+            builder.getNamedAttr("field", field)})->getResult(0);
+    return value;
+  };
+  auto readPlace = [&](const MethodPlace &place) {
+    Value value = project(local[place.slot], place.projection);
+    if (place.index)
+      value = make(ac::TableGetOp::getOperationName(), {value, place.index},
+                   {cast<ac::TableType>(value.getType()).getElementType(), bit})->getResult(0);
+    return value;
   };
   IRMapping nested;
   unsigned supplied = 0;
   for (BlockArgument argument : method.getBody().front().getArguments()) {
-    auto slot = boundSlot(argument.getArgNumber());
-    nested.map(argument, slot ? local[*slot] : mapping.lookup(call.getInputs()[supplied++]));
+    auto place = boundPlace(argument.getArgNumber());
+    nested.map(argument, place ? readPlace(*place) : mapping.lookup(call.getInputs()[supplied++]));
   }
   for (Operation &op : method.getBody().front()) {
     if (auto yield = dyn_cast<gfir::YieldOp>(op)) {
       SmallVector<Value> results;
-      for (Value value : yield.getValues()) results.push_back(nested.lookup(value));
+      for (Value value : yield.getValues())
+        results.push_back(nested.lookup(value));
       return results;
     }
     if (auto read = dyn_cast<gfir::ReadOp>(op)) {
-      auto slot = accessSlot(read);
-      if (!slot) return read.emitOpError("missing verified child state slot");
-      nested.map(read.getValue(), local[*slot]);
+      auto place = statePlace(read);
+      if (!place)
+        return read.emitOpError("missing verified child state slot");
+      nested.map(read.getValue(), readPlace(*place));
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
-      auto slot = accessSlot(write);
-      if (!slot) return write.emitOpError("missing verified child state slot");
+      auto place = statePlace(write);
+      if (!place)
+        return write.emitOpError("missing verified child state slot");
+      if (auto path = child.writePaths.find(write); path != child.writePaths.end())
+        place->projection = &path->second;
+      if (write.getIndex())
+        place->index = nested.lookup(write.getIndex());
+      auto &current = local[place->slot];
       Value value = nested.lookup(write.getValue());
-      Value previous = local[*slot];
-      auto path = child.clocked->writePaths.find(write);
-      if (path != child.clocked->writePaths.end())
-        for (auto [field, type] : llvm::zip(path->second.fields, path->second.types))
-          previous = make(ac::StructGetOp::getOperationName(), {previous}, {type}, {
-              builder.getNamedAttr("field", field)})->getResult(0);
-      if (write.getIndex()) {
-        auto next = indexedWrite(previous, nested.lookup(write.getIndex()), value);
-        if (failed(next)) return failure();
+      if (place->index) {
+        auto next = indexedWrite(project(current, place->projection), place->index, value);
+        if (failed(next))
+          return failure();
         value = *next;
       }
-      if (path != child.clocked->writePaths.end())
-        value = make(ac::ValueMergeOp::getOperationName(), {local[*slot], one, value},
-            {local[*slot].getType(), bit}, {
-            builder.getNamedAttr("paths", builder.getArrayAttr({path->second.fields})),
+      if (place->projection)
+        value = make(ac::ValueMergeOp::getOperationName(), {current, one, value},
+            {current.getType(), bit}, {
+            builder.getNamedAttr("paths", builder.getArrayAttr({place->projection->fields})),
             builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))})->getResult(0);
-      local[*slot] = value;
-      localIntents[*slot] = one;
+      current = value;
+      localIntents[place->slot] = one;
     } else if (auto invoke = dyn_cast<gfir::CallOp>(op)) {
-      SmallVector<std::pair<unsigned, unsigned>> nextBindings;
-      if (auto forwarding = child.clocked->forwardedFormals.find(invoke);
-          forwarding != child.clocked->forwardedFormals.end()) {
+      SmallVector<std::pair<unsigned, MethodPlace>> nextBindings;
+      if (auto forwarding = child.forwardedFormals.find(invoke);
+          forwarding != child.forwardedFormals.end()) {
         for (auto [formal, actual] : forwarding->second) {
-          auto slot = boundSlot(actual);
-          if (!slot)
+          auto place = boundPlace(actual);
+          if (!place)
             return invoke.emitOpError("missing verified forwarded formal slot");
-          nextBindings.emplace_back(formal, *slot);
+          nextBindings.emplace_back(formal, *place);
         }
       }
-      auto results = lowerChildMethod(invoke, invocation, child.clocked->methodCalls.lookup(invoke),
+      auto results = lowerChildMethod(invoke, invocation, child.methodCalls.lookup(invoke),
                                       local, localIntents, nested, nextBindings);
       if (failed(results))
         return failure();
