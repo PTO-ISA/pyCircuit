@@ -77,6 +77,7 @@ LogicalResult verifyInitializer(Value root, Operation *site,
 struct BodyUses {
   SmallVector<unsigned> methods, states, writes;
   llvm::SmallDenseSet<unsigned> childStates;
+  llvm::SmallDenseSet<unsigned> poppedFifos;
   uint64_t expandedWork = 0;
   uint64_t sampledControls = 0;
   bool hasFieldWrites = false;
@@ -442,7 +443,7 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
     return failure();
   if (!isArm && !isLoop && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
     return failure();
-  llvm::SmallDenseSet<unsigned> popped;
+  auto &popped = uses.poppedFifos;
   for (BlockArgument argument : block.getArguments().drop_front(isLoop ? 1 : 0))
     if (failed(verifyValueType(hardware, argument.getType(), owner)))
       return failure();
@@ -510,10 +511,10 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
             return failure();
           uses.sampledControls += std::max<unsigned>(1, call.getInputs().size());
         } else {
-          if (isArm)
-            return call.emitOpError("conditional FIFO calls require selected admission");
           if (failed(bindFifo(call, rule, popped)))
             return failure();
+          if (isArm && plan.fifoCalls.lookup(call).access == Access::In)
+            return call.emitOpError("selected FIFO ingress requires proposal merging");
         }
       } else if (failed(bindMethod(call, uses))) {
         return failure();
@@ -569,12 +570,14 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       uint64_t earlierControls = uses.sampledControls;
       size_t firstObservation = rule ? plan.rules[*rule].observations.size() : 0;
       size_t firstAssertion = rule ? plan.rules[*rule].assertions.size() : 0;
+      size_t firstResource = rule ? plan.rules[*rule].requirements.size() : 0;
       for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
         if (failed(verifyBody(branch, arm->front(), uses, rule)))
           return failure();
       if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls ||
           (rule && (plan.rules[*rule].observations.size() != firstObservation ||
-                    plan.rules[*rule].assertions.size() != firstAssertion))) {
+                    plan.rules[*rule].assertions.size() != firstAssertion ||
+                    plan.rules[*rule].requirements.size() != firstResource))) {
         plan.checkedBranches.insert(branch);
         ++uses.sampledControls;
       }
@@ -719,9 +722,37 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     for (auto &fifo : plan.fifos) {
       if (fifo.producer) {
         if (fifo.downstreamPop && !fifo.rawOutput) {
-          if (!fifo.consumer || fifo.consumer == fifo.producer)
+          unsigned index = &fifo - plan.fifos.data();
+          bool earlierPop = fifo.consumer == fifo.producer &&
+              llvm::any_of(plan.rules[*fifo.producer].requirements,
+                  [&](const StructuredRequirement &requirement) {
+                    return requirement.fifo == index && requirement.requiresReady &&
+                           requirement.ownPop;
+                  });
+          if (!fifo.consumer || (fifo.consumer == fifo.producer && !earlierPop))
             return fifo.instance->emitOpError(
-                "ordered downstream FIFO ingress requires a raw recipient or a distinct consuming Rule");
+                "ordered downstream FIFO ingress requires a raw recipient or prior consuming access");
+          if (earlierPop) {
+            auto rule = plan.rules[*fifo.producer].operation;
+            auto selected = rule.walk([&](CallOp call) {
+              auto use = plan.fifoCalls.find(call);
+              if (use == plan.fifoCalls.end() || use->second.fifo != index ||
+                  use->second.access != Access::Out)
+                return WalkResult::advance();
+              auto branch = dyn_cast<IfOp>(call->getParentOp());
+              if (!branch) return WalkResult::advance();
+              auto argument = dyn_cast<BlockArgument>(branch.getPredicate());
+              Value capture = argument && argument.getOwner() == &rule.getBody().front()
+                  ? rule.getCaptures()[argument.getArgNumber()] : Value{};
+              auto input = dyn_cast_if_present<BlockArgument>(capture);
+              if (!input || input.getOwner() != &module.getBody().front()) {
+                branch.emitOpError("selected own-pop credit requires a scalar Module input capture");
+                return WalkResult::interrupt();
+              }
+              return WalkResult::advance();
+            });
+            if (selected.wasInterrupted()) return failure();
+          }
           fifo.localPopCredit = true;
         }
         plan.rules[*fifo.producer].sampled = true;
@@ -742,7 +773,20 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     if (rule.requirements.empty())
       continue;
     for (Operation &op : rule.operation.getBody().front())
-      if (isa<IfOp, LoopOp>(op) ||
+      if (auto branch = dyn_cast<IfOp>(op)) {
+        if (branch.getNumResults())
+          return branch.emitOpError("selected FIFO arms require zero results");
+        for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
+          for (Operation &nested : arm->front()) {
+            if (isa<YieldOp, ReadOp>(nested) || isCombinational(&nested) ||
+                isa<ac::TableGetOp, ac::TableSplatOp>(nested))
+              continue;
+            auto access = plan.fifoCalls.find(&nested);
+            if (access != plan.fifoCalls.end() && access->second.access != Access::In)
+              continue;
+            return nested.emitOpError("selected FIFO arms support values and out/view only");
+          }
+      } else if (isa<LoopOp>(op) ||
           (isa<CallOp>(op) && !plan.fifoCalls.contains(&op) &&
            !plan.transactionMemoryCalls.contains(&op)))
         return op.emitOpError("ordered FIFO admission requires a direct Rule body");

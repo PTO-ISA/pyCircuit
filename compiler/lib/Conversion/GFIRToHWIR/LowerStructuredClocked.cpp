@@ -412,7 +412,7 @@ LogicalResult ClockedMaterializer::lowerFifo(
   auto captured = sampled->fifoOutputs.find(use.fifo);
   if (captured == sampled->fifoOutputs.end())
     return call.emitOpError("missing committed FIFO response captures");
-  Value rawPath = binary("and", one, one);
+  Value rawPath = rawStatementPath();
   const auto &capture = captured->second;
   bool push = use.access == gfir::StructuredFifoAccess::In;
   Value predicate = push ? capture.capacity : capture.valid;
@@ -423,10 +423,19 @@ LogicalResult ClockedMaterializer::lowerFifo(
       if (!capture.external)
         return call.emitOpError("downstream FIFO in requires its actual raw pop capture");
       Value external = builder.getBlock()->getArgument(*capture.external);
-      predicate = binary("or", predicate, binary("and", capture.valid, external));
+      SmallVector<Attribute> priorPops;
+      Value credit;
+      for (auto [ordinal, proposal] : llvm::enumerate(sampled->queueProposals)) {
+        if (proposal.fifo != use.fifo || proposal.data)
+          continue;
+        priorPops.push_back(builder.getI64IntegerAttr(ordinal));
+        credit = credit ? binary("or", credit, proposal.rawPath) : proposal.rawPath;
+      }
+      credit = credit ? binary("or", credit, external) : external;
+      predicate = binary("or", predicate, binary("and", capture.valid, credit));
       prospective.append("valid", builder.getI64IntegerAttr(capture.first + 1));
       prospective.append("external_pop", builder.getI64IntegerAttr(*capture.external));
-      prospective.append("prior_pops", builder.getArrayAttr({}));
+      prospective.append("prior_pops", builder.getArrayAttr(priorPops));
     }
   }
   Value selected = make(ac::BitsSelectOp::getOperationName(),
@@ -1345,12 +1354,17 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     auto raw = plan.fifos[fifo].rawOutput;
     Value external;
     if (plan.fifos[fifo].localPopCredit) {
-      // readyDependency orders the distinct consuming Rule before this one.
-      // Keep the ancestor input first in the canonical contributor inventory.
-      if (!fifoIncomingPops[fifo] || !fifoPopPaths[fifo])
+      if (!fifoIncomingPops[fifo])
         return rule.emitOpError("missing verified local FIFO pop-credit dependency");
-      fifoPopUnions[fifo] = binary("or", fifoIncomingPops[fifo], fifoPopPaths[fifo]);
-      external = fifoPopUnions[fifo];
+      external = fifoIncomingPops[fifo];
+      if (plan.fifos[fifo].consumer != index) {
+        // A distinct consumer is ordered first by readyDependency. Own prior
+        // pops are instead raw proposal paths inside this Rule's readiness.
+        if (!fifoPopPaths[fifo])
+          return rule.emitOpError("missing verified distinct FIFO pop path");
+        fifoPopUnions[fifo] = binary("or", external, fifoPopPaths[fifo]);
+        external = fifoPopUnions[fifo];
+      }
     } else if (raw) {
       external = graph.lookup(raw.getInputs().front());
     }
@@ -1471,21 +1485,37 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     // can make an earlier diagnostic unreachable; an explicit control preserves
     // the possibility of execution until its own known acceptance is established.
     // Memory snapshots contribute no Queue demand and retain neutral H=one.
-    Value demand = one;
-    for (unsigned ordinal = context.controls.size(); ordinal-- > 0;) {
-      if (auto queue = context.queueDemands.find(ordinal);
-          queue != context.queueDemands.end()) {
-        Value required = binary("and", queue->second, demand);
-        demand = make(ac::BitsSelectOp::getOperationName(),
-            {one, required, demand}, {bit})->getResult(0);
-      } else if (demand != one &&
-                 cast<DictionaryAttr>(context.controls[ordinal])
-                         .getAs<StringAttr>("kind").getValue() != "resource_available") {
-        demand = make(ac::BitsSelectOp::getOperationName(),
-            {known(context.predicates[ordinal], true), demand, one},
-            {bit})->getResult(0);
-      }
+    SmallVector<SmallVector<unsigned>> blocks(1 + 2 * context.controls.size());
+    for (auto [ordinal, raw] : llvm::enumerate(context.controls)) {
+      auto path = cast<DictionaryAttr>(raw).getAs<DictionaryAttr>("path");
+      auto selection = path.getAs<IntegerAttr>("selection");
+      unsigned block = selection ? 1 + 2 * selection.getInt() +
+          (path.getAs<BoolAttr>("when_true").getValue() ? 0 : 1) : 0;
+      blocks[block].push_back(ordinal);
     }
+    auto select = [&](Value raw, Value yes, Value no) {
+      return yes == no ? yes : make(ac::BitsSelectOp::getOperationName(),
+          {raw, yes, no}, {bit})->getResult(0);
+    };
+    std::function<Value(unsigned, Value)> fold = [&](unsigned block, Value demand) {
+      for (unsigned ordinal : llvm::reverse(blocks[block])) {
+        auto kind = cast<DictionaryAttr>(context.controls[ordinal])
+                        .getAs<StringAttr>("kind").getValue();
+        if (kind == "branch_select") {
+          Value yes = fold(1 + 2 * ordinal, demand);
+          Value no = fold(2 + 2 * ordinal, demand);
+          demand = select(context.predicates[ordinal], yes, no);
+        } else if (auto queue = context.queueDemands.find(ordinal);
+                   queue != context.queueDemands.end()) {
+          demand = make(ac::BitsSelectOp::getOperationName(),
+              {one, binary("and", queue->second, demand), demand}, {bit})->getResult(0);
+        } else if (demand != one && kind != "resource_available") {
+          demand = select(known(context.predicates[ordinal], true), demand, one);
+        }
+      }
+      return demand;
+    };
+    Value demand = fold(0, one);
     Value mayExecute = make(ac::BitsUnaryOp::getOperationName(),
         {known(demand, false)}, {bit}, {
         builder.getNamedAttr("opcode", builder.getStringAttr("not"))})->getResult(0);
@@ -1615,6 +1645,11 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     path = lowered->getResult(proposal.pathResult);
     if (proposal.data)
       fifoData[proposal.fifo] = lowered->getResult(proposal.pathResult + 1);
+    else {
+      const auto &fifo = plan.fifos[proposal.fifo];
+      if (fifo.localPopCredit && fifo.producer == index && fifo.consumer == index)
+        fifoPopUnions[proposal.fifo] = binary("or", fifoIncomingPops[proposal.fifo], path);
+    }
   }
   if (!queueWriterProposals.empty())
     queueWriters.push_back(builder.getDictionaryAttr({
