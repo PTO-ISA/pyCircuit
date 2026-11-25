@@ -353,5 +353,42 @@ void replace(wire<table<T, Size>> &rows, const wire<Bits<IndexWidth>> &index,
   }
 }
 
+template <class T, std::size_t Size>
+wire<table<T, Size>> selectRows(const Level &condition,
+                                const wire<table<T, Size>> &yes,
+                                const wire<table<T, Size>> &no) noexcept {
+  if (condition.isFullyKnown())
+    return condition.value().toBool() ? yes : no;
+  wire<table<T, Size>> result;
+  for (std::size_t row = 0; row < Size; ++row)
+    result.element(row) = wire<T>::fromPacked(
+        gfsim::select(condition.packed(), yes.element(row).packed(), no.element(row).packed()));
+  return result;
+}
+
+template <class T, std::size_t Size, unsigned IndexWidth>
+wire<table<T, Size>> updatedTable(wire<table<T, Size>> rows,
+                                  const wire<Bits<IndexWidth>> &index,
+                                  const wire<T> &value) noexcept {
+  replace(rows, index, value);
+  return rows;
+}
+
+template <class Table, class State, unsigned IndexWidth>
+void replacePackedRows(wire<State> &state, unsigned low,
+                       const wire<Bits<IndexWidth>> &index,
+                       const wire<typename Table::element_type> &value) noexcept {
+  if (index.isFullyKnown()) {
+    if (isOne(Level::fromPacked(inRange<Table::size>(index)))) {
+      unsigned offset = (Table::size - 1 - index.value().value()) * value.width;
+      state.assignSlice(low + offset, pack(value));
+    }
+    return;
+  }
+  auto rows = unpack<Table>(slice<Table::width>(state.packed(), low));
+  replace(rows, index, value);
+  state.assignSlice(low, pack(rows));
+}
+
 } // namespace pyc_behavior
 )cpp";

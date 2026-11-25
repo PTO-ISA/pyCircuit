@@ -11,7 +11,7 @@ template<unsigned W> void expect(const gfsim::wire<gfsim::Bits<W>> &w,unsigned v
 }
 int main() {
   pyc_root root("table_map");
-  root.base=bits<8>(0xa0,255);root.data=bits<8>(0xa5,255);
+  root.base=bits<8>(0xa0,255);root.data=bits<8>(0xa5,255);root.enable=bits<1>(1,1);
   for(unsigned index: {0u,1u,2u,3u,8u}) {
     root.index=bits<4>(index,15);root.Work();
     expect(root.row0,index==0?0xa5:0xa0,255);
@@ -25,6 +25,13 @@ int main() {
     root.index=bits<4>(0,14,z);root.Work();
     expect(root.row0,0xa0,0xfa);expect(root.row1,0xa0,0xfa);
     expect(root.row2,0xa0,255);expect(root.selected,0,0);expect(root.in_range,0,0);
+  }
+  // One condition selects the whole Table; an unknown condition merges each row.
+  root.index=bits<4>(0,15);root.enable=bits<1>(0,1);root.Work();
+  expect(root.row0,0xa0,255);expect(root.selected,0xa0,255);
+  for(unsigned z:{0u,1u}) {
+    root.enable=bits<1>(0,0,z);root.Work();
+    expect(root.row0,0xa0,0xfa);expect(root.row1,0xa0,255);expect(root.row2,0xa0,255);
   }
   // Equal all-Z branches preserve Z through unknown selection.
   root.base=bits<8>(0,0,255);root.data=bits<8>(0,0,255);root.Work();

@@ -8,6 +8,7 @@
 !b4 = !ac.bits<#w4>
 !b8 = !ac.bits<#w8>
 !Rows = !ac.table<[#w3], !b8>
+!Flags = !ac.table<[#w3], !b1>
 module attributes {gfir.contract = 1 : i64} {
   gfir.module @Update(%rows: !Rows, %index: !b4, %data: !b8) -> (!Rows)
       attributes {source_owner = {package = "", path = "table_map.py"}, input_names = ["rows", "index", "data"], output_names = ["updated"]} {
@@ -31,13 +32,19 @@ module attributes {gfir.contract = 1 : i64} {
     %selected, %in_range = "ac.table.get"(%rows, %index) : (!Rows, !b4) -> (!b8, !b1)
     gfir.yield %row0, %row1, %row2, %selected, %in_range : !b8, !b8, !b8, !b8, !b1
   }
-  gfir.module @Top(%index: !b4, %base: !b8, %data: !b8) -> (!b8, !b8, !b8, !b8, !b1)
-      attributes {source_owner = {package = "", path = "table_map.py"}, input_names = ["index", "base", "data"], output_names = ["row0", "row1", "row2", "selected", "in_range"]} {
+  gfir.module @Top(%index: !b4, %base: !b8, %data: !b8, %enable: !b1) -> (!b8, !b8, !b8, !b8, !b1)
+      attributes {source_owner = {package = "", path = "table_map.py"}, input_names = ["index", "base", "data", "enable"], output_names = ["row0", "row1", "row2", "selected", "in_range"]} {
     %rows = "ac.table.splat"(%base) {shape = [#w3]} : (!b8) -> !Rows
     gfir.instance @update of @Update
     gfir.instance @read of @Read
     %updated = gfir.call @update(%rows, %index, %data) : (!Rows, !b4, !b8) -> !Rows
-    %r0, %r1, %r2, %selected, %range = gfir.call @read(%updated, %index) : (!Rows, !b4) -> (!b8, !b8, !b8, !b8, !b1)
+    %flags = "ac.table.splat"(%enable) {shape = [#w3]} : (!b1) -> !Flags
+    %chosen = "ac.table.map"(%flags, %updated, %rows) ({
+    ^bb0(%ordinal: !b2, %keep: !b1, %new: !b8, %old: !b8):
+      %row = "ac.bits.select"(%keep, %new, %old) : (!b1, !b8, !b8) -> !b8
+      "ac.yield"(%row) : (!b8) -> ()
+    }) {shape = [#w3], operandSegmentSizes = array<i32: 3, 0>} : (!Flags, !Rows, !Rows) -> !Rows
+    %r0, %r1, %r2, %selected, %range = gfir.call @read(%chosen, %index) : (!Rows, !b4) -> (!b8, !b8, !b8, !b8, !b1)
     gfir.yield %r0, %r1, %r2, %selected, %range : !b8, !b8, !b8, !b8, !b1
   }
   gfir.root @Top kind "module" {domains = []}

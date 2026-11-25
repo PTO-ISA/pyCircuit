@@ -11,6 +11,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include <algorithm>
+#include <bit>
 #include <limits>
 #include <map>
 
@@ -1169,8 +1170,9 @@ BehavioralEmitter::valueExpression(Value result, ArrayRef<std::string> args) {
 
 FailureOr<std::string> BehavioralEmitter::tableMapExpression(
     ac::TableMapOp map, unsigned result, ArrayRef<std::string> args) {
-  auto type = typedWire(map.getResult(result).getType(), map);
-  auto size = analysis.getTableSize(cast<ac::TableType>(map.getResult(result).getType()), {}, map);
+  auto tableType = cast<ac::TableType>(map.getResult(result).getType());
+  auto type = typedWire(tableType, map);
+  auto size = analysis.getTableSize(tableType, {}, map);
   if (failed(type) || failed(size))
     return failure();
   auto &body = map.getBody().front();
@@ -1189,8 +1191,51 @@ FailureOr<std::string> BehavioralEmitter::tableMapExpression(
     // A four-state mux of the same row preserves all three masks.
     if (yes && no && map.getTables()[*yes] == map.getTables()[*no])
       forwarded = yes;
+    if (tableType.getShape().size() == 1 && isa<ac::BitsType>(tableType.getElementType())) {
+      auto uniform = [&](Value row) -> std::string {
+        auto blockArg = dyn_cast<BlockArgument>(row);
+        if (!blockArg || blockArg.getOwner() != &body || blockArg.getArgNumber() == 0)
+          return {};
+        unsigned index = blockArg.getArgNumber() - 1;
+        if (index >= map.getTables().size())
+          return args[index];
+        if (map.getTables()[index].getDefiningOp<ac::TableSplatOp>())
+          return args[index] + ".element(0)";
+        return {};
+      };
+      auto condition = uniform(select.getCondition());
+      if (!forwarded && yes && no && !condition.empty())
+        return "pyc_behavior::selectRows(" + condition + ", " + args[*yes] + ", " +
+               args[*no] + ")";
+
+      auto compare = select.getCondition().getDefiningOp<ac::BitsCompareOp>();
+      auto replacement = uniform(select.getTrueValue());
+      if (no && compare && compare.getPredicate() == "eq" && !replacement.empty()) {
+        auto ordinal = body.getArgument(0);
+        auto matchesOrdinal = [&](Value value) {
+          if (auto resize = value.getDefiningOp<ac::BitsResizeOp>();
+              resize && resize.getMode() == "zext")
+            value = resize.getInput();
+          return value == ordinal;
+        };
+        std::string index;
+        if (matchesOrdinal(compare.getLhs()))
+          index = uniform(compare.getRhs());
+        else if (matchesOrdinal(compare.getRhs()))
+          index = uniform(compare.getLhs());
+        if (!index.empty()) {
+          auto width = analysis.getPackedWidth(ordinal.getType(), {}, map);
+          if (failed(width))
+            return failure();
+          // A wrapped row ordinal can match more than one row.
+          if (std::bit_width(*size - 1) <= *width)
+            return "pyc_behavior::updatedTable(" + args[*no] + ", " + index + ", " +
+                   replacement + ")";
+        }
+      }
+    }
   }
-  if (forwarded && map.getTables()[*forwarded].getType() == map.getResult(result).getType())
+  if (forwarded && map.getTables()[*forwarded].getType() == tableType)
     return args[*forwarded];
 
   llvm::SmallDenseSet<Value> needed;
@@ -1505,22 +1550,19 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       if (auto path = clocked.writePaths.find(write); path != clocked.writePaths.end()) {
         out << "    {\n      if (!" << frame << ") " << frame << ".emplace(" << state
             << ".value());\n";
-        std::string replacement = pack(values.lookup(write.getValue()));
         if (write.getIndex()) {
           auto type = typedWire(path->second.types.back(), write);
           if (failed(type))
             return failure();
-          auto slice = "pyc_behavior::slice<" + std::to_string(path->second.width) +
-                       ">(" + frame + "->packed(), " +
-                       std::to_string(path->second.low) + ")";
-          out << "      auto pyc_field = " << unpack(*type, slice) << ";\n"
-              << "      pyc_behavior::replace(pyc_field, "
+          out << "      pyc_behavior::replacePackedRows<" << *type << ">(*" << frame
+              << ", " << path->second.low << ", "
               << values.lookup(write.getIndex()) << ", "
               << values.lookup(write.getValue()) << ");\n";
-          replacement = pack("pyc_field");
+        } else {
+          out << "      " << frame << "->assignSlice(" << path->second.low << ", "
+              << pack(values.lookup(write.getValue())) << ");\n";
         }
-        out << "      " << frame << "->assignSlice(" << path->second.low << ", "
-            << replacement << ");\n    }\n";
+        out << "    }\n";
         continue;
       }
       if (write.getIndex()) {

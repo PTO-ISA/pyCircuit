@@ -1,6 +1,7 @@
 module tb;
   logic [3:0] index;
   logic [7:0] base,data;
+  logic enable;
   wire [7:0] row0,row1,row2,selected;
   wire in_range;
   pyc_root dut(.*);
@@ -15,9 +16,15 @@ module tb;
     if(row0!==8'b10100x0x || row1!==8'b10100x0x || row2!==8'ha0 || selected!==8'hxx || in_range!==1'bx)$fatal(1,"unknown index");
   endtask
   initial begin
-    base=8'ha0;data=8'ha5;
+    base=8'ha0;data=8'ha5;enable=1'b1;
     known_case(0);known_case(1);known_case(2);known_case(3);known_case(8);
     uncertain(1'bx);uncertain(1'bz);
+    index=0;enable=1'b0;#1;
+    if(row0!==8'ha0 || selected!==8'ha0)$fatal(1,"disabled update");
+    for(int i=0;i<2;i++)begin
+      enable=i ? 1'bz : 1'bx;#1;
+      if(row0!==8'b10100x0x || row1!==8'ha0 || row2!==8'ha0)$fatal(1,"unknown Table selection");
+    end
     base=8'hzz;data=8'hzz;#1;
     if(row0!==8'hzz || row1!==8'hzz || row2!==8'hzz)$fatal(1,"equal Z merge");
     $finish;
