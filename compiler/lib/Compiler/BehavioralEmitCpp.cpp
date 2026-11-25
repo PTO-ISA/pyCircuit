@@ -55,6 +55,27 @@ bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
 }
 
+bool inlineRootWork(const gfir::StructuredProgram &program) {
+  auto root = program.root;
+  if (program.definitions.size() != 1 || root.getKind() != "module")
+    return false;
+  const auto &definition = program.definitions.front();
+  if (!definition.clocked || definition.hasChecks() || definition.explicitDomains)
+    return false;
+  const auto &plan = *definition.clocked;
+  if (!plan.fifos.empty() || !plan.memories.empty())
+    return false;
+  // Limit repeated compilation of inline Work bodies in downstream TUs.
+  constexpr size_t budget = 128;
+  size_t cost = definition.order.size();
+  if (cost >= budget)
+    return false;
+  auto module = definition.module;
+  return !module->walk([&](Operation *) {
+    return ++cost <= budget ? WalkResult::advance() : WalkResult::interrupt();
+  }).wasInterrupted();
+}
+
 bool hasAssertions(const gfir::StructuredDefinition &definition) {
   return definition.clocked && llvm::any_of(definition.clocked->rules,
       [](const gfir::StructuredRule &rule) { return !rule.assertions.empty(); });
@@ -437,8 +458,8 @@ private:
   LogicalResult planWholeOutputs();
   void planEvaluationMemoization();
   LogicalResult declareModule(raw_ostream &out, unsigned index);
-  LogicalResult emitModule(raw_ostream &out, unsigned index);
-  LogicalResult emitRoot(FinalCppSourceGroup &group);
+  LogicalResult emitModule(raw_ostream &out, unsigned index, raw_ostream *header);
+  LogicalResult emitRoot(FinalCppSourceGroup &group, bool inlineWork);
   FailureOr<std::string> emitObservationMetadata(
       const gfir::StructuredDefinition &definition);
   FailureOr<FinalCppSourceGroup *> getGroup(gfir::ModuleOp module);
@@ -497,7 +518,7 @@ private:
   LogicalResult prepareMemory(raw_ostream &out, const gfir::StructuredDefinition &definition,
                               const gfir::StructuredMemory &memory, StringRef clock);
   LogicalResult emitLifecycle(raw_ostream &out, const gfir::StructuredDefinition &definition,
-                              StringRef name, bool memoized);
+                              StringRef name, bool memoized, raw_ostream *header);
 
   const gfir::StructuredProgram &program;
   ac::HardwareAnalysis analysis;
@@ -932,9 +953,11 @@ LogicalResult BehavioralEmitter::emitWires(
                                                          : &definition.wires[lookup->second]);
     if (failed(value))
       return failure();
-    const bool borrow = isa<ac::TableType>(wire.type) &&
-                        isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp,
-                                        ac::TableMapOp>(wire.endpoint.value.getDefiningOp());
+    const bool borrow =
+        (groupSelects && forwardedBits(definition, index).has_value()) ||
+        (isa<ac::TableType>(wire.type) &&
+         isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp, ac::TableMapOp>(
+             wire.endpoint.value.getDefiningOp()));
     out << "    const auto " << (borrow ? "&" : "") << wireName(index)
         << " = " << *value << ";\n";
     emitted.set(index);
@@ -1308,7 +1331,8 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   return success();
 }
 
-LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
+LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index,
+                                            raw_ostream *header) {
   const auto &definition = program.definitions[index];
   const auto &wide = wholeOutputs[index];
   for (auto [result, output] : llvm::enumerate(definition.outputs)) {
@@ -1327,12 +1351,16 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
     }
   }
   if (isClocked(definition)) {
-    preparationSignature(out, definition, tableWireTypes, moduleName(index) + "::");
-    out << " {\n";
-    if (failed(emitTemporalWork(out, index)))
+    auto &prepare = header ? *header : out;
+    if (header)
+      prepare << "inline ";
+    preparationSignature(prepare, definition, tableWireTypes, moduleName(index) + "::");
+    prepare << " {\n";
+    if (failed(emitTemporalWork(prepare, index)))
       return failure();
-    out << "}\n";
-    if (failed(emitLifecycle(out, definition, moduleName(index), memoKeyWidths[index] != 0)))
+    prepare << "}\n";
+    if (failed(emitLifecycle(out, definition, moduleName(index),
+                             memoKeyWidths[index] != 0, header)))
       return failure();
   }
   if (definition.hasChecks()) {
@@ -2743,9 +2771,13 @@ LogicalResult BehavioralEmitter::prepareMemory(
 }
 
 LogicalResult BehavioralEmitter::emitLifecycle(
-    raw_ostream &out, const gfir::StructuredDefinition &definition,
-    StringRef name, bool memoized) {
+    raw_ostream &source, const gfir::StructuredDefinition &definition,
+    StringRef name, bool memoized, raw_ostream *header) {
   for (StringRef action : {"reset", "discard", "commit"}) {
+    const bool inlineCommit = header && action == "commit";
+    auto &out = inlineCommit ? *header : source;
+    if (inlineCommit)
+      out << "inline ";
     out << "void " << name << "::" << action << "() noexcept {\n";
     if (memoized && action != "commit")
       out << "  pyc_memo_key.reset();\n";
@@ -2867,7 +2899,7 @@ FailureOr<std::string> BehavioralEmitter::emitObservationMetadata(
          std::to_string(events) + ")";
 }
 
-LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
+LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlineWork) {
   const auto &definition = program.definitions[program.rootIndex];
   auto root = definition.module;
   auto entry = program.root;
@@ -2900,7 +2932,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     header << "    pyc_body.configure_checks(std::string(this->name()));\n";
   header << "  }\n"
          << "  bool HasWork() const noexcept override { return true; }\n"
-         << "  void Work() override;\n";
+         << "  " << (inlineWork ? "inline " : "") << "void Work() override;\n";
   if (definition.hasChecks())
     header << "  bool pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept;\n";
   else
@@ -2909,7 +2941,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   if (isClocked(definition))
     header << "  void Reset() noexcept override;\n"
            << "  void DiscardNext() noexcept override;\n"
-           << "  void Xfer() noexcept override;\n";
+           << "  " << (inlineWork ? "inline " : "") << "void Xfer() noexcept override;\n";
   SmallVector<std::string> inputs, outputs;
   llvm::json::Array inputRows, outputRows, controls;
   SmallVector<std::pair<unsigned, std::string>> companions;
@@ -2989,11 +3021,14 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
 
   llvm::raw_string_ostream source(group.source);
   StringRef scopedName = StringRef(*name).drop_front(2);
-  source << "void " << scopedName << "::Work() {\n";
+  auto &work = inlineWork ? header : source;
+  if (inlineWork)
+    work << "inline ";
+  work << "void " << scopedName << "::Work() {\n";
   if (isClocked(definition)) {
-    source << "  try {\n";
+    work << "  try {\n";
     if (!definition.explicitDomains)
-      source << "    const auto pyc_reset = gfsim::interpretReset(" << reset
+      work << "    const auto pyc_reset = gfsim::interpretReset(" << reset
            << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
   }
 
@@ -3011,26 +3046,26 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
       continue;
     auto arg = cast<BlockArgument>(wire.endpoint.value).getArgNumber();
     const bool directTable = isa<ac::TableType>(wire.endpoint.value.getType());
-    source << "    const auto " << (directTable ? "&" : "") << wireName(index)
+    work << "    const auto " << (directTable ? "&" : "") << wireName(index)
            << " = " << graphLeaf(wire, inputs[arg]) << ";\n";
   }
   if (isClocked(definition)) {
-    source << "    pyc_body.prepare(";
+    work << "    pyc_body.prepare(";
     bool comma = !definition.explicitDomains;
     if (comma)
-      source << clock << ", pyc_reset";
+      work << clock << ", pyc_reset";
     for (unsigned input : definition.preparationInputs) {
       if (comma)
-        source << ", ";
-      source << wireName(input);
+        work << ", ";
+      work << wireName(input);
       comma = true;
     }
     if (observes)
-      source << ", pyc_sink_, pyc_observation_base_";
-    source << ");\n";
+      work << ", pyc_sink_, pyc_observation_base_";
+    work << ");\n";
   }
   if (system)
-    source << "    pyc_system_clock.prepare(" << clock << ", " << reset
+    work << "    pyc_system_clock.prepare(" << clock << ", " << reset
            << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
 
   const auto &wide = wholeOutputs[program.rootIndex];
@@ -3038,7 +3073,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
   for (auto [index, output] : llvm::enumerate(definition.outputs)) {
     if (wide.contains(output.port.port)) {
       if (assigned.insert(output.port.port).second)
-        source << "    " << outputs[output.port.port] << " = pyc_body."
+        work << "    " << outputs[output.port.port] << " = pyc_body."
                << wholeOutputName(output.port.port) << "();\n";
       continue;
     }
@@ -3058,28 +3093,32 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
         actuals.push_back(wireName(input));
     auto value = "pyc_body." + functionName(index) + '(' + join(actuals, ", ") + ')';
     if (isa<ac::TableType>(type.getResult(output.port.port))) {
-      source << "    " << outputs[output.port.port] << " = " << value << ";\n";
+      work << "    " << outputs[output.port.port] << " = " << value << ";\n";
     } else {
       if (isa<ac::TableType>(leaf->type))
         value = pack(value);
-      source << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
+      work << "    " << outputs[output.port.port] << ".assignSlice(" << leaf->low
              << ", " << value << ");\n";
     }
   }
   for (const auto &[port, wire] : companions)
-    source << "    " << wire << " = " << levelName << "(pyc_body."
+    work << "    " << wire << " = " << levelName << "(pyc_body."
            << availabilityName(port) << ");\n";
   if (isClocked(definition))
-    source << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
-  source << "}\n";
+    work << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
+  work << "}\n";
   if (isClocked(definition)) {
     for (auto [hook, action] : {std::pair{"Reset", "reset"},
                               {"DiscardNext", "discard"}, {"Xfer", "commit"}}) {
-      source << "void " << scopedName << "::" << hook << "() noexcept {\n"
+      const bool inlineXfer = inlineWork && StringRef(hook) == "Xfer";
+      auto &target = inlineXfer ? header : source;
+      if (inlineXfer)
+        target << "inline ";
+      target << "void " << scopedName << "::" << hook << "() noexcept {\n"
              << "  pyc_body." << action << "();\n";
       if (system)
-        source << "  pyc_system_clock." << action << "();\n";
-      source << "}\n";
+        target << "  pyc_system_clock." << action << "();\n";
+      target << "}\n";
     }
   }
 
@@ -3182,16 +3221,18 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   llvm::raw_string_ostream support(parts.supportHeader);
   if (failed(emitCppRecords(common, support)))
     return failure();
+  const bool inlineWork = inlineRootWork(program);
   for (auto [index, definition] : llvm::enumerate(program.definitions)) {
     auto group = getGroup(definition.module);
     if (failed(group))
       return failure();
     llvm::raw_string_ostream source((*group)->source);
-    if (failed(emitModule(source, index)))
+    llvm::raw_string_ostream header((*group)->header);
+    if (failed(emitModule(source, index, inlineWork ? &header : nullptr)))
       return failure();
   }
   auto rootGroup = getGroup(program.definitions[program.rootIndex].module);
-  if (failed(rootGroup) || failed(emitRoot(**rootGroup)))
+  if (failed(rootGroup) || failed(emitRoot(**rootGroup, inlineWork)))
     return failure();
   if (failed(emitOutputGroups()))
     return failure();
