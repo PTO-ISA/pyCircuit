@@ -118,9 +118,9 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     inputCompanions.try_emplace(input.port, block->addArgument(bit, source.getLoc()));
   llvm::DenseMap<std::pair<Operation *, unsigned>, Value> childCompanions;
   auto childFor = [&](gfir::CallOp call) -> const gfir::StructuredDefinition * {
-    auto receiver = call.getReceiverAttr();
+    auto receiver = call.getReceiverAttr().getRootReference().getValue();
     for (auto instance : source.getBody().front().getOps<gfir::InstanceOp>()) {
-      if (instance.getSymName() != receiver.getValue()) continue;
+      if (instance.getSymName() != receiver) continue;
       for (const auto &child : program.definitions) {
         auto module = child.module;
         if (module.getSymName() == instance.getCalleeAttr().getValue()) return &child;
