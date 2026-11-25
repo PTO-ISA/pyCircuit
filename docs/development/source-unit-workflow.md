@@ -99,6 +99,12 @@ emitter verifies the rewritten package before emission. To inspect it or use
 it as input to hardware lowering, run
 `pycircuit-opt verified.gfir.mlir --gfir-recover-row-write -o recovered.gfir.mlir`.
 
+Shared pure Module outputs can use fixed-width host integers when their
+required scalar inputs are fully known. A proven in-range Table lookup checks
+the selected row when it is read. A scalar Rule can evaluate only the demanded
+calculations for a known branch after saving its result snapshot. The four-state
+evaluator handles X and Z using the existing transaction and sampling contract.
+
 Use the generated DUT interface and port metadata to apply the same samples to
 each result. The GFIR package declares logical bindings and ordered effects.
 Sampling, preparation, checks, and whole-system commit use the existing runtime
