@@ -483,14 +483,20 @@ LogicalResult Analyzer::describeFifoQuery(StructuredDefinition &definition,
 LogicalResult Analyzer::analyzeAvailability(
     StructuredDefinition &definition,
     const llvm::DenseMap<Operation *, unsigned> &clockedCallNodes) {
-  if (!definition.clocked)
-    return success();
-  auto &clocked = *definition.clocked;
-  const bool hasLocalResults = llvm::any_of(clocked.rules, [](const StructuredRule &rule) {
+  auto *clocked = definition.clocked ? &*definition.clocked : nullptr;
+  const bool hasLocalResults = clocked && llvm::any_of(clocked->rules, [](const StructuredRule &rule) {
     return rule.sampled && !rule.resultUses.empty();
   });
-  const bool hasChildResults = llvm::any_of(definition.clockedCalls, [&](const auto &call) {
-    return !result.definitions[call.definition].outputAvailability.empty();
+  auto childFor = [&](CallOp call) -> const StructuredDefinition * {
+    auto receiver = receivers.lookup(call);
+    if (!receiver || call.getInterfaceAttr())
+      return nullptr;
+    auto found = done.find(hardware.lookupDefinition(receiver.getCalleeAttr().getValue()));
+    return found == done.end() ? nullptr : &result.definitions[found->second];
+  };
+  const bool hasChildResults = llvm::any_of(definition.module.getBody().front().getOps<CallOp>(), [&](auto call) {
+    auto *child = childFor(call);
+    return child && !child->outputAvailability.empty();
   });
   auto demands = inputDemands.find(definition.module);
   if (demands != inputDemands.end()) {
@@ -509,8 +515,9 @@ LogicalResult Analyzer::analyzeAvailability(
   }
   if (!hasLocalResults && !hasChildResults && definition.inputAvailability.empty())
     return success();
-  definition.fourStateAvailability = llvm::any_of(definition.clockedCalls, [&](const auto &call) {
-    return result.definitions[call.definition].fourStateAvailability;
+  definition.fourStateAvailability = llvm::any_of(definition.module.getBody().front().getOps<CallOp>(), [&](auto call) {
+    auto *child = childFor(call);
+    return child && child->fourStateAvailability;
   });
   definition.fourStateAvailability |= !definition.inputAvailability.empty();
 
@@ -531,7 +538,7 @@ LogicalResult Analyzer::analyzeAvailability(
   for (unsigned index : definition.order) {
     if (index >= definition.wires.size()) {
       if (index < definition.firstClockedCallNode()) {
-        auto &rule = clocked.rules[index - definition.wires.size()];
+        auto &rule = clocked->rules[index - definition.wires.size()];
         for (Value capture : rule.operation.getCaptures())
           if (llvm::any_of(definition.valueWires.find(capture)->second, [&](unsigned leaf) {
                 return !wireSources[leaf].empty();
@@ -552,7 +559,7 @@ LogicalResult Analyzer::analyzeAvailability(
     }
     if (wire.ruleResult) {
       unsigned rule = wire.ruleResult->first;
-      if (clocked.rules[rule].sampled)
+      if (clocked->rules[rule].sampled)
         wireSources[index].push_back({Source::Kind::Rule, rule});
       continue;
     }
@@ -584,6 +591,10 @@ LogicalResult Analyzer::analyzeAvailability(
       const auto &child = result.definitions[wire.call->definition];
       const auto &output = child.outputs[wire.call->output];
       auto addChild = [&](Source::Kind kind, unsigned resultPort) {
+        if (!child.clocked) {
+          wireSources[index].push_back({Source::Kind::PureOutput, index});
+          return;
+        }
         unsigned call = clockedCallNodes.lookup(site) - definition.firstClockedCallNode();
         wireSources[index].push_back({kind, call, resultPort});
       };
@@ -635,13 +646,18 @@ LogicalResult Analyzer::analyzeAvailability(
       const auto &leaves = definition.valueWires.find(actual)->second;
       if (llvm::none_of(leaves, [&](unsigned leaf) { return !wireSources[leaf].empty(); }))
         continue;
-      if (!callee || !clockedModules.contains(callee) || leaves.size() != 1 ||
+      if (!callee || leaves.size() != 1 ||
           !isa<ac::BitsType>(actual.getType()))
-        return call.emitOpError("available Module input currently requires a scalar clocked receiver");
+        return call.emitOpError("available Module input currently requires a scalar receiver");
+      if (!clockedModules.contains(callee) &&
+          llvm::any_of(callee.getFunctionType().getResults(), [](Type type) {
+            return !isa<ac::BitsType>(type);
+          }))
+        return call.emitOpError("available pure Module currently requires scalar results");
       inputDemandsChanged |= inputDemands[callee].insert(port).second;
     }
   }
-  for (auto &consumer : clocked.rules) {
+  if (clocked) for (auto &consumer : clocked->rules) {
     auto rule = consumer.operation;
     auto &ordered = rule.getBody().front();
     for (auto [index, capture] : llvm::enumerate(rule.getCaptures())) {
@@ -658,15 +674,15 @@ LogicalResult Analyzer::analyzeAvailability(
           return failure();
         if (isa<GuardOp>(user) && user->getParentOp() == rule &&
             definition.wires[leaves.front()].width == 1) {
-          clocked.guardedCaptureUses.try_emplace(user, index);
+          clocked->guardedCaptureUses.try_emplace(user, index);
         } else if (auto write = dyn_cast<WriteOp>(user);
                    write && write.getValue() == argument && !write.getIndex() &&
-                   write->getParentOp() == rule && !clocked.writePaths.contains(write)) {
-          clocked.dataCaptureUses[write].push_back({unsigned(index), 1, false});
+                   write->getParentOp() == rule && !clocked->writePaths.contains(write)) {
+          clocked->dataCaptureUses[write].push_back({unsigned(index), 1, false});
         } else if (auto yield = dyn_cast<YieldOp>(user); yield && yield->getParentOp() == rule) {
           for (auto [ordinal, value] : llvm::enumerate(yield.getValues()))
             if (value == argument)
-              clocked.dataCaptureUses[yield].push_back({unsigned(index), unsigned(ordinal), true});
+              clocked->dataCaptureUses[yield].push_back({unsigned(index), unsigned(ordinal), true});
         } else {
           return user->emitOpError("available capture requires a direct guard, state write or return");
         }
@@ -819,7 +835,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     auto receiver = receivers.lookup(call);
     unsigned target = childDefinition(receiver);
     const auto &child = result.definitions[target];
-    if (!child.outputAvailability.empty() && !definition.clocked)
+    if (!child.outputAvailability.empty() && child.clocked && !definition.clocked)
       return call.emitOpError("gated child outputs require a clocked caller");
     if (!child.clocked)
       continue;

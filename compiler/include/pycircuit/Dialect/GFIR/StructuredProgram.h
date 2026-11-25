@@ -109,7 +109,7 @@ struct StructuredMethodEffects {
 };
 
 struct StructuredAvailabilitySource {
-  enum class Kind { Rule, ChildOutput, ChildField, Select, Input };
+  enum class Kind { Rule, ChildOutput, ChildField, Select, Input, PureOutput };
   Kind kind;
   /// Rule or clocked call ordinal in the enclosing definition.
   unsigned index;
