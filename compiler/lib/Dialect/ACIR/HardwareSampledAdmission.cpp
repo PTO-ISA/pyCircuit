@@ -3998,16 +3998,17 @@ private:
   }
   FailureOr<bool> guardedResultCapture(const Occurrence &entry,
       const TransactionWriterView &producer, RuleOp consumer, unsigned capture) {
-    if (!entry.wiring || consumer == producer.rule ||
+    if (consumer == producer.rule ||
         consumer->getParentOp() != entry.module ||
         consumer->hasAttr("ac.registration_path"))
       return false;
     const TransactionWriterView *writer = nullptr;
-    for (const auto &candidate : entry.wiring->writers) {
-      if (failed(budget.debit(1, consumer))) return failure();
-      if (candidate.rule == consumer) writer = &candidate;
-    }
-    if (!writer || capture >= consumer.getNumOperands()) return false;
+    if (entry.wiring)
+      for (const auto &candidate : entry.wiring->writers) {
+        if (failed(budget.debit(1, consumer))) return failure();
+        if (candidate.rule == consumer) writer = &candidate;
+      }
+    if (capture >= consumer.getNumOperands()) return false;
     auto admission = writerAdmission(entry, consumer);
     if (failed(admission)) return failure();
     const auto &view = **admission;
@@ -4020,6 +4021,61 @@ private:
       if (failed(known)) return failure();
       return known->value_or(false);
     };
+    // A direct data consumer may expose the captured payload only through a
+    // checked whole-state proposal or its ordinary return. Admission parsing
+    // authenticates the complete prefix and the proposal's final enable;
+    // the independent availability proof authenticates the supplied masks.
+    llvm::DenseSet<Operation *> dataRequirements;
+    llvm::DenseSet<unsigned> dataSlots;
+    auto *terminator = body.getTerminator();
+    for (const auto &requirement : view.requirements) {
+      auto operation = requirement.operation;
+      if (operation.getPayload() != payload)
+        continue;
+      auto kind = requirement.kind.getValue();
+      if (kind != "state_write" && kind != "return")
+        continue;
+      if (failed(budget.debit(1, consumer))) return failure();
+      const auto &control = view.controls[requirement.control];
+      auto available = dyn_cast<BlockArgument>(operation.getAvailability());
+      auto reached = isOne(operation.getPath());
+      if (failed(reached)) return failure();
+      if (!*reached || !available || available.getOwner() != &body ||
+          control.executionPath.selectionControl || !control.invocation.empty())
+        return false;
+      bool matched = false;
+      if (kind == "state_write" && requirement.operand == 1 && writer) {
+        for (const auto &candidate : writer->candidates) {
+          if (failed(budget.debit(1, consumer))) return failure();
+          if (terminator->getOperand(candidate.dataIndex) == payload) {
+            dataSlots.insert(candidate.dataIndex);
+            matched = true;
+          }
+        }
+      } else if (kind == "return") {
+        uint64_t count = writer ? writer->ordinaryResults : view.fireResult;
+        if (requirement.operand < count &&
+            terminator->getOperand(requirement.operand) == payload) {
+          dataSlots.insert(requirement.operand);
+          matched = true;
+        }
+      }
+      if (!matched) return false;
+      dataRequirements.insert(requirement.operation);
+    }
+    if (!dataRequirements.empty()) {
+      bool onlyData = true;
+      for (OpOperand &use : payload.getUses()) {
+        if (failed(budget.debit(1, use.getOwner()))) return failure();
+        if (dataRequirements.contains(use.getOwner()) && use.getOperandNumber() == 0)
+          continue;
+        if (use.getOwner() == terminator && dataSlots.contains(use.getOperandNumber()))
+          continue;
+        onlyData = false;
+      }
+      if (onlyData) return true;
+    }
+    if (!writer) return false;
     llvm::DenseSet<Operation *> requirements;
     llvm::DenseSet<unsigned> rawSlots;
     auto required = consumer->getAttrOfType<ArrayAttr>("ac.required_checks");
@@ -4027,6 +4083,7 @@ private:
       if (failed(budget.debit(1, consumer))) return failure();
       auto operation = requirement.operation;
       if (operation.getPayload() != payload) continue;
+      if (dataRequirements.contains(operation)) continue;
       unsigned ordinal = requirement.control;
       if (requirement.kind.getValue() != "guard" || requirement.operand != 0 ||
           ordinal + 1 >= view.controls.size()) return false;
@@ -4064,7 +4121,9 @@ private:
       if (failed(budget.debit(1, use.getOwner()))) return failure();
       auto *owner = use.getOwner();
       if (requirements.contains(owner) && use.getOperandNumber() == 0) continue;
+      if (dataRequirements.contains(owner) && use.getOperandNumber() == 0) continue;
       if (owner == yield && rawSlots.contains(use.getOperandNumber())) continue;
+      if (owner == yield && dataSlots.contains(use.getOperandNumber())) continue;
       auto compare = dyn_cast<BitsCompareOp>(owner);
       if (!compare || compare.getPredicate() != "case_eq" ||
           use.getOperandNumber() != 0 || owner->getParentOp() != consumer)
@@ -4171,6 +4230,22 @@ private:
             pending.emplace_back(*at.parent, at.allocation->getResult(operand), path);
           }
           provedUse = true;
+        } else if (auto instance = dyn_cast<InstanceOp>(owner)) {
+          auto target = dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(instance));
+          if (!target || !target.getBody().hasOneBlock()) return false;
+          auto ports = getModulePortLayout(target);
+          if (failed(ports) || operand >= ports->inputValidity.size() ||
+              ports->inputValidity[operand] < 0) return false;
+          std::optional<size_t> child;
+          for (auto [index, nested] : llvm::enumerate(occurrences)) {
+            if (failed(budget.debit(1, instance))) return failure();
+            if (nested.parent == occurrence && nested.allocation == instance) {
+              if (child) return false;
+              child = index;
+            }
+          }
+          if (!child || operand >= target.getBody().front().getNumArguments()) return false;
+          pending.emplace_back(*child, target.getBody().front().getArgument(operand), path);
         } else if (auto consumer = dyn_cast<RuleOp>(owner)) {
           if (!path.empty()) return false;
           auto guarded = guardedResultCapture(at, writer, consumer, operand);
@@ -4191,7 +4266,7 @@ private:
             pending.emplace_back(occurrence, get.getResult(), FieldPath{});
           else if (path.front() == get.getFieldAttr())
             pending.emplace_back(occurrence, get.getResult(), FieldPath(path.begin() + 1, path.end()));
-        } else if (isStrictBitsOperation(owner)) {
+        } else if (isStrictBitsOperation(owner) || isa<BitsSelectOp>(owner)) {
           if (!path.empty() || owner->getParentOp() != module)
             return false;
           pending.emplace_back(occurrence, owner->getResult(0), FieldPath{});

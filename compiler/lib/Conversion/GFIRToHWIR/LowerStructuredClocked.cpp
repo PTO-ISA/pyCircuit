@@ -145,6 +145,9 @@ private:
   SmallVector<Value> fifoIncomingPops, fifoPopUnions;
   SmallVector<unsigned> fifoIncomingOrder;
   SmallVector<Attribute> queueWriters, externalPops;
+  llvm::DenseMap<unsigned, Value> selectAvailability;
+  llvm::DenseMap<unsigned, Value> inputCompanions;
+  llvm::DenseMap<std::pair<Operation *, unsigned>, Value> pureCompanions;
   bool sampledQueues = false;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
@@ -652,10 +655,22 @@ LogicalResult ClockedMaterializer::makeModule() {
       names.push_back(privateName("__ac_queue_pop_" + std::to_string(fifo)));
     }
   }
+  SmallVector<std::pair<unsigned, unsigned>> availabilityInputs;
+  SmallVector<Attribute> inputValidity(sourceInputs, builder.getI64IntegerAttr(-1));
+  for (const auto &input : definition.inputAvailability) {
+    inputValidity[input.port] = builder.getI64IntegerAttr(inputs.size());
+    availabilityInputs.emplace_back(input.port, inputs.size());
+    inputs.push_back(bit);
+    names.push_back(input.name);
+  }
+  if (!availabilityInputs.empty())
+    state.addAttribute("ac.input_validity", builder.getArrayAttr(inputValidity));
   if (!definition.incomingStates.empty() || !definition.outputAvailability.empty() ||
-      !definition.fieldOutputs.empty() || !fifoInputs.empty()) {
+      !definition.fieldOutputs.empty() || !fifoInputs.empty() || !availabilityInputs.empty()) {
     SmallVector<Attribute> defaults(inputs.size() - sourceInputs,
                                     builder.getI64IntegerAttr(0));
+    for (auto [port, input] : availabilityInputs)
+      defaults[input - sourceInputs] = builder.getI64IntegerAttr(1);
     state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
         builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(sourceInputs)),
         builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
@@ -692,6 +707,8 @@ LogicalResult ClockedMaterializer::makeModule() {
     }
   for (auto [fifo, input] : fifoInputs)
     fifoIncomingPops[fifo] = body->getArgument(input);
+  for (auto [port, input] : availabilityInputs)
+    inputCompanions.try_emplace(port, body->getArgument(input));
   builder.setInsertionPointToEnd(body);
   one = constant(true);
   none = constant(false);
@@ -781,6 +798,7 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     state.addTypes(op.getResultTypes());
     gfir::InstanceOp routedInstance;
     const gfir::StructuredClockedCall *planned = nullptr;
+    const gfir::StructuredDefinition *pureChild = nullptr;
     if (auto call = dyn_cast<gfir::CallOp>(op)) {
       gfir::InstanceOp instance;
       for (auto candidate : source.getBody().front().getOps<gfir::InstanceOp>())
@@ -794,6 +812,18 @@ LogicalResult ClockedMaterializer::cloneGraph() {
       state.addAttribute("type_arguments", builder.getArrayAttr({}));
       state.addAttribute("occurrence", occurrence("child", graphOperations.size()));
       planned = plannedCalls.lookup(&op);
+      if (!planned) {
+        for (const auto &child : program.definitions) {
+          auto module = child.module;
+          if (module.getSymName() == instance.getCalleeAttr().getValue()) {
+            pureChild = &child;
+            break;
+          }
+        }
+        if (pureChild)
+          for (const auto &output : pureChild->outputAvailability)
+            state.addTypes(bit);
+      }
       if (planned)
         for (unsigned i = 0; i < program.definitions[planned->definition].outputAvailability.size(); ++i)
           state.addTypes(bit);
@@ -816,6 +846,11 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     for (unsigned index = 0; index < op.getNumRegions(); ++index)
       state.addRegion();
     auto *copy = builder.create(state);
+    if (pureChild) {
+      unsigned result = op.getNumResults();
+      for (const auto &output : pureChild->outputAvailability)
+        pureCompanions.try_emplace(std::make_pair(&op, output.port), copy->getResult(result++));
+    }
     llvm::DenseMap<unsigned, Value> reassembled;
     if (planned) {
       unsigned call = planned - definition.clockedCalls.data();
@@ -929,6 +964,36 @@ LogicalResult ClockedMaterializer::bindGraph() {
           operands.append({child.data, child.enable});
         } else {
           operands.append({input.data, input.enable});
+        }
+      }
+      auto planned = llvm::find_if(definition.clockedCalls, [&](const auto &call) {
+        return call.operation == original;
+      });
+      if (planned != definition.clockedCalls.end()) {
+        const auto &child = program.definitions[planned->definition];
+        for (const auto &input : child.inputAvailability) {
+          auto actual = original->getOperand(input.port);
+          const auto &leaves = definition.valueWires.find(actual)->second;
+          const auto &sources = definition.wireAvailability.empty()
+              ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+          auto available = availability(sources);
+          if (failed(available))
+            return failure();
+          operands.push_back(*available);
+        }
+      } else {
+        for (const auto &child : program.definitions) {
+          auto module = child.module;
+          if (module.getSymName() != callee.getValue()) continue;
+          for (const auto &input : child.inputAvailability) {
+            auto actual = original->getOperand(input.port);
+            const auto &leaves = definition.valueWires.find(actual)->second;
+            const auto &sources = definition.wireAvailability.empty()
+                ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+            auto available = availability(sources);
+            if (failed(available)) return failure();
+            operands.push_back(*available);
+          }
         }
       }
     }
@@ -1126,12 +1191,36 @@ FailureOr<Value> ClockedMaterializer::availability(
   for (const auto &source : sources) {
     Value value;
     switch (source.kind) {
+    case gfir::StructuredAvailabilitySource::Kind::PureOutput: {
+      const auto &wire = definition.wires[source.index];
+      const auto &child = program.definitions[wire.call->definition];
+      unsigned port = child.outputs[wire.call->output].port.port;
+      value = pureCompanions.lookup({wire.endpoint.value.getDefiningOp(), port});
+      break;
+    }
+    case gfir::StructuredAvailabilitySource::Kind::Input:
+      value = inputCompanions.lookup(source.index); break;
     case gfir::StructuredAvailabilitySource::Kind::Rule:
       value = grants[source.index]; break;
     case gfir::StructuredAvailabilitySource::Kind::ChildOutput:
       value = childCompanions.lookup({source.index, source.port}); break;
     case gfir::StructuredAvailabilitySource::Kind::ChildField:
       value = childFieldCompanions.lookup({source.index, source.port}); break;
+    case gfir::StructuredAvailabilitySource::Kind::Select: {
+      if (auto cached = selectAvailability.find(source.index); cached != selectAvailability.end()) {
+        value = cached->second;
+        break;
+      }
+      const auto &select = definition.availabilitySelects[source.index];
+      const auto &endpoint = definition.wires[select.selector].endpoint;
+      auto condition = projectField(graph.lookup(endpoint.value), endpoint.path);
+      auto yes = availability(select.yes), no = availability(select.no);
+      if (failed(condition) || failed(yes) || failed(no))
+        return failure();
+      value = make(ac::BitsSelectOp::getOperationName(), {*condition, *yes, *no}, {bit})->getResult(0);
+      selectAvailability.try_emplace(source.index, value);
+      break;
+    }
     }
     if (!value)
       return this->source.emitOpError("missing verified availability source");
@@ -1164,6 +1253,33 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
   for (auto [argument, input] : llvm::zip(body.getArguments(), inputs))
     mapping.map(argument, input);
   for (Operation &op : body) {
+    if (sampled) {
+      if (auto uses = plan.dataCaptureUses.find(&op); uses != plan.dataCaptureUses.end()) {
+        for (const auto &use : uses->second) {
+          unsigned control = sampled->controls.size();
+          if (control >= sampled->plannedChecks.size())
+            return op.emitOpError("missing required data-use obligation");
+          const auto &check = sampled->plannedChecks[control];
+          Value payload = isa<gfir::WriteOp>(op)
+              ? cast<gfir::WriteOp>(op).getValue() : op.getOperand(use.operand);
+          Value available = sampled->guardAvailability.lookup(use.capture);
+          if (!available)
+            return op.emitOpError("missing required data-use availability");
+          Value required = make(ac::ValueRequireOp::getOperationName(),
+              {mapping.lookup(payload), available, sampled->path ? sampled->path : one}, {bit}, {
+              builder.getNamedAttr("occurrence", check.id.get("check")),
+              builder.getNamedAttr("source_location", check.location)})->getResult(0);
+          if (failed(addControl("value_available", &op, required)))
+            return failure();
+          sampled->requirements.push_back(builder.getDictionaryAttr({
+              builder.getNamedAttr("control", builder.getI64IntegerAttr(control)),
+              builder.getNamedAttr("kind", builder.getStringAttr(use.returned ? "return" : "state_write")),
+              builder.getNamedAttr("operand", builder.getI64IntegerAttr(use.operand)),
+              builder.getNamedAttr("occurrence", check.id.get("check")),
+              builder.getNamedAttr("location", check.location)}));
+        }
+      }
+    }
     if (isa<gfir::YieldOp, gfir::StepOp>(op)) {
       SmallVector<Value> values;
       ValueRange returned = isa<gfir::StepOp>(op)

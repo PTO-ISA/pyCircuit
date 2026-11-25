@@ -40,6 +40,7 @@ std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_stri
 std::string wholeOutputName(unsigned port) { return "output_value_" + std::to_string(port); }
 std::string wholeSnapshotName(unsigned port) { return "pyc_output_value_" + std::to_string(port); }
 std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
+std::string pureAvailabilityName(unsigned output) { return "pyc_availability_output_" + std::to_string(output); }
 std::string fieldAvailabilityName(unsigned field) {
   return "pyc_field_available_" + std::to_string(field);
 }
@@ -616,11 +617,39 @@ void preparationSignature(raw_ostream &out,
   else
     for (unsigned input : definition.preparationInputs)
       parameter(graphType(definition.wires[input], tables), wireName(input));
+  for (const auto &input : definition.inputAvailability)
+    parameter("pyc_behavior::Level", "pyc_input_available_" + std::to_string(input.port));
   if (hasIncomingWrites(definition))
     parameter("IncomingState", "pyc_incoming");
   if (hasObservations(definition))
     out << ", const pyc_observation_sink *pyc_sink, std::size_t pyc_observation_base";
   out << ')';
+}
+
+SmallVector<unsigned> pureAvailabilityInputs(const gfir::StructuredDefinition &definition,
+                                            unsigned result) {
+  SmallVector<unsigned> ports;
+  const auto &output = definition.outputs[result];
+  auto module = definition.module;
+  for (const auto &input : definition.inputAvailability) {
+    auto argument = module.getBody().front().getArgument(input.port);
+    const auto &leaves = definition.valueWires.find(argument)->second;
+    if (llvm::any_of(leaves, [&](unsigned leaf) { return llvm::is_contained(output.inputs, leaf); }))
+      ports.push_back(input.port);
+  }
+  return ports;
+}
+
+void pureAvailabilitySignature(raw_ostream &out, const gfir::StructuredDefinition &definition,
+                               const TableWireTypes &tables, unsigned result,
+                               StringRef owner = {}) {
+  out << "pyc_behavior::Level " << owner << pureAvailabilityName(result) << '(';
+  SmallVector<std::string> parameters;
+  for (unsigned input : definition.outputs[result].inputs)
+    parameters.push_back("const " + graphType(definition.wires[input], tables) + " &" + wireName(input));
+  for (unsigned port : pureAvailabilityInputs(definition, result))
+    parameters.push_back("const pyc_behavior::Level &pyc_input_available_" + std::to_string(port));
+  out << join(parameters, ", ") << ") const";
 }
 
 class BehavioralEmitter {
@@ -640,7 +669,8 @@ private:
                           const gfir::StructuredDefinition &definition,
                           ArrayRef<unsigned> outputs, StringRef instancePrefix = {},
                           bool groupSelects = false,
-                          SmallVectorImpl<CaptureGraphStep> *schedule = nullptr);
+                          SmallVectorImpl<CaptureGraphStep> *schedule = nullptr,
+                          bool emitAvailability = true);
   FailureOr<std::optional<unsigned>> internOutputGroup(
       unsigned definition, ArrayRef<unsigned> outputs, bool reuseKnownness);
   FailureOr<bool> emitOutputGroup(raw_ostream &out,
@@ -1139,7 +1169,7 @@ FailureOr<bool> BehavioralEmitter::emitScalarRegion(
 LogicalResult BehavioralEmitter::emitWires(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
     ArrayRef<unsigned> outputs, StringRef instancePrefix, bool groupSelects,
-    SmallVectorImpl<CaptureGraphStep> *schedule) {
+    SmallVectorImpl<CaptureGraphStep> *schedule, bool emitAvailability) {
   llvm::DenseMap<unsigned, unsigned> packedLookups;
   auto needed = wireClosure(definition, outputs, [&](unsigned index, unsigned input) {
     if (index >= definition.wires.size() || input >= definition.wires.size() ||
@@ -1228,6 +1258,43 @@ LogicalResult BehavioralEmitter::emitWires(
              wire.endpoint.value.getDefiningOp()));
     out << "    const auto " << (borrow ? "&" : "") << wireName(index)
         << " = " << *value << ";\n";
+    if (emitAvailability && wire.call) {
+      const auto &child = program.definitions[wire.call->definition];
+      const auto &output = child.outputs[wire.call->output];
+      if (!child.clocked && !child.wireAvailability.empty() &&
+          !child.wireAvailability[output.wire].empty() &&
+          !definition.wireAvailability.empty() && !definition.wireAvailability[index].empty()) {
+        auto member = instanceName(wire.call->receiver);
+        if (failed(member)) return failure();
+        SmallVector<std::string> arguments;
+        for (unsigned input : wire.dependencies)
+          arguments.push_back(wireName(input));
+        auto call = cast<gfir::CallOp>(wire.endpoint.value.getDefiningOp());
+        for (unsigned port : pureAvailabilityInputs(child, wire.call->output)) {
+          auto actual = call.getInputs()[port];
+          const auto &leaves = definition.valueWires.find(actual)->second;
+          const auto &sources = definition.wireAvailability.empty()
+              ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+          auto available = availabilityExpression(definition, sources, instancePrefix);
+          if (failed(available)) return failure();
+          arguments.push_back(definition.fourStateAvailability ? *available : levelName.str() + "(" + *available + ")");
+        }
+        out << "    const auto pyc_availability_call_" << index << " = " << instancePrefix
+            << *member << '.' << pureAvailabilityName(wire.call->output) << '('
+            << join(arguments, ", ") << ");\n";
+      }
+    }
+    if (emitAvailability) for (auto [ordinal, select] : llvm::enumerate(definition.availabilitySelects)) {
+      if (select.wire != index)
+        continue;
+      auto yes = availabilityExpression(definition, select.yes, instancePrefix);
+      auto no = availabilityExpression(definition, select.no, instancePrefix);
+      if (failed(yes) || failed(no))
+        return failure();
+      out << "    const auto pyc_availability_select_" << ordinal << " = pyc_behavior::Level"
+          << "::fromPacked(gfsim::select(" << wireName(select.selector) << ", ("
+          << *yes << ").packed(), (" << *no << ").packed()));\n";
+    }
     emitted.set(index);
   }
   return success();
@@ -1282,7 +1349,7 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
     return false;
   const auto &call = *initial.call;
   const auto &child = program.definitions[call.definition];
-  if (isClocked(child) || child.hasChecks())
+  if (isClocked(child) || child.hasChecks() || !child.inputAvailability.empty())
     return false;
   SmallVector<unsigned> members;
   SmallVector<unsigned> outputs;
@@ -1763,6 +1830,7 @@ void BehavioralEmitter::planEvaluationMemoization() {
   memoizedRules.resize(program.definitions.size());
   for (auto [index, definition] : llvm::enumerate(program.definitions)) {
     if (!definition.clocked || definition.explicitDomains || definition.hasChecks() ||
+        !definition.inputAvailability.empty() ||
         hasIncomingWrites(definition) || !definition.clockedCalls.empty() ||
         !definition.childStates.empty())
       continue;
@@ -1865,6 +1933,12 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     out << "  ";
     signature(out, definition, tableWireTypes, result);
     out << ";\n";
+    if (!isClocked(definition) && !definition.wireAvailability.empty() &&
+        !definition.wireAvailability[definition.outputs[result].wire].empty()) {
+      out << "  ";
+      pureAvailabilitySignature(out, definition, tableWireTypes, result);
+      out << ";\n";
+    }
   }
   for (auto [ordinal, group] : llvm::enumerate(outputGroups[index])) {
     out << "  struct " << outputGroupType(ordinal) << " {\n";
@@ -1901,11 +1975,13 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
           << " &pyc_results) const;\n";
     }
   }
-  for (const auto &output : definition.outputAvailability)
-    out << "  bool " << availabilityName(output.port) << " = false;\n";
+  if (isClocked(definition)) for (const auto &output : definition.outputAvailability)
+    out << "  " << (definition.fourStateAvailability ? "pyc_behavior::Level" : "bool") << ' '
+        << availabilityName(output.port) << (definition.fourStateAvailability ? " = pyc_behavior::level(false);\n" : " = false;\n");
   for (auto [index, field] : llvm::enumerate(definition.fieldOutputs))
     if (!field.sources.empty())
-      out << "  bool " << fieldAvailabilityName(index) << " = false;\n";
+      out << "  " << (definition.fourStateAvailability ? "pyc_behavior::Level" : "bool") << ' '
+          << fieldAvailabilityName(index) << (definition.fourStateAvailability ? " = pyc_behavior::level(false);\n" : " = false;\n");
   if (hasIncomingWrites(definition)) {
     out << "  struct IncomingState {\n";
     for (auto [index, incoming] : llvm::enumerate(definition.incomingStates)) {
@@ -2041,9 +2117,19 @@ LogicalResult BehavioralEmitter::emitOutput(raw_ostream &out, unsigned index,
   } else if (output.requiresPreparation) {
     out << "    return " << preparedName(result) << ";\n}\n";
   } else {
-    if (failed(emitWires(out, definition, {output.wire})))
+    if (failed(emitWires(out, definition, {output.wire}, {}, false, nullptr,
+                         isClocked(definition))))
       return failure();
     out << "    return " << wireName(output.wire) << ";\n}\n";
+  }
+  if (!isClocked(definition) && !definition.wireAvailability.empty() &&
+      !definition.wireAvailability[output.wire].empty()) {
+    pureAvailabilitySignature(out, definition, tableWireTypes, result, moduleName(index) + "::");
+    out << " {\n";
+    if (failed(emitWires(out, definition, {output.wire}))) return failure();
+    auto available = availabilityExpression(definition, definition.wireAvailability[output.wire]);
+    if (failed(available)) return failure();
+    out << "    return " << *available << ";\n}\n";
   }
   return success();
 }
@@ -2653,6 +2739,25 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
   for (auto iterator = body.begin(); iterator != body.end();) {
     auto current = iterator++;
     Operation &op = *current;
+    if (auto uses = clocked.dataCaptureUses.find(&op); uses != clocked.dataCaptureUses.end()) {
+      for (auto [ordinal, use] : llvm::enumerate(uses->second)) {
+        auto available = "txn.pyc_capture_available_" + std::to_string(use.capture);
+        out << "    if (!";
+        if (definition.fourStateAvailability)
+          out << "pyc_behavior::isOne(" << available << ')';
+        else
+          out << available;
+        out << ") { ";
+        if (definition.fourStateAvailability)
+          out << "if (txn.pyc_check_active && !" << available
+              << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
+              << clocked.checkOffsets.lookup(&op) + ordinal << "; ";
+        out << "txn.pyc_running = false; ";
+        if (failed(emitBlockedReturn(out, body, ruleResults)))
+          return failure();
+        out << " }\n";
+      }
+    }
     if (snapshotBoundary == &op) {
       snapshot();
       out << "    if (!pyc_active) return;\n";
@@ -2754,8 +2859,18 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto capture = clocked.guardedCaptureUses.find(guard);
           capture != clocked.guardedCaptureUses.end()) {
-        out << "    if (!txn.pyc_capture_available_" << capture->second
-            << ") { txn.pyc_running = false; ";
+        auto available = "txn.pyc_capture_available_" + std::to_string(capture->second);
+        out << "    if (!";
+        if (definition.fourStateAvailability)
+          out << "pyc_behavior::isOne(" << available << ')';
+        else
+          out << available;
+        out << ") { ";
+        if (definition.fourStateAvailability)
+          out << "if (txn.pyc_check_active && !" << available
+              << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
+              << clocked.checkOffsets.lookup(guard) - 1 << "; ";
+        out << "txn.pyc_running = false; ";
         if (failed(emitBlockedReturn(out, body, ruleResults)))
           return failure();
         out << " }\n";
@@ -3239,7 +3354,9 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       out << "    std::optional<" << *type << "> " << childCandidateName(slot) << ";\n";
     }
     for (const auto &capture : rule.guardCaptures)
-      out << "    bool pyc_capture_available_" << capture.capture << " = false;\n";
+      out << "    " << (definition.fourStateAvailability ? "pyc_behavior::Level" : "bool")
+          << " pyc_capture_available_" << capture.capture
+          << (definition.fourStateAvailability ? " = pyc_behavior::level(false);\n" : " = false;\n");
     if (rule.sampled)
       out << "    bool pyc_running = true;\n"
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
@@ -3357,8 +3474,21 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     StringRef instancePrefix) {
   SmallVector<std::string> terms;
   for (const auto &source : sources) {
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::PureOutput) {
+      terms.push_back("pyc_availability_call_" + std::to_string(source.index));
+      continue;
+    }
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::Input) {
+      terms.push_back("pyc_input_available_" + std::to_string(source.index));
+      continue;
+    }
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::Select) {
+      terms.push_back("pyc_availability_select_" + std::to_string(source.index));
+      continue;
+    }
     if (source.kind == gfir::StructuredAvailabilitySource::Kind::Rule) {
-      terms.push_back(frameName(source.index) + ".pyc_running");
+      auto value = frameName(source.index) + ".pyc_running";
+      terms.push_back(definition.fourStateAvailability ? levelName.str() + "(" + value + ")" : value);
       continue;
     }
     auto member = instanceName(definition.clockedCalls[source.index].receiver);
@@ -3367,8 +3497,23 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     auto result = source.kind == gfir::StructuredAvailabilitySource::Kind::ChildField
                       ? fieldAvailabilityName(source.port)
                       : availabilityName(source.port);
-    terms.push_back(instancePrefix.str() + *member + "." + result);
+    auto value = instancePrefix.str() + *member + "." + result;
+    if (definition.fourStateAvailability &&
+        !program.definitions[definition.clockedCalls[source.index].definition].fourStateAvailability)
+      value = levelName.str() + "(" + value + ")";
+    terms.push_back(std::move(value));
   }
+  if (definition.fourStateAvailability) {
+    if (terms.empty())
+      return levelName.str() + "(true)";
+    std::string combined = terms.front();
+    for (const auto &term : ArrayRef<std::string>(terms).drop_front())
+      combined = "pyc_behavior::Level::fromPacked(gfsim::bit_and((" + combined +
+                 ").packed(), (" + term + ").packed()))";
+    return combined;
+  }
+  if (terms.empty())
+    return std::string("true");
   return join(terms, " && ");
 }
 
@@ -3647,6 +3792,17 @@ LogicalResult BehavioralEmitter::emitClockedCall(
         return operation.emitOpError("clocked child preparation input is unresolved");
       out << ", " << wireName(*leaf);
     }
+  }
+  for (const auto &input : child.inputAvailability) {
+    auto actual = operation.getInputs()[input.port];
+    const auto &leaves = definition.valueWires.find(actual)->second;
+    const auto &sources = definition.wireAvailability.empty()
+        ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+    auto available = availabilityExpression(definition, sources, instancePrefix);
+    if (failed(available))
+      return failure();
+    out << ", " << (definition.fourStateAvailability ? *available
+                      : levelName.str() + "(" + *available + ")");
   }
   if (hasIncomingWrites(child)) {
     SmallVector<std::string> candidates;
@@ -4213,6 +4369,8 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
     else
       for (unsigned input : definition.preparationInputs)
         inputArgument(wireName(input));
+    for (const auto &input : definition.inputAvailability)
+      inputArgument(levelName.str() + "(true)");
     if (hasIncomingWrites(definition))
       inputArgument("{}");
     if (observes)
@@ -4256,9 +4414,26 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
              << ", " << value << ");\n";
     }
   }
-  for (const auto &[port, wire] : companions)
-    work << "    " << wire << " = " << levelName << "(pyc_body."
-           << availabilityName(port) << ");\n";
+  for (const auto &[port, wire] : companions) {
+    work << "    " << wire << " = ";
+    if (!isClocked(definition)) {
+      auto output = llvm::find_if(definition.outputs, [&](const auto &value) { return value.port.port == port; });
+      unsigned result = output - definition.outputs.begin();
+      SmallVector<std::string> arguments;
+      for (unsigned input : output->inputs)
+        arguments.push_back(wireName(input));
+      for (unsigned input : pureAvailabilityInputs(definition, result))
+        arguments.push_back(levelName.str() + "(true)");
+      work << "pyc_body." << pureAvailabilityName(result) << '(' << join(arguments, ", ") << ");\n";
+      continue;
+    }
+    if (!definition.fourStateAvailability)
+      work << levelName << '(';
+    work << "pyc_body." << availabilityName(port);
+    if (!definition.fourStateAvailability)
+      work << ')';
+    work << ";\n";
+  }
   if (isClocked(definition))
     work << "  } catch (...) {\n    DiscardNext();\n    throw;\n  }\n";
   work << "}\n";

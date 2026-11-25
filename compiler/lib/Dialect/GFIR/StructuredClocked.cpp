@@ -855,6 +855,9 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
   std::optional<std::pair<LoopOp, uint64_t>> activeIteration;
   auto visit = [&](auto &&recurse, Block &body, auto &&onCheck, auto &&onCall) -> void {
     for (Operation &op : body) {
+      if (auto uses = plan.dataCaptureUses.find(&op); uses != plan.dataCaptureUses.end())
+        for (const auto &use : uses->second)
+          onCheck(&op);
       if (plan.guardedCaptureUses.contains(&op))
         onCheck(&op);
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))

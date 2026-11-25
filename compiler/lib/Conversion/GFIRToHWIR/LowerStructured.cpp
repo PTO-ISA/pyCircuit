@@ -18,6 +18,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/APSInt.h"
+#include <functional>
 #include <utility>
 
 using namespace mlir;
@@ -43,14 +45,65 @@ DictionaryAttr instanceOccurrence(gfir::ModuleOp parent,
 }
 
 LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
+                                    const gfir::StructuredProgram &program,
                                     mlir::ModuleOp package) {
   auto source = facts.module;
   OpBuilder builder(package.getContext());
   builder.setInsertionPointToEnd(package.getBody());
   OperationState definition(source.getLoc(), ac::ModuleOp::getOperationName());
-  for (StringRef name : {"sym_name", "source_owner", "function_type",
-                         "input_names", "output_names"})
+  for (StringRef name : {"sym_name", "source_owner"})
     definition.addAttribute(name, source->getAttr(name));
+  SmallVector<Type> inputTypes(source.getFunctionType().getInputs());
+  SmallVector<Type> outputTypes(source.getFunctionType().getResults());
+  SmallVector<Attribute> inputNames(source.getInputNames().getValue());
+  SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
+  Type bit;
+  if (!facts.inputAvailability.empty() || !facts.outputAvailability.empty() ||
+      llvm::any_of(program.definitions, [](const auto &entry) { return !entry.inputAvailability.empty(); })) {
+    auto owner = source.getSourceOwner();
+    auto occurrence = builder.getDictionaryAttr({
+        builder.getNamedAttr("site", builder.getDictionaryAttr({
+            builder.getNamedAttr("definition", FlatSymbolRefAttr::get(source.getSymNameAttr())),
+            builder.getNamedAttr("ast_path", builder.getArrayAttr({}))})),
+        builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
+    auto location = builder.getDictionaryAttr({
+        builder.getNamedAttr("path", owner.getAs<StringAttr>("path")),
+        builder.getNamedAttr("line", builder.getI64IntegerAttr(1)),
+        builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
+        builder.getNamedAttr("end_line", builder.getI64IntegerAttr(1)),
+        builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
+    auto width = ac::StaticExprAttr::get(builder.getContext(), builder.getDictionaryAttr({
+        builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+        builder.getNamedAttr("value", builder.getDictionaryAttr({
+            builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+            builder.getNamedAttr("value", ac::MathIntAttr::get(builder.getContext(), llvm::APSInt(llvm::APInt(64, 1), true)))})),
+        builder.getNamedAttr("origin", occurrence), builder.getNamedAttr("location", location)}));
+    bit = ac::BitsType::get(builder.getContext(), width);
+    SmallVector<Attribute> inputValidity(inputTypes.size(), builder.getI64IntegerAttr(-1));
+    for (const auto &input : facts.inputAvailability) {
+      inputValidity[input.port] = builder.getI64IntegerAttr(inputTypes.size());
+      inputTypes.push_back(bit);
+      inputNames.push_back(input.name);
+    }
+    SmallVector<Attribute> outputValidity(outputTypes.size(), builder.getI64IntegerAttr(-1));
+    for (const auto &output : facts.outputAvailability) {
+      outputValidity[output.port] = builder.getI64IntegerAttr(outputTypes.size());
+      outputTypes.push_back(bit);
+      outputNames.push_back(output.name);
+    }
+    if (!facts.inputAvailability.empty())
+      definition.addAttribute("ac.input_validity", builder.getArrayAttr(inputValidity));
+    if (!facts.outputAvailability.empty())
+      definition.addAttribute("ac.output_validity", builder.getArrayAttr(outputValidity));
+    SmallVector<Attribute> defaults(facts.inputAvailability.size(), builder.getI64IntegerAttr(1));
+    definition.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
+        builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(source.getFunctionType().getNumInputs())),
+        builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
+        builder.getNamedAttr("root_inputs", builder.getArrayAttr(defaults))}));
+  }
+  definition.addAttribute("function_type", TypeAttr::get(builder.getFunctionType(inputTypes, outputTypes)));
+  definition.addAttribute("input_names", builder.getArrayAttr(inputNames));
+  definition.addAttribute("output_names", builder.getArrayAttr(outputNames));
   definition.addAttribute("parameters", builder.getArrayAttr({}));
   definition.addAttribute("type_parameters", builder.getArrayAttr({}));
   definition.addRegion();
@@ -60,6 +113,21 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
   IRMapping mapping;
   for (BlockArgument input : source.getBody().front().getArguments())
     mapping.map(input, block->addArgument(input.getType(), input.getLoc()));
+  llvm::DenseMap<unsigned, Value> inputCompanions;
+  for (const auto &input : facts.inputAvailability)
+    inputCompanions.try_emplace(input.port, block->addArgument(bit, source.getLoc()));
+  llvm::DenseMap<std::pair<Operation *, unsigned>, Value> childCompanions;
+  auto childFor = [&](gfir::CallOp call) -> const gfir::StructuredDefinition * {
+    auto receiver = call.getReceiverAttr();
+    for (auto instance : source.getBody().front().getOps<gfir::InstanceOp>()) {
+      if (instance.getSymName() != receiver.getValue()) continue;
+      for (const auto &child : program.definitions) {
+        auto module = child.module;
+        if (module.getSymName() == instance.getCalleeAttr().getValue()) return &child;
+      }
+    }
+    return nullptr;
+  };
 
   struct Instance {
     gfir::InstanceOp declaration;
@@ -104,17 +172,100 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
       state.addAttribute("occurrence",
                          instanceOccurrence(source, instance,
                                             found->second.ordinal, builder));
+      if (const auto *child = childFor(call)) {
+        auto target = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package, instance.getCalleeAttr()));
+        for (const auto &output : child->outputAvailability) {
+          auto position = target.getFunctionType().getNumResults() - child->outputAvailability.size();
+          state.addTypes(target.getFunctionType().getResult(position++));
+        }
+      }
     } else if (!isa<gfir::YieldOp>(operation)) {
       state.addAttributes(operation.getAttrs());
     }
     for (unsigned index = 0; index < operation.getNumRegions(); ++index)
       state.addRegion();
     Operation *lowered = builder.create(state);
+    if (auto call = dyn_cast<gfir::CallOp>(operation))
+      if (const auto *child = childFor(call)) {
+        unsigned result = operation.getNumResults();
+        for (const auto &output : child->outputAvailability)
+          childCompanions.try_emplace(std::make_pair(&operation, output.port), lowered->getResult(result++));
+      }
     operations.emplace_back(&operation, lowered);
     for (auto [original, result] :
          llvm::zip(operation.getResults(), lowered->getResults()))
       mapping.map(original, result);
   }
+  Operation *yield = block->getTerminator();
+  builder.setInsertionPoint(yield);
+  auto make = [&](StringRef name, ValueRange operands, TypeRange types,
+                  ArrayRef<NamedAttribute> attributes = {}) {
+    OperationState state(source.getLoc(), name);
+    state.addOperands(operands);
+    state.addTypes(types);
+    state.addAttributes(attributes);
+    return builder.create(state);
+  };
+  Value one;
+  auto truth = [&]() -> Value {
+    if (!one)
+      one = make(ac::BitsConstant4Op::getOperationName(), {}, {bit}, {
+          builder.getNamedAttr("pattern", builder.getStringAttr("1"))})->getResult(0);
+    return one;
+  };
+  ac::HardwareAnalysis analysis(package);
+  auto project = [&](Value value, ArrayRef<StringAttr> path) -> FailureOr<Value> {
+    for (auto field : path) {
+      auto declaration = analysis.lookupStruct(cast<ac::StructType>(value.getType()));
+      auto position = llvm::find_if(declaration.getFields(), [&](Attribute raw) {
+        return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == field;
+      });
+      if (position == declaration.getFields().end()) return failure();
+      auto type = cast<DictionaryAttr>(*position).getAs<TypeAttr>("type").getValue();
+      value = make(ac::StructGetOp::getOperationName(), {value}, {type}, {
+          builder.getNamedAttr("field", field)})->getResult(0);
+    }
+    return value;
+  };
+  llvm::DenseMap<unsigned, Value> selections;
+  std::function<FailureOr<Value>(const gfir::StructuredAvailability &)> availability;
+  availability = [&](const gfir::StructuredAvailability &sources) -> FailureOr<Value> {
+    Value result;
+    for (const auto &item : sources) {
+      Value value;
+      switch (item.kind) {
+      case gfir::StructuredAvailabilitySource::Kind::Input:
+        value = inputCompanions.lookup(item.index); break;
+      case gfir::StructuredAvailabilitySource::Kind::PureOutput: {
+        const auto &wire = facts.wires[item.index];
+        const auto &child = program.definitions[wire.call->definition];
+        value = childCompanions.lookup({wire.endpoint.value.getDefiningOp(),
+                                       child.outputs[wire.call->output].port.port});
+        break;
+      }
+      case gfir::StructuredAvailabilitySource::Kind::Select: {
+        if (auto cached = selections.find(item.index); cached != selections.end()) {
+          value = cached->second;
+          break;
+        }
+        const auto &select = facts.availabilitySelects[item.index];
+        const auto &endpoint = facts.wires[select.selector].endpoint;
+        auto condition = project(mapping.lookup(endpoint.value), endpoint.path);
+        auto yes = availability(select.yes), no = availability(select.no);
+        if (failed(condition) || failed(yes) || failed(no)) return failure();
+        value = make(ac::BitsSelectOp::getOperationName(), {*condition, *yes, *no}, {bit})->getResult(0);
+        selections.try_emplace(item.index, value);
+        break;
+      }
+      default:
+        return source.emitOpError("pure Module availability requires ordinary inputs and pure calls");
+      }
+      if (!value) return failure();
+      result = result ? make(ac::BitsBinaryOp::getOperationName(), {result, value}, {bit}, {
+          builder.getNamedAttr("opcode", builder.getStringAttr("and"))})->getResult(0) : value;
+    }
+    return result ? result : truth();
+  };
   for (auto [sourceOp, targetOp] : operations) {
     SmallVector<Value> operands;
     for (Value operand : sourceOp->getOperands()) {
@@ -133,6 +284,22 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
         operands.push_back(value);
       }
     }
+    if (auto call = dyn_cast<gfir::CallOp>(sourceOp))
+      if (const auto *child = childFor(call))
+        for (const auto &input : child->inputAvailability) {
+          const auto &leaves = facts.valueWires.find(call.getInputs()[input.port])->second;
+          const auto &sources = facts.wireAvailability.empty()
+              ? gfir::StructuredAvailability{} : facts.wireAvailability[leaves.front()];
+          auto available = availability(sources);
+          if (failed(available)) return failure();
+          operands.push_back(*available);
+        }
+    if (isa<gfir::YieldOp>(sourceOp))
+      for (const auto &output : facts.outputAvailability) {
+        auto available = availability(output.sources);
+        if (failed(available)) return failure();
+        operands.push_back(*available);
+      }
     targetOp->setOperands(operands);
     for (auto [sourceRegion, targetRegion] :
          llvm::zip(sourceOp->getRegions(), targetOp->getRegions()))
@@ -185,7 +352,7 @@ materializeStructuredHardware(mlir::ModuleOp package) {
   for (const auto &definition : program->definitions)
     if (failed(definition.clocked
                    ? materializeStructuredClocked(definition, *program, *candidate)
-                   : materializeDefinition(definition, *candidate)))
+                   : materializeDefinition(definition, *program, *candidate)))
       return failure();
   if (program->root.getKind() == "system") {
     Operation *root = SymbolTable::lookupSymbolIn(*candidate, program->root.getCalleeAttr());

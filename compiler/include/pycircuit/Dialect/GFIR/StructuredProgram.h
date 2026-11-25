@@ -138,7 +138,7 @@ struct StructuredMethodEffects {
 };
 
 struct StructuredAvailabilitySource {
-  enum class Kind { Rule, ChildOutput, ChildField };
+  enum class Kind { Rule, ChildOutput, ChildField, Select, Input, PureOutput };
   Kind kind;
   /// Rule or clocked call ordinal in the enclosing definition.
   unsigned index;
@@ -149,9 +149,27 @@ struct StructuredAvailabilitySource {
 
 using StructuredAvailability = llvm::SmallVector<StructuredAvailabilitySource, 1>;
 
+struct StructuredAvailabilitySelect {
+  unsigned wire;
+  unsigned selector;
+  StructuredAvailability yes;
+  StructuredAvailability no;
+};
+
+struct StructuredInputAvailability {
+  unsigned port;
+  mlir::StringAttr name;
+};
+
 struct StructuredGuardCapture {
   unsigned capture;
   StructuredAvailability sources;
+};
+
+struct StructuredDataCaptureUse {
+  unsigned capture;
+  unsigned operand;
+  bool returned;
 };
 
 struct StructuredRule {
@@ -198,6 +216,7 @@ struct StructuredClocked {
   llvm::DenseSet<mlir::Operation *> checkedBranches;
   /// Relative ordinal of a check or callee entry in its callable's inventory.
   llvm::DenseMap<mlir::Operation *, uint64_t> checkOffsets;
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<StructuredDataCaptureUse>> dataCaptureUses;
   llvm::DenseMap<mlir::Operation *, unsigned> guardedCaptureUses;
   llvm::DenseMap<mlir::Operation *, mlir::DictionaryAttr> orderedOccurrences;
 };
@@ -247,12 +266,16 @@ struct StructuredClockedCall {
 
 struct StructuredDefinition {
   bool explicitDomains = false;
+  bool fourStateAvailability = false;
   ModuleOp module;
   llvm::SmallVector<StructuredWire, 0> wires;
   /// Wires, Rule evaluations, then clocked instance preparations.
   llvm::SmallVector<unsigned> order;
   llvm::SmallVector<StructuredOutput> outputs;
   llvm::SmallVector<StructuredOutputAvailability> outputAvailability;
+  llvm::SmallVector<StructuredInputAvailability> inputAvailability;
+  llvm::SmallVector<StructuredAvailability> wireAvailability;
+  llvm::SmallVector<StructuredAvailabilitySelect> availabilitySelects;
   llvm::SmallVector<StructuredFieldOutput> fieldOutputs;
   llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned>> valueWires;
   std::optional<StructuredClocked> clocked;
