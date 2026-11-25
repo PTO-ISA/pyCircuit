@@ -53,6 +53,9 @@ std::string childCandidateName(unsigned receiver) {
 std::string observationName(unsigned slot) {
   return "pyc_observation_" + std::to_string(slot);
 }
+std::string observationReachedName(unsigned slot) {
+  return observationName(slot) + "_reached";
+}
 
 bool isClocked(const gfir::StructuredDefinition &definition) {
   return definition.clocked.has_value() || !definition.clockedCalls.empty();
@@ -2555,7 +2558,6 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           ArrayRef<std::string> stepTargets) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
-  unsigned nextObservation = 0;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
@@ -2628,7 +2630,15 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         out << "    txn.pyc_assert_condition_" << clocked.checkOffsets.lookup(effect)
             << " = " << args.front() << ";\n";
       } else {
-        unsigned slot = rule->observations[nextObservation++].firstSlot;
+        const gfir::StructuredObservation *observation = nullptr;
+        for (const auto &owner : clocked.rules)
+          for (const auto &candidate : owner.observations)
+            if (candidate.operation == effect)
+              observation = &candidate;
+        if (!observation)
+          return effect.emitOpError("missing verified observation slot");
+        unsigned slot = observation->firstSlot;
+        out << "    txn." << observationReachedName(slot) << " = true;\n";
         for (const auto &argument : args)
           out << "    txn." << observationName(slot++) << " = " << argument << ";\n";
       }
@@ -3046,6 +3056,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     for (const auto &observation : rule.observations) {
       auto effect = observation.operation;
       unsigned slot = observation.firstSlot;
+      out << "    bool " << observationReachedName(slot) << " = false;\n";
       for (Value value : effect.getValues()) {
         auto type = typedWire(value.getType(), effect);
         if (failed(type))
@@ -3258,6 +3269,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     for (const auto &observation : rule.observations) {
       auto effect = observation.operation;
       unsigned slot = observation.firstSlot;
+      out << "      if (" << frame << '.' << observationReachedName(slot) << ") {\n";
       auto stage = [&](StringRef packed, bool eventBool) {
         out << "      pyc_sink->slots->StagePacked(pyc_observation_base + " << slot++
             << ", " << packed << ", " << (eventBool ? "true" : "false")
@@ -3265,6 +3277,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
       };
       if (effect.getValues().empty()) {
         stage("pyc_behavior::level(true).packed()", true);
+        out << "      }\n";
         continue;
       }
       for (Value value : effect.getValues()) {
@@ -3274,6 +3287,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
         stage(frame + "." + observationName(slot) + ".packed()",
               effect.getKind() == "log" && *width == 1);
       }
+      out << "      }\n";
     }
     out << "    }\n";
   }

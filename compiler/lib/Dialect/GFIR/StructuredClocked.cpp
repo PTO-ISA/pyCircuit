@@ -515,11 +515,13 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         return failure();
       }
     } else if (auto effect = dyn_cast<EffectOp>(op)) {
-      if (!rule || owner != plan.rules[*rule].operation ||
+      if (!rule || (!isArm && owner != plan.rules[*rule].operation) ||
           failed(verifyAttributes(effect, {"kind", "message", "spec"})))
-        return effect.emitOpError("effect requires a direct Rule body");
+        return effect.emitOpError("effect requires a Rule body or selected arm");
       auto &record = plan.rules[*rule];
       if (effect.getKind() == "assert") {
+        if (owner != record.operation)
+          return effect.emitOpError("assertion requires a direct Rule body");
         if (!isBitOne(hardware, effect.getValues().front().getType(), effect))
           return effect.emitOpError("assertion requires Bits1");
         record.assertions.push_back(effect);
@@ -563,10 +565,12 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       unsigned firstWrite = uses.writes.size();
       size_t firstCall = uses.methods.size();
       uint64_t earlierControls = uses.sampledControls;
+      size_t firstObservation = rule ? plan.rules[*rule].observations.size() : 0;
       for (Region *arm : {&branch.getThenBody(), &branch.getElseBody()})
         if (failed(verifyBody(branch, arm->front(), uses, rule)))
           return failure();
-      if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls) {
+      if (uses.methods.size() != firstCall || uses.sampledControls != earlierControls ||
+          (rule && plan.rules[*rule].observations.size() != firstObservation)) {
         plan.checkedBranches.insert(branch);
         ++uses.sampledControls;
       }
@@ -681,9 +685,16 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
           return childStates[receiver].writer == index;
         });
     if (!rule.assertions.empty() || !rule.observations.empty()) {
-      for (Operation &op : rule.operation.getBody().front())
-        if (isa<CallOp, IfOp, LoopOp>(op))
-          return op.emitOpError("effect Rule requires a direct ordered body");
+      auto unsupported = rule.operation.walk([&](Operation *op) {
+        if (isa<CallOp, LoopOp>(op) ||
+            (!rule.assertions.empty() && isa<IfOp>(op))) {
+          op->emitOpError("effect Rule supports selected observations without calls or loops");
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (unsupported.wasInterrupted())
+        return failure();
       rule.sampled = true;
     }
     if (!rule.requirements.empty() && (rule.sampled || !rule.resultUses.empty())) {

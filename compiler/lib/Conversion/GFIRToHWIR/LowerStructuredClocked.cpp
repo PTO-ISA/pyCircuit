@@ -46,6 +46,12 @@ private:
     unsigned pathResult = 0;
   };
 
+  struct ObservationSnapshot {
+    SmallVector<Value> values;
+    Value path;
+    DictionaryAttr pathIdentity;
+  };
+
   struct SampledContext {
     DictionaryAttr registration;
     ArrayRef<gfir::StructuredCheckSite> plannedChecks;
@@ -59,7 +65,7 @@ private:
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
     llvm::DenseMap<Operation *, Value> assertionConditions;
-    llvm::DenseMap<Operation *, SmallVector<Value>> observationValues;
+    llvm::DenseMap<Operation *, ObservationSnapshot> observations;
     Value prefix, path;
     DictionaryAttr pathIdentity;
   };
@@ -1087,8 +1093,11 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         sampled->assertionConditions.try_emplace(effect,
             mapping.lookup(effect.getValues().front()));
       } else {
-        auto &values = sampled->observationValues[effect];
-        for (Value value : effect.getValues()) values.push_back(mapping.lookup(value));
+        auto &snapshot = sampled->observations[effect];
+        snapshot.path = sampled->path;
+        snapshot.pathIdentity = sampled->pathIdentity;
+        for (Value value : effect.getValues())
+          snapshot.values.push_back(mapping.lookup(value));
       }
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto captured = plan.guardedCaptureUses.find(guard);
@@ -1392,15 +1401,17 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   SmallVector<Attribute> observations;
   for (const auto &observation : plan.rules[index].observations) {
     auto effect = observation.operation;
-    auto found = context.observationValues.find(effect);
-    if (found == context.observationValues.end())
+    auto found = context.observations.find(effect);
+    if (found == context.observations.end())
       return effect.emitOpError("missing ordered observation snapshot");
+    const auto &snapshot = found->second;
     observations.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("id", observation.id),
-        builder.getNamedAttr("path", builder.getDictionaryAttr({})),
-        builder.getNamedAttr("value_count", builder.getI64IntegerAttr(found->second.size()))}));
-    yielded.push_back(context.prefix);
-    yielded.append(found->second);
+        builder.getNamedAttr("path", snapshot.pathIdentity),
+        builder.getNamedAttr("value_count", builder.getI64IntegerAttr(snapshot.values.size()))}));
+    yielded.push_back(snapshot.path ? binary("and", context.prefix, snapshot.path)
+                                   : context.prefix);
+    yielded.append(snapshot.values);
   }
   unsigned checkBase = yielded.size();
   if (!context.resources.empty()) {
