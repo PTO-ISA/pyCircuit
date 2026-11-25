@@ -93,6 +93,29 @@ constexpr std::uint64_t limitBits(std::uint64_t value) noexcept {
   return value;
 }
 
+template <unsigned Width, unsigned Total>
+void writeKnownBits(Bits<Total> &image, unsigned low, std::uint64_t value) noexcept {
+  static_assert(Width <= 64 && Width <= Total);
+  const unsigned word = low / 64;
+  const unsigned shift = low % 64;
+  constexpr std::uint64_t mask = limitBits<Width>(~std::uint64_t{0});
+  value &= mask;
+  image.setWord(word, (image.word(word) & ~(mask << shift)) | (value << shift));
+  if (shift + Width > 64) {
+    const unsigned tail = 64 - shift;
+    image.setWord(word + 1, (image.word(word + 1) & ~(mask >> tail)) | (value >> tail));
+  }
+}
+
+template <unsigned... Width, class... Scalar>
+auto concatenateKnown(Scalar... fields) noexcept {
+  constexpr unsigned total = (Width + ...);
+  Bits<total> image{};
+  unsigned low = total;
+  (writeKnownBits<Width>(image, low -= Width, fields), ...);
+  return FourState<total>::known(image);
+}
+
 template <unsigned Width>
 constexpr std::uint64_t extendSign(std::uint64_t value) noexcept {
   constexpr auto sign = std::uint64_t{1} << (Width - 1);
@@ -486,26 +509,27 @@ class KnownRecordState : public RecordState<Wire, Layout> {
 public:
   void prepare(const Level &enabled, const typename Layout::Candidate &candidate) {
     Base::prepare(enabled, candidate);
-    pending_.reset();
+    pendingKnown_ = false;
   }
 
-  void prepareKnown(const typename Layout::KnownEdit &edit) noexcept {
+  void prepareKnown() noexcept {
     Base::hold();
-    pending_ = edit;
+    pendingKnown_ = true;
   }
 
   void reset(const Wire &initial) noexcept {
     Base::reset(initial);
-    pending_.reset();
+    pendingKnown_ = false;
   }
 
-  void discard() noexcept { pending_.reset(); }
+  void discard() noexcept { pendingKnown_ = false; }
   bool isFullyKnown() const noexcept { return known_; }
 
-  void commit() noexcept {
-    if (pending_) {
-      Base::applyKnown(*pending_, known_);
-      pending_.reset();
+  // The caller owns the memo entry until commit. Keep only the prepared
+  // intent here so neither a pointer nor a copy survives a subsequent Work.
+  void commit(const typename Layout::KnownEdit *edit) noexcept {
+    if (pendingKnown_ && edit) {
+      Base::applyKnown(*edit, known_);
       // A known edit preserves this proof. It can also fill the last unknown
       // field, so recheck only when committed state was already unknown.
       if (!known_)
@@ -514,11 +538,12 @@ public:
       Base::commit();
       known_ = Base::value().isFullyKnown();
     }
+    pendingKnown_ = false;
   }
 
 private:
   bool known_ = false;
-  std::optional<typename Layout::KnownEdit> pending_;
+  bool pendingKnown_ = false;
 };
 
 template <bool Known, class State, class Image, class Field>
@@ -531,14 +556,7 @@ void applyKnownField(State &mirror, Image &image, Field &field, unsigned low,
   if constexpr (Known) {
     // All untouched bits are already known. Update just the value words and
     // rebuild the known carrier once after the full edit set.
-    const unsigned word = low / 64;
-    const unsigned shift = low % 64;
-    constexpr std::uint64_t mask = limitBits<width>(~std::uint64_t{0});
-    image.setWord(word, (image.word(word) & ~(mask << shift)) | (value << shift));
-    if (shift + width > 64) {
-      const unsigned tail = 64 - shift;
-      image.setWord(word + 1, (image.word(word + 1) & ~(mask >> tail)) | (value >> tail));
-    }
+    writeKnownBits<width>(image, low, value);
   } else {
     mirror.assignSlice(low, field.packed());
   }

@@ -252,7 +252,15 @@ bool canBorrowTableRead(gfir::ReadOp read) {
 struct NativeOutputEntry {
   SmallVector<unsigned> tables;
   std::string body;
+  gfir::ModuleOp soleCaller;
+  unsigned callSites = 0;
+  bool inlineBody = false;
 };
+
+constexpr llvm::StringLiteral nativeInlineAttribute =
+    "#if defined(__clang__) && defined(__OPTIMIZE__)\n"
+    "[[clang::always_inline]]\n"
+    "#endif\n";
 
 struct OutputGroup {
   SmallVector<unsigned> outputs;
@@ -599,7 +607,8 @@ private:
                                       const gfir::StructuredDefinition &definition,
                                       const OutputGroup &group, ArrayRef<unsigned> roots,
                                       SmallVectorImpl<unsigned> *checkedInputs = nullptr,
-                                      SmallVectorImpl<unsigned> *nativeTables = nullptr);
+                                      SmallVectorImpl<unsigned> *nativeTables = nullptr,
+                                      bool scalarResult = false);
   FailureOr<bool> emitNativeCaptures(raw_ostream &out,
                                      const gfir::StructuredDefinition &definition,
                                      const gfir::StructuredRule &rule,
@@ -609,6 +618,7 @@ private:
       const gfir::StructuredDefinition &definition, const gfir::StructuredRule &rule) const;
   const KnownRecordPlan *knownRecord(const gfir::StructuredDefinition &definition) const;
   void declareKnownRecord(raw_ostream &out, const KnownRecordPlan &plan);
+  LogicalResult planNativeOutputInlining();
   LogicalResult emitOutputGroupBody(unsigned index, unsigned ordinal);
   LogicalResult emitOutputCallables();
   LogicalResult planWholeOutputs();
@@ -1318,7 +1328,7 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
     const OutputGroup &group, ArrayRef<unsigned> roots,
     SmallVectorImpl<unsigned> *checkedInputs,
-    SmallVectorImpl<unsigned> *nativeTables) {
+    SmallVectorImpl<unsigned> *nativeTables, bool scalarResult) {
   auto forwarded = [&](unsigned index) {
     auto bits = forwardedBits(definition, index);
     return bits ? bits : forwardedTable(definition, index);
@@ -1366,7 +1376,7 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
       continue;
     }
     if (isa<ac::TableType>(wire.type)) {
-      if (!isa<BlockArgument>(wire.endpoint.value) ||
+      if (scalarResult || !isa<BlockArgument>(wire.endpoint.value) ||
           !llvm::is_contained(group.inputs, index))
         return false;
       tables.push_back(index);
@@ -1403,12 +1413,17 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
         ++uses[origins[input]];
     }
   }
-  if (inputs.empty() || operations.size() < minScalarOperations)
+  // Small singleton bridges already have a caller-side knownness check.
+  // Keep their inlined closure smaller than an ordinary output group.
+  if (scalarResult ? operations.size() > minScalarOperations
+                   : inputs.empty() || operations.size() < minScalarOperations)
     return false;
   for (unsigned root : roots)
     ++uses[origins[root]];
 
-  if (nativeTables) {
+  if (scalarResult) {
+    checkedInputs->append(inputs.begin(), inputs.end());
+  } else if (nativeTables) {
     checkedInputs->append(inputs.begin(), inputs.end());
     nativeTables->append(tables.begin(), tables.end());
   } else if (checkedInputs) {
@@ -1424,6 +1439,10 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     out << "      do {\n";
   SmallVector<std::string> expressions(definition.wires.size());
   for (unsigned input : inputs) {
+    if (scalarResult) {
+      expressions[input] = wireName(input);
+      continue;
+    }
     expressions[input] = "pyc_native_" + std::to_string(input);
     out << "      const auto " << expressions[input] << " = ";
     if (nativeTables)
@@ -1470,6 +1489,12 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
     expressions[index] = "pyc_native_" + std::to_string(index);
     out << "      const auto " << expressions[index] << " = " << *expression << ";\n";
   }
+  if (scalarResult) {
+    auto root = roots.front();
+    out << "        return static_cast<" << nativeInteger(definition.wires[root].width)
+        << ">(" << expressions[origins[root]] << ");\n";
+    return true;
+  }
   SmallVector<std::string> results;
   for (unsigned root : roots) {
     unsigned width = definition.wires[root].width;
@@ -1495,6 +1520,37 @@ FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
 }
 
 #include "BehavioralNativeGroups.inc"
+
+LogicalResult BehavioralEmitter::planNativeOutputInlining() {
+  // The memoized parent has multiple native calls, so its prepare is
+  // out-of-line. Include a definition only where that source can use it.
+  if (inlineRootWork(program))
+    return success();
+  constexpr std::size_t maxBytesPerCaller = 256 * 1024;
+  llvm::StringMap<std::size_t> bytesUsed;
+  for (auto [index, entries] : llvm::enumerate(outputGroups)) {
+    for (auto &output : entries) {
+      auto *native = output.nativeEntry.get();
+      if (!native || native->callSites != 1)
+        continue;
+      auto caller = getGroup(native->soleCaller);
+      auto owner = getGroup(program.definitions[index].module);
+      if (failed(caller) || failed(owner))
+        return failure();
+      auto &used = bytesUsed[(*caller)->sourcePath];
+      if (native->body.size() > maxBytesPerCaller - used)
+        continue;
+      used += native->body.size();
+      native->inlineBody = true;
+      if (*caller == *owner)
+        continue;
+      auto include = "#include \"" + (*owner)->headerPath + "\"\n";
+      if (!StringRef((*caller)->source).contains(include))
+        (*caller)->source.insert(0, include);
+    }
+  }
+  return success();
+}
 
 LogicalResult BehavioralEmitter::emitOutputGroupBody(unsigned index,
                                                     unsigned ordinal) {
@@ -1536,11 +1592,14 @@ LogicalResult BehavioralEmitter::emitOutputGroupBody(unsigned index,
   if (specialized)
     out << "    });\n";
   out << "}\n";
-  if (outputs.nativeEntry) {
-    out << "bool " << moduleName(index) << "::" << outputGroupName(ordinal)
-        << "_known(const " << nativeGroupInput(ordinal) << " &pyc_inputs, "
-        << nativeGroupResult(ordinal) << " &pyc_results) const {\n"
-        << outputs.nativeEntry->body << "}\n";
+  if (const auto *native = outputs.nativeEntry.get()) {
+    llvm::raw_string_ostream body(native->inlineBody ? (*group)->header : (*group)->source);
+    if (native->inlineBody)
+      body << nativeInlineAttribute << "inline ";
+    body << "bool " << moduleName(index) << "::" << outputGroupName(ordinal)
+         << "_known(const " << nativeGroupInput(ordinal) << " &pyc_inputs, "
+         << nativeGroupResult(ordinal) << " &pyc_results) const {\n"
+         << native->body << "}\n";
   }
   return success();
 }
@@ -1709,13 +1768,16 @@ LogicalResult BehavioralEmitter::planWholeInputs() {
     if (!memoizedRules.test(index) || definition.preparationInputs.size() < 2)
       continue;
     const auto &rule = definition.clocked->rules.front();
-    if (rule.afterSnapshot)
+    // Only the root already receives the complete Struct at its public
+    // boundary. Other split Rules still get the fields their callers schedule.
+    if (rule.afterSnapshot && index != program.rootIndex)
       continue;
     auto operation = rule.operation;
     auto argument = dyn_cast<BlockArgument>(
         definition.wires[definition.preparationInputs.front()].endpoint.value);
     if (!argument || !isa<ac::StructType>(argument.getType()) ||
-        !llvm::all_of(argument.getUsers(), [&](Operation *user) { return user == operation; }))
+        (!rule.afterSnapshot &&
+         !llvm::all_of(argument.getUsers(), [&](Operation *user) { return user == operation; })))
       continue;
     if (llvm::any_of(llvm::zip_equal(operation.getCaptures(), operation.getBody().front().getArguments()),
                      [&](const auto &binding) {
@@ -1729,8 +1791,8 @@ LogicalResult BehavioralEmitter::planWholeInputs() {
           return llvm::is_contained(definition.preparationInputs, leaf);
         }))
       continue;
-    // The graph inventories each nominal leaf exactly once. Keep its schedule
-    // and replace the C++ carrier only when all uses capture this whole value.
+    // All preparation leaves belong to this exact nominal value. The
+    // aggregate is a transport and memo key; the leaf schedule stays intact.
     auto wire = typedWire(argument.getType(), operation);
     if (failed(wire))
       return failure();
@@ -1780,7 +1842,12 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
         out << "    " << nativeInteger(definition.wires[wire].width) << ' '
             << resultName(output) << ";\n";
       }
-      out << "  };\n  bool " << outputGroupName(ordinal) << "_known(const "
+      out << "  };\n";
+      if (group.nativeEntry->inlineBody)
+        out << nativeInlineAttribute << "  inline ";
+      else
+        out << "  ";
+      out << "bool " << outputGroupName(ordinal) << "_known(const "
           << nativeGroupInput(ordinal) << " &pyc_inputs, " << nativeGroupResult(ordinal)
           << " &pyc_results) const;\n";
     }
@@ -1870,6 +1937,7 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
           out << "  struct KnownMemo {\n"
               << "    " << wide.find(known->snapshotPort)->second.type << " snapshot;\n"
               << "    " << recordLayoutName(0) << "::KnownEdit edit;\n"
+              << "    bool published = false;\n"
               << "  };\n"
               << "  std::optional<KnownMemo> pyc_memo_known;\n";
       } else {
@@ -3262,6 +3330,10 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
   std::string ordinary;
   llvm::raw_string_ostream cold(ordinary);
   SmallVector<CaptureGraphStep> schedule;
+  if (whole && rule.afterSnapshot)
+    for (unsigned input : definition.preparationInputs)
+      cold << "      const auto " << wireName(input) << " = "
+           << graphLeaf(definition.wires[input], wholeInputName) << ";\n";
   auto *graph = rule.afterSnapshot ? &cold : &out;
   if (failed(emitWires(*graph, definition, rule.dependencies, {}, false,
                        rule.afterSnapshot ? &schedule : nullptr)))
@@ -3276,7 +3348,8 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
     if (failed(specialized))
       return failure();
     if (knownRecord(definition))
-      out << "      pyc_memo_known.reset();\n"
+      out << "      " << stateName(0) << ".discard();\n"
+             "      pyc_memo_known.reset();\n"
              "      pyc_memo_values.reset();\n";
     if (*specialized)
       out << "      if (![&]() {\n" << body << "      }()) {\n";
@@ -3301,11 +3374,14 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
       out << "    if (pyc_memo_known) {\n"
              "      pyc_domain.prepare(pyc_sample);\n"
              "      if (pyc_active)\n"
-          << "        " << stateName(0) << ".prepareKnown(pyc_memo_known->edit);\n"
+          << "        " << stateName(0) << ".prepareKnown();\n"
              "      else if (pyc_sample.rising)\n"
              "        pyc_reset_state();\n"
-          << "      " << wholeSnapshotName(known->snapshotPort)
+          << "      if (!pyc_memo_known->published) {\n"
+          << "        " << wholeSnapshotName(known->snapshotPort)
           << " = pyc_memo_known->snapshot;\n"
+             "        pyc_memo_known->published = true;\n"
+             "      }\n"
              "    } else {\n";
     out << "    TxnFrame0 " << frameName(0) << ";\n"
         << "    " << ruleName(0) << '(' << frameName(0) << ", pyc_active";
@@ -3641,8 +3717,12 @@ LogicalResult BehavioralEmitter::emitLifecycle(
           out << "  if (pyc_domain.commit()) {\n";
           if (memoized)
             out << "    pyc_memo_key.reset();\n";
-          for (unsigned index = 0; index < plan.variables.size(); ++index)
-            out << "    " << stateName(index) << ".commit();\n";
+          for (unsigned index = 0; index < plan.variables.size(); ++index) {
+            out << "    " << stateName(index) << ".commit(";
+            if (index == 0 && knownRecord(definition))
+              out << "pyc_memo_known ? &pyc_memo_known->edit : nullptr";
+            out << ");\n";
+          }
           out << "  }\n";
         } else {
           out << "  pyc_domain." << action << "();\n";
@@ -3867,12 +3947,12 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
            << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
   }
 
+  const auto &wide = wholeOutputs[program.rootIndex];
   llvm::SmallDenseSet<unsigned> declaredInputs;
   const auto *whole = wholeInput(definition);
-  for (const auto &output : definition.outputs) {
-    for (unsigned input : output.inputs)
-      declaredInputs.insert(input);
-  }
+  for (const auto &output : definition.outputs)
+    if (!output.requiresPreparation && !wide.contains(output.port.port))
+      declaredInputs.insert(output.inputs.begin(), output.inputs.end());
   if (!whole)
     declaredInputs.insert(definition.preparationInputs.begin(), definition.preparationInputs.end());
 
@@ -3909,7 +3989,6 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
     work << "    pyc_system_clock.prepare(" << clock << ", " << reset
            << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
 
-  const auto &wide = wholeOutputs[program.rootIndex];
   llvm::SmallDenseSet<unsigned> assigned;
   for (auto [index, output] : llvm::enumerate(definition.outputs)) {
     if (wide.contains(output.port.port)) {
@@ -4082,7 +4161,7 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   auto rootGroup = getGroup(program.definitions[program.rootIndex].module);
   if (failed(rootGroup) || failed(emitRoot(**rootGroup, inlineWork)))
     return failure();
-  if (failed(emitOutputCallables()))
+  if (failed(planNativeOutputInlining()) || failed(emitOutputCallables()))
     return failure();
   for (unsigned index = 0; index < program.definitions.size(); ++index)
     if (failed(declareModule(support, index)))
