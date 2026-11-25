@@ -193,7 +193,8 @@ void BehavioralEmitter::emitRecordWrite(
 }
 
 void BehavioralEmitter::declareRecordState(raw_ostream &out, const RecordStateLayout &layout,
-                                           StringRef payload, unsigned state) {
+                                           StringRef payload, unsigned state,
+                                           const KnownRecordPlan *known) {
   const auto name = recordLayoutName(state);
   out << "  struct " << name << " {\n"
       << "    using Wire = gfsim::wire<" << payload << ">;\n"
@@ -212,6 +213,8 @@ void BehavioralEmitter::declareRecordState(raw_ostream &out, const RecordStateLa
   out << "    };\n";
   for (const auto &field : layout)
     out << "    " << field.wire << ' ' << recordFieldName(field.low) << ";\n";
+  if (known)
+    declareKnownRecord(out, *known);
 
   out << "    void load(const Wire &value) noexcept {\n";
   for (const auto &field : layout)
@@ -243,6 +246,7 @@ void BehavioralEmitter::declareRecordState(raw_ostream &out, const RecordStateLa
     out << "yes." << member << ", no." << member << ");\n";
   }
   out << "    }\n  };\n"
-      << "  pyc_behavior::RecordState<" << name << "::Wire, " << name << "> "
+      << "  pyc_behavior::" << (known ? "KnownRecordState" : "RecordState") << '<'
+      << name << "::Wire, " << name << "> "
       << stateName(state) << ";\n";
 }

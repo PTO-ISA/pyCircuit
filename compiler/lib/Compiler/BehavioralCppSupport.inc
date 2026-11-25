@@ -464,11 +464,78 @@ public:
     }
   }
 
+protected:
+  template <class Edit>
+  void applyKnown(const Edit &edit) noexcept {
+    if (mirror_.isFullyKnown())
+      fields.template applyKnown<true>(mirror_, edit);
+    else
+      fields.template applyKnown<false>(mirror_, edit);
+  }
+
 private:
   Wire mirror_;
   std::optional<Wire> reset_;
   std::optional<Candidate> pending_;
 };
+
+template <class Wire, class Layout>
+class KnownRecordState : public RecordState<Wire, Layout> {
+  using Base = RecordState<Wire, Layout>;
+
+public:
+  void prepare(const Level &enabled, const typename Layout::Candidate &candidate) {
+    Base::prepare(enabled, candidate);
+    pending_.reset();
+  }
+
+  void prepareKnown(const typename Layout::KnownEdit &edit) noexcept {
+    Base::hold();
+    pending_ = edit;
+  }
+
+  void reset(const Wire &initial) noexcept {
+    Base::reset(initial);
+    pending_.reset();
+  }
+
+  void discard() noexcept { pending_.reset(); }
+
+  void commit() noexcept {
+    if (pending_) {
+      Base::applyKnown(*pending_);
+      pending_.reset();
+    } else {
+      Base::commit();
+    }
+  }
+
+private:
+  std::optional<typename Layout::KnownEdit> pending_;
+};
+
+template <bool Known, class State, class Image, class Field>
+void applyKnownField(State &mirror, Image &image, Field &field, unsigned low,
+                     std::uint64_t value) noexcept {
+  constexpr unsigned width = Field::width;
+  static_assert(width <= 64);
+  value = limitBits<width>(value);
+  field = Field::fromPacked(FourState<width>::known(Bits<width>{value}));
+  if constexpr (Known) {
+    // All untouched bits are already known. Update just the value words and
+    // rebuild the known carrier once after the full edit set.
+    const unsigned word = low / 64;
+    const unsigned shift = low % 64;
+    constexpr std::uint64_t mask = limitBits<width>(~std::uint64_t{0});
+    image.setWord(word, (image.word(word) & ~(mask << shift)) | (value << shift));
+    if (shift + width > 64) {
+      const unsigned tail = 64 - shift;
+      image.setWord(word + 1, (image.word(word + 1) & ~(mask >> tail)) | (value >> tail));
+    }
+  } else {
+    mirror.assignSlice(low, field.packed());
+  }
+}
 
 template <unsigned Low, class State, class Field>
 void applyRecordField(State &mirror, Field &current,

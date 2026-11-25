@@ -488,6 +488,20 @@ struct RecordCaptureLayout {
   std::string type;
 };
 
+struct KnownRecordEdit {
+  const RecordFieldLayout *field;
+  unsigned value;
+  unsigned width;
+  std::optional<unsigned> row;
+  std::optional<unsigned> condition;
+};
+
+struct KnownRecordPlan {
+  unsigned snapshotPort;
+  unsigned snapshotCapture;
+  SmallVector<KnownRecordEdit> edits;
+};
+
 std::string outputGroupName(unsigned index) {
   return "output_group_" + std::to_string(index);
 }
@@ -591,6 +605,10 @@ private:
                                      const gfir::StructuredRule &rule,
                                      ArrayRef<CaptureGraphStep> schedule,
                                      ArrayRef<std::string> captures);
+  std::optional<KnownRecordPlan> planKnownRecord(
+      const gfir::StructuredDefinition &definition, const gfir::StructuredRule &rule) const;
+  const KnownRecordPlan *knownRecord(const gfir::StructuredDefinition &definition) const;
+  void declareKnownRecord(raw_ostream &out, const KnownRecordPlan &plan);
   LogicalResult emitOutputGroupBody(unsigned index, unsigned ordinal);
   LogicalResult emitOutputCallables();
   LogicalResult planWholeOutputs();
@@ -603,7 +621,7 @@ private:
       const gfir::StructuredDefinition &definition, const gfir::StructuredWire &wire,
       StringRef instancePrefix) const;
   void declareRecordState(raw_ostream &out, const RecordStateLayout &layout,
-                          StringRef payload, unsigned state);
+                          StringRef payload, unsigned state, const KnownRecordPlan *known);
   void emitRecordWrite(raw_ostream &out, const RecordStateLayout &layout,
                        gfir::WriteOp write, const gfir::StructuredWritePath &path,
                        StringRef frame, const llvm::DenseMap<Value, std::string> &values);
@@ -695,9 +713,11 @@ private:
   SmallVector<uint64_t> groupWorkRemaining;
   llvm::DenseMap<Operation *, RecordStateLayout> recordLayouts;
   llvm::DenseMap<Value, RecordCaptureLayout> recordCaptures;
+  llvm::DenseMap<Operation *, KnownRecordPlan> knownRecords;
 };
 
 #include "BehavioralRecordState.inc"
+#include "BehavioralKnownRecord.inc"
 
 FailureOr<std::string>
 BehavioralEmitter::expression(const gfir::StructuredWire &wire,
@@ -1846,6 +1866,12 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
           types.push_back(std::move(*type));
         }
         out << "  std::optional<std::tuple<" << join(types, ", ") << ">> pyc_memo_values;\n";
+        if (const auto *known = knownRecord(definition))
+          out << "  struct KnownMemo {\n"
+              << "    " << wide.find(known->snapshotPort)->second.type << " snapshot;\n"
+              << "    " << recordLayoutName(0) << "::KnownEdit edit;\n"
+              << "  };\n"
+              << "  std::optional<KnownMemo> pyc_memo_known;\n";
       } else {
         out << "  std::optional<TxnFrame0> pyc_memo_frame;\n";
       }
@@ -2904,7 +2930,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     if (failed(type) || failed(emitInitial(out, variable, index)))
       return failure();
     if (const auto *layout = recordLayout(definition, index))
-      declareRecordState(out, *layout, *type, index);
+      declareRecordState(out, *layout, *type, index, knownRecord(definition));
     else
       out << "  pyc_behavior::State<" << *type << "> " << stateName(index) << ";\n";
   }
@@ -3249,6 +3275,9 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
     auto specialized = emitNativeCaptures(native, definition, rule, schedule, *captures);
     if (failed(specialized))
       return failure();
+    if (knownRecord(definition))
+      out << "      pyc_memo_known.reset();\n"
+             "      pyc_memo_values.reset();\n";
     if (*specialized)
       out << "      if (![&]() {\n" << body << "      }()) {\n";
     out << ordinary << "      pyc_memo_values.emplace(" << join(*captures, ", ") << ");\n";
@@ -3268,6 +3297,16 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
                           [&](unsigned input) { out << wireName(input); });
   out << ");\n    }\n";
   if (rule.afterSnapshot) {
+    if (const auto *known = knownRecord(definition))
+      out << "    if (pyc_memo_known) {\n"
+             "      pyc_domain.prepare(pyc_sample);\n"
+             "      if (pyc_active)\n"
+          << "        " << stateName(0) << ".prepareKnown(pyc_memo_known->edit);\n"
+             "      else if (pyc_sample.rising)\n"
+             "        pyc_reset_state();\n"
+          << "      " << wholeSnapshotName(known->snapshotPort)
+          << " = pyc_memo_known->snapshot;\n"
+             "    } else {\n";
     out << "    TxnFrame0 " << frameName(0) << ";\n"
         << "    " << ruleName(0) << '(' << frameName(0) << ", pyc_active";
     for (unsigned i = 0; i < captures->size(); ++i)
@@ -3391,6 +3430,8 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
     if (whole != wide.end() && whole->second.snapshot)
       out << "    " << wholeSnapshotName(port) << " = " << whole->second.source << ";\n";
   }
+  if (knownRecord(definition))
+    out << "    }\n";
   auto assignAvailability = [&](StringRef member,
       ArrayRef<gfir::StructuredAvailabilitySource> sources) -> LogicalResult {
     auto available = availabilityExpression(definition, sources);
@@ -3607,6 +3648,8 @@ LogicalResult BehavioralEmitter::emitLifecycle(
           out << "  pyc_domain." << action << "();\n";
           if (action == "reset" && !plan.variables.empty())
             out << "  pyc_reset_state();\n";
+          if (action == "discard" && knownRecord(definition))
+            out << "  " << stateName(0) << ".discard();\n";
         }
       }
     }

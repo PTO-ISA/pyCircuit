@@ -144,13 +144,43 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
     materialized.set(index);
   }
   auto operation = rule.operation;
-  for (Value capture : operation.getCaptures()) {
+  auto materializeCapture = [&](Value capture) {
     auto found = definition.valueWires.find(capture);
-    if (found == definition.valueWires.end() || !llvm::all_of(found->second, materialize))
+    return found != definition.valueWires.end() && llvm::all_of(found->second, materialize);
+  };
+  if (auto known = planKnownRecord(definition, rule)) {
+    SmallVector<std::string> values;
+    for (const auto &edit : known->edits) {
+      StringRef value = scalar(edit.value);
+      if (value.empty())
+        return false;
+      values.push_back(value.str());
+      if (!edit.row)
+        continue;
+      StringRef row = scalar(*edit.row);
+      if (row.empty())
+        return false;
+      values.push_back(row.str());
+      if (edit.condition) {
+        StringRef enabled = scalar(*edit.condition);
+        if (enabled.empty())
+          return false;
+        values.push_back(enabled.str() + " != 0");
+      } else {
+        values.push_back("true");
+      }
+    }
+    if (!materializeCapture(operation.getCaptures()[known->snapshotCapture]))
       return false;
+    native << "      pyc_memo_known.emplace(KnownMemo{"
+           << captures[known->snapshotCapture] << ", {" << join(values, ", ") << "}});\n";
+    knownRecords.try_emplace(definition.module, std::move(*known));
+  } else {
+    if (!llvm::all_of(operation.getCaptures(), materializeCapture))
+      return false;
+    native << "      pyc_memo_values.emplace(" << join(captures, ", ") << ");\n";
   }
-  native << "      pyc_memo_values.emplace(" << join(captures, ", ") << ");\n"
-         << "      return true;\n";
+  native << "      return true;\n";
   for (auto &[position, entry] : entries) {
     auto &[index, ordinal] = position;
     auto &group = outputGroups[index][ordinal];
