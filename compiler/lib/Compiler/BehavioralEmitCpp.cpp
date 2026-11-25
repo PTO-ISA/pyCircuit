@@ -531,7 +531,7 @@ private:
   unsigned nextLoop = 0;
   SmallVector<SmallVector<OutputGroup>> outputGroups;
   SmallVector<llvm::DenseMap<unsigned, WholeOutput>> wholeOutputs;
-  SmallVector<unsigned> memoKeyWidths;
+  llvm::BitVector memoizedRules;
   SmallVector<uint64_t> groupWorkRemaining;
 };
 
@@ -1156,7 +1156,7 @@ LogicalResult BehavioralEmitter::planWholeOutputs() {
 }
 
 void BehavioralEmitter::planEvaluationMemoization() {
-  memoKeyWidths.resize(program.definitions.size());
+  memoizedRules.resize(program.definitions.size());
   for (auto [index, definition] : llvm::enumerate(program.definitions)) {
     if (!definition.clocked || definition.explicitDomains || definition.hasChecks() ||
         definition.incomingState || !definition.clockedCalls.empty() ||
@@ -1204,7 +1204,7 @@ void BehavioralEmitter::planEvaluationMemoization() {
       }).wasInterrupted();
     }
     if (hasCall)
-      memoKeyWidths[index] = keyWidth;
+      memoizedRules.set(index);
   }
 }
 
@@ -1286,9 +1286,13 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   if (isClocked(definition)) {
     out << "private:\n";
-    if (unsigned width = memoKeyWidths[index]) {
+    if (memoizedRules.test(index)) {
       const auto &rule = definition.clocked->rules.front();
-      out << "  std::optional<" << carrier(width) << "> pyc_memo_key;\n";
+      out << "  std::optional<std::tuple<";
+      llvm::interleaveComma(definition.preparationInputs, out, [&](unsigned input) {
+        out << graphType(definition.wires[input], tableWireTypes);
+      });
+      out << ">> pyc_memo_key;\n";
       if (rule.afterSnapshot) {
         auto operation = rule.operation;
         SmallVector<std::string> types;
@@ -1361,7 +1365,7 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index,
       return failure();
     prepare << "}\n";
     if (failed(emitLifecycle(out, definition, moduleName(index),
-                             memoKeyWidths[index] != 0, header)))
+                             memoizedRules.test(index), header)))
       return failure();
   }
   if (definition.hasChecks()) {
@@ -2435,13 +2439,12 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
     raw_ostream &out, const gfir::StructuredDefinition &definition) {
   const auto &rule = definition.clocked->rules.front();
   const unsigned grant = definition.wires.size();
-  SmallVector<std::string> inputs;
-  for (unsigned input : definition.preparationInputs)
-    inputs.push_back(wireName(input));
   out << "    const auto " << wireName(grant) << " = " << levelName << "(true);\n"
-      << "    const auto pyc_key = " << concatenate(inputs) << ";\n"
-      << "    if (!pyc_memo_key || !pyc_behavior::sameMasks(*pyc_memo_key, pyc_key)) {\n"
-         "      pyc_memo_key.reset();\n";
+      << "    if (!pyc_memo_key";
+  for (auto [slot, input] : llvm::enumerate(definition.preparationInputs))
+    out << "\n        || !pyc_behavior::sameMasks(std::get<" << slot << ">(*pyc_memo_key), "
+        << wireName(input) << ')';
+  out << ") {\n      pyc_memo_key.reset();\n";
   if (failed(emitWires(out, definition, rule.dependencies)))
     return failure();
   auto captures = captureExpressions(definition, rule);
@@ -2455,7 +2458,10 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
       out << ", " << capture;
     out << ");\n";
   }
-  out << "      pyc_memo_key = pyc_key;\n    }\n";
+  out << "      pyc_memo_key.emplace(";
+  llvm::interleaveComma(definition.preparationInputs, out,
+                        [&](unsigned input) { out << wireName(input); });
+  out << ");\n    }\n";
   if (rule.afterSnapshot) {
     out << "    TxnFrame0 " << frameName(0) << ";\n"
         << "    " << ruleName(0) << '(' << frameName(0) << ", pyc_active";
@@ -2556,8 +2562,8 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
   }
   for (unsigned index = 0; index < definition.clockedCalls.size(); ++index)
     needed.push_back(definition.firstClockedCallNode() + index);
-  auto emitted = memoKeyWidths[module] ? emitMemoizedRule(out, definition)
-                                       : emitWires(out, definition, needed);
+  auto emitted = memoizedRules.test(module) ? emitMemoizedRule(out, definition)
+                                            : emitWires(out, definition, needed);
   if (failed(emitted))
     return failure();
   if (definition.clocked && failed(emitPreparation(out, definition, "pyc_clock")))
