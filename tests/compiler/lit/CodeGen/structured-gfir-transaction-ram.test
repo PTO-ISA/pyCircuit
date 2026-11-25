@@ -1,6 +1,9 @@
 # A test-owned RAM model checks both response ports and real-live availability.
 # Coverage includes old-data collision, byte masks, known OOB addresses, idle
 # expiration, held clocks, reset without clearing memory, and port independence.
+# A same-domain parent consumes a derived bit of the actual first response;
+# response and bit share live availability. Failed parent samples roll back
+# child writes/requests, response aging, parent state and clock before retry.
 # REQUIRES: rtl-four-state-parameter-types
 # RUN: %python %inputs/structured-gfir-transaction-ram-oracle.py > %t.rows
 # RUN: %pycircuit_opt %inputs/structured-gfir-transaction-ram.mlir --gfir-verify -o %t.gfir
@@ -11,5 +14,5 @@
 # RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
 # RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t -I%t.$kind %inputs/structured-gfir-transaction-ram.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %t.rows || exit; done
 # RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
-# RUN: %iverilog -g2012 -I%t -s tb -o %t.vvp %t.sv %include/verilog/sync_mem_dp.v %inputs/structured-gfir-transaction-ram.sv
+# RUN: %iverilog -g2012 -I%t -s tb -o %t.vvp %t.sv %include/verilog/sync_mem_dp.v %include/verilog/dffe.v %inputs/structured-gfir-transaction-ram.sv
 # RUN: %vvp %t.vvp +rows=%t.rows

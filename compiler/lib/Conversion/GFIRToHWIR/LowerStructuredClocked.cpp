@@ -24,6 +24,19 @@ public:
   LogicalResult run();
 
 private:
+  struct QueueProposal {
+    unsigned fifo, control;
+    Value rawPath;
+    Value data = {};
+    unsigned pathResult = 0;
+  };
+
+  struct FifoCapture {
+    unsigned first;
+    Value capacity, valid, data;
+    std::optional<unsigned> external;
+  };
+
   struct MemoryProposal {
     gfir::CallOp operation;
     gfir::StructuredMemoryUse use;
@@ -39,6 +52,9 @@ private:
     SmallVector<Attribute> invocation, controls, checks;
     SmallVector<Value> predicates, reaches;
     SmallVector<Attribute> requirements, resources;
+    SmallVector<QueueProposal> queueProposals;
+    llvm::DenseMap<unsigned, FifoCapture> fifoOutputs;
+    llvm::DenseMap<unsigned, Value> queueDemands;
     SmallVector<MemoryProposal> memoryProposals;
     llvm::DenseMap<unsigned, SmallVector<Value>> memoryOutputs;
     llvm::DenseMap<unsigned, Value> guardAvailability;
@@ -59,12 +75,17 @@ private:
   Value merge(Value base, Value guard, Value value);
   Value known(Value value, bool high);
   FailureOr<unsigned> addControl(StringRef kind, Operation *site, Value raw);
+  LogicalResult lowerFifo(gfir::CallOp call,
+                         const gfir::StructuredFifoUse &use,
+                         IRMapping &mapping);
   LogicalResult lowerMemory(gfir::CallOp call,
                             const gfir::StructuredMemoryUse &use,
                             IRMapping &mapping);
-  DictionaryAttr memoryOwner();
+  DictionaryAttr localResourceOwner();
+  DictionaryAttr localQueueID(unsigned fifo);
   LogicalResult lowerSampled(unsigned index);
   void bindTransactionWiring();
+  void bindQueueWiring();
   FailureOr<Value> zero(Type type);
   LogicalResult makeModule();
   LogicalResult allocate();
@@ -110,6 +131,9 @@ private:
   IRMapping graph;
   SmallVector<Operation *> fifos, memories, states;
   SmallVector<Value> grants, candidates, intents, fifoData;
+  SmallVector<Value> fifoPopPaths, fifoPushPaths;
+  SmallVector<Attribute> queueWriters, externalPops;
+  bool sampledQueues = false;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
   SmallVector<Operation *> sampledRules;
@@ -350,9 +374,70 @@ FailureOr<unsigned> ClockedMaterializer::addControl(StringRef kind, Operation *s
   return ordinal;
 }
 
-DictionaryAttr ClockedMaterializer::memoryOwner() {
+DictionaryAttr ClockedMaterializer::localResourceOwner() {
   return builder.getDictionaryAttr({
       builder.getNamedAttr("instance_path", builder.getArrayAttr({}))});
+}
+
+DictionaryAttr ClockedMaterializer::localQueueID(unsigned fifo) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("owner", localResourceOwner()),
+      builder.getNamedAttr("declaration", fifos[fifo]->getAttr("occurrence"))});
+}
+
+LogicalResult ClockedMaterializer::lowerFifo(
+    gfir::CallOp call, const gfir::StructuredFifoUse &use,
+    IRMapping &mapping) {
+  if (use.access != gfir::StructuredFifoAccess::Out &&
+      use.access != gfir::StructuredFifoAccess::View &&
+      use.access != gfir::StructuredFifoAccess::In)
+    return call.emitOpError("sampled FIFO refinement requires ordered in, out or view");
+  auto captured = sampled->fifoOutputs.find(use.fifo);
+  if (captured == sampled->fifoOutputs.end())
+    return call.emitOpError("missing committed FIFO response captures");
+  Value rawPath = binary("and", one, one);
+  const auto &capture = captured->second;
+  bool push = use.access == gfir::StructuredFifoAccess::In;
+  Value predicate = push ? capture.capacity : capture.valid;
+  NamedAttrList prospective;
+  if (push) {
+    prospective.append("capacity", builder.getI64IntegerAttr(capture.first));
+    if (plan.fifos[use.fifo].downstreamPop) {
+      if (!capture.external)
+        return call.emitOpError("downstream FIFO in requires its actual raw pop capture");
+      Value external = builder.getBlock()->getArgument(*capture.external);
+      predicate = binary("or", predicate, binary("and", capture.valid, external));
+      prospective.append("valid", builder.getI64IntegerAttr(capture.first + 1));
+      prospective.append("external_pop", builder.getI64IntegerAttr(*capture.external));
+      prospective.append("prior_pops", builder.getArrayAttr({}));
+    }
+  }
+  Value selected = make(ac::BitsSelectOp::getOperationName(),
+                       {rawPath, predicate, one}, {bit})->getResult(0);
+  auto control = addControl("resource_available", call, selected);
+  if (failed(control))
+    return failure();
+  const auto &check = sampled->plannedChecks[*control];
+  NamedAttrList resource({
+      builder.getNamedAttr("control", builder.getI64IntegerAttr(*control)),
+      builder.getNamedAttr("kind", builder.getStringAttr(push ? "queue_ready" : "queue_valid")),
+      builder.getNamedAttr("owner", localResourceOwner()),
+      builder.getNamedAttr("declaration", fifos[use.fifo]->getAttr("occurrence")),
+      builder.getNamedAttr("occurrence", check.id.get("check")),
+      builder.getNamedAttr("location", check.location)});
+  if (push)
+    resource.append("prospective", prospective.getDictionary(builder.getContext()));
+  sampled->resources.push_back(resource.getDictionary(builder.getContext()));
+  sampled->queueDemands.try_emplace(*control, predicate);
+  if (push)
+    sampled->queueProposals.push_back({use.fifo, *control, rawPath,
+                                      mapping.lookup(call.getInputs().front())});
+  else {
+    if (use.access == gfir::StructuredFifoAccess::Out)
+      sampled->queueProposals.push_back({use.fifo, *control, rawPath});
+    mapping.map(call.getOutputs().front(), capture.data);
+  }
+  return success();
 }
 
 LogicalResult ClockedMaterializer::lowerMemory(
@@ -380,7 +465,7 @@ LogicalResult ClockedMaterializer::lowerMemory(
     sampled->resources.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("control", builder.getI64IntegerAttr(*control)),
         builder.getNamedAttr("kind", builder.getStringAttr("memory_live")),
-        builder.getNamedAttr("owner", memoryOwner()),
+        builder.getNamedAttr("owner", localResourceOwner()),
         builder.getNamedAttr("declaration", memories[use.memory]->getAttr("occurrence")),
         builder.getNamedAttr("occurrence", check.id.get("check")),
         builder.getNamedAttr("location", check.location),
@@ -588,6 +673,8 @@ LogicalResult ClockedMaterializer::allocate() {
     intents.push_back(none);
   }
   fifoData.resize(fifos.size());
+  fifoPopPaths.resize(fifos.size());
+  fifoPushPaths.resize(fifos.size());
   sampledEnables.resize(states.size());
   return success();
 }
@@ -1089,6 +1176,11 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         results = std::move(*values);
       } else {
         auto use = plan.fifoCalls.lookup(call);
+        if (sampled) {
+          if (failed(lowerFifo(call, use, mapping)))
+            return failure();
+          continue;
+        }
         if (use.access == gfir::StructuredFifoAccess::In)
           fifoData[use.fifo] = mapping.lookup(call.getInputs().front());
         else
@@ -1127,7 +1219,18 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     captures.push_back(*available);
   }
   SmallVector<std::pair<unsigned, unsigned>> memoryCaptures;
+  SmallVector<std::pair<unsigned, unsigned>> fifoCaptures;
   for (Operation &operation : rule.getBody().front()) {
+    if (auto use = plan.fifoCalls.find(&operation);
+        use != plan.fifoCalls.end() &&
+        llvm::none_of(fifoCaptures, [&](const auto &capture) {
+          return capture.first == use->second.fifo;
+        })) {
+      unsigned fifo = use->second.fifo;
+      fifoCaptures.emplace_back(fifo, captures.size());
+      captures.append({fifos[fifo]->getResult(3), fifos[fifo]->getResult(1),
+                       fifos[fifo]->getResult(2)});
+    }
     auto use = plan.transactionMemoryCalls.find(&operation);
     if (use == plan.transactionMemoryCalls.end() ||
         (use->second.access != gfir::StructuredMemoryAccess::Result &&
@@ -1139,6 +1242,25 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     unsigned memory = use->second.memory;
     memoryCaptures.emplace_back(memory, captures.size());
     llvm::append_range(captures, memories[memory]->getResults());
+  }
+  // External pop controls are dedicated contiguous captures. They retain the
+  // actual authored raw endpoint, independently of this Rule's final fire.
+  SmallVector<std::pair<unsigned, unsigned>> externalCaptures;
+  for (Operation &operation : rule.getBody().front()) {
+    auto use = plan.fifoCalls.find(&operation);
+    if (use == plan.fifoCalls.end() ||
+        use->second.access != gfir::StructuredFifoAccess::In ||
+        !plan.fifos[use->second.fifo].downstreamPop ||
+        llvm::any_of(externalCaptures, [&](const auto &capture) {
+          return capture.first == use->second.fifo;
+        }))
+      continue;
+    unsigned fifo = use->second.fifo;
+    auto raw = plan.fifos[fifo].rawOutput;
+    if (!raw)
+      return rule.emitOpError("downstream FIFO in requires authored raw output");
+    externalCaptures.emplace_back(fifo, captures.size());
+    captures.push_back(graph.lookup(raw.getInputs().front()));
   }
 
   auto region = std::make_unique<Region>();
@@ -1162,6 +1284,17 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   context.prefix = one;
   for (auto [capture, ordinal] : guardCaptures)
     context.guardAvailability.try_emplace(capture, body->getArgument(ordinal));
+  for (auto [fifo, first] : fifoCaptures)
+    context.fifoOutputs.try_emplace(fifo, FifoCapture{first,
+        body->getArgument(first), body->getArgument(first + 1),
+        body->getArgument(first + 2), {}});
+  for (auto [fifo, capture] : externalCaptures) {
+    context.fifoOutputs.find(fifo)->second.external = capture;
+    externalPops.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("registration", context.registration),
+        builder.getNamedAttr("queue", localQueueID(fifo)),
+        builder.getNamedAttr("capture", builder.getI64IntegerAttr(capture))}));
+  }
   for (auto [memory, first] : memoryCaptures)
     for (unsigned result = 0; result < memories[memory]->getNumResults(); ++result)
       context.memoryOutputs[memory].push_back(body->getArgument(first + result));
@@ -1235,12 +1368,27 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   unsigned checkBase = yielded.size();
   if (!context.resources.empty()) {
-    // Memory snapshots do not suppress previously reached diagnostics. With
-    // no Queue demands or resource branches, the existing demand forest folds
-    // to H=one. Keep its private canonical possible-execution wrapper on every
-    // reached check, independently of transaction fire and physical proposals.
+    // Fold demand backwards independently of final fire. An unavailable Queue
+    // can make an earlier diagnostic unreachable; an explicit control preserves
+    // the possibility of execution until its own known acceptance is established.
+    // Memory snapshots contribute no Queue demand and retain neutral H=one.
+    Value demand = one;
+    for (unsigned ordinal = context.controls.size(); ordinal-- > 0;) {
+      if (auto queue = context.queueDemands.find(ordinal);
+          queue != context.queueDemands.end()) {
+        Value required = binary("and", queue->second, demand);
+        demand = make(ac::BitsSelectOp::getOperationName(),
+            {one, required, demand}, {bit})->getResult(0);
+      } else if (demand != one &&
+                 cast<DictionaryAttr>(context.controls[ordinal])
+                         .getAs<StringAttr>("kind").getValue() != "resource_available") {
+        demand = make(ac::BitsSelectOp::getOperationName(),
+            {known(context.predicates[ordinal], true), demand, one},
+            {bit})->getResult(0);
+      }
+    }
     Value mayExecute = make(ac::BitsUnaryOp::getOperationName(),
-        {known(one, false)}, {bit}, {
+        {known(demand, false)}, {bit}, {
         builder.getNamedAttr("opcode", builder.getStringAttr("not"))})->getResult(0);
     for (Value &reached : context.reaches)
       reached = binary("and", reached, mayExecute);
@@ -1264,6 +1412,36 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
         builder.getNamedAttr("path", builder.getDictionaryAttr({}))}));
     yielded.append({condition, context.prefix});
   }
+  SmallVector<Attribute> queueProposals, queueWriterProposals;
+  for (auto &proposal : context.queueProposals) {
+    unsigned rawResult = yielded.size();
+    yielded.push_back(proposal.rawPath);
+    proposal.pathResult = yielded.size();
+    yielded.push_back(binary("and", context.prefix, proposal.rawPath));
+    auto queue = localQueueID(proposal.fifo);
+    const auto &check = context.plannedChecks[proposal.control];
+    StringRef kind = proposal.data ? "push" : "pop";
+    NamedAttrList row({
+        builder.getNamedAttr("queue", queue),
+        builder.getNamedAttr("kind", builder.getStringAttr(kind)),
+        builder.getNamedAttr("occurrence", check.id.get("check")),
+        builder.getNamedAttr("location", check.location),
+        builder.getNamedAttr("raw_path", builder.getI64IntegerAttr(rawResult)),
+        builder.getNamedAttr("path", builder.getI64IntegerAttr(proposal.pathResult)),
+        builder.getNamedAttr("resource_control", builder.getI64IntegerAttr(proposal.control))});
+    NamedAttrList writer({
+        builder.getNamedAttr("queue", queue),
+        builder.getNamedAttr("kind", builder.getStringAttr(kind)),
+        builder.getNamedAttr("path", builder.getI64IntegerAttr(proposal.pathResult))});
+    if (proposal.data) {
+      auto data = builder.getI64IntegerAttr(yielded.size());
+      yielded.push_back(proposal.data);
+      row.append("data", data);
+      writer.append("data", data);
+    }
+    queueProposals.push_back(row.getDictionary(builder.getContext()));
+    queueWriterProposals.push_back(writer.getDictionary(builder.getContext()));
+  }
   SmallVector<Attribute> memoryProposals;
   for (auto &proposal : context.memoryProposals) {
     unsigned rawResult = yielded.size();
@@ -1277,7 +1455,7 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
       yielded.push_back(argument);
     }
     auto memory = builder.getDictionaryAttr({
-        builder.getNamedAttr("owner", memoryOwner()),
+        builder.getNamedAttr("owner", localResourceOwner()),
         builder.getNamedAttr("declaration",
                              memories[proposal.use.memory]->getAttr("occurrence"))});
     unsigned firstCheck = plan.checkOffsets.lookup(proposal.operation);
@@ -1321,12 +1499,26 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
     admission.append("requirements", builder.getArrayAttr(context.requirements));
   if (!context.resources.empty())
     admission.append("resources", builder.getArrayAttr(context.resources));
+  if (!queueProposals.empty())
+    admission.append("queue_proposals", builder.getArrayAttr(queueProposals));
   if (!memoryProposals.empty())
     admission.append("memory_proposals", builder.getArrayAttr(memoryProposals));
   operation.addAttribute("ac.sampled_admission", admission.getDictionary(builder.getContext()));
   operation.addRegion(std::move(region));
   auto *lowered = builder.create(operation);
   sampledRules[index] = lowered;
+  for (const auto &proposal : context.queueProposals) {
+    Value &path = proposal.data ? fifoPushPaths[proposal.fifo] : fifoPopPaths[proposal.fifo];
+    if (path)
+      return rule.emitOpError("multiple sampled proposals for one FIFO direction");
+    path = lowered->getResult(proposal.pathResult);
+    if (proposal.data)
+      fifoData[proposal.fifo] = lowered->getResult(proposal.pathResult + 1);
+  }
+  if (!queueWriterProposals.empty())
+    queueWriters.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("registration", context.registration),
+        builder.getNamedAttr("proposals", builder.getArrayAttr(queueWriterProposals))}));
   for (auto &proposal : context.memoryProposals) {
     MemoryIssue issue;
     issue.path = lowered->getResult(proposal.pathResult);
@@ -1392,6 +1584,24 @@ void ClockedMaterializer::bindTransactionWiring() {
       builder.getNamedAttr("states", builder.getArrayAttr(declarations)),
       builder.getNamedAttr("incoming", builder.getArrayAttr(incoming)),
       builder.getNamedAttr("writers", builder.getArrayAttr(transactionWriters))}));
+}
+
+void ClockedMaterializer::bindQueueWiring() {
+  if (!sampledQueues)
+    return;
+  SmallVector<Attribute> queues;
+  for (auto [index, fifo] : llvm::enumerate(plan.fifos))
+    queues.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("declaration", fifos[index]->getAttr("occurrence")),
+        builder.getNamedAttr("unbound_push", builder.getBoolAttr(!fifo.rawInput)),
+        builder.getNamedAttr("unbound_pop", builder.getBoolAttr(!fifo.rawOutput))}));
+  NamedAttrList wiring({
+      builder.getNamedAttr("queues", builder.getArrayAttr(queues)),
+      builder.getNamedAttr("incoming", builder.getArrayAttr({})),
+      builder.getNamedAttr("writers", builder.getArrayAttr(queueWriters))});
+  if (!externalPops.empty())
+    wiring.append("external_pops", builder.getArrayAttr(externalPops));
+  target->setAttr("ac.queue_wiring", wiring.getDictionary(builder.getContext()));
 }
 
 LogicalResult ClockedMaterializer::lowerRules() {
@@ -1531,10 +1741,21 @@ LogicalResult ClockedMaterializer::bindStorage() {
     }
     memories[index]->setOperands(inputs);
   }
+  Value fifoIdle = none;
+  if (sampledQueues)
+    fifoIdle = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+        builder.getNamedAttr("value", literal(0))})->getResult(0);
   for (auto [index, fifo] : llvm::enumerate(plan.fifos)) {
     Value inputValid = fifo.producer ? grants[*fifo.producer] : none;
     Value inputData = fifoData[index];
     Value outputReady = fifo.consumer ? grants[*fifo.consumer] : none;
+    if (sampledQueues) {
+      inputValid = fifoPushPaths[index] ? fifoPushPaths[index] : fifoIdle;
+      outputReady = fifoPopPaths[index] ? fifoPopPaths[index] : fifoIdle;
+      if ((fifo.producer && !fifoPushPaths[index]) ||
+          (fifo.consumer && !fifoPopPaths[index]))
+        return source.emitOpError("FIFO wiring requires sampled transactional writers");
+    }
     auto rawInput = fifo.rawInput;
     auto rawOutput = fifo.rawOutput;
     if (rawInput) {
@@ -1610,6 +1831,9 @@ LogicalResult ClockedMaterializer::bindStorage() {
 
 LogicalResult ClockedMaterializer::run() {
   bit = bits(1);
+  sampledQueues = llvm::any_of(plan.rules, [](const auto &rule) {
+    return rule.sampled && !rule.requirements.empty();
+  });
   if (!plan.variables.empty() && failed(addPrimitive("dffe")))
     return failure();
   for (const auto &fifo : plan.fifos)
@@ -1623,6 +1847,7 @@ LogicalResult ClockedMaterializer::run() {
       failed(bindObservations()))
     return failure();
   bindTransactionWiring();
+  bindQueueWiring();
   return success();
 }
 

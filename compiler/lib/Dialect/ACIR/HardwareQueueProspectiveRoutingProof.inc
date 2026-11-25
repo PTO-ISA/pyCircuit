@@ -393,9 +393,12 @@
     if (module.getFunctionType().getNumResults() < validityOutputs + requiredSummaries.size()) return failure();
     uint64_t outputBase = module.getFunctionType().getNumResults() - validityOutputs - requiredSummaries.size();
     if (outputBase < ports.sourceOutputCount) return failure();
-    for (auto [payload, companion] : ports.routedOutputValidity)
-      if (payload < int64_t(ports.sourceOutputCount) || payload >= int64_t(outputBase))
-        return module->emitOpError() << "Queue summary outputs cannot be relabeled as routed payload availability";
+    // The summary suffix only constrains payload ordinals when there are
+    // actual summaries. Other private payloads may interleave with companions.
+    if (summaries)
+      for (auto [payload, companion] : ports.routedOutputValidity)
+        if (payload < int64_t(ports.sourceOutputCount) || payload >= int64_t(outputBase))
+          return module->emitOpError() << "Queue summary outputs cannot be relabeled as routed payload availability";
     auto yielded = cast<YieldOp>(module.getBody().front().getTerminator());
     if (summaries) for (auto [i, raw] : llvm::enumerate(summaries)) {
       auto row = dyn_cast<DictionaryAttr>(raw);

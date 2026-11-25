@@ -674,12 +674,6 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
     for (auto [index, rule] : llvm::enumerate(definition.clocked->rules))
       rules.try_emplace(rule.operation.getSymName(), index);
-    for (auto output : body.getOps<ResultOp>()) {
-      auto &rule = definition.clocked->rules[rules.lookup(output.getRuleAttr().getValue())];
-      if (!rule.requirements.empty())
-        return output.emitOpError("resource-gated Rule results require resource availability");
-      rule.resultUses.push_back(output);
-    }
     for (auto &rule : definition.clocked->rules) {
       if (rule.resultUses.empty() || rule.writes.empty() || rule.sampled ||
           !rule.requirements.empty())

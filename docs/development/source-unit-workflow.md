@@ -108,9 +108,19 @@ slicing, and resizing require all operands to be available. A known carrier
 value can still be unavailable. Guard admission continues to use the
 availability condition derived from the actual operands.
 
+An ordered FIFO `view` or `out` obtains the committed head. An empty queue
+blocks the Rule at that statement. An ordered `in` requires committed capacity
+under `local_occupancy` or readiness with a raw recipient under
+`downstream_pop`. The complete Rule's admission controls its result
+availability and all staged transfers. This profile uses direct Rule bodies
+for ordered FIFO admission. Synchronous RAM results use the actual response
+port's live bit. The old head or response can be available on a held or
+falling sample. Transfers and response aging use successful rising edges.
+
 ```mermaid
 flowchart LR
-    R["Child Rule result"] --> C["Actual child output and availability"]
+    S["Committed FIFO head or RAM response"] --> R["Ordered child Rule"]
+    R --> C["Actual child output and availability"]
     C --> P["Parent projection of the required field"]
     P --> G["Reached parent guard"]
     P --> O["Parent output and availability"]

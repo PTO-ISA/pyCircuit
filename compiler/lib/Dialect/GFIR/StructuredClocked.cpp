@@ -116,6 +116,7 @@ private:
 };
 
 LogicalResult ClockedAnalyzer::collect() {
+  llvm::StringMap<unsigned> ruleIndices;
   for (Operation &op : module.getBody().front()) {
     if (auto var = dyn_cast<VarOp>(op)) {
       if (failed(verifyAttributes(var, {"sym_name", "ac.payload_constraint"})) ||
@@ -154,10 +155,14 @@ LogicalResult ClockedAnalyzer::collect() {
       methods.try_emplace(method.getSymName(), plan.methods.size());
       plan.methods.push_back(method);
     } else if (auto rule = dyn_cast<RuleOp>(op)) {
+      ruleIndices.try_emplace(rule.getSymName(), plan.rules.size());
       auto &record = plan.rules.emplace_back();
       record.operation = rule;
     }
   }
+  for (auto result : module.getBody().front().getOps<ResultOp>())
+    plan.rules[ruleIndices.lookup(result.getRuleAttr().getValue())]
+        .resultUses.push_back(result);
   return success();
 }
 
@@ -656,6 +661,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
           index, StructuredMethodEffects{uses.expandedWork, depth, !uses.writes.empty()});
   }
   llvm::SmallDenseSet<unsigned> written;
+  bool hasOrderedFifo = false;
   for (auto [index, body] : llvm::enumerate(ruleUses)) {
     auto &rule = plan.rules[index];
     for (unsigned callee : body.methods)
@@ -680,16 +686,40 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
           return op.emitOpError("effect Rule requires a direct ordered body");
       rule.sampled = true;
     }
-    if (rule.sampled) {
-      if (body.hasFieldWrites)
-        return rule.operation.emitOpError("sampled guards do not yet support field writes");
-      if (!rule.requirements.empty())
-        return rule.operation.emitOpError("sampled guards cannot yet combine with resource admission");
-      if (llvm::any_of(rule.states, [&](unsigned index) {
-            return isa<ac::TableType>(plan.variables[index].getInitial().getType());
-          }))
-        return rule.operation.emitOpError("sampled guards require scalar or Struct state");
+    if (!rule.requirements.empty() && (rule.sampled || !rule.resultUses.empty())) {
+      rule.sampled = true;
+      hasOrderedFifo = true;
     }
+  }
+  if (hasOrderedFifo) {
+    // The HWIR Queue wiring inventory covers every local transactional driver.
+    // Keep each direction in this Module under the checked proposal contract.
+    for (const auto &fifo : plan.fifos) {
+      if (fifo.producer) {
+        if (fifo.downstreamPop && !fifo.rawOutput)
+          return fifo.instance->emitOpError(
+              "ordered downstream FIFO ingress requires a raw recipient");
+        plan.rules[*fifo.producer].sampled = true;
+      }
+      if (fifo.consumer)
+        plan.rules[*fifo.consumer].sampled = true;
+    }
+  }
+  for (auto [index, rule] : llvm::enumerate(plan.rules)) {
+    if (!rule.sampled)
+      continue;
+    if (ruleUses[index].hasFieldWrites)
+      return rule.operation.emitOpError("sampled guards do not yet support field writes");
+    if (llvm::any_of(rule.states, [&](unsigned index) {
+          return isa<ac::TableType>(plan.variables[index].getInitial().getType());
+        }))
+      return rule.operation.emitOpError("sampled guards require scalar or Struct state");
+    if (rule.requirements.empty())
+      continue;
+    for (Operation &op : rule.operation.getBody().front())
+      if (isa<IfOp, LoopOp>(op) ||
+          (isa<CallOp>(op) && !plan.fifoCalls.contains(&op)))
+        return op.emitOpError("ordered FIFO admission requires a direct Rule body");
   }
   return success();
 }
@@ -730,6 +760,8 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
       if (plan.guardedCaptureUses.contains(&op))
         onCheck(&op);
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))
+        onCheck(&op);
+      if (plan.fifoCalls.contains(&op))
         onCheck(&op);
       if (auto memory = plan.transactionMemoryCalls.find(&op);
           memory != plan.transactionMemoryCalls.end())

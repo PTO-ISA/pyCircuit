@@ -26,6 +26,7 @@ std::string initialName(unsigned index) { return "pyc_initial_" + std::to_string
 std::string frameName(unsigned index) { return "pyc_frame_" + std::to_string(index); }
 std::string ruleName(unsigned index) { return "pyc_rule_" + std::to_string(index); }
 std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string(index); }
+std::string recipientName(unsigned index) { return "pyc_recipient_" + std::to_string(index); }
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
 std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
 std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
@@ -1017,6 +1018,16 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     for (auto [index, value] : llvm::enumerate(yield.getValues()))
       out << "    txn." << resultName(index) << " = " << values.lookup(value) << ";\n";
   };
+  auto requireKnownOne = [&](StringRef predicate, Operation *site) -> LogicalResult {
+    out << "    if (!gfsim::behavior::isOne(" << predicate << ")) {\n"
+        << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
+        << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(site) << ";\n"
+           "      txn.pyc_running = false;\n      ";
+    if (failed(emitBlockedReturn(out, body, ruleResults)))
+      return failure();
+    out << "    }\n";
+    return success();
+  };
   for (Operation &op : body) {
     if (rule && rule->assertions.empty() && rule->afterSnapshot == &op) {
       snapshot();
@@ -1065,14 +1076,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           return failure();
         out << " }\n";
       }
-      auto predicate = values.lookup(guard.getPredicate());
-      out << "    if (!gfsim::behavior::isOne(" << predicate << ")) {\n"
-          << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
-          << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(guard) << ";\n"
-             "      txn.pyc_running = false;\n      ";
-      if (failed(emitBlockedReturn(out, body, ruleResults)))
+      if (failed(requireKnownOne(values.lookup(guard.getPredicate()), guard)))
         return failure();
-      out << "    }\n";
       continue;
     } else if (auto branch = dyn_cast<gfir::IfOp>(op)) {
       if (clocked.checkedBranches.contains(branch)) {
@@ -1137,14 +1142,35 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       } else {
         auto use = clocked.fifoCalls.find(call);
         if (use != clocked.fifoCalls.end()) {
-          const auto &fifo = clocked.fifos[use->second.fifo];
+          unsigned fifoIndex = use->second.fifo;
+          const auto &fifo = clocked.fifos[fifoIndex];
+          bool isInput = use->second.access == gfir::StructuredFifoAccess::In;
           auto name = instanceName(fifo.instance);
           if (failed(name))
             return failure();
-          // The caller has already admitted this Rule using all requirements.
-          // The call reads old Q or records the payload in the caller's frame.
-          if (use->second.access == gfir::StructuredFifoAccess::In)
-            text = "txn." + payloadName(use->second.fifo) + " = " + args.front();
+          if (rule && rule->sampled) {
+            // Before initialization all local FIFOs share unknown committed
+            // controls. Once initialized, unknown readiness can only come
+            // from an effective raw pop, which the FIFO reports during Work.
+            auto available = "pyc_fifo_available_" + std::to_string(clocked.checkOffsets.lookup(call));
+            out << "    const auto " << available << " = " << *name;
+            if (isInput) {
+              out << ".ready(";
+              if (fifo.downstreamPop)
+                out << "txn." << recipientName(fifoIndex);
+              else
+                out << levelName << "(false)";
+              out << ')';
+            } else {
+              out << ".valid()";
+            }
+            out << ";\n";
+            if (failed(requireKnownOne(available, call)))
+              return failure();
+          }
+          // Reads use old Q. Payload writes are staged in the caller's frame.
+          if (isInput)
+            text = "txn." + payloadName(fifoIndex) + " = " + args.front();
           else
             text = *name + ".data()";
         } else {
@@ -1446,6 +1472,8 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       if (failed(type))
         return failure();
       out << "    " << *type << " " << payloadName(fifoId) << ";\n";
+      if (rule.sampled && fifo.downstreamPop)
+        out << "    gfsim::behavior::Level " << recipientName(fifoId) << ";\n";
     }
     for (auto [memoryIndex, memory] : llvm::enumerate(clocked.memories)) {
       auto declare = [&](gfir::CallOp call, unsigned port) -> LogicalResult {
@@ -1533,36 +1561,51 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
                                             unsigned grant, StringRef instancePrefix) {
   unsigned index = grant - definition.wires.size();
   const auto &rule = definition.clocked->rules[index];
-  SmallVector<std::string> checks;
-  for (const auto &requirement : rule.requirements) {
-    const auto &fifo = definition.clocked->fifos[requirement.fifo];
-    auto member = instanceName(fifo.instance);
-    if (failed(member))
-      return failure();
-    std::string query = instancePrefix.str() + *member;
-    if (requirement.requiresReady) {
-      auto ready = fifo.downstreamPop
-          ? recipient(definition, fifo, index, requirement.ownPop)
-          : FailureOr<std::string>(levelName.str() + "(false)");
-      if (failed(ready))
+  bool orderedFifo = rule.sampled && !rule.requirements.empty();
+  if (!orderedFifo) {
+    SmallVector<std::string> checks;
+    for (const auto &requirement : rule.requirements) {
+      const auto &fifo = definition.clocked->fifos[requirement.fifo];
+      auto member = instanceName(fifo.instance);
+      if (failed(member))
         return failure();
-      query += ".ready(" + *ready + ")";
-    } else {
-      query += ".valid()";
+      std::string query = instancePrefix.str() + *member;
+      if (requirement.requiresReady) {
+        auto ready = fifo.downstreamPop
+            ? recipient(definition, fifo, index, requirement.ownPop)
+            : FailureOr<std::string>(levelName.str() + "(false)");
+        if (failed(ready))
+          return failure();
+        query += ".ready(" + *ready + ")";
+      } else {
+        query += ".valid()";
+      }
+      checks.push_back(query + ".packed()");
     }
-    checks.push_back(query + ".packed()");
+    std::string grantExpr = levelName.str() + "(true)";
+    if (!checks.empty()) {
+      std::string combined = checks.front();
+      for (const auto &check : ArrayRef<std::string>(checks).drop_front())
+        combined = "gfsim::bit_and(" + combined + ", " + check + ")";
+      grantExpr = "gfsim::behavior::Level::fromPacked(" + combined + ")";
+    }
+    out << "    const auto " << wireName(grant) << " = " << grantExpr << ";\n";
   }
-  std::string grantExpr = levelName.str() + "(true)";
-  if (!checks.empty()) {
-    std::string combined = checks.front();
-    for (const auto &check : ArrayRef<std::string>(checks).drop_front())
-      combined = "gfsim::bit_and(" + combined + ", " + check + ")";
-    grantExpr = "gfsim::behavior::Level::fromPacked(" + combined + ")";
-  }
-  out << "    const auto " << wireName(grant) << " = " << grantExpr << ";\n";
   out << "    TxnFrame" << index << ' ' << frameName(index) << ";\n";
   if (rule.sampled)
     out << "    " << frameName(index) << ".pyc_check_active = pyc_active;\n";
+  if (orderedFifo) {
+    for (const auto &requirement : rule.requirements) {
+      const auto &fifo = definition.clocked->fifos[requirement.fifo];
+      if (!requirement.requiresReady || !fifo.downstreamPop)
+        continue;
+      auto ready = recipient(definition, fifo, index);
+      if (failed(ready))
+        return failure();
+      out << "    " << frameName(index) << '.' << recipientName(requirement.fifo)
+          << " = " << *ready << ";\n";
+    }
+  }
   for (const auto &capture : rule.guardCaptures) {
     auto available = availabilityExpression(definition, capture.sources, instancePrefix);
     if (failed(available))
@@ -1570,12 +1613,15 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     out << "    " << frameName(index) << ".pyc_capture_available_" << capture.capture
         << " = " << *available << ";\n";
   }
-  out << "    if (";
-  if (needsDomain(*definition.clocked) && rule.resultUses.empty() &&
-      !rule.readsByteMemory && rule.assertions.empty() && rule.observations.empty())
-    out << "pyc_active && ";
-  out << "gfsim::behavior::isOne(" << wireName(grant) << ")) "
-      << instancePrefix << ruleName(index) << '(' << frameName(index);
+  out << "    ";
+  if (!orderedFifo) {
+    out << "if (";
+    if (needsDomain(*definition.clocked) && rule.resultUses.empty() &&
+        !rule.readsByteMemory && rule.assertions.empty() && rule.observations.empty())
+      out << "pyc_active && ";
+    out << "gfsim::behavior::isOne(" << wireName(grant) << ")) ";
+  }
+  out << instancePrefix << ruleName(index) << '(' << frameName(index);
   if (rule.afterSnapshot)
     out << ", pyc_active";
   auto operation = rule.operation;
@@ -1586,6 +1632,9 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     out << ", " << *value;
   }
   out << ");\n";
+  if (orderedFifo)
+    out << "    const auto " << wireName(grant) << " = " << levelName << '('
+        << frameName(index) << ".pyc_running);\n";
   for (auto assertion : rule.assertions) {
     unsigned ordinal = definition.clocked->checkOffsets.lookup(assertion);
     out << "    {\n      const auto pyc_error = gfsim::bit_and(gfsim::bit_and("
