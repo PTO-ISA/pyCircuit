@@ -153,6 +153,7 @@ private:
   SmallVector<Attribute> queueWriters, externalPops;
   llvm::DenseMap<unsigned, Value> selectAvailability;
   llvm::DenseMap<unsigned, Value> inputCompanions;
+  llvm::DenseMap<unsigned, Value> fieldInputCompanions;
   llvm::DenseMap<std::pair<Operation *, unsigned>, Value> pureCompanions;
   bool sampledQueues = false;
   SmallVector<Value> sampledEnables;
@@ -595,7 +596,33 @@ LogicalResult ClockedMaterializer::makeModule() {
   OperationState state(source.getLoc(), ac::ModuleOp::getOperationName());
   for (StringRef name : {"sym_name", "source_owner"})
     state.addAttribute(name, source->getAttr(name));
-  SmallVector<Type> inputs(source.getFunctionType().getInputs());
+  SmallVector<Type> inputs;
+  SmallVector<Attribute> names;
+  SmallVector<SmallVector<unsigned>> inputSlots(source.getFunctionType().getNumInputs());
+  SmallVector<unsigned> companionSlots(definition.inputAvailability.size());
+  for (auto [port, type] : llvm::enumerate(source.getFunctionType().getInputs())) {
+    bool flattened = llvm::any_of(definition.inputAvailability, [&](const auto &input) {
+      return input.port == port && !input.path.empty();
+    });
+    if (flattened) {
+      for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability)) {
+        if (input.port != port) continue;
+        companionSlots[ordinal] = inputs.size();
+        inputSlots[port].push_back(inputs.size());
+        inputs.push_back(definition.wires[input.wire].type);
+        std::string name = "__pyc_field_in_" + std::to_string(port) + "_" + std::to_string(ordinal);
+        while (llvm::is_contained(source.getInputNames().getValue(), builder.getStringAttr(name)) ||
+               llvm::is_contained(source.getOutputNames().getValue(), builder.getStringAttr(name))) name += "_";
+        names.push_back(builder.getStringAttr(name));
+      }
+    } else {
+      for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability))
+        if (input.port == port) companionSlots[ordinal] = inputs.size();
+      inputSlots[port].push_back(inputs.size());
+      inputs.push_back(type);
+      names.push_back(source.getInputNames()[port]);
+    }
+  }
   inputs.append({bit, bit});
   unsigned sourceInputs = inputs.size();
   for (const auto &incoming : definition.incomingStates) {
@@ -605,7 +632,6 @@ LogicalResult ClockedMaterializer::makeModule() {
   }
   SmallVector<Type> outputs(source.getFunctionType().getResults());
   SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
-  SmallVector<Attribute> names(source.getInputNames().getValue());
   names.append({builder.getStringAttr("pyc_clk"), builder.getStringAttr("pyc_rst")});
   auto privateName = [&](StringRef stem) {
     std::string name = stem.str();
@@ -672,9 +698,9 @@ LogicalResult ClockedMaterializer::makeModule() {
   }
   SmallVector<std::pair<unsigned, unsigned>> availabilityInputs;
   SmallVector<Attribute> inputValidity(sourceInputs, builder.getI64IntegerAttr(-1));
-  for (const auto &input : definition.inputAvailability) {
-    inputValidity[input.port] = builder.getI64IntegerAttr(inputs.size());
-    availabilityInputs.emplace_back(input.port, inputs.size());
+  for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability)) {
+    inputValidity[companionSlots[ordinal]] = builder.getI64IntegerAttr(inputs.size());
+    availabilityInputs.emplace_back(ordinal, inputs.size());
     inputs.push_back(bit);
     names.push_back(input.name);
   }
@@ -706,9 +732,39 @@ LogicalResult ClockedMaterializer::makeModule() {
   target.getBody().push_back(body);
   for (Type type : inputs)
     body->addArgument(type, source.getLoc());
-  for (auto [from, to] : llvm::zip(source.getBody().front().getArguments(),
-                                   body->getArguments()))
-    graph.map(from, to);
+  builder.setInsertionPointToEnd(body);
+  for (BlockArgument argument : source.getBody().front().getArguments()) {
+    unsigned port = argument.getArgNumber();
+    bool flattened = llvm::any_of(definition.inputAvailability, [&](const auto &input) {
+      return input.port == port && !input.path.empty();
+    });
+    if (!flattened) {
+      graph.map(argument, body->getArgument(inputSlots[port].front()));
+      continue;
+    }
+    SmallVector<StringAttr> path;
+    std::function<FailureOr<Value>(Type)> rebuild = [&](Type type) -> FailureOr<Value> {
+      if (auto record = dyn_cast<ac::StructType>(type)) {
+        SmallVector<Value> fields;
+        for (Attribute raw : hardware.lookupStruct(record).getFields()) {
+          auto field = cast<DictionaryAttr>(raw);
+          path.push_back(field.getAs<StringAttr>("name"));
+          auto value = rebuild(field.getAs<TypeAttr>("type").getValue());
+          path.pop_back();
+          if (failed(value)) return failure();
+          fields.push_back(*value);
+        }
+        return make(ac::StructCreateOp::getOperationName(), fields, {type})->getResult(0);
+      }
+      for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability))
+        if (input.port == port && input.path == path)
+          return body->getArgument(companionSlots[ordinal]);
+      return failure();
+    };
+    auto value = rebuild(argument.getType());
+    if (failed(value)) return source.emitOpError("missing verified nominal input field");
+    graph.map(argument, *value);
+  }
   clock = body->getArgument(sourceInputs - 2);
   reset = body->getArgument(sourceInputs - 1);
   incomingQ.resize(definition.incomingStates.size());
@@ -722,8 +778,11 @@ LogicalResult ClockedMaterializer::makeModule() {
     }
   for (auto [fifo, input] : fifoInputs)
     fifoIncomingPops[fifo] = body->getArgument(input);
-  for (auto [port, input] : availabilityInputs)
-    inputCompanions.try_emplace(port, body->getArgument(input));
+  for (auto [ordinal, input] : availabilityInputs) {
+    const auto &endpoint = definition.inputAvailability[ordinal];
+    if (endpoint.path.empty()) inputCompanions.try_emplace(endpoint.port, body->getArgument(input));
+    else fieldInputCompanions.try_emplace(ordinal, body->getArgument(input));
+  }
   builder.setInsertionPointToEnd(body);
   one = constant(true);
   none = constant(false);
@@ -1007,8 +1066,12 @@ LogicalResult ClockedMaterializer::bindGraph() {
         for (const auto &input : child.inputAvailability) {
           auto actual = original->getOperand(input.port);
           const auto &leaves = definition.valueWires.find(actual)->second;
+          auto leaf = llvm::find_if(leaves, [&](unsigned index) {
+            return definition.wires[index].endpoint.path == input.path;
+          });
+          if (leaf == leaves.end()) return failure();
           const auto &sources = definition.wireAvailability.empty()
-              ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+              ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
           auto available = availability(sources);
           if (failed(available))
             return failure();
@@ -1249,7 +1312,7 @@ FailureOr<Value> ClockedMaterializer::availability(
     Value value;
     switch (source.kind) {
     case gfir::StructuredAvailabilitySource::Kind::FieldInput:
-      return this->source.emitOpError("field availability inputs require a pure Module");
+      value = fieldInputCompanions.lookup(source.index); break;
     case gfir::StructuredAvailabilitySource::Kind::PureOutput: {
       const auto &wire = definition.wires[source.index];
       const auto &child = program.definitions[wire.call->definition];

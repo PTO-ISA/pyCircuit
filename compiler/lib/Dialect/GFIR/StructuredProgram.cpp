@@ -825,11 +825,10 @@ LogicalResult Analyzer::analyzeAvailability(
         continue;
       const bool record = isa<ac::StructType>(actual.getType());
       if (!callee || (!record && (!isa<ac::BitsType>(actual.getType()) || leaves.size() != 1)) ||
-          (record && (clockedModules.contains(callee) ||
-                      llvm::any_of(leaves, [&](unsigned leaf) {
+          (record && llvm::any_of(leaves, [&](unsigned leaf) {
                         return !isa<ac::BitsType>(definition.wires[leaf].type);
-                      }))))
-        return call.emitOpError("available Module inputs require scalar Bits or a pure Struct of Bits fields");
+                      })))
+        return call.emitOpError("available Module inputs require scalar Bits or a Struct of Bits fields");
       if (record && callee.getSymName() == result.root.getCalleeAttr().getValue())
         return call.emitOpError("a selected root cannot also receive a partial Struct through an instance");
       if (!clockedModules.contains(callee) &&

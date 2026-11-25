@@ -40,7 +40,9 @@ module attributes {gfir.contract = 1 : i64} {
     gfir.yield %value : !b8
   }
   gfir.module @Pick(%packet: !Packet) -> (!b8, !b1)
-      attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["packet"], output_names = ["result", "ready"]} {
+      attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["packet"], output_names = ["result", "ready"], domains = ["default"]} {
+    %init = "ac.bits.constant4"() {pattern = "00000000"} : () -> !b8
+    gfir.var @marker init %init : !b8
     %control = ac.struct.get %packet["control"] : (!Packet) -> !Control
     %selector = ac.struct.get %control["selector"] : (!Control) -> !b1
     %ready = ac.struct.get %control["permit"] : (!Control) -> !b1

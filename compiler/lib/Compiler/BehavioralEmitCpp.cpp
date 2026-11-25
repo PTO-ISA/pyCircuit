@@ -650,8 +650,8 @@ void preparationSignature(raw_ostream &out,
   else
     for (unsigned input : definition.preparationInputs)
       parameter(graphType(definition.wires[input], tables), wireName(input));
-  for (const auto &input : definition.inputAvailability)
-    parameter("pyc_behavior::Level", "pyc_input_available_" + std::to_string(input.port));
+  for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability))
+    parameter("pyc_behavior::Level", inputAvailabilityName(input, ordinal));
   if (hasIncomingWrites(definition))
     parameter("IncomingState", "pyc_incoming");
   if (hasObservations(definition))
@@ -4014,8 +4014,12 @@ LogicalResult BehavioralEmitter::emitClockedCall(
   for (const auto &input : child.inputAvailability) {
     auto actual = operation.getInputs()[input.port];
     const auto &leaves = definition.valueWires.find(actual)->second;
+    auto leaf = llvm::find_if(leaves, [&](unsigned wire) {
+      return definition.wires[wire].endpoint.path == input.path;
+    });
+    if (leaf == leaves.end()) return failure();
     const auto &sources = definition.wireAvailability.empty()
-        ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+        ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
     auto available = availabilityExpression(definition, sources, instancePrefix);
     if (failed(available))
       return failure();
