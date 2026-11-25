@@ -2560,6 +2560,14 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           StringRef stepNatural, StringRef stepOrdinal) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
+  bool orderedFifo = rule && rule->sampled && !rule->requirements.empty();
+  enum class DemandKind { Boundary, Queue, MemoryLive };
+  struct ReachedControl {
+    unsigned ordinal;
+    DemandKind demand;
+    std::string raw, reached;
+  };
+  SmallVector<ReachedControl> orderedControls;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
   for (Value arg : body.getArguments())
     values.try_emplace(arg, wireName(values.size()));
@@ -2568,7 +2576,19 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     for (auto [index, value] : llvm::enumerate(yield.getValues()))
       out << "    txn." << resultName(index) << " = " << values.lookup(value) << ";\n";
   };
-  auto requireKnownOne = [&](StringRef predicate, Operation *site) -> LogicalResult {
+  auto requireKnownOne = [&](StringRef predicate, Operation *site,
+                            DemandKind demand = DemandKind::Boundary) -> LogicalResult {
+    if (orderedFifo) {
+      unsigned ordinal = clocked.checkOffsets.lookup(site);
+      auto raw = "pyc_control_" + std::to_string(ordinal);
+      auto reached = raw + "_reached";
+      out << "    const auto " << raw << " = " << predicate << ";\n"
+          << "    const bool " << reached << " = txn.pyc_running;\n"
+          << "    txn.pyc_running = txn.pyc_running && pyc_behavior::isOne("
+          << raw << ");\n";
+      orderedControls.push_back({ordinal, demand, std::move(raw), std::move(reached)});
+      return success();
+    }
     out << "    if (!pyc_behavior::isOne(" << predicate << ")) {\n"
         << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
         << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(site) << ";\n"
@@ -2736,14 +2756,27 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           return failure();
         if (use.access == gfir::StructuredMemoryAccess::Read) {
           out << "    txn." << memoryPinName(use.memory, 0, 0) << " = " << args.front() << ";\n"
-              << "    txn." << memoryPinName(use.memory, 0, 3) << " = true;\n";
-          text = *name + ".read(" + args.front() + ")";
+              << "    txn." << memoryPinName(use.memory, 0, 3) << " = "
+              << (orderedFifo ? "txn.pyc_running" : "true") << ";\n";
+          auto address = args.front();
+          if (orderedFifo) {
+            auto width = std::to_string(memory.addressWidth);
+            address = "(txn.pyc_running ? " + address +
+                " : gfsim::wire<gfsim::Bits<" + width + ">>::known(gfsim::Bits<" + width + ">{0}))";
+          }
+          text = *name + ".read(" + address + ")";
         } else if (use.access == gfir::StructuredMemoryAccess::Result) {
-          out << "    if (!pyc_behavior::isOne(" << *name << ".live(" << use.port
-              << "))) { txn.pyc_running = false; ";
-          if (failed(emitBlockedReturn(out, body, ruleResults)))
-            return failure();
-          out << " }\n";
+          if (orderedFifo) {
+            if (failed(requireKnownOne(*name + ".live(" + std::to_string(use.port) + ")",
+                                       call, DemandKind::MemoryLive)))
+              return failure();
+          } else {
+            out << "    if (!pyc_behavior::isOne(" << *name << ".live(" << use.port
+                << "))) { txn.pyc_running = false; ";
+            if (failed(emitBlockedReturn(out, body, ruleResults)))
+              return failure();
+            out << " }\n";
+          }
           text = *name + ".result(" + std::to_string(use.port) + ")";
         } else {
           // Typed local arguments are total. Payload knownness belongs to the
@@ -2751,7 +2784,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           unsigned port = use.access == gfir::StructuredMemoryAccess::Write ? 2 : use.port;
           for (auto [argument, value] : llvm::enumerate(args))
             out << "    txn." << memoryPinName(use.memory, port, argument) << " = " << value << ";\n";
-          out << "    txn." << memoryPinName(use.memory, port, 3) << " = true;\n";
+          out << "    txn." << memoryPinName(use.memory, port, 3) << " = "
+              << (orderedFifo ? "txn.pyc_running" : "true") << ";\n";
           continue;
         }
       } else {
@@ -2780,7 +2814,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
               out << ".valid()";
             }
             out << ";\n";
-            if (failed(requireKnownOne(available, call)))
+            if (failed(requireKnownOne(available, call, DemandKind::Queue)))
               return failure();
           }
           // Reads use old Q. Payload writes are staged in the caller's frame.
@@ -2868,6 +2902,28 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         return failure();
       out << "    }\n";
     }
+  }
+  if (orderedFifo) {
+    // Match the independently verified HWIR diagnostic demand. Continue only
+    // private value/candidate work after a failed control, retaining each actual
+    // source-point reach. A later unavailable Queue can suppress an earlier
+    // unknown Queue, but an explicit false/unknown guard preserves diagnostics.
+    out << "    auto pyc_resource_demand = " << levelName << "(true);\n";
+    for (const auto &control : llvm::reverse(orderedControls)) {
+      if (control.demand == DemandKind::Queue)
+        out << "    pyc_resource_demand = pyc_behavior::Level::fromPacked(gfsim::bit_and("
+            << control.raw << ".packed(), pyc_resource_demand.packed()));\n";
+      else if (control.demand == DemandKind::Boundary)
+        out << "    if (!pyc_behavior::isOne(" << control.raw
+            << ")) pyc_resource_demand = " << levelName << "(true);\n";
+    }
+    out << "    if (txn.pyc_check_active && (!pyc_resource_demand.isFullyKnown() || "
+           "pyc_resource_demand.value().toBool())) {\n";
+    for (auto [index, control] : llvm::enumerate(orderedControls))
+      out << "      " << (index ? "else " : "") << "if (" << control.reached
+          << " && !" << control.raw << ".isFullyKnown()) txn.pyc_failed_check = "
+          << "pyc_check_base + " << control.ordinal << ";\n";
+    out << "    }\n";
   }
   if (coldSuffix)
     out << "    });\n";

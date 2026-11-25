@@ -742,7 +742,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
       continue;
     for (Operation &op : rule.operation.getBody().front())
       if (isa<IfOp, LoopOp>(op) ||
-          (isa<CallOp>(op) && !plan.fifoCalls.contains(&op)))
+          (isa<CallOp>(op) && !plan.fifoCalls.contains(&op) &&
+           !plan.transactionMemoryCalls.contains(&op)))
         return op.emitOpError("ordered FIFO admission requires a direct Rule body");
   }
   return success();
@@ -932,8 +933,6 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run() {
                           ruleUses[index], unsigned(index))))
       return failure();
   }
-  if (!plan.transactionMemoryCalls.empty() && !plan.fifos.empty())
-    return module.emitOpError("transaction Memory cannot yet combine with native FIFO");
   if (failed(resolveMethodEffects()))
     return failure();
   return std::move(plan);
