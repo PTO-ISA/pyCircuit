@@ -466,8 +466,8 @@ public:
 
 protected:
   template <class Edit>
-  void applyKnown(const Edit &edit) noexcept {
-    if (mirror_.isFullyKnown())
+  void applyKnown(const Edit &edit, bool known) noexcept {
+    if (known)
       fields.template applyKnown<true>(mirror_, edit);
     else
       fields.template applyKnown<false>(mirror_, edit);
@@ -500,17 +500,24 @@ public:
   }
 
   void discard() noexcept { pending_.reset(); }
+  bool isFullyKnown() const noexcept { return known_; }
 
   void commit() noexcept {
     if (pending_) {
-      Base::applyKnown(*pending_);
+      Base::applyKnown(*pending_, known_);
       pending_.reset();
+      // A known edit preserves this proof. It can also fill the last unknown
+      // field, so recheck only when committed state was already unknown.
+      if (!known_)
+        known_ = Base::value().isFullyKnown();
     } else {
       Base::commit();
+      known_ = Base::value().isFullyKnown();
     }
   }
 
 private:
+  bool known_ = false;
   std::optional<typename Layout::KnownEdit> pending_;
 };
 

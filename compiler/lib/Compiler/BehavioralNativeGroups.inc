@@ -9,6 +9,10 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
   std::map<std::pair<unsigned, unsigned>, NativeOutputEntry> entries;
   std::string text;
   llvm::raw_string_ostream native(text);
+  auto record = planKnownRecord(definition, rule);
+  if (record)
+    native << "      const bool pyc_committed_known = " << stateName(0)
+           << ".isFullyKnown();\n";
   SmallVector<unsigned> origins(definition.wires.size());
   SmallVector<std::string> scalars(definition.wires.size());
   llvm::BitVector ready(definition.wires.size()), materialized(definition.wires.size());
@@ -47,7 +51,10 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
     if (!isa<ac::BitsType>(wire.type) || wire.width > 64 || !materialize(origin))
       return {};
     name = "pyc_native_input_" + std::to_string(origin);
-    native << "      if (!" << wireName(origin) << ".isFullyKnown()) return false;\n"
+    native << "      if (";
+    if (record && wire.state)
+      native << "!pyc_committed_known && ";
+    native << '!' << wireName(origin) << ".isFullyKnown()) return false;\n"
            << "      const auto " << name << " = static_cast<" << nativeInteger(wire.width)
            << ">(" << wireName(origin) << ".value().value());\n";
     return name;
@@ -148,9 +155,9 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
     auto found = definition.valueWires.find(capture);
     return found != definition.valueWires.end() && llvm::all_of(found->second, materialize);
   };
-  if (auto known = planKnownRecord(definition, rule)) {
+  if (record) {
     SmallVector<std::string> values;
-    for (const auto &edit : known->edits) {
+    for (const auto &edit : record->edits) {
       StringRef value = scalar(edit.value);
       if (value.empty())
         return false;
@@ -170,11 +177,11 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
         values.push_back("true");
       }
     }
-    if (!materializeCapture(operation.getCaptures()[known->snapshotCapture]))
+    if (!materializeCapture(operation.getCaptures()[record->snapshotCapture]))
       return false;
     native << "      pyc_memo_known.emplace(KnownMemo{"
-           << captures[known->snapshotCapture] << ", {" << join(values, ", ") << "}});\n";
-    knownRecords.try_emplace(definition.module, std::move(*known));
+           << captures[record->snapshotCapture] << ", {" << join(values, ", ") << "}});\n";
+    knownRecords.try_emplace(definition.module, std::move(*record));
   } else {
     if (!llvm::all_of(operation.getCaptures(), materializeCapture))
       return false;
