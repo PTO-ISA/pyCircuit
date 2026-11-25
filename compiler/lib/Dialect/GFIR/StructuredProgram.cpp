@@ -592,7 +592,10 @@ LogicalResult Analyzer::analyzeAvailability(
       const auto &output = child.outputs[wire.call->output];
       auto addChild = [&](Source::Kind kind, unsigned resultPort) {
         if (!child.clocked) {
-          wireSources[index].push_back({Source::Kind::PureOutput, index});
+          if (llvm::any_of(wire.dependencies, [&](unsigned input) {
+                return !wireSources[input].empty();
+              }))
+            wireSources[index].push_back({Source::Kind::PureOutput, index});
           return;
         }
         unsigned call = clockedCallNodes.lookup(site) - definition.firstClockedCallNode();

@@ -1215,7 +1215,8 @@ LogicalResult BehavioralEmitter::emitWires(
       const auto &child = program.definitions[wire.call->definition];
       const auto &output = child.outputs[wire.call->output];
       if (!child.clocked && !child.wireAvailability.empty() &&
-          !child.wireAvailability[output.wire].empty()) {
+          !child.wireAvailability[output.wire].empty() &&
+          !definition.wireAvailability.empty() && !definition.wireAvailability[index].empty()) {
         auto member = instanceName(wire.call->receiver);
         if (failed(member)) return failure();
         SmallVector<std::string> arguments;
