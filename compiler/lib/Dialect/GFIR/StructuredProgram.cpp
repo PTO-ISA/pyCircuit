@@ -494,10 +494,18 @@ LogicalResult Analyzer::analyzeAvailability(
   });
   auto demands = inputDemands.find(definition.module);
   if (demands != inputDemands.end()) {
-    for (unsigned port = 0; port < definition.module.getFunctionType().getNumInputs(); ++port)
-      if (demands->second.contains(port))
-        definition.inputAvailability.push_back({port, StringAttr::get(package.getContext(),
-            "__pyc_valid_in_" + std::to_string(port))});
+    llvm::StringSet<> names;
+    for (auto list : {definition.module.getInputNames(), definition.module.getOutputNames()})
+      for (auto name : list)
+        names.insert(cast<StringAttr>(name).getValue());
+    for (unsigned port = 0; port < definition.module.getFunctionType().getNumInputs(); ++port) {
+      if (!demands->second.contains(port))
+        continue;
+      std::string name = "__pyc_valid_in_" + std::to_string(port);
+      while (!names.insert(name).second)
+        name += "_";
+      definition.inputAvailability.push_back({port, StringAttr::get(package.getContext(), name)});
+    }
   }
   if (!hasLocalResults && !hasChildResults && definition.inputAvailability.empty())
     return success();
