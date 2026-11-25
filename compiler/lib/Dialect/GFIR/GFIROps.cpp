@@ -7,6 +7,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 
@@ -192,6 +193,32 @@ LogicalResult CallOp::verify() {
     return emitOpError("an instance path requires an ordered Method call");
   if (getInterfaceAttr() && getInterfaceAttr().getValue().empty())
     return emitOpError("interface name must be nonempty");
+  auto bindings = getBindingsAttr();
+  auto signature = getBindingTypeAttr();
+  if (!bindings && !signature)
+    return success();
+  if (!bindings || bindings.empty() || !signature || !getInterfaceAttr() ||
+      !isOrderedOwner((*this)->getParentOp()))
+    return emitOpError("bindings require a nonempty ordered Method call signature");
+  auto type = cast<FunctionType>(signature.getValue());
+  llvm::SmallDenseSet<unsigned> bound;
+  for (auto raw : bindings) {
+    auto binding = dyn_cast<DictionaryAttr>(raw);
+    auto index = binding ? binding.getAs<IntegerAttr>("ordinal") : IntegerAttr();
+    if (!binding || binding.size() != 2 || !binding.getAs<SymbolRefAttr>("owner") ||
+        !index || index.getValue().isNegative() ||
+        index.getValue().getActiveBits() > 32 ||
+        index.getValue().getZExtValue() >= type.getNumInputs() ||
+        !bound.insert(index.getValue().getZExtValue()).second)
+      return emitOpError("bindings require distinct formal ordinals and static owners");
+  }
+  SmallVector<Type> supplied;
+  for (auto [index, input] : llvm::enumerate(type.getInputs()))
+    if (!bound.contains(index))
+      supplied.push_back(input);
+  if (!llvm::equal(getInputs().getTypes(), supplied) ||
+      !llvm::equal(getOutputs().getTypes(), type.getResults()))
+    return emitOpError("binding signature disagrees with supplied operands or results");
   return success();
 }
 
@@ -227,12 +254,40 @@ ParseResult CallOp::parse(OpAsmParser &parser, OperationState &result) {
   }
   SmallVector<OpAsmParser::UnresolvedOperand> inputs;
   FunctionType type;
-  if (parser.parseOperandList(inputs, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonType(type) ||
-      parser.resolveOperands(inputs, type.getInputs(), parser.getCurrentLocation(),
-                              result.operands))
+  if (parser.parseOperandList(inputs, OpAsmParser::Delimiter::Paren))
     return failure();
+  SmallVector<Attribute> bindings;
+  llvm::SmallDenseSet<unsigned> bound;
+  if (succeeded(parser.parseOptionalKeyword("bindings"))) {
+    auto &builder = parser.getBuilder();
+    if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&]() -> ParseResult {
+          unsigned ordinal;
+          SymbolRefAttr owner;
+          if (parser.parseInteger(ordinal) || parser.parseEqual() || parser.parseAttribute(owner))
+            return failure();
+          if (!bound.insert(ordinal).second)
+            return parser.emitError(parser.getCurrentLocation(), "duplicate writable formal");
+          bindings.push_back(builder.getDictionaryAttr({
+              builder.getNamedAttr("ordinal", builder.getI64IntegerAttr(ordinal)),
+              builder.getNamedAttr("owner", owner)}));
+          return success();
+        }))
+      return failure();
+    if (bindings.empty())
+      return parser.emitError(parser.getCurrentLocation(), "expected a writable binding");
+  }
+  if (parser.parseOptionalAttrDict(result.attributes) || parser.parseColonType(type))
+    return failure();
+  SmallVector<Type> supplied;
+  for (auto [index, input] : llvm::enumerate(type.getInputs()))
+    if (!bound.contains(index))
+      supplied.push_back(input);
+  if (parser.resolveOperands(inputs, supplied, parser.getCurrentLocation(), result.operands))
+    return failure();
+  if (!bindings.empty()) {
+    result.addAttribute("bindings", parser.getBuilder().getArrayAttr(bindings));
+    result.addAttribute("binding_type", TypeAttr::get(type));
+  }
   result.addTypes(type.getResults());
   return success();
 }
@@ -249,9 +304,22 @@ void CallOp::print(OpAsmPrinter &printer) {
     printer << ']';
   }
   printer << '(' << getInputs() << ')';
-  printer.printOptionalAttrDict((*this)->getAttrs(), {"receiver", "interface"});
+  if (auto bindings = getBindingsAttr()) {
+    printer << " bindings(";
+    llvm::interleaveComma(bindings, printer, [&](Attribute raw) {
+      auto binding = cast<DictionaryAttr>(raw);
+      printer << binding.getAs<IntegerAttr>("ordinal").getInt() << " = ";
+      printer.printAttributeWithoutType(binding.getAs<SymbolRefAttr>("owner"));
+    });
+    printer << ')';
+  }
+  printer.printOptionalAttrDict((*this)->getAttrs(),
+                                {"receiver", "interface", "bindings", "binding_type"});
   printer << " : ";
-  printer.printFunctionalType(getInputs().getTypes(), getOutputs().getTypes());
+  if (auto signature = getBindingTypeAttr())
+    printer << signature.getValue();
+  else
+    printer.printFunctionalType(getInputs().getTypes(), getOutputs().getTypes());
 }
 
 void CallOp::getEffects(
@@ -421,7 +489,20 @@ void MethodOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult MethodOp::verify() {
-  return verifyOrderedCallable(*this, getFunctionType(), getBody());
+  if (failed(verifyOrderedCallable(*this, getFunctionType(), getBody())))
+    return failure();
+  llvm::SmallDenseSet<unsigned> ordinals;
+  if (auto writable = getWritableAttr())
+    for (auto row : writable) {
+      auto ordinal = dyn_cast<IntegerAttr>(row.getValue());
+      if (row.getName().getValue().empty() || !ordinal ||
+          ordinal.getValue().isNegative() || ordinal.getValue().getActiveBits() > 32 ||
+          ordinal.getValue().getZExtValue() >= getFunctionType().getNumInputs() ||
+          !ordinals.insert(ordinal.getValue().getZExtValue()).second ||
+          SymbolTable::lookupSymbolIn((*this)->getParentOp(), row.getName()))
+        return emitOpError("writable names must identify distinct otherwise unbound formals");
+    }
+  return success();
 }
 
 LogicalResult MethodOp::verifyRegions() {

@@ -24,7 +24,7 @@ LogicalResult BehavioralEmitter::planRecordStates() {
     for (unsigned state = 0; state < clocked.variables.size(); ++state) {
       auto variable = clocked.variables[state];
       const auto type = variable.getInitial().getType();
-      if (!isa<ac::StructType>(type) ||
+      if (!isa<ac::StructType>(type) || clocked.boundVariables.contains(state) ||
           llvm::any_of(definition.incomingStates, [&](const auto &incoming) {
             return incoming.writable && incoming.route.path.empty() &&
                    incoming.route.state == state;

@@ -43,7 +43,9 @@ def GFIR_CallOp : GFIR_Op<"call", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Invoke a logical interface on an existing receiver";
   let arguments = (ins OptionalAttr<SymbolRefAttr>:$receiver,
-      OptionalAttr<StrAttr>:$interface, Variadic<AnyType>:$inputs);
+      OptionalAttr<StrAttr>:$interface, Variadic<AnyType>:$inputs,
+      OptionalAttr<ArrayAttr>:$bindings,
+      OptionalAttr<TypeAttrOf<FunctionType>>:$binding_type);
   let results = (outs Variadic<AnyType>:$outputs);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
@@ -108,7 +110,7 @@ def GFIR_MethodOp : GFIR_Op<"method", [Symbol, IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Define an ordered interface in its caller transaction";
   let arguments = (ins SymbolNameAttr:$sym_name,
-      TypeAttrOf<FunctionType>:$function_type);
+      TypeAttrOf<FunctionType>:$function_type, OptionalAttr<DictionaryAttr>:$writable);
   let regions = (region AnyRegion:$body);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;

@@ -104,12 +104,21 @@ struct StructuredIncomingState {
   bool writable;
 };
 
+struct StructuredFormalBinding {
+  unsigned formal;
+  /// Local variable ordinal or remote candidate slot.
+  unsigned slot;
+  bool local;
+  bool writes;
+};
+
 struct StructuredChildMethod {
   llvm::SmallVector<InstanceOp, 2> path;
   unsigned definition;
   unsigned method;
   /// Callee state ordinal and transaction slot in the calling definition.
   llvm::SmallVector<std::pair<unsigned, unsigned>> states;
+  llvm::SmallVector<StructuredFormalBinding> formals;
 };
 
 struct StructuredObservation {
@@ -124,6 +133,7 @@ struct StructuredMethodEffects {
   unsigned depth;
   llvm::SmallVector<unsigned> states;
   llvm::SmallVector<unsigned> writes;
+  llvm::SmallVector<unsigned> formalWrites;
 };
 
 struct StructuredAvailabilitySource {
@@ -173,6 +183,11 @@ struct StructuredClocked {
   llvm::DenseMap<mlir::Operation *, unsigned> memoryCalls;
   llvm::DenseMap<mlir::Operation *, StructuredMemoryUse> transactionMemoryCalls;
   llvm::DenseMap<mlir::Operation *, unsigned> stateAccesses;
+  llvm::DenseMap<mlir::Operation *, unsigned> formalAccesses;
+  llvm::SmallDenseSet<unsigned> boundVariables;
+  /// A forwarding Method call maps its formal ordinal to a caller formal.
+  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<std::pair<unsigned, unsigned>>>
+      forwardedFormals;
   llvm::DenseMap<mlir::Operation *, StructuredWritePath> writePaths;
   llvm::DenseMap<mlir::Operation *, unsigned> methodCalls;
   llvm::DenseMap<mlir::Operation *, StructuredChildMethod> childMethodCalls;

@@ -76,6 +76,8 @@ LogicalResult verifyInitializer(Value root, Operation *site,
 
 struct BodyUses {
   SmallVector<unsigned> methods, states, writes;
+  SmallVector<unsigned> formalWrites;
+  SmallVector<CallOp> forwardingCalls;
   llvm::SmallDenseSet<unsigned> childStates;
   uint64_t expandedWork = 0;
   uint64_t sampledControls = 0;
@@ -112,7 +114,7 @@ private:
   ArrayRef<StructuredChildState> childStates;
   StructuredClocked plan;
   llvm::StringMap<unsigned> variables, fifos, memories, methods;
-  SmallVector<BodyUses> methodUses, ruleUses;
+  SmallVector<BodyUses, 0> methodUses, ruleUses;
 };
 
 LogicalResult ClockedAnalyzer::collect() {
@@ -275,8 +277,22 @@ LogicalResult ClockedAnalyzer::bindState(Operation *op, FlatSymbolRefAttr target
                                        : ArrayRef<StringRef>{"state"})))
     return failure();
   auto found = variables.find(target.getValue());
-  if (found == variables.end())
-    return op->emitOpError("state reference must resolve to a local gfir.var");
+  if (found == variables.end()) {
+    auto method = op->getParentOfType<MethodOp>();
+    auto writable = method ? method.getWritableAttr() : DictionaryAttr();
+    auto formal = writable ? writable.getAs<IntegerAttr>(target.getValue()) : IntegerAttr();
+    if (!body || !formal)
+      return op->emitOpError("state must resolve to a local variable or writable formal");
+    unsigned ordinal = formal.getValue().getZExtValue();
+    if (index || op->hasAttr("fields") ||
+        !ac::areEquivalentHardwareTypes(value.getType(),
+                                        method.getFunctionType().getInput(ordinal)))
+      return op->emitOpError("formal access must match the complete bound payload");
+    plan.formalAccesses.try_emplace(op, ordinal);
+    if (write)
+      body->formalWrites.push_back(ordinal);
+    return success();
+  }
   auto ordinal = found->second;
   Type type = plan.variables[ordinal].getInitial().getType();
   if (auto fields = op->getAttrOfType<ArrayAttr>("fields")) {
@@ -348,8 +364,38 @@ LogicalResult ClockedAnalyzer::bindMethod(CallOp call, BodyUses &body) {
   auto found = methods.find(interface.getValue());
   if (found == methods.end())
     return call.emitOpError("self interface must resolve to a local gfir.method");
-  if (!matchesSignature(call, plan.methods[found->second].getFunctionType()))
+  auto callee = plan.methods[found->second];
+  if (!matchesSignature(call, callee.getFunctionType()))
     return call.emitOpError("method operands and results must match its signature");
+  auto bindings = call.getBindingsAttr();
+  auto expected = callee.getWritableAttr();
+  if ((bindings ? bindings.size() : 0) != (expected ? expected.size() : 0))
+    return call.emitOpError("all and only writable Method formals require bindings");
+  if (bindings) {
+    auto caller = call->getParentOfType<MethodOp>();
+    auto outer = caller ? caller.getWritableAttr() : DictionaryAttr();
+    if (!outer)
+      return call.emitOpError("self bindings must forward a declared writable formal");
+    llvm::SmallDenseSet<unsigned> allowed, forwarded;
+    for (auto row : expected)
+      allowed.insert(cast<IntegerAttr>(row.getValue()).getValue().getZExtValue());
+    auto &planBindings = plan.forwardedFormals[call];
+    for (auto raw : bindings) {
+      auto row = cast<DictionaryAttr>(raw);
+      unsigned formal = row.getAs<IntegerAttr>("ordinal").getValue().getZExtValue();
+      auto owner = dyn_cast<FlatSymbolRefAttr>(row.getAs<SymbolRefAttr>("owner"));
+      auto source = owner ? outer.getAs<IntegerAttr>(owner.getValue()) : IntegerAttr();
+      if (!allowed.contains(formal) || !source)
+        return call.emitOpError("self bindings must forward actual writable formals");
+      unsigned actual = source.getValue().getZExtValue();
+      if (!forwarded.insert(actual).second ||
+          !ac::areEquivalentHardwareTypes(callee.getFunctionType().getInput(formal),
+                                          caller.getFunctionType().getInput(actual)))
+        return call.emitOpError("forwarded writable formals must be disjoint and type-matched");
+      planBindings.emplace_back(formal, actual);
+    }
+    body.forwardingCalls.push_back(call);
+  }
   body.methods.push_back(found->second);
   plan.methodCalls.try_emplace(call, found->second);
   return success();
@@ -438,11 +484,14 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
   bool isLoop = isa<LoopOp>(owner);
   if (isLoop && failed(verifyAttributes(owner, {"trip_count"})))
     return failure();
-  if (!isArm && !isLoop && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
+  if (isa<MethodOp>(owner) &&
+      failed(verifyAttributes(owner, {"sym_name", "function_type", "writable"})))
+    return failure();
+  if (isa<RuleOp>(owner) && failed(verifyAttributes(owner, {"sym_name", "function_type"})))
     return failure();
   llvm::SmallDenseSet<unsigned> popped;
   for (BlockArgument argument : block.getArguments().drop_front(isLoop ? 1 : 0))
-    if (failed(verifyValueType(hardware, argument.getType(), owner)))
+    if (failed(verifyValueType(hardware, argument.getType(), owner, isa<MethodOp>(owner))))
       return failure();
   for (Operation &op : block) {
     if (isLoop && isa<LoopOp, IfOp, CallOp, GuardOp, YieldOp>(op))
@@ -489,14 +538,26 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
                            write.getIndex(), &uses, true)))
         return failure();
     } else if (auto call = dyn_cast<CallOp>(op)) {
-      if (failed(verifyAttributes(call, {"receiver", "interface"})))
+      if (failed(verifyAttributes(call, {"receiver", "interface", "bindings", "binding_type"})))
         return failure();
       if (auto child = plan.childMethodCalls.find(call);
           child != plan.childMethodCalls.end()) {
         for (auto [state, slot] : child->second.states)
           if (uses.childStates.insert(slot).second)
             plan.rules[*rule].childStates.push_back(slot);
+        for (const auto &binding : child->second.formals) {
+          if (binding.local) {
+            plan.boundVariables.insert(binding.slot);
+            uses.states.push_back(binding.slot);
+            if (binding.writes)
+              uses.writes.push_back(binding.slot);
+          } else if (uses.childStates.insert(binding.slot).second) {
+            plan.rules[*rule].childStates.push_back(binding.slot);
+          }
+        }
       } else if (call.getReceiverAttr()) {
+        if (call.getBindingsAttr())
+          return call.emitOpError("writable formals require an ordinary Method receiver");
         if (isArm)
           return call.emitOpError("conditional resource calls require selected admission");
         if (!rule)
@@ -607,6 +668,7 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     };
     append(into.states, from.states);
     append(into.writes, from.writes);
+    append(into.formalWrites, {});
     into.expandedWork =
         ac::detail::SourceCheckBudget::add(into.expandedWork, from.expandedWork);
     into.sampledControls =
@@ -635,6 +697,13 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
   plan.methodOrder = std::move(order);
   for (unsigned index : plan.methodOrder) {
     auto method = plan.methods[index];
+    auto &body = methodUses[index];
+    for (auto call : body.forwardingCalls) {
+      const auto &callee = methodUses[plan.methodCalls.lookup(call)];
+      for (auto [formal, actual] : plan.forwardedFormals.lookup(call))
+        if (llvm::is_contained(callee.formalWrites, formal))
+          body.formalWrites.push_back(actual);
+    }
     if (failed(merge(methodUses[index], BodyUses{}, method)))
       return failure();
     const auto &uses = methodUses[index];
@@ -643,7 +712,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
       continue;
     }
     if (llvm::any_of(method.getBody().front(), [](Operation &op) {
-          return !isa<ReadOp, WriteOp, YieldOp, CallOp>(op) && !isCombinational(&op);
+          return !isa<ReadOp, WriteOp, YieldOp, CallOp, ac::TableGetOp>(op) &&
+                 !isCombinational(&op);
         }))
       continue;
     unsigned depth = 1;
@@ -658,7 +728,8 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     // Use the same source transaction call depth as the staged ownership proof.
     if (depth && depth <= 128)
       plan.directMethodEffects.try_emplace(
-          index, StructuredMethodEffects{uses.expandedWork, depth, uses.states, uses.writes});
+          index, StructuredMethodEffects{uses.expandedWork, depth, uses.states,
+                                         uses.writes, uses.formalWrites});
   }
   llvm::SmallDenseSet<unsigned> written;
   bool hasOrderedFifo = false;

@@ -43,6 +43,9 @@ bool matchesSignature(CallOp call, FunctionType type) {
              return ac::areEquivalentHardwareTypes(std::get<0>(pair), std::get<1>(pair));
            });
   };
+  if (auto signature = call.getBindingTypeAttr())
+    return equivalent(cast<FunctionType>(signature.getValue()).getInputs(), type.getInputs()) &&
+           equivalent(call.getOutputs().getTypes(), type.getResults());
   return equivalent(call.getInputs().getTypes(), type.getInputs()) &&
          equivalent(call.getOutputs().getTypes(), type.getResults());
 }
@@ -52,6 +55,18 @@ namespace {
 
 using detail::isCombinational;
 using detail::verifyAttributes;
+
+struct InstancePath {
+  SmallVector<InstanceOp, 2> instances;
+  SmallVector<unsigned, 2> definitions;
+};
+
+SmallVector<StringAttr> symbolComponents(SymbolRefAttr symbol) {
+  SmallVector<StringAttr> path{symbol.getRootReference()};
+  for (auto nested : symbol.getNestedReferences())
+    path.push_back(nested.getAttr());
+  return path;
+}
 
 LogicalResult verifyRoot(RootOp root) {
   if (failed(verifyAttributes(root, {"callee", "kind", "domains", "execution_policy",
@@ -105,6 +120,13 @@ private:
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
   FailureOr<llvm::DenseMap<Operation *, StructuredChildMethod>>
   bindChildMethods(StructuredDefinition &definition);
+  FailureOr<InstancePath> resolveInstancePath(ModuleOp owner, ArrayRef<StringAttr> names,
+                                               CallOp call);
+  FailureOr<unsigned> bindStateRoute(StructuredDefinition &caller, const InstancePath &path,
+                                     unsigned state, bool writes, unsigned rule, CallOp call);
+  LogicalResult bindMethodFormals(StructuredDefinition &caller, StructuredChildMethod &binding,
+                                 MethodOp method, const StructuredMethodEffects &effect,
+                                 unsigned rule, CallOp call);
   LogicalResult analyzeAvailability(
       StructuredDefinition &definition,
       const llvm::DenseMap<Operation *, unsigned> &clockedCallNodes);
@@ -275,6 +297,126 @@ LogicalResult Analyzer::bindCall(CallOp call,
   return success();
 }
 
+FailureOr<InstancePath>
+Analyzer::resolveInstancePath(ModuleOp owner, ArrayRef<StringAttr> names, CallOp call) {
+  if (failed(budget.debit(names.size(), call)))
+    return failure();
+  InstancePath path;
+  for (auto name : names) {
+    auto instance = dyn_cast_or_null<InstanceOp>(SymbolTable::lookupSymbolIn(owner, name));
+    auto *callee = instance ? hardware.lookupDefinition(instance.getCalleeAttr().getValue())
+                            : nullptr;
+    if (!isa_and_nonnull<ModuleOp>(callee))
+      return call.emitOpError("receiver or owner path requires declared ordinary instances");
+    unsigned ordinal = done.lookup(callee);
+    if (!result.definitions[ordinal].clocked)
+      return call.emitOpError("Method state path must share the caller's default domain");
+    path.instances.push_back(instance);
+    path.definitions.push_back(ordinal);
+    owner = cast<ModuleOp>(callee);
+  }
+  return path;
+}
+
+FailureOr<unsigned> Analyzer::bindStateRoute(StructuredDefinition &caller,
+                                              const InstancePath &path,
+                                              unsigned state, bool writes,
+                                              unsigned rule, CallOp call) {
+  unsigned leaf = path.definitions.back();
+  StructuredStateRoute route{path.instances, leaf, state};
+  if (failed(budget.debit(caller.childStates.size() + path.instances.size(), call)))
+    return failure();
+  auto existing = llvm::find_if(caller.childStates, [&](const auto &entry) {
+    return entry.route == route;
+  });
+  if (existing == caller.childStates.end()) {
+    caller.childStates.push_back({route, {}});
+    existing = std::prev(caller.childStates.end());
+  }
+  if (writes) {
+    if (existing->writer && *existing->writer != rule)
+      return call.emitOpError("child state write overlaps another Rule");
+    const auto &rules = result.definitions[leaf].clocked->rules;
+    if (llvm::any_of(rules, [&](const StructuredRule &entry) {
+          return llvm::is_contained(entry.writes, state);
+        }))
+      return call.emitOpError("child Method state overlaps a local Rule writer");
+    existing->writer = rule;
+  }
+  for (unsigned ordinal : path.definitions) {
+    auto &owner = result.definitions[ordinal];
+    route.path.erase(route.path.begin());
+    if (writes && llvm::any_of(owner.childStates, [&](const auto &entry) {
+          return entry.route == route && entry.writer;
+        }))
+      return call.emitOpError("child Method state overlaps a descendant Rule writer");
+    auto incoming = llvm::find_if(owner.incomingStates, [&](const auto &entry) {
+      return entry.route == route;
+    });
+    if (incoming == owner.incomingStates.end())
+      owner.incomingStates.push_back({route, writes});
+    else
+      incoming->writable |= writes;
+  }
+  return existing - caller.childStates.begin();
+}
+
+LogicalResult Analyzer::bindMethodFormals(StructuredDefinition &caller,
+                                           StructuredChildMethod &binding,
+                                           MethodOp method,
+                                           const StructuredMethodEffects &effect,
+                                           unsigned rule, CallOp call) {
+  auto writable = method.getWritableAttr();
+  auto bindings = call.getBindingsAttr();
+  if ((writable ? writable.size() : 0) != (bindings ? bindings.size() : 0))
+    return call.emitOpError("all and only writable Method formals require bindings");
+  if (!bindings)
+    return success();
+  llvm::SmallDenseSet<unsigned> formalOrdinals;
+  for (auto row : writable)
+    formalOrdinals.insert(cast<IntegerAttr>(row.getValue()).getValue().getZExtValue());
+  SmallVector<StructuredStateRoute> places;
+  for (unsigned state : effect.states)
+    places.push_back({binding.path, binding.definition, state});
+  for (auto raw : bindings) {
+    auto row = cast<DictionaryAttr>(raw);
+    unsigned formal = row.getAs<IntegerAttr>("ordinal").getValue().getZExtValue();
+    if (!formalOrdinals.contains(formal))
+      return call.emitOpError("binding ordinal must refer to a writable Method formal");
+    auto names = symbolComponents(row.getAs<SymbolRefAttr>("owner"));
+    auto varName = names.pop_back_val();
+    auto path = resolveInstancePath(caller.module, names, call);
+    if (failed(path))
+      return failure();
+    bool local = path->instances.empty();
+    unsigned owner = local ? result.definitions.size() : path->definitions.back();
+    auto ownerModule = local ? caller.module : result.definitions[owner].module;
+    auto declared = ownerModule.getBody().front().getOps<VarOp>();
+    auto var = llvm::find_if(declared, [&](VarOp var) { return var.getSymNameAttr() == varName; });
+    if (var == declared.end())
+      return call.emitOpError("bound owner must resolve to an actual gfir.var");
+    auto variable = *var;
+    unsigned state = std::distance(declared.begin(), var);
+    if (!ac::areEquivalentHardwareTypes(variable.getInitial().getType(),
+                                        method.getFunctionType().getInput(formal)))
+      return call.emitOpError("writable binding payload must match the nominal formal type");
+    StructuredStateRoute place{path->instances, owner, state};
+    if (llvm::is_contained(places, place))
+      return call.emitOpError("writable formals overlap another actual owner of this invocation");
+    places.push_back(std::move(place));
+    bool writes = llvm::is_contained(effect.formalWrites, formal);
+    if (local) {
+      binding.formals.push_back({formal, state, true, writes});
+    } else {
+      auto slot = bindStateRoute(caller, *path, state, writes, rule, call);
+      if (failed(slot))
+        return failure();
+      binding.formals.push_back({formal, *slot, false, writes});
+    }
+  }
+  return success();
+}
+
 FailureOr<llvm::DenseMap<Operation *, StructuredChildMethod>>
 Analyzer::bindChildMethods(StructuredDefinition &definition) {
   llvm::DenseMap<Operation *, StructuredChildMethod> calls;
@@ -291,33 +433,16 @@ Analyzer::bindChildMethods(StructuredDefinition &definition) {
           SymbolTable::lookupSymbolIn(module, receiver.getRootReference()));
       if (!first)
         continue;
-      auto *callee = hardware.lookupDefinition(first.getCalleeAttr().getValue());
-      if (receiver.getNestedReferences().empty() && isa_and_nonnull<PrimitiveOp>(callee))
+      auto *firstDefinition = hardware.lookupDefinition(first.getCalleeAttr().getValue());
+      if (receiver.getNestedReferences().empty() && isa_and_nonnull<PrimitiveOp>(firstDefinition))
         continue;
-      SmallVector<InstanceOp, 2> path{first};
-      SmallVector<unsigned, 2> definitions;
-      for (auto component : receiver.getNestedReferences()) {
-        auto owner = dyn_cast_or_null<ModuleOp>(callee);
-        auto instance = owner ? dyn_cast_or_null<InstanceOp>(
-                                    SymbolTable::lookupSymbolIn(owner, component))
-                              : InstanceOp();
-        if (!instance)
-          return call.emitOpError("Method path requires declared ordinary instances");
-        definitions.push_back(done.lookup(callee));
-        path.push_back(instance);
-        callee = hardware.lookupDefinition(instance.getCalleeAttr().getValue());
-      }
-      if (!isa_and_nonnull<ModuleOp>(callee))
-        return call.emitOpError("Method path must end at an ordinary Module");
       if (!call.getInterfaceAttr())
         return call.emitOpError("ordered instance call requires a Method name");
-      unsigned childIndex = done.lookup(callee);
-      definitions.push_back(childIndex);
+      auto path = resolveInstancePath(module, symbolComponents(receiver), call);
+      if (failed(path))
+        return failure();
+      unsigned childIndex = path->definitions.back();
       const auto &child = result.definitions[childIndex].clocked;
-      if (!child || llvm::any_of(definitions, [&](unsigned owner) {
-            return !result.definitions[owner].clocked;
-          }))
-        return call.emitOpError("child Method path must share the caller's default domain");
       if (failed(budget.debit(child->methods.size(), call)))
         return failure();
       auto found = llvm::find_if(child->methods, [&](MethodOp method) {
@@ -333,46 +458,18 @@ Analyzer::bindChildMethods(StructuredDefinition &definition) {
       if (effects == child->directMethodEffects.end())
         return call.emitOpError("child Method requires a bounded guard-free chain of state and value operations");
       const auto &effect = effects->second;
-      if (failed(budget.debit(effect.expandedWork, call)) ||
-          failed(budget.debit(path.size() * (1 + effect.states.size()), call)))
+      if (failed(budget.debit(effect.expandedWork, call)))
         return failure();
-      StructuredChildMethod binding{path, childIndex, methodIndex, {}};
+      StructuredChildMethod binding{path->instances, childIndex, methodIndex, {}, {}};
       for (unsigned state : effect.states) {
         const bool writes = llvm::is_contained(effect.writes, state);
-        StructuredStateRoute route{path, childIndex, state};
-        auto existing = llvm::find_if(definition.childStates, [&](const auto &entry) {
-          return entry.route == route;
-        });
-        if (existing == definition.childStates.end()) {
-          definition.childStates.push_back({route, {}});
-          existing = std::prev(definition.childStates.end());
-        }
-        if (writes) {
-          if (existing->writer && *existing->writer != index)
-            return call.emitOpError("child state write overlaps another Rule");
-          if (llvm::any_of(child->rules, [&](const StructuredRule &entry) {
-                return llvm::is_contained(entry.writes, state);
-              }))
-            return call.emitOpError("child Method state overlaps a local Rule writer");
-          existing->writer = index;
-        }
-        binding.states.emplace_back(state, existing - definition.childStates.begin());
-        for (auto [segment, ordinal] : llvm::enumerate(definitions)) {
-          auto &owner = result.definitions[ordinal];
-          route.path.erase(route.path.begin());
-          if (writes && llvm::any_of(owner.childStates, [&](const auto &entry) {
-                return entry.route == route && entry.writer;
-              }))
-            return call.emitOpError("child Method state overlaps a descendant Rule writer");
-          auto incoming = llvm::find_if(owner.incomingStates, [&](const auto &entry) {
-            return entry.route == route;
-          });
-          if (incoming == owner.incomingStates.end())
-            owner.incomingStates.push_back({route, writes});
-          else
-            incoming->writable |= writes;
-        }
+        auto slot = bindStateRoute(definition, *path, state, writes, index, call);
+        if (failed(slot))
+          return failure();
+        binding.states.emplace_back(state, *slot);
       }
+      if (failed(bindMethodFormals(definition, binding, method, effect, index, call)))
+        return failure();
       calls.try_emplace(call, std::move(binding));
       usesChild = true;
     }

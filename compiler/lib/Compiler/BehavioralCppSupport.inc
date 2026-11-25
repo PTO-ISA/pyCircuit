@@ -353,6 +353,14 @@ private:
   std::optional<wire<T>> pending_;
 };
 
+template <class Wire> struct BoundState {
+  const Wire &committed;
+  std::optional<Wire> &candidate;
+
+  const Wire &value() const noexcept { return candidate ? *candidate : committed; }
+  void write(const Wire &next) noexcept { candidate = next; }
+};
+
 template <std::size_t Size, class T>
 wire<table<T, Size>> splat(const wire<T> &element) noexcept {
   wire<table<T, Size>> result;

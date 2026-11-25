@@ -102,7 +102,8 @@ private:
   LogicalResult bindStorage();
   LogicalResult bindObservations();
   FailureOr<SmallVector<Value>> lowerChildMethod(gfir::CallOp call, const gfir::StructuredChildMethod &invocation, unsigned methodIndex,
-      SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping);
+      SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping,
+      ArrayRef<std::pair<unsigned, unsigned>> forwarded = {});
   DictionaryAttr localStateID(Operation *storage);
   DictionaryAttr childStateID(unsigned receiver);
   FailureOr<Value> availability(const gfir::StructuredAvailability &sources);
@@ -339,8 +340,7 @@ Value ClockedMaterializer::merge(Value base, Value guard, Value value) {
       builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))})->getResult(0);
 }
 
-// Mirror the common staged-commit tree: project Struct fields, map Table
-// elements, then close each scalar leaf over committed Q and its enable mask.
+// Struct fields close separately. An incoming Table route carries the whole value.
 FailureOr<Value> ClockedMaterializer::closeIncoming(
     Value previous, Value candidate, Value enable, Value mask) {
   Type type = previous.getType();
@@ -360,36 +360,6 @@ FailureOr<Value> ClockedMaterializer::closeIncoming(
       fields.push_back(*next);
     }
     return make(ac::StructCreateOp::getOperationName(), fields, {type})->getResult(0);
-  }
-  if (auto table = dyn_cast<ac::TableType>(type)) {
-    auto splat = [&](Value value) {
-      auto shaped = ac::TableType::get(builder.getContext(), table.getShape(), value.getType());
-      return make(ac::TableSplatOp::getOperationName(), {value}, {shaped}, {
-          builder.getNamedAttr("shape", table.getShape())})->getResult(0);
-    };
-    Value shapedEnable = splat(enable), shapedMask = splat(mask);
-    OperationState operation(source.getLoc(), ac::TableMapOp::getOperationName());
-    operation.addOperands({previous, candidate, shapedEnable, shapedMask});
-    operation.addTypes(type);
-    operation.addAttribute("shape", table.getShape());
-    operation.addAttribute("operandSegmentSizes", builder.getDenseI32ArrayAttr({4, 0}));
-    operation.addRegion();
-    auto *mapped = builder.create(operation);
-    auto count = hardware.getTableSize(table, {}, source);
-    if (failed(count) || !*count) return failure();
-    auto *body = new Block;
-    mapped->getRegion(0).push_back(body);
-    body->addArgument(bits(std::max(1u, llvm::Log2_64_Ceil(*count))), source.getLoc());
-    auto old = body->addArgument(table.getElementType(), source.getLoc());
-    auto next = body->addArgument(table.getElementType(), source.getLoc());
-    auto active = body->addArgument(bit, source.getLoc());
-    auto selected = body->addArgument(bit, source.getLoc());
-    OpBuilder::InsertionGuard insertion(builder);
-    builder.setInsertionPointToEnd(body);
-    auto value = closeIncoming(old, next, active, selected);
-    if (failed(value)) return failure();
-    make(ac::YieldOp::getOperationName(), {*value}, {});
-    return mapped->getResult(0);
   }
   return merge(previous, binary("and", enable, mask), candidate);
 }
@@ -884,7 +854,7 @@ LogicalResult ClockedMaterializer::cloneGraph() {
     if (planned) {
       const auto &routes = program.definitions[planned->definition].incomingStates;
       unsigned firstQ = copy->getNumResults() - routes.size();
-      Value disabled;
+      Value disabled, wholeOwnerMask;
       for (auto [ordinal, suffix] : llvm::enumerate(routes)) {
         auto route = suffix.route;
         route.path.insert(route.path.begin(), routedInstance);
@@ -904,8 +874,14 @@ LogicalResult ClockedMaterializer::cloneGraph() {
           if (incoming.route == route) {
             incomingQ[index] = q;
             if (incoming.writable) {
-              input.data = incomingData[index];
               input.enable = incomingEnable[index];
+              if (!wholeOwnerMask)
+                wholeOwnerMask = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+                    builder.getNamedAttr("value", literal(1))})->getResult(0);
+              auto closed = closeIncoming(q, incomingData[index], input.enable, wholeOwnerMask);
+              if (failed(closed))
+                return failure();
+              input.data = *closed;
             }
           }
         if (suffix.writable) childInputs[copy].push_back(input);
@@ -997,7 +973,8 @@ FailureOr<Value> ClockedMaterializer::indexedWrite(Value previous, Value index,
 
 FailureOr<SmallVector<Value>>
 ClockedMaterializer::lowerChildMethod(gfir::CallOp call, const gfir::StructuredChildMethod &invocation, unsigned methodIndex,
-    SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping) {
+    SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping,
+    ArrayRef<std::pair<unsigned, unsigned>> forwarded) {
   const auto &child = program.definitions[invocation.definition];
   auto stateSlot = [&](unsigned state) -> std::optional<unsigned> {
     for (auto [ordinal, receiver] : invocation.states)
@@ -1008,9 +985,31 @@ ClockedMaterializer::lowerChildMethod(gfir::CallOp call, const gfir::StructuredC
     return {};
   };
   auto method = child.clocked->methods[methodIndex];
+  auto boundSlot = [&](unsigned ordinal) -> std::optional<unsigned> {
+    if (!call.getBindingsAttr())
+      return std::nullopt;
+    if (!forwarded.empty()) {
+      for (auto [formal, slot] : forwarded)
+        if (formal == ordinal)
+          return slot;
+      return std::nullopt;
+    }
+    for (const auto &bound : invocation.formals)
+      if (bound.formal == ordinal)
+        return bound.local ? bound.slot : childSlots.lookup(bound.slot);
+    return std::nullopt;
+  };
+  auto accessSlot = [&](Operation *op) {
+    auto formal = child.clocked->formalAccesses.find(op);
+    return formal == child.clocked->formalAccesses.end()
+        ? stateSlot(child.clocked->stateAccesses.lookup(op)) : boundSlot(formal->second);
+  };
   IRMapping nested;
-  for (auto [argument, input] : llvm::zip(method.getBody().front().getArguments(), call.getInputs()))
-    nested.map(argument, mapping.lookup(input));
+  unsigned supplied = 0;
+  for (BlockArgument argument : method.getBody().front().getArguments()) {
+    auto slot = boundSlot(argument.getArgNumber());
+    nested.map(argument, slot ? local[*slot] : mapping.lookup(call.getInputs()[supplied++]));
+  }
   for (Operation &op : method.getBody().front()) {
     if (auto yield = dyn_cast<gfir::YieldOp>(op)) {
       SmallVector<Value> results;
@@ -1018,11 +1017,11 @@ ClockedMaterializer::lowerChildMethod(gfir::CallOp call, const gfir::StructuredC
       return results;
     }
     if (auto read = dyn_cast<gfir::ReadOp>(op)) {
-      auto slot = stateSlot(child.clocked->stateAccesses.lookup(read));
+      auto slot = accessSlot(read);
       if (!slot) return read.emitOpError("missing verified child state slot");
       nested.map(read.getValue(), local[*slot]);
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {
-      auto slot = stateSlot(child.clocked->stateAccesses.lookup(write));
+      auto slot = accessSlot(write);
       if (!slot) return write.emitOpError("missing verified child state slot");
       Value value = nested.lookup(write.getValue());
       Value previous = local[*slot];
@@ -1044,8 +1043,18 @@ ClockedMaterializer::lowerChildMethod(gfir::CallOp call, const gfir::StructuredC
       local[*slot] = value;
       localIntents[*slot] = one;
     } else if (auto invoke = dyn_cast<gfir::CallOp>(op)) {
+      SmallVector<std::pair<unsigned, unsigned>> nextBindings;
+      if (auto forwarding = child.clocked->forwardedFormals.find(invoke);
+          forwarding != child.clocked->forwardedFormals.end()) {
+        for (auto [formal, actual] : forwarding->second) {
+          auto slot = boundSlot(actual);
+          if (!slot)
+            return invoke.emitOpError("missing verified forwarded formal slot");
+          nextBindings.emplace_back(formal, *slot);
+        }
+      }
       auto results = lowerChildMethod(invoke, invocation, child.clocked->methodCalls.lookup(invoke),
-                                      local, localIntents, nested);
+                                      local, localIntents, nested, nextBindings);
       if (failed(results))
         return failure();
       for (auto [result, value] : llvm::zip(invoke.getOutputs(), *results))

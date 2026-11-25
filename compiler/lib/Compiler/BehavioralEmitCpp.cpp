@@ -53,6 +53,29 @@ std::string childCandidateName(unsigned receiver) {
 std::string incomingCandidateName(unsigned index) {
   return "candidate_" + std::to_string(index);
 }
+std::string formalStateName(unsigned index) {
+  return "pyc_formal_" + std::to_string(index);
+}
+
+void bindMethodArguments(raw_ostream &out, gfir::MethodOp method,
+                         ArrayRef<std::pair<unsigned, std::string>> places,
+                         SmallVectorImpl<std::string> &arguments, StringRef prefix) {
+  SmallVector<std::string> inputs, bindings;
+  unsigned supplied = 0;
+  for (unsigned formal = 0; formal < method.getFunctionType().getNumInputs(); ++formal) {
+    auto place = llvm::find_if(places, [&](const auto &entry) { return entry.first == formal; });
+    if (place == places.end()) {
+      inputs.push_back(arguments[supplied++]);
+      continue;
+    }
+    auto snapshot = prefix.str() + "_" + formalStateName(formal) + "_entry";
+    out << "    const auto " << snapshot << " = " << place->second << ".value();\n";
+    inputs.push_back(std::move(snapshot));
+    bindings.push_back(place->second);
+  }
+  arguments.assign(inputs.begin(), inputs.end());
+  arguments.append(bindings.begin(), bindings.end());
+}
 std::string observationName(unsigned slot) {
   return "pyc_observation_" + std::to_string(slot);
 }
@@ -189,6 +212,17 @@ FailureOr<std::string> instanceName(gfir::InstanceOp instance) {
   if (failed(name))
     return failure();
   return "pyc_child_" + *name;
+}
+
+FailureOr<std::string> instancePath(ArrayRef<gfir::InstanceOp> path) {
+  SmallVector<std::string> members;
+  for (auto instance : path) {
+    auto name = instanceName(instance);
+    if (failed(name))
+      return failure();
+    members.push_back(std::move(*name));
+  }
+  return join(members, ".");
 }
 
 using TableWireTypes = llvm::DenseMap<Type, std::string>;
@@ -2699,15 +2733,10 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                remote != clocked.childMethodCalls.end()) {
       const auto &binding = remote->second;
       const auto &child = *program.definitions[binding.definition].clocked;
-      SmallVector<std::string> members;
-      for (auto instance : binding.path) {
-        auto name = instanceName(instance);
-        if (failed(name))
-          return failure();
-        members.push_back(std::move(*name));
-      }
-      auto method = methodName(child.methods[binding.method]);
-      if (failed(method))
+      auto instance = instancePath(binding.path);
+      auto operation = child.methods[binding.method];
+      auto method = methodName(operation);
+      if (failed(instance) || failed(method))
         return failure();
       auto frame = "pyc_child_call_" + std::to_string(childCallOrdinal++);
       SmallVector<std::string> candidates;
@@ -2718,9 +2747,31 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         candidates.push_back(std::move(candidate));
       }
       out << "    } " << frame << '{' << join(candidates, ", ") << "};\n";
+      if (!binding.formals.empty()) {
+        SmallVector<std::pair<unsigned, std::string>> places;
+        for (const auto &bound : binding.formals) {
+          auto place = frame + "_" + formalStateName(bound.formal);
+          std::string committed, candidate;
+          if (bound.local) {
+            committed = stateName(bound.slot);
+            candidate = committed;
+          } else {
+            const auto &route = definition.childStates[bound.slot].route;
+            auto owner = instancePath(route.path);
+            if (failed(owner))
+              return failure();
+            committed = *owner + "." + stateName(route.state);
+            candidate = childCandidateName(bound.slot);
+          }
+          out << "    pyc_behavior::BoundState " << place << '{' << committed
+              << ".value(), txn." << candidate << "};\n";
+          places.emplace_back(bound.formal, std::move(place));
+        }
+        bindMethodArguments(out, operation, places, args, frame);
+      }
       args.insert(args.begin(), "0");
       args.insert(args.begin(), frame);
-      text = join(members, ".") + "." + *method + "(" + join(args, ", ") + ")";
+      text = *instance + "." + *method + "(" + join(args, ", ") + ")";
     } else if (auto call = dyn_cast<gfir::CallOp>(op)) {
       auto memoryUse = clocked.transactionMemoryCalls.find(call);
       if (memoryUse != clocked.transactionMemoryCalls.end()) {
@@ -2784,14 +2835,30 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           else
             text = *name + ".data()";
         } else {
-          auto callee = methodName(clocked.methods[clocked.methodCalls.lookup(call)]);
+          auto target = clocked.methods[clocked.methodCalls.lookup(call)];
+          auto callee = methodName(target);
           if (failed(callee))
             return failure();
+          if (auto forwarding = clocked.forwardedFormals.find(call);
+              forwarding != clocked.forwardedFormals.end()) {
+            SmallVector<std::pair<unsigned, std::string>> places;
+            for (auto [formal, actual] : forwarding->second)
+              places.emplace_back(formal, formalStateName(actual));
+            bindMethodArguments(out, target, places, args,
+                                "pyc_child_call_" + std::to_string(childCallOrdinal++));
+          }
           args.insert(args.begin(), "pyc_check_base + " + std::to_string(clocked.checkOffsets.lookup(call)));
           args.insert(args.begin(), "txn");
           text = *callee + "(" + join(args, ", ") + ")";
         }
       }
+    } else if (auto formal = clocked.formalAccesses.find(&op);
+               formal != clocked.formalAccesses.end()) {
+      auto place = formalStateName(formal->second);
+      if (isa<gfir::ReadOp>(op))
+        text = place + ".value()";
+      else
+        text = place + ".write(" + args.front() + ")";
     } else if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       auto state = stateName(clocked.stateAccesses.lookup(read));
       text = "txn." + state + " ? *txn." + state + " : " + state + ".value()";
@@ -3050,6 +3117,14 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
       if (failed(wire))
         return failure();
       out << ", const " << *wire << " &" << wireName(index);
+    }
+    if (auto writable = method.getWritableAttr()) {
+      SmallVector<unsigned> formals;
+      for (auto row : writable)
+        formals.push_back(cast<IntegerAttr>(row.getValue()).getValue().getZExtValue());
+      llvm::sort(formals);
+      for (unsigned formal : formals)
+        out << ", auto &" << formalStateName(formal);
     }
     out << ") {\n";
     if (failed(emitBody(out, method.getBody().front(), definition)))
