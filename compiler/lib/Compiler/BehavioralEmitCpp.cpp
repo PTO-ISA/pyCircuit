@@ -33,6 +33,8 @@ std::string payloadName(unsigned index) { return "pyc_payload_" + std::to_string
 std::string recipientName(unsigned index) { return "pyc_recipient_" + std::to_string(index); }
 std::string resultName(unsigned index) { return "pyc_result_" + std::to_string(index); }
 std::string preparedName(unsigned index) { return "pyc_prepared_" + std::to_string(index); }
+std::string wholeOutputName(unsigned port) { return "output_value_" + std::to_string(port); }
+std::string wholeSnapshotName(unsigned port) { return "pyc_output_value_" + std::to_string(port); }
 std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
 std::string fieldAvailabilityName(unsigned field) {
   return "pyc_field_available_" + std::to_string(field);
@@ -225,6 +227,14 @@ struct OutputGroup {
   SmallVector<unsigned> inputs;
 };
 
+struct WholeOutput {
+  std::string type;
+  // A local Rule result must outlive its frame. Committed state and a child's
+  // prepared output already have the lifetime of this Work invocation.
+  std::string source;
+  bool snapshot;
+};
+
 std::string outputGroupName(unsigned index) {
   return "output_group_" + std::to_string(index);
 }
@@ -288,6 +298,7 @@ private:
                                   unsigned first, ArrayRef<unsigned> candidates,
                                   llvm::BitVector &emitted, StringRef instancePrefix);
   LogicalResult emitOutputGroups();
+  LogicalResult planWholeOutputs();
   LogicalResult declareModule(raw_ostream &out, unsigned index);
   LogicalResult emitModule(raw_ostream &out, unsigned index);
   LogicalResult emitRoot(FinalCppSourceGroup &group);
@@ -333,7 +344,7 @@ private:
                                 const gfir::StructuredDefinition &definition,
                                 unsigned index, StringRef instancePrefix);
   LogicalResult emitTemporalWork(raw_ostream &out,
-                                 const gfir::StructuredDefinition &definition);
+                                 unsigned definition);
   LogicalResult emitPreparation(raw_ostream &out, const gfir::StructuredDefinition &definition,
                                 StringRef clock);
   LogicalResult prepareMemory(raw_ostream &out, const gfir::StructuredDefinition &definition,
@@ -350,6 +361,7 @@ private:
   unsigned nextBranch = 0;
   unsigned nextLoop = 0;
   SmallVector<SmallVector<OutputGroup>> outputGroups;
+  SmallVector<llvm::DenseMap<unsigned, WholeOutput>> wholeOutputs;
   SmallVector<uint64_t> groupWorkRemaining;
 };
 
@@ -684,6 +696,70 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
   return success();
 }
 
+LogicalResult BehavioralEmitter::planWholeOutputs() {
+  wholeOutputs.resize(program.definitions.size());
+  for (auto [index, definition] : llvm::enumerate(program.definitions)) {
+    auto module = definition.module;
+    auto yield = cast<gfir::YieldOp>(module.getBody().front().getTerminator());
+    for (auto [port, value] : llvm::enumerate(yield.getValues())) {
+      const auto resultType = module.getFunctionType().getResult(port);
+      if (!isa<ac::StructType>(resultType) || resultType != value.getType())
+        continue;
+      const auto &leaves = definition.valueWires.find(value)->second;
+      const auto &first = definition.wires[leaves.front()];
+      std::string source;
+      bool snapshot = false;
+      if (first.state && llvm::all_of(leaves, [&](unsigned leaf) {
+            return definition.wires[leaf].state == first.state;
+          })) {
+        source = stateName(*first.state) + ".value()";
+      } else if (first.ruleResult && llvm::all_of(leaves, [&](unsigned leaf) {
+                   return definition.wires[leaf].ruleResult == first.ruleResult;
+                 })) {
+        auto [rule, result] = *first.ruleResult;
+        source = frameName(rule) + "." + resultName(result);
+        snapshot = true;
+      } else if (first.call) {
+        const auto &call = *first.call;
+        const auto &child = program.definitions[call.definition];
+        const auto &output = child.outputs[call.output];
+        const unsigned childPort = output.port.port;
+        auto callee = child.module;
+        // A prepared child value may only be forwarded through a single
+        // preparation of this receiver. Field availability is still separate.
+        if (!output.requiresPreparation ||
+            !wholeOutputs[call.definition].contains(childPort) ||
+            callee.getFunctionType().getResult(childPort) != resultType ||
+            llvm::count_if(definition.clockedCalls, [&](const auto &prepare) {
+              return prepare.receiver == call.receiver;
+            }) != 1 ||
+            !llvm::all_of(leaves, [&](unsigned leaf) {
+              const auto &wire = definition.wires[leaf];
+              if (!wire.call || wire.call->receiver != call.receiver ||
+                  wire.call->definition != call.definition)
+                return false;
+              const auto &field = child.outputs[wire.call->output];
+              return field.requiresPreparation && field.port.port == childPort &&
+                     field.port.path == wire.endpoint.path;
+            }))
+          continue;
+        auto member = instanceName(call.receiver);
+        if (failed(member))
+          return failure();
+        source = *member + "." + wholeOutputName(childPort) + "()";
+      } else {
+        continue;
+      }
+      auto type = typedWire(resultType, module);
+      if (failed(type))
+        return failure();
+      wholeOutputs[index].try_emplace(port, WholeOutput{std::move(*type),
+                                                       std::move(source), snapshot});
+    }
+  }
+  return success();
+}
+
 LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
   out << "struct " << moduleName(index) << " {\n";
@@ -748,6 +824,18 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   if (definition.clocked && failed(declareClocked(out, definition)))
     return failure();
+  const auto &wide = wholeOutputs[index];
+  auto module = definition.module;
+  for (unsigned port = 0, count = module.getFunctionType().getNumResults();
+       port < count; ++port) {
+    auto whole = wide.find(port);
+    if (whole == wide.end())
+      continue;
+    const auto &value = whole->second;
+    out << "  const " << value.type << " &" << wholeOutputName(port)
+        << "() const noexcept { return "
+        << (value.snapshot ? wholeSnapshotName(port) : value.source) << "; }\n";
+  }
   if (isClocked(definition)) {
     out << "private:\n";
     if (definition.hasChecks())
@@ -762,11 +850,17 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
           out << "  bool " << assertionName(ruleIndex,
               definition.clocked->checkOffsets.lookup(assertion)) << " = false;\n";
     for (auto [result, output] : llvm::enumerate(definition.outputs)) {
-      if (!output.requiresPreparation)
+      if (!output.requiresPreparation || wide.contains(output.port.port))
         continue;
       auto type = graphType(definition.wires[output.wire], tableWireTypes);
       out << "  " << type << ' ' << preparedName(result) << " = " << type
           << "::unknown();\n";
+    }
+    for (unsigned port = 0, count = module.getFunctionType().getNumResults();
+         port < count; ++port) {
+      auto whole = wide.find(port);
+      if (whole != wide.end() && whole->second.snapshot)
+        out << "  " << whole->second.type << ' ' << wholeSnapshotName(port) << ";\n";
     }
   }
   out << "};\n";
@@ -775,10 +869,15 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
 
 LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
+  const auto &wide = wholeOutputs[index];
   for (auto [result, output] : llvm::enumerate(definition.outputs)) {
     signature(out, definition, tableWireTypes, result, moduleName(index) + "::");
     out << " {\n";
-    if (output.requiresPreparation) {
+    if (wide.contains(output.port.port)) {
+      auto value = graphLeaf(definition.wires[output.wire],
+                             wholeOutputName(output.port.port) + "()");
+      out << "    return " << value << ";\n}\n";
+    } else if (output.requiresPreparation) {
       out << "    return " << preparedName(result) << ";\n}\n";
     } else {
       if (failed(emitWires(out, definition, {output.wire})))
@@ -789,7 +888,7 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index) {
   if (isClocked(definition)) {
     preparationSignature(out, definition, tableWireTypes, moduleName(index) + "::");
     out << " {\n";
-    if (failed(emitTemporalWork(out, definition)))
+    if (failed(emitTemporalWork(out, index)))
       return failure();
     out << "}\n";
     if (failed(emitLifecycle(out, definition, moduleName(index))))
@@ -1864,15 +1963,17 @@ LogicalResult BehavioralEmitter::emitClockedCall(
 }
 
 LogicalResult BehavioralEmitter::emitTemporalWork(
-    raw_ostream &out, const gfir::StructuredDefinition &definition) {
+    raw_ostream &out, unsigned module) {
+  const auto &definition = program.definitions[module];
+  const auto &wide = wholeOutputs[module];
   SmallVector<unsigned> needed;
   if (definition.hasChecks())
     out << "    pyc_checks_valid = false;\n"
         << "    pyc_failed_rule = " << noCheck << ";\n"
         << "    pyc_failed_check = " << noCheck << ";\n"
         << "    pyc_sampling_fault = gfsim::SampledClockFault::None;\n";
-  for (auto [index, output] : llvm::enumerate(definition.outputs))
-    if (output.requiresPreparation)
+  for (const auto &output : definition.outputs)
+    if (output.requiresPreparation && !wide.contains(output.port.port))
       needed.push_back(output.wire);
   if (definition.clocked) {
     const auto &plan = *definition.clocked;
@@ -1906,8 +2007,15 @@ LogicalResult BehavioralEmitter::emitTemporalWork(
   if (definition.clocked && failed(emitPreparation(out, definition, "pyc_clock")))
     return failure();
   for (auto [index, output] : llvm::enumerate(definition.outputs))
-    if (output.requiresPreparation)
+    if (output.requiresPreparation && !wide.contains(output.port.port))
       out << "    " << preparedName(index) << " = " << wireName(output.wire) << ";\n";
+  auto operation = definition.module;
+  for (unsigned port = 0, count = operation.getFunctionType().getNumResults();
+       port < count; ++port) {
+    auto whole = wide.find(port);
+    if (whole != wide.end() && whole->second.snapshot)
+      out << "    " << wholeSnapshotName(port) << " = " << whole->second.source << ";\n";
+  }
   auto assignAvailability = [&](StringRef member,
       ArrayRef<gfir::StructuredAvailabilitySource> sources) -> LogicalResult {
     auto available = availabilityExpression(definition, sources);
@@ -2366,7 +2474,15 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     source << "    pyc_system_clock.prepare(" << clock << ", " << reset
            << ", gfsim::ResetSemantics::" << (resetIfOne ? "IfOne" : "Strict") << ");\n";
 
+  const auto &wide = wholeOutputs[program.rootIndex];
+  llvm::SmallDenseSet<unsigned> assigned;
   for (auto [index, output] : llvm::enumerate(definition.outputs)) {
+    if (wide.contains(output.port.port)) {
+      if (assigned.insert(output.port.port).second)
+        source << "    " << outputs[output.port.port] << " = pyc_body."
+               << wholeOutputName(output.port.port) << "();\n";
+      continue;
+    }
     // The source leaf may be a scalar projected from a wider result port.
     // Use the layout of that port, not the layout of the producing value.
     auto leaves = analysis.getLeaves(type.getResult(output.port.port), {}, root);
@@ -2465,6 +2581,8 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
       tableWireTypes.try_emplace(wire.type, std::move(*type));
     }
   }
+  if (failed(planWholeOutputs()))
+    return failure();
   outputGroups.resize(program.definitions.size());
   groupWorkRemaining.resize(program.definitions.size());
   for (auto [index, definition] : llvm::enumerate(program.definitions))
