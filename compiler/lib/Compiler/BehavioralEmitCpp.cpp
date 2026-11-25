@@ -455,6 +455,9 @@ private:
                                   const gfir::StructuredDefinition &definition,
                                   unsigned first, ArrayRef<unsigned> candidates,
                                   llvm::BitVector &emitted, StringRef instancePrefix);
+  FailureOr<bool> emitKnownOutputGroup(raw_ostream &out,
+                                      const gfir::StructuredDefinition &definition,
+                                      const OutputGroup &group, ArrayRef<unsigned> roots);
   LogicalResult emitOutputGroups();
   LogicalResult planWholeOutputs();
   void planEvaluationMemoization();
@@ -474,7 +477,7 @@ private:
   FailureOr<std::string> valueExpression(Value result, ArrayRef<std::string> args);
   FailureOr<std::string> tableMapExpression(ac::TableMapOp map, unsigned result,
                                            ArrayRef<std::string> args);
-  bool isNativeScalar(Operation &op);
+  bool isNativeScalar(Operation &op, bool allowShifts = false);
   FailureOr<std::string> nativeScalarExpression(Operation &op, unsigned width,
                                                 ArrayRef<std::string> args);
   FailureOr<bool> emitScalarRegion(raw_ostream &out, ArrayRef<Operation *> operations,
@@ -677,14 +680,16 @@ BehavioralEmitter::bitExpression(Operation *op, unsigned bitWidth,
   return op->emitOpError("operation lacks behavioral C++ emission");
 }
 
-bool BehavioralEmitter::isNativeScalar(Operation &op) {
+bool BehavioralEmitter::isNativeScalar(Operation &op, bool allowShifts) {
   if (auto constant = dyn_cast<ac::BitsConstant4Op>(op)) {
     if (constant.getPattern().find_first_not_of("01") != StringRef::npos)
       return false;
   } else if (auto binary = dyn_cast<ac::BitsBinaryOp>(op)) {
-    if (!llvm::is_contained(
+    auto opcode = binary.getOpcode();
+    bool shift = opcode == "shl" || opcode == "lshr";
+    if (!(allowShifts && shift) && !llvm::is_contained(
             ArrayRef<StringRef>{"add", "sub", "mul", "and", "or", "xor"},
-            binary.getOpcode()))
+            opcode))
       return false;
   } else if (!isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsCompareOp,
                   ac::BitsSelectOp, ac::BitsConcatOp, ac::BitsExtractOp,
@@ -719,6 +724,11 @@ FailureOr<std::string> BehavioralEmitter::nativeScalarExpression(
   if (isa<ac::BitsUnaryOp>(op))
     return "~" + args.front();
   if (auto binary = dyn_cast<ac::BitsBinaryOp>(op)) {
+    if (binary.getOpcode() == "shl" || binary.getOpcode() == "lshr") {
+      StringRef helper = binary.getOpcode() == "shl" ? "shiftLeft" : "shiftRight";
+      return "pyc_behavior::" + helper.str() + "<" + std::to_string(width) + ">(" +
+             join(args, ", ") + ")";
+    }
     auto token = llvm::StringSwitch<StringRef>(binary.getOpcode())
                      .Case("add", "+").Case("sub", "-").Case("mul", "*")
                      .Case("and", "&").Case("or", "|").Case("xor", "^").Default("");
@@ -1058,6 +1068,82 @@ FailureOr<bool> BehavioralEmitter::emitOutputGroup(
   return true;
 }
 
+FailureOr<bool> BehavioralEmitter::emitKnownOutputGroup(
+    raw_ostream &out, const gfir::StructuredDefinition &definition,
+    const OutputGroup &group, ArrayRef<unsigned> roots) {
+  auto needed = wireClosure(definition, roots, [&](unsigned index, unsigned input) {
+    auto forwarded = forwardedBits(definition, index);
+    return forwarded && *forwarded != input;
+  });
+  SmallVector<unsigned> origins(definition.wires.size()), uses(definition.wires.size());
+  SmallVector<unsigned> inputs, operations;
+  for (unsigned index : definition.order) {
+    if (!needed.test(index))
+      continue;
+    const auto &wire = definition.wires[index];
+    if (!isa<ac::BitsType>(wire.type) || wire.width > 64)
+      return false;
+    origins[index] = index;
+    if (auto source = forwardedBits(definition, index)) {
+      origins[index] = origins[*source];
+    } else if (isa<BlockArgument>(wire.endpoint.value)) {
+      if (!llvm::is_contained(group.inputs, index))
+        return false;
+      inputs.push_back(index);
+    } else {
+      auto *op = wire.endpoint.value.getDefiningOp();
+      if (!op || !isNativeScalar(*op, /*allowShifts=*/true))
+        return false;
+      operations.push_back(index);
+      for (unsigned input : wire.dependencies)
+        ++uses[origins[input]];
+    }
+  }
+  if (inputs.empty() || operations.size() < minScalarOperations)
+    return false;
+  for (unsigned root : roots)
+    ++uses[origins[root]];
+
+  SmallVector<std::string> known;
+  for (unsigned input : inputs)
+    known.push_back(wireName(input) + ".isFullyKnown()");
+  out << "    if (" << join(known, " &&\n        ") << ") {\n";
+  SmallVector<std::string> expressions(definition.wires.size());
+  for (unsigned input : inputs) {
+    expressions[input] = "pyc_native_" + std::to_string(input);
+    out << "      const auto " << expressions[input] << " = " << wireName(input)
+        << ".value().value();\n";
+  }
+  for (unsigned index : operations) {
+    const auto &wire = definition.wires[index];
+    SmallVector<std::string> operands;
+    for (unsigned input : wire.dependencies)
+      operands.push_back(expressions[origins[input]]);
+    auto expression = nativeScalarExpression(*wire.endpoint.value.getDefiningOp(),
+                                             wire.width, operands);
+    if (failed(expression))
+      return failure();
+    *expression = "pyc_behavior::limitBits<" + std::to_string(wire.width) + ">(" +
+                  *expression + ")";
+    // Exclusive scalar work can stay in a select arm. Bound each substitution
+    // so long dependency chains do not become deeply nested C++ expressions.
+    if (uses[index] == 1 && expression->size() <= 512) {
+      expressions[index] = std::move(*expression);
+      continue;
+    }
+    expressions[index] = "pyc_native_" + std::to_string(index);
+    out << "      const auto " << expressions[index] << " = " << *expression << ";\n";
+  }
+  SmallVector<std::string> results;
+  for (unsigned root : roots) {
+    unsigned width = definition.wires[root].width;
+    results.push_back(carrier(width) + "::known(gfsim::Bits<" + std::to_string(width) +
+                      ">{" + expressions[origins[root]] + "})");
+  }
+  out << "      return {" << join(results, ", ") << "};\n    }\n";
+  return true;
+}
+
 LogicalResult BehavioralEmitter::emitOutputGroups() {
   // Definitions are callee-before-caller. Descending discovery allows each
   // helper body to register nested groups before its child is emitted.
@@ -1083,9 +1169,22 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
         roots.push_back(wire);
         values.push_back(wireName(wire));
       }
+      bool specialized = false;
+      if (groupSelects) {
+        auto strategy = emitKnownOutputGroup(out, definition, outputs, roots);
+        if (failed(strategy))
+          return failure();
+        specialized = *strategy;
+      }
+      if (specialized)
+        out << "    return pyc_behavior::evaluateFourState([&]() -> "
+            << outputGroupType(ordinal) << " {\n";
       if (failed(emitWires(out, definition, roots, {}, groupSelects)))
         return failure();
-      out << "    return {" << join(values, ", ") << "};\n}\n";
+      out << "    return {" << join(values, ", ") << "};\n";
+      if (specialized)
+        out << "    });\n";
+      out << "}\n";
     }
   }
   return success();

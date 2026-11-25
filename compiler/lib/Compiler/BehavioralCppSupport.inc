@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Compiler-owned adapters emitted into the structured GFIR C++ support header.
 constexpr llvm::StringLiteral behavioralValueSupport = R"cpp(#include <cstddef>
+#include <cstdint>
 
 namespace pyc_behavior {
 
@@ -85,6 +86,37 @@ Wire unpack(const typename Wire::packed_type &value) noexcept {
   }
 }
 
+template <unsigned Width>
+constexpr std::uint64_t limitBits(std::uint64_t value) noexcept {
+  if constexpr (Width < 64)
+    return value & ((std::uint64_t{1} << Width) - 1);
+  return value;
+}
+
+template <unsigned Width>
+constexpr std::uint64_t extendSign(std::uint64_t value) noexcept {
+  constexpr auto sign = std::uint64_t{1} << (Width - 1);
+  return (value ^ sign) - sign;
+}
+
+template <unsigned Width>
+constexpr std::uint64_t shiftLeft(std::uint64_t value, std::uint64_t count) noexcept {
+  return count < Width ? value << count : 0;
+}
+
+template <unsigned Width>
+constexpr std::uint64_t shiftRight(std::uint64_t value, std::uint64_t count) noexcept {
+  return count < Width ? value >> count : 0;
+}
+
+template <class Evaluate, class... Inputs>
+#if defined(__GNUC__) || defined(__clang__)
+[[gnu::cold, gnu::noinline]]
+#endif
+auto evaluateFourState(Evaluate evaluate, const Inputs &...inputs) noexcept {
+  return evaluate(inputs...);
+}
+
 } // namespace pyc_behavior
 )cpp";
 
@@ -113,27 +145,6 @@ inline Level level(bool value) noexcept {
 
 inline bool isOne(const Level &value) noexcept {
   return value.isFullyKnown() && value.value().toBool();
-}
-
-template <unsigned Width>
-constexpr std::uint64_t limitBits(std::uint64_t value) noexcept {
-  if constexpr (Width < 64)
-    return value & ((std::uint64_t{1} << Width) - 1);
-  return value;
-}
-
-template <unsigned Width>
-constexpr std::uint64_t extendSign(std::uint64_t value) noexcept {
-  constexpr auto sign = std::uint64_t{1} << (Width - 1);
-  return (value ^ sign) - sign;
-}
-
-template <class Evaluate, class... Inputs>
-#if defined(__GNUC__) || defined(__clang__)
-[[gnu::cold, gnu::noinline]]
-#endif
-auto evaluateFourState(Evaluate evaluate, const Inputs &...inputs) noexcept {
-  return evaluate(inputs...);
 }
 
 // Behavioral owners query Current directly and prepare all transfers after the
