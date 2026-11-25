@@ -136,6 +136,7 @@ private:
   SmallVector<unsigned> fifoIncomingOrder;
   SmallVector<Attribute> queueWriters, externalPops;
   llvm::DenseMap<unsigned, Value> selectAvailability;
+  llvm::DenseMap<unsigned, Value> inputCompanions;
   bool sampledQueues = false;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
@@ -611,10 +612,22 @@ LogicalResult ClockedMaterializer::makeModule() {
       names.push_back(privateName("__ac_queue_pop_" + std::to_string(fifo)));
     }
   }
+  SmallVector<std::pair<unsigned, unsigned>> availabilityInputs;
+  SmallVector<Attribute> inputValidity(sourceInputs, builder.getI64IntegerAttr(-1));
+  for (const auto &input : definition.inputAvailability) {
+    inputValidity[input.port] = builder.getI64IntegerAttr(inputs.size());
+    availabilityInputs.emplace_back(input.port, inputs.size());
+    inputs.push_back(bit);
+    names.push_back(input.name);
+  }
+  if (!availabilityInputs.empty())
+    state.addAttribute("ac.input_validity", builder.getArrayAttr(inputValidity));
   if (definition.incomingState || !definition.outputAvailability.empty() ||
-      !definition.fieldOutputs.empty() || !fifoInputs.empty()) {
+      !definition.fieldOutputs.empty() || !fifoInputs.empty() || !availabilityInputs.empty()) {
     SmallVector<Attribute> defaults(inputs.size() - sourceInputs,
                                     builder.getI64IntegerAttr(0));
+    for (auto [port, input] : availabilityInputs)
+      defaults[input - sourceInputs] = builder.getI64IntegerAttr(1);
     state.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
         builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(sourceInputs)),
         builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
@@ -646,6 +659,8 @@ LogicalResult ClockedMaterializer::makeModule() {
   }
   for (auto [fifo, input] : fifoInputs)
     fifoIncomingPops[fifo] = body->getArgument(input);
+  for (auto [port, input] : availabilityInputs)
+    inputCompanions.try_emplace(port, body->getArgument(input));
   builder.setInsertionPointToEnd(body);
   one = constant(true);
   none = constant(false);
@@ -867,6 +882,22 @@ LogicalResult ClockedMaterializer::bindGraph() {
       } else if (auto idle = childIdleInputs.find(copy); idle != childIdleInputs.end()) {
         operands.append({idle->second.first, idle->second.second});
       }
+      auto planned = llvm::find_if(definition.clockedCalls, [&](const auto &call) {
+        return call.operation == original;
+      });
+      if (planned != definition.clockedCalls.end()) {
+        const auto &child = program.definitions[planned->definition];
+        for (const auto &input : child.inputAvailability) {
+          auto actual = original->getOperand(input.port);
+          const auto &leaves = definition.valueWires.find(actual)->second;
+          const auto &sources = definition.wireAvailability.empty()
+              ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+          auto available = availability(sources);
+          if (failed(available))
+            return failure();
+          operands.push_back(*available);
+        }
+      }
     }
     copy->setOperands(operands);
     for (auto [sourceRegion, targetRegion] :
@@ -984,6 +1015,8 @@ FailureOr<Value> ClockedMaterializer::availability(
   for (const auto &source : sources) {
     Value value;
     switch (source.kind) {
+    case gfir::StructuredAvailabilitySource::Kind::Input:
+      value = inputCompanions.lookup(source.index); break;
     case gfir::StructuredAvailabilitySource::Kind::Rule:
       value = grants[source.index]; break;
     case gfir::StructuredAvailabilitySource::Kind::ChildOutput:

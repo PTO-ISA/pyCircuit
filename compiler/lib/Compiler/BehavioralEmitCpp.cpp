@@ -570,6 +570,8 @@ void preparationSignature(raw_ostream &out,
   else
     for (unsigned input : definition.preparationInputs)
       parameter(graphType(definition.wires[input], tables), wireName(input));
+  for (const auto &input : definition.inputAvailability)
+    parameter("pyc_behavior::Level", "pyc_input_available_" + std::to_string(input.port));
   if (definition.incomingState)
     out << ", const ChildTxnState &pyc_incoming, bool pyc_incoming_enabled";
   if (hasObservations(definition))
@@ -1727,6 +1729,7 @@ void BehavioralEmitter::planEvaluationMemoization() {
   memoizedRules.resize(program.definitions.size());
   for (auto [index, definition] : llvm::enumerate(program.definitions)) {
     if (!definition.clocked || definition.explicitDomains || definition.hasChecks() ||
+        !definition.inputAvailability.empty() ||
         definition.incomingState || !definition.clockedCalls.empty() ||
         !definition.childStates.empty())
       continue;
@@ -3175,6 +3178,10 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     StringRef instancePrefix) {
   SmallVector<std::string> terms;
   for (const auto &source : sources) {
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::Input) {
+      terms.push_back("pyc_input_available_" + std::to_string(source.index));
+      continue;
+    }
     if (source.kind == gfir::StructuredAvailabilitySource::Kind::Select) {
       terms.push_back("pyc_availability_select_" + std::to_string(source.index));
       continue;
@@ -3481,6 +3488,17 @@ LogicalResult BehavioralEmitter::emitClockedCall(
         return operation.emitOpError("clocked child preparation input is unresolved");
       out << ", " << wireName(*leaf);
     }
+  }
+  for (const auto &input : child.inputAvailability) {
+    auto actual = operation.getInputs()[input.port];
+    const auto &leaves = definition.valueWires.find(actual)->second;
+    const auto &sources = definition.wireAvailability.empty()
+        ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+    auto available = availabilityExpression(definition, sources, instancePrefix);
+    if (failed(available))
+      return failure();
+    out << ", " << (definition.fourStateAvailability ? *available
+                      : levelName.str() + "(" + *available + ")");
   }
   if (child.incomingState) {
     auto writer = call.childState ? definition.childStates[*call.childState].writer
@@ -4028,6 +4046,8 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
     else
       for (unsigned input : definition.preparationInputs)
         inputArgument(wireName(input));
+    for (const auto &input : definition.inputAvailability)
+      inputArgument(levelName.str() + "(true)");
     if (observes)
       work << ", pyc_sink_, pyc_observation_base_";
     work << ");\n";

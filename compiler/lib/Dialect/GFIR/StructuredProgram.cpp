@@ -130,6 +130,8 @@ private:
   llvm::DenseMap<Operation *, llvm::BitVector> usedResultPorts;
   llvm::DenseSet<Operation *> allocatedModules;
   llvm::DenseSet<Operation *> clockedModules;
+  llvm::DenseMap<Operation *, llvm::SmallDenseSet<unsigned>> inputDemands;
+  bool inputDemandsChanged = false;
   StructuredProgram result;
 };
 
@@ -490,11 +492,19 @@ LogicalResult Analyzer::analyzeAvailability(
   const bool hasChildResults = llvm::any_of(definition.clockedCalls, [&](const auto &call) {
     return !result.definitions[call.definition].outputAvailability.empty();
   });
-  if (!hasLocalResults && !hasChildResults)
+  auto demands = inputDemands.find(definition.module);
+  if (demands != inputDemands.end()) {
+    for (unsigned port = 0; port < definition.module.getFunctionType().getNumInputs(); ++port)
+      if (demands->second.contains(port))
+        definition.inputAvailability.push_back({port, StringAttr::get(package.getContext(),
+            "__pyc_valid_in_" + std::to_string(port))});
+  }
+  if (!hasLocalResults && !hasChildResults && definition.inputAvailability.empty())
     return success();
   definition.fourStateAvailability = llvm::any_of(definition.clockedCalls, [&](const auto &call) {
     return result.definitions[call.definition].fourStateAvailability;
   });
+  definition.fourStateAvailability |= !definition.inputAvailability.empty();
 
   using Source = StructuredAvailabilitySource;
   SmallVector<StructuredAvailability> wireSources(definition.wires.size());
@@ -514,6 +524,13 @@ LogicalResult Analyzer::analyzeAvailability(
     if (index >= definition.wires.size())
       continue;
     const auto &wire = definition.wires[index];
+    if (auto argument = dyn_cast<BlockArgument>(wire.endpoint.value)) {
+      if (llvm::any_of(definition.inputAvailability, [&](const auto &input) {
+            return input.port == argument.getArgNumber();
+          }))
+        wireSources[index].push_back({Source::Kind::Input, argument.getArgNumber()});
+      continue;
+    }
     if (wire.ruleResult) {
       unsigned rule = wire.ruleResult->first;
       if (clocked.rules[rule].sampled)
@@ -566,6 +583,8 @@ LogicalResult Analyzer::analyzeAvailability(
     for (unsigned dep : wire.dependencies) {
       if (dep >= wireSources.size() || wireSources[dep].empty())
         continue;
+      if (wire.call)
+        continue;
       if (!isa<ac::StructCreateOp, ac::StructGetOp>(site) &&
           !ac::detail::isStrictBitsOperation(site))
         return site->emitOpError("gated Rule results require a supported graph operation");
@@ -584,9 +603,25 @@ LogicalResult Analyzer::analyzeAvailability(
     }
     return success();
   };
-  for (auto call : body.getOps<CallOp>())
-    if (failed(checkInputs(call, call.getInputs())))
-      return failure();
+  for (auto call : body.getOps<CallOp>()) {
+    if (call.getInterfaceAttr()) {
+      if (failed(checkInputs(call, call.getInputs())))
+        return failure();
+      continue;
+    }
+    auto receiver = receivers.lookup(call);
+    auto callee = receiver ? dyn_cast_or_null<ModuleOp>(hardware.lookupDefinition(
+                                 receiver.getCalleeAttr().getValue())) : ModuleOp();
+    for (auto [port, actual] : llvm::enumerate(call.getInputs())) {
+      const auto &leaves = definition.valueWires.find(actual)->second;
+      if (llvm::none_of(leaves, [&](unsigned leaf) { return !wireSources[leaf].empty(); }))
+        continue;
+      if (!callee || !clockedModules.contains(callee) || leaves.size() != 1 ||
+          !isa<ac::BitsType>(actual.getType()))
+        return call.emitOpError("available Module input currently requires a scalar clocked receiver");
+      inputDemandsChanged |= inputDemands[callee].insert(port).second;
+    }
+  }
   for (auto &consumer : clocked.rules) {
     auto rule = consumer.operation;
     auto &ordered = rule.getBody().front();
@@ -652,6 +687,7 @@ LogicalResult Analyzer::analyzeAvailability(
         {unsigned(port), uniqueName("__pyc_valid_out_" + std::to_string(port)),
          std::move(sources)});
   }
+  definition.wireAvailability = wireSources;
   auto used = usedResultPorts.find(module);
   if (used == usedResultPorts.end() || !mixedPorts.any())
     return success();
@@ -777,6 +813,12 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
     }
     for (unsigned input : child.preparationInputs) {
       auto parent = findWire(definition, parentInput(call, child, input), call);
+      if (failed(parent))
+        return failure();
+      prepare.dependencies.push_back(*parent);
+    }
+    for (const auto &input : child.inputAvailability) {
+      auto parent = findWire(definition, {call.getInputs()[input.port], {}}, call);
       if (failed(parent))
         return failure();
       prepare.dependencies.push_back(*parent);
@@ -1069,14 +1111,19 @@ FailureOr<StructuredProgram> Analyzer::run() {
   auto order = orderDefinitions(modules);
   if (failed(order))
     return failure();
-  for (unsigned index : *order) {
-    auto module = modules[index];
-    auto definition = analyzeDefinition(module);
-    if (failed(definition))
-      return failure();
-    done.try_emplace(module, result.definitions.size());
-    result.definitions.push_back(std::move(*definition));
-  }
+  do {
+    inputDemandsChanged = false;
+    done.clear();
+    result.definitions.clear();
+    for (unsigned index : *order) {
+      auto module = modules[index];
+      auto definition = analyzeDefinition(module);
+      if (failed(definition))
+        return failure();
+      done.try_emplace(module, result.definitions.size());
+      result.definitions.push_back(std::move(*definition));
+    }
+  } while (inputDemandsChanged);
   result.rootIndex = done.lookup(top);
   for (auto [index, definition] : llvm::enumerate(result.definitions)) {
     if (!definition.clocked)
