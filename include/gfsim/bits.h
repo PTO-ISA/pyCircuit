@@ -654,8 +654,20 @@ constexpr Bits<OutWidth> sext(Bits<InWidth> v) {
 }
 
 template <unsigned OutWidth, unsigned InWidth>
-constexpr Bits<OutWidth> extract(Bits<InWidth> v, unsigned lsb) {
-  return trunc<OutWidth, InWidth>(lshr<InWidth>(v, lsb));
+constexpr Bits<OutWidth> extract(const Bits<InWidth> &v, unsigned lsb) {
+  static_assert(OutWidth <= InWidth, "extract requires OutWidth <= InWidth");
+  Bits<OutWidth> out;
+  if (lsb >= InWidth)
+    return out;
+  const unsigned word = lsb / Bits<InWidth>::kWordBits;
+  const unsigned shift = lsb % Bits<InWidth>::kWordBits;
+  for (unsigned i = 0; i < Bits<OutWidth>::kWords; ++i) {
+    auto value = v.word(word + i) >> shift;
+    if (shift != 0)
+      value |= v.word(word + i + 1) << (Bits<InWidth>::kWordBits - shift);
+    out.setWord(i, value);
+  }
+  return out;
 }
 
 template <unsigned A> constexpr Bits<A> concat(Bits<A> a) { return a; }

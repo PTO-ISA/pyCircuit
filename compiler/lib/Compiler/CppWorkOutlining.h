@@ -25,9 +25,8 @@ public:
                        bool borrowedConstant = false) {
     auto page = planes.size() / pageFields;
     planes.push_back({type.str(), name.str(), borrowedConstant});
-    std::string value = "pyc_values.page<pyc_work_page_" +
-                        std::to_string(page) + ">(" + std::to_string(page) +
-                        ")." + name.str();
+    std::string value =
+        "pyc_values.page_" + std::to_string(page) + "." + name.str();
     return {value, borrowedConstant ? "(*" + value + ")" : value};
   }
   // Called only at emission-owned statement boundaries, never by inspecting
@@ -43,13 +42,16 @@ public:
     parts.back() += pending;
     pending.clear();
   }
-  void emit(llvm::raw_ostream &out) {
+  void emit(llvm::raw_ostream &out, bool known = false,
+            llvm::StringRef guard = {}) {
+    std::string prefix = known ? "pyc_known_work" : "pyc_work";
+    std::string frame = prefix + "_frame";
     out << "private:\n  // Work statement target: " << partBytes
         << " bytes; largest indivisible group: " << maxStatementBytes
         << " bytes.\n";
     for (std::size_t start = 0; start < planes.size(); start += pageFields) {
       auto page = start / pageFields;
-      out << "  struct pyc_work_page_" << page << " {\n";
+      out << "  struct " << prefix << "_page_" << page << " {\n";
       for (std::size_t i = start;
            i < std::min(start + pageFields, planes.size()); ++i) {
         auto &plane = planes[i];
@@ -59,13 +61,20 @@ public:
       }
       // Each constructor initializes at most one page. A single large frame
       // constructor must not become the new unbounded generated function.
-      out << "    pyc_work_noinline pyc_work_page_" << page << "() {}\n  };\n";
+      out << "    pyc_work_noinline " << prefix << "_page_" << page
+          << "() {}\n  };\n";
     }
+    out << "  struct " << frame << " {\n";
+    for (std::size_t start = 0; start < planes.size(); start += pageFields) {
+      auto page = start / pageFields;
+      out << "    " << prefix << "_page_" << page << " page_" << page << ";\n";
+    }
+    out << "  };\n";
     std::vector<std::string> calls;
     for (std::size_t i = 0; i < parts.size(); ++i) {
-      auto name = "pyc_work_part_" + std::to_string(i);
-      out << "  pyc_work_noinline void " << name
-          << "(pyc_work_frame &pyc_values) {\n"
+      auto name = prefix + "_part_" + std::to_string(i);
+      out << "  pyc_work_noinline void " << name << "(" << frame
+          << " &pyc_values) {\n"
           << parts[i] << "  }\n";
       calls.push_back(name);
     }
@@ -74,10 +83,10 @@ public:
       std::vector<std::string> next;
       for (std::size_t start = 0; start < calls.size();
            start += dispatchFanout) {
-        auto name = "pyc_work_dispatch_" + std::to_string(level) + "_" +
+        auto name = prefix + "_dispatch_" + std::to_string(level) + "_" +
                     std::to_string(start / dispatchFanout);
-        out << "  pyc_work_noinline void " << name
-            << "(pyc_work_frame &pyc_values) {\n";
+        out << "  pyc_work_noinline void " << name << "(" << frame
+            << " &pyc_values) {\n";
         for (std::size_t i = start;
              i < std::min(start + dispatchFanout, calls.size()); ++i)
           out << "    " << calls[i] << "(pyc_values);\n";
@@ -86,13 +95,21 @@ public:
       }
       calls = std::move(next);
     }
-    out << "public:\n  void Work() {\n    pyc_clear_check_snapshots();\n    "
-           "try {\n"
-        << "      pyc_work_frame pyc_values("
-        << (planes.size() + pageFields - 1) / pageFields << ");\n";
+    if (known) {
+      out << "  void pyc_run_known_work() {\n";
+    } else {
+      out << "public:\n  void Work() {\n    pyc_clear_check_snapshots();\n"
+             "    try {\n";
+      if (!guard.empty())
+        out << "      if (" << guard << ") return pyc_run_known_work();\n";
+    }
+    out << "      auto pyc_values = std::make_unique_for_overwrite<" << frame
+        << ">();\n";
     for (auto &name : calls)
-      out << "      " << name << "(pyc_values);\n";
-    out << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
+      out << "      " << name << "(*pyc_values);\n";
+    if (!known)
+      out << "    } catch (...) { DiscardNext(); throw; }\n";
+    out << "  }\n";
   }
 
 private:
@@ -113,38 +130,76 @@ private:
 
 inline llvm::StringRef cppWorkRuntimeSupport() {
   return R"cpp(
-#include <vector>
 #if defined(_MSC_VER)
 #define pyc_work_noinline __declspec(noinline)
 #else
 #define pyc_work_noinline __attribute__((noinline))
 #endif
-// Per-evaluation, normally constructed typed storage. The fixed page sizes
-// avoid a giant implicit constructor; the erased owners only manage lifetime.
-class pyc_work_frame {
-  struct slot {
-    void *value = nullptr;
-    void (*destroy)(void *) noexcept = nullptr;
-  };
-  std::vector<slot> slots_;
-public:
-  explicit pyc_work_frame(std::size_t count) : slots_(count) {}
-  pyc_work_frame(const pyc_work_frame &) = delete;
-  pyc_work_frame &operator=(const pyc_work_frame &) = delete;
-  ~pyc_work_frame() noexcept {
-    for (auto &entry : slots_)
-      if (entry.value) entry.destroy(entry.value);
-  }
-  template <class Page> Page &page(std::size_t index) {
-    auto &entry = slots_[index];
-    if (!entry.value) {
-      auto *value = new Page;
-      entry.value = value;
-      entry.destroy = +[](void *object) noexcept { delete static_cast<Page *>(object); };
-    }
-    return *static_cast<Page *>(entry.value);
+
+template <std::size_t OutputLanes, std::size_t InputLanes, class Plane>
+struct pyc_work_broadcast_view {
+  const Plane &source;
+  decltype(auto) element(std::size_t lane) const noexcept {
+    return source.element(lane / OutputLanes * InputLanes + lane % InputLanes);
   }
 };
+
+template <std::size_t OutputLanes, std::size_t InputLanes, class Plane>
+auto pyc_work_broadcast(const Plane &source) noexcept {
+  return pyc_work_broadcast_view<OutputLanes, InputLanes, Plane>{source};
+}
+
+template <class Expression>
+struct pyc_work_expression_view {
+  Expression expression;
+  auto element(std::size_t lane) const noexcept { return expression(lane); }
+};
+
+template <class Condition, class True, class False>
+auto pyc_work_select_lane(const Condition &condition, const True &whenTrue,
+                          const False &whenFalse, std::size_t lane) noexcept {
+  const auto guard = condition.element(lane).packed();
+  if (guard.isFullyKnown())
+    return guard.value().toBool() ? whenTrue.element(lane)
+                                  : whenFalse.element(lane);
+  using Wire = std::remove_cvref_t<decltype(whenTrue.element(lane))>;
+  return Wire::fromPacked(select(guard, whenTrue.element(lane).packed(),
+                                        whenFalse.element(lane).packed()));
+}
+
+template <class Output, class Condition, class True, class False>
+void pyc_work_select(Output &out, const Condition &condition,
+                     const True &whenTrue, const False &whenFalse) noexcept {
+  for (std::size_t lane = 0; lane < Output::size; ++lane)
+    out.element(lane) = pyc_work_select_lane(condition, whenTrue, whenFalse, lane);
+}
+
+template <std::size_t Group, class Output, class Condition, class True,
+          class False>
+void pyc_work_select(Output &out,
+                     const pyc_work_broadcast_view<Group, 1, Condition> &condition,
+                     const True &whenTrue, const False &whenFalse) noexcept {
+  static_assert(Output::size % Group == 0);
+  using Wire = std::remove_cvref_t<decltype(out.element(0))>;
+  for (std::size_t first = 0; first < Output::size; first += Group) {
+    const auto guard = condition.source.element(first / Group).packed();
+    if (guard.isFullyKnown()) {
+      const auto copy = [&](const auto &source) {
+        for (std::size_t lane = first; lane < first + Group; ++lane)
+          out.element(lane) = source.element(lane);
+      };
+      if (guard.value().toBool())
+        copy(whenTrue);
+      else
+        copy(whenFalse);
+    } else {
+      for (std::size_t lane = first; lane < first + Group; ++lane)
+        out.element(lane) = Wire::fromPacked(
+            select(guard, whenTrue.element(lane).packed(),
+                         whenFalse.element(lane).packed()));
+    }
+  }
+}
 )cpp";
 }
 } // namespace acir::compiler

@@ -4,9 +4,12 @@
 #include "HardwareEmitCppChecks.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <array>
 #include <deque>
+#include <set>
 #include <tuple>
 using namespace mlir;
 namespace acir::compiler {
@@ -75,14 +78,18 @@ class WorkEmitter {
 public:
   WorkEmitter(HardwareEmitContext &context, ac::ModuleOp definition,
               raw_ostream &stream, bool resetting = false,
-              CppWorkOutlining *outline = nullptr, bool probeSize = false)
+              CppWorkOutlining *outline = nullptr, bool probeSize = false,
+              bool known = false)
       : ctx(context), out(stream), resetting(resetting), outline(outline),
-        probeSize(probeSize) {
+        probeSize(probeSize), known(known) {
     ac::HardwareBindings b;
     b.owner = definition;
     scopes.push_back({definition, b, nullptr, nullptr, "this->", "pyc_count"});
   }
   bool needsOutlining() const { return exceededSize; }
+  std::string knownGuard() const {
+    return llvm::join(knownConditions.begin(), knownConditions.end(), " && ");
+  }
   LogicalResult run() {
     if (failed(collect(scopes.front())))
       return failure();
@@ -111,6 +118,14 @@ public:
     if (failed(partitions))
       return failure();
     delegated = std::move(*partitions);
+    // Only root inputs and stable register outputs can be borrowed by the
+    // known-value plan. Other owners may publish new values during Work.
+    if (known &&
+        (!delegated.empty() || llvm::any_of(storage, [&](const Leaf &leaf) {
+          StringRef kind = ctx.analysis.getPrimitiveKind(leaf.bindings.owner);
+          return kind != "dff" && kind != "dffe";
+        })))
+      return failure();
     // Prepare immutable task inputs through the existing pure SSA schedule.
     // Self-feedback reads temporal outputs; no leaf Work runs in this step.
     for (Operation *task : delegated)
@@ -149,10 +164,6 @@ public:
         return failure();
       statement();
     }
-    for (auto &scope : scopes)
-      if (&scope != &scopes.front() && !isDelegated(scope) &&
-          failed(outputs(scope)))
-        return failure();
     // Check-only roots use the same memoized SSA/old-Q evaluation as outputs
     // and storage pins. Flattened child scopes capture their own lane planes.
     for (auto &scope : scopes)
@@ -177,6 +188,16 @@ public:
   }
 
 private:
+  static constexpr StringRef knownApi = "gfsim::detail::known_work::";
+  std::string valueApi() const {
+    return known ? knownApi.str() : std::string("gfsim::");
+  }
+  std::string wordType(StringRef width) const {
+    return valueApi() + (known ? "Word<" : "FourState<") + width.str() + ">";
+  }
+  std::string wireType(StringRef payload) const {
+    return valueApi() + (known ? "Wire<" : "wire<") + payload.str() + ">";
+  }
   void statement() {
     if (outline)
       outline->finishStatement();
@@ -330,7 +351,7 @@ private:
     auto p = payload(*e, s, site);
     if (failed(p))
       return failure();
-    return "gfsim::wire<gfsim::table<" + *p + ", " + *n + ">>";
+    return wireType("gfsim::table<" + *p + ", " + *n + ">");
   }
   Scope *childScope(Scope &parent, Operation *op) {
     for (auto &s : scopes)
@@ -420,6 +441,8 @@ private:
       out << "    for (std::size_t pyc_pin = 0; pyc_pin < " << *count
           << "; ++pyc_pin) " << *target << ".element(pyc_pin) = " << value
           << ".element(pyc_pin);\n";
+    else if (known)
+      return failure();
     else
       out << "    for (std::size_t pyc_pin = 0; pyc_pin < " << *count
           << "; ++pyc_pin) " << *target << ".element("
@@ -619,8 +642,11 @@ private:
     auto plan = fieldPlane(v.getType(), path, s, s.definition);
     if (failed(plan))
       return failure();
+    if (known)
+      knownConditions.insert(source.str() + ".isFullyKnown()");
     if (path.empty() && plan->tables.empty())
-      return source.str();
+      return known ? knownApi.str() + "BorrowedPlane{" + source.str() + "}"
+                   : source.str();
     auto t = planeType(v.getType(), s, path,
                        v.getDefiningOp() ? v.getDefiningOp() : s.definition);
     auto w = width(plan->element, s, s.definition);
@@ -630,10 +656,13 @@ private:
       return failure();
     auto result = planeDeclaration(*t, name());
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-        << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
-        << *p << ">::fromPacked(gfsim::extract<" << *w << ">(" << source
-        << ".element(" << plan->source("pyc_lane") << ").packed(), "
-        << plan->low("pyc_lane") << "));\n";
+        << "; ++pyc_lane) " << result << ".element(pyc_lane) = " << wireType(*p)
+        << "::fromPacked(";
+    if (known)
+      out << wordType(*w) << "::known(";
+    out << "gfsim::extract<" << *w << ">(" << source << ".element("
+        << plan->source("pyc_lane") << ").packed()" << (known ? ".value()" : "")
+        << ", " << plan->low("pyc_lane") << ")" << (known ? ")" : "") << ");\n";
     return result;
   }
   std::string knownInteger(ac::MathIntAttr integer, StringRef width) {
@@ -643,8 +672,8 @@ private:
     SmallVector<std::string> words;
     for (unsigned i = 0; i < wordCount; ++i)
       words.push_back(std::to_string(n.getRawData()[i]) + "ULL");
-    return "gfsim::FourState<" + width.str() + ">::known(gfsim::Bits<" +
-           width.str() + ">{" + join(words, ", ") + "})";
+    return wordType(width) + "::known(gfsim::Bits<" + width.str() + ">{" +
+           join(words, ", ") + "})";
   }
   FailureOr<std::string> constant(ac::BitsConstantOp op, Scope &s) {
     auto w = width(op.getResult().getType(), s, op);
@@ -662,8 +691,7 @@ private:
     auto literal = ctx.staticValue(op.getValue(), s.bindings, op);
     if (failed(literal))
       return failure();
-    return "gfsim::FourState<" + *w + ">::known(pyc_bits<" + *w + ">(" +
-           *literal + "))";
+    return wordType(*w) + "::known(pyc_bits<" + *w + ">(" + *literal + "))";
   }
   FailureOr<std::string> constant4(ac::BitsConstant4Op op, Scope &s) {
     auto w = width(op.getResult().getType(), s, op);
@@ -696,8 +724,11 @@ private:
     Operation *op = value.getDefiningOp();
     if (!op)
       return failure();
-    if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op))
+    if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op)) {
+      if (known)
+        return failure();
       return constant4(pattern, s);
+    }
     if (auto constantOp = dyn_cast<ac::BitsConstantOp>(op))
       return constant(constantOp, s);
     if (auto create = dyn_cast<ac::EnumCreateOp>(op)) {
@@ -726,8 +757,9 @@ private:
       for (const auto &member : definition->members) {
         auto code =
             knownInteger(member.code, std::to_string(definition->width));
-        membership.push_back("gfsim::compare<gfsim::ComparePredicate::EQ>(" +
-                             *raw + ", " + code + ")");
+        membership.push_back(valueApi() +
+                             "compare<gfsim::ComparePredicate::EQ>(" + *raw +
+                             ", " + code + ")");
       }
       // Bound expression depth by log(member count), preserving the same
       // four-state EQ/OR function without repeatedly copying a growing prefix.
@@ -737,7 +769,7 @@ private:
           if (i + 1 == membership.size())
             combined.push_back(std::move(membership[i]));
           else
-            combined.push_back("gfsim::bit_or(" + membership[i] + ", " +
+            combined.push_back(valueApi() + "bit_or(" + membership[i] + ", " +
                                membership[i + 1] + ")");
         membership = std::move(combined);
       }
@@ -762,19 +794,20 @@ private:
         auto e = operand(v, {});
         if (failed(e))
           return failure();
-        text = text.empty() ? *e : "gfsim::concat(" + text + ", " + *e + ")";
+        text =
+            text.empty() ? *e : valueApi() + "concat(" + text + ", " + *e + ")";
       }
       return text;
     }
     if (auto merge = dyn_cast<ac::ValueMergeOp>(op)) {
       unsigned result = cast<OpResult>(value).getResultNumber();
       if (result) {
-        std::string en = "gfsim::FourState<1>::known(gfsim::Bits<1>{0})";
+        std::string en = wordType("1") + "::known(gfsim::Bits<1>{0})";
         for (auto guard : merge.getGuards()) {
           auto g = operand(guard, {});
           if (failed(g))
             return failure();
-          en = "gfsim::bit_or(" + en + ", " + *g + ")";
+          en = valueApi() + "bit_or(" + en + ", " + *g + ")";
         }
         return en;
       }
@@ -803,8 +836,10 @@ private:
                              Path(path.begin() + selected.size(), path.end()));
             if (failed(g) || failed(candidate))
               return failure();
-            return "gfsim::select(" + *g + ", " + *candidate + ", " + *base +
-                   ")";
+            if (*candidate == *base)
+              return *base;
+            return valueApi() + "select(" + *g + ", " + *candidate + ", " +
+                   *base + ")";
           }
         }
         return *base;
@@ -817,7 +852,8 @@ private:
         auto e = scalarExpression(s, value, p, operand);
         if (failed(e))
           return failure();
-        text = text.empty() ? *e : "gfsim::concat(" + text + ", " + *e + ")";
+        text =
+            text.empty() ? *e : valueApi() + "concat(" + text + ", " + *e + ")";
       }
       return text;
     }
@@ -827,8 +863,8 @@ private:
       auto path = operand(require.getPath(), {});
       if (failed(available) || failed(path))
         return failure();
-      return "gfsim::select(" + *path + ", " + *available +
-             ", gfsim::FourState<1>::known(gfsim::Bits<1>{1}))";
+      return valueApi() + "select(" + *path + ", " + *available + ", " +
+             wordType("1") + "::known(gfsim::Bits<1>{1}))";
     }
     SmallVector<std::string> operands;
     for (auto v : op->getOperands()) {
@@ -841,15 +877,19 @@ private:
     if (failed(w))
       return failure();
     if (isa<ac::BitsUnaryOp>(op))
-      return "gfsim::bit_not(" + operands[0] + ")";
+      return valueApi() + "bit_not(" + operands[0] + ")";
     if (auto binary = dyn_cast<ac::BitsBinaryOp>(op)) {
+      // Division and remainder may produce X for known operands.
+      if (known &&
+          (binary.getOpcode() == "udiv" || binary.getOpcode() == "urem"))
+        return failure();
       auto opcode = llvm::StringSwitch<StringRef>(binary.getOpcode())
                         .Case("and", "bit_and")
                         .Case("or", "bit_or")
                         .Case("xor", "bit_xor")
                         .Default(binary.getOpcode());
-      return "gfsim::" + opcode.str() + "(" + operands[0] + ", " + operands[1] +
-             ")";
+      return valueApi() + opcode.str() + "(" + operands[0] + ", " +
+             operands[1] + ")";
     }
     if (auto compare = dyn_cast<ac::BitsCompareOp>(op)) {
       auto predicate = llvm::StringSwitch<StringRef>(compare.getPredicate())
@@ -865,23 +905,35 @@ private:
                            .Case("sgt", "SGT")
                            .Case("sge", "SGE")
                            .Default("");
-      return "gfsim::compare<gfsim::ComparePredicate::" + predicate.str() +
-             ">(" + operands[0] + ", " + operands[1] + ")";
+      return valueApi() +
+             "compare<gfsim::ComparePredicate::" + predicate.str() + ">(" +
+             operands[0] + ", " + operands[1] + ")";
     }
-    if (isa<ac::BitsSelectOp>(op))
-      return "gfsim::select(" + operands[0] + ", " + operands[1] + ", " +
+    if (isa<ac::BitsSelectOp>(op)) {
+      if (operands[1] == operands[2])
+        return operands[1];
+      return valueApi() + "select(" + operands[0] + ", " + operands[1] + ", " +
              operands[2] + ")";
+    }
     if (isa<ac::BitsConcatOp>(op)) {
       std::string text = operands[0];
       for (unsigned i = 1; i < operands.size(); ++i)
-        text = "gfsim::concat(" + text + ", " + operands[i] + ")";
+        text = valueApi() + "concat(" + text + ", " + operands[i] + ")";
       return text;
     }
     if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
       auto low = ctx.staticValue(extract.getLow(), s.bindings, op);
       if (failed(low))
         return failure();
-      return "gfsim::extract<" + *w + ">(" + operands[0] + ", " + *low + ")";
+      if (*low == "0") {
+        auto inputWidth = width(op->getOperand(0).getType(), s, op);
+        if (failed(inputWidth))
+          return failure();
+        if (*inputWidth == *w)
+          return operands[0];
+      }
+      return valueApi() + "extract<" + *w + ">(" + operands[0] + ", " + *low +
+             ")";
     }
     if (auto resize = dyn_cast<ac::BitsResizeOp>(op)) {
       auto mode = llvm::StringSwitch<StringRef>(resize.getMode())
@@ -889,7 +941,7 @@ private:
                       .Case("zext", "zero_extend")
                       .Case("sext", "sign_extend")
                       .Default("");
-      return "gfsim::" + mode.str() + "<" + *w + ">(" + operands[0] + ")";
+      return valueApi() + mode.str() + "<" + *w + ">(" + operands[0] + ")";
     }
     return op->emitOpError() << "operation lacks scalar C++ hardware emission";
   }
@@ -1137,43 +1189,91 @@ private:
       return failure();
     return planeDeclaration(*p, name());
   }
+  std::string broadcastPlane(StringRef source, StringRef outputLanes,
+                             StringRef inputLanes) {
+    return "pyc_work_broadcast<(" + outputLanes.str() + "), (" +
+           inputLanes.str() + ")>(" + source.str() + ")";
+  }
   FailureOr<std::string> scalarPlane(Scope &s, Value v, Path path) {
-    auto result = declarePlane(s, v, path);
-    if (failed(result))
-      return failure();
     Operation *op = v.getDefiningOp();
     auto resultPlan = fieldPlane(v.getType(), path, s, op);
     auto count = planeCount(v.getType(), s, op, path);
     if (failed(resultPlan) || failed(count))
       return failure();
-    SmallVector<std::tuple<Value, Path, std::string>> inputs;
+    struct ScalarInput {
+      Value value;
+      Path path;
+      std::string plane, packed;
+      Type element;
+      bool sameCount;
+    };
+    SmallVector<ScalarInput> inputs;
     auto gather = [&](Value input, Path p) -> FailureOr<std::string> {
+      for (const auto &entry : inputs)
+        if (entry.value == input && entry.path == p)
+          return entry.packed;
       auto inputPlan = fieldPlane(input.getType(), p, s, op);
       if (failed(inputPlan))
         return failure();
-      auto lane = "((pyc_lane / (" + resultPlan->count + ")) * (" +
-                  inputPlan->count + ") + pyc_lane % (" +
-                  inputPlan->count + "))";
-      for (auto &entry : inputs)
-        if (std::get<0>(entry) == input && std::get<1>(entry) == p)
-          return std::get<2>(entry) + ".element(" + lane + ").packed()";
       auto text = emit(s, input, p);
       if (failed(text))
         return failure();
-      inputs.push_back({input, p, *text});
-      return *text + ".element(" + lane + ").packed()";
+      bool sameCount = resultPlan->count == inputPlan->count;
+      auto lane = sameCount ? std::string("pyc_lane")
+                            : "((pyc_lane / (" + resultPlan->count + ")) * (" +
+                                  inputPlan->count + ") + pyc_lane % (" +
+                                  inputPlan->count + "))";
+      auto packed = *text + ".element(" + lane + ").packed()";
+      inputs.push_back({input, std::move(p), std::move(*text), packed,
+                        inputPlan->element, sameCount});
+      return packed;
     };
     auto expr = scalarExpression(s, v, path, gather);
     if (failed(expr))
       return failure();
-    auto e = fieldType(v.getType(), path, s, op);
-    auto p = failed(e) ? FailureOr<std::string>(failure()) : payload(*e, s, op);
+    auto p = payload(resultPlan->element, s, op);
     if (failed(p))
       return failure();
-    out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-        << "; ++pyc_lane) " << *result << ".element(pyc_lane) = gfsim::wire<"
-        << *p << ">::fromPacked(" << *expr << ");\n";
-    return *result;
+    for (const auto &input : inputs) {
+      if (!input.sameCount || *expr != input.packed)
+        continue;
+      auto inputPayload = payload(input.element, s, op);
+      if (failed(inputPayload))
+        return failure();
+      if (*inputPayload == *p)
+        return input.plane;
+    }
+    auto type = wireType("gfsim::table<" + *p + ", " + *count + ">");
+    // Use the resolved plane references and lane layout. Distinct IR values
+    // can denote the same calculation after field forwarding.
+    auto [entry, inserted] = scalarPlanes.try_emplace(type + "\n" + *expr);
+    if (!inserted)
+      return entry->second;
+    bool selectPlanes =
+        isa<ac::BitsSelectOp>(op) && inputs.size() == 3 &&
+        llvm::all_of(inputs, [](const auto &input) { return input.sameCount; });
+    // Keep small, single-use calculations inside the consumer's lane loop.
+    // All independent reads have already been scheduled by gather().
+    if (outline && v.hasOneUse() && expr->size() <= 1024) {
+      if (selectPlanes)
+        *expr = "pyc_work_select_lane(" + inputs[0].plane + ", " +
+                inputs[1].plane + ", " + inputs[2].plane + ", pyc_lane).packed()";
+      entry->second = "pyc_work_expression_view{[&](std::size_t pyc_lane) "
+                      "noexcept { return " +
+                      wireType(*p) + "::fromPacked(" + *expr + "); }}";
+      return entry->second;
+    }
+    auto result = planeDeclaration(type, name());
+    if (selectPlanes)
+      out << "    pyc_work_select(" << result << ", " << inputs[0].plane << ", "
+          << inputs[1].plane << ", " << inputs[2].plane << ");\n";
+    else
+      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
+          << "; ++pyc_lane) " << result
+          << ".element(pyc_lane) = " << wireType(*p) << "::fromPacked(" << *expr
+          << ");\n";
+    entry->second = result;
+    return result;
   }
   FailureOr<std::string> build(Scope &s, Value v, Path path) {
     if (auto arg = dyn_cast<BlockArgument>(v)) {
@@ -1189,8 +1289,8 @@ private:
             return failure();
           out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
               << "; ++pyc_lane) " << *result
-              << ".element(pyc_lane) = gfsim::wire<" << *p
-              << ">::known(" << *p << "{pyc_lane % (" << *n << ")});\n";
+              << ".element(pyc_lane) = " << wireType(*p) << "::known(" << *p
+              << "{pyc_lane % (" << *n << ")});\n";
           return *result;
         }
         unsigned operand = arg.getArgNumber() - 1;
@@ -1199,27 +1299,19 @@ private:
           return failure();
         if (operand < map.getTables().size())
           return *source;
-        auto result = declarePlane(s, v, path);
         auto plan = fieldPlane(v.getType(), path, s, map);
-        auto count = planeCount(v.getType(), s, map, path);
-        if (failed(result) || failed(plan) || failed(count))
+        if (failed(plan))
           return failure();
-        out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-            << "; ++pyc_lane) " << *result << ".element(pyc_lane) = "
-            << *source << ".element((pyc_lane / ((" << *n << ") * ("
-            << plan->count << "))) * (" << plan->count
-            << ") + pyc_lane % (" << plan->count << "));\n";
-        return *result;
+        return broadcastPlane(*source, "(" + *n + ") * (" + plan->count + ")",
+                              plan->count);
       }
       if (auto rule = dyn_cast<ac::RuleOp>(arg.getOwner()->getParentOp()))
         return emit(s, rule.getCaptures()[arg.getArgNumber()], path);
       unsigned port = arg.getArgNumber();
       if (s.parent) {
-        auto source = emit(*s.parent, s.occurrence->getOperand(port), path);
-        if (failed(source) ||
-            failed(setPort(*s.parent, s.occurrence, port, path, *source)))
-          return failure();
-        return *source;
+        // This occurrence is evaluated in the parent's field schedule. Work
+        // items that actually run separately receive their pins in run().
+        return emit(*s.parent, s.occurrence->getOperand(port), path);
       }
       auto pin =
           id(cast<StringAttr>(s.definition.getInputNames()[port]).getValue(),
@@ -1385,7 +1477,31 @@ private:
   }
   FailureOr<std::string> tableOperation(Scope &s, Value v, Path path) {
     auto *op = v.getDefiningOp();
-    if (promoteConstantPlanes && !resetting && !s.regionParent &&
+    if (auto map = dyn_cast<ac::TableMapOp>(op)) {
+      auto n = ctx.shapeSize(map.getShape(), op, false, s.bindings);
+      if (failed(n))
+        return failure();
+      // The leading Table extent is the region's lane multiplier, so its
+      // yielded plane already has the lane order of the result.
+      regionScopes.push_back({s.definition, s.bindings, nullptr, nullptr,
+                              s.object, "(" + s.count + " * (" + *n + "))",
+                              &s, map});
+      auto yielded = cast<ac::YieldOp>(map.getBody().front().back())
+                         .getValues()[cast<OpResult>(v).getResultNumber()];
+      return emit(regionScopes.back(), yielded, path);
+    }
+    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+      auto source = emit(s, splat.getInput(), path);
+      auto inputPlan = fieldPlane(splat.getInput().getType(), path, s, op);
+      auto resultPlan = fieldPlane(v.getType(), path, s, op);
+      if (failed(source) || failed(inputPlan) || failed(resultPlan))
+        return failure();
+      return broadcastPlane(*source, resultPlan->count, inputPlan->count);
+    }
+    if (known && !isa<ac::TableCreateOp, ac::TableViewOp, ac::TableReadOp,
+                      ac::TableGetOp>(op))
+      return failure();
+    if (promoteConstantPlanes && !known && !resetting && !s.regionParent &&
         isa<ac::TableCreateOp>(op)) {
       auto selected = fieldType(v.getType(), path, s, op);
       if (failed(selected))
@@ -1427,17 +1543,6 @@ private:
       }
       return *result;
     }
-    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
-      auto input = emit(s, splat.getInput(), path);
-      auto in = fieldPlane(splat.getInput().getType(), path, s, op);
-      if (failed(input) || failed(in))
-        return failure();
-      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
-          << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *input
-          << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
-          << in->count << ") + pyc_lane % (" << in->count << "));\n";
-      return *result;
-    }
     if (auto view = dyn_cast<ac::TableViewOp>(op)) {
       auto input = emit(s, view.getInput(), path);
       auto in = fieldPlane(view.getInput().getType(), path, s, op);
@@ -1455,26 +1560,6 @@ private:
           << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
           << in->count << ") + (" << *index << ") * ("
           << suffix << ") + pyc_lane % (" << suffix << "));\n";
-      return *result;
-    }
-    if (auto map = dyn_cast<ac::TableMapOp>(op)) {
-      auto n = ctx.shapeSize(map.getShape(), op, false, s.bindings);
-      if (failed(n))
-        return failure();
-      // Keep region SSA, captures and nested Table operations on the existing
-      // field-sensitive schedule. Only requested argument paths are gathered.
-      regionScopes.push_back({s.definition, s.bindings, nullptr, nullptr,
-                              s.object, "(" + s.count + " * (" + *n + "))",
-                              &s, map});
-      auto &region = regionScopes.back();
-      auto yielded = cast<ac::YieldOp>(map.getBody().front().back())
-                         .getValues()[cast<OpResult>(v).getResultNumber()];
-      auto source = emit(region, yielded, path);
-      if (failed(source))
-        return failure();
-      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
-          << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *source
-          << ".element(pyc_lane);\n";
       return *result;
     }
     if (auto match = dyn_cast<ac::TableMatchOp>(op)) {
@@ -1516,6 +1601,31 @@ private:
       auto iw = width(indexValue.getType(), s, op);
       if (failed(index) || failed(n) || failed(iw))
         return failure();
+      if (known) {
+        // An out-of-range lookup yields X. Admit this plan only when the
+        // closed extent covers every value representable by the index.
+        knownConditions.insert(knownApi.str() + "coversIndex<" + *iw + ">(" +
+                               *n + ")");
+        if (isa<ac::TableGetOp>(op) && cast<OpResult>(v).getResultNumber()) {
+          out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
+              << "; ++pyc_lane) " << *result
+              << ".element(pyc_lane) = " << wireType(*p) << "::known(" << *p
+              << "{1});\n";
+          return *result;
+        }
+        auto input = emit(s, tableInput, path);
+        if (failed(input))
+          return failure();
+        out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
+            << "; ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < ("
+            << resultPlan->count << "); ++pyc_field) " << *result
+            << ".element(pyc_lane * (" << resultPlan->count
+            << ") + pyc_field) = " << *input << ".element((pyc_lane * (" << *n
+            << ") + " << *index
+            << ".element(pyc_lane).packed().value().value()) * ("
+            << resultPlan->count << ") + pyc_field);\n";
+        return *result;
+      }
       std::string compareWidth =
           "std::max<unsigned>(" + *iw +
           ", std::bit_width(static_cast<std::uint64_t>(" + *n + ")))";
@@ -1740,8 +1850,11 @@ private:
   bool resetting;
   CppWorkOutlining *outline = nullptr;
   bool probeSize = false, exceededSize = false;
+  bool known;
+  std::set<std::string> knownConditions;
   bool promoteConstantPlanes = true;
   llvm::DenseMap<ConstantKey, ConstantState> constantMemo;
+  llvm::StringMap<std::string> scalarPlanes;
   bool tasksFinished = false;
   SmallVector<Operation *> delegated;
   std::deque<Scope> scopes, regionScopes;
@@ -2005,7 +2118,19 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     WorkEmitter outlined(ctx, definition, outline.stream, false, &outline);
     if (failed(outlined.run()))
       return failure();
-    outline.emit(out);
+    std::string guard;
+    if (!observes) {
+      CppWorkOutlining knownOutline;
+      WorkEmitter known(ctx, definition, knownOutline.stream, false,
+                        &knownOutline, false, true);
+      if (succeeded(known.run())) {
+        guard = known.knownGuard();
+        if (guard.empty())
+          guard = "true";
+        knownOutline.emit(out, true);
+      }
+    }
+    outline.emit(out, false, guard);
   } else {
     out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try {\n"
         << workBody << "    } catch (...) { DiscardNext(); throw; }\n  }\n";

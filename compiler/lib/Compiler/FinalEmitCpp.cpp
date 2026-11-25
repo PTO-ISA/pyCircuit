@@ -425,6 +425,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
   bool observes = !descriptorTable->empty();
   parts.supportHeader =
       "#pragma once\n#include <gfsim/wire.h>\n#include <gfsim/dff.h>\n"
+      "#include <gfsim/known_work.h>\n"
       "#include <gfsim/sampled_clock.h>\n"
       "#include <gfsim/sync_mem.h>\n#include <gfsim/byte_mem.h>\n#include "
       "<gfsim/fifo.h>\n"
