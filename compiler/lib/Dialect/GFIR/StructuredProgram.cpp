@@ -681,11 +681,10 @@ LogicalResult Analyzer::analyzeAvailability(
         } else if (auto write = dyn_cast<WriteOp>(user);
                    write && write.getValue() == argument && !write.getIndex() &&
                    write->getParentOp() == rule && !clocked->writePaths.contains(write)) {
-          clocked->dataCaptureUses[write].push_back({unsigned(index), 1, false});
+          // Demand is registered at the consuming statement below.
         } else if (auto yield = dyn_cast<YieldOp>(user); yield && yield->getParentOp() == rule) {
-          for (auto [ordinal, value] : llvm::enumerate(yield.getValues()))
-            if (value == argument)
-              clocked->dataCaptureUses[yield].push_back({unsigned(index), unsigned(ordinal), true});
+          // A pure computation before this return does not demand the value.
+        } else if (ac::detail::isStrictBitsOperation(user) && user->getParentOp() == rule) {
         } else {
           return user->emitOpError("available capture requires a direct guard, state write or return");
         }
@@ -694,6 +693,39 @@ LogicalResult Analyzer::analyzeAvailability(
       if (failed(budget.debit(sources.size(), rule)))
         return failure();
       consumer.guardCaptures.push_back({unsigned(index), sources});
+    }
+    llvm::DenseMap<Value, SmallVector<unsigned>> required;
+    llvm::DenseMap<unsigned, SmallVector<unsigned>> candidateRequired;
+    for (const auto &capture : consumer.guardCaptures)
+      required[ordered.getArgument(capture.capture)].push_back(capture.capture);
+    for (Operation &op : ordered) {
+      if (auto read = dyn_cast<ReadOp>(op)) {
+        required[read.getValue()] = candidateRequired.lookup(clocked->stateAccesses.lookup(read));
+        continue;
+      }
+      SmallVector<unsigned> inputs;
+      for (Value operand : op.getOperands()) {
+        const auto &sources = required[operand];
+        if (failed(budget.debit(inputs.size() + sources.size(), &op))) return failure();
+        inputs.append(sources);
+      }
+      llvm::sort(inputs);
+      inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
+      if (ac::detail::isStrictBitsOperation(&op)) {
+        for (Value value : op.getResults()) required[value] = inputs;
+      } else if (auto write = dyn_cast<WriteOp>(op)) {
+        if (!inputs.empty() && (write.getIndex() || clocked->writePaths.contains(write)))
+          return write.emitOpError("available writes currently require a whole scalar state");
+        candidateRequired[clocked->stateAccesses.lookup(write)] = inputs;
+        if (!inputs.empty())
+          clocked->dataCaptureUses[write].push_back({inputs, 1, false});
+      } else if (auto yield = dyn_cast<YieldOp>(op)) {
+        for (auto [ordinal, value] : llvm::enumerate(yield.getValues()))
+          if (!required[value].empty())
+            clocked->dataCaptureUses[yield].push_back({required[value], unsigned(ordinal), true});
+      } else if (!inputs.empty() && !clocked->guardedCaptureUses.contains(&op)) {
+        return op.emitOpError("available local values require a strict computation, whole state write or return");
+      }
     }
     if (!consumer.guardCaptures.empty())
       for (Operation &op : ordered)

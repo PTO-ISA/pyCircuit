@@ -3997,8 +3997,10 @@ private:
     return sampled;
   }
   FailureOr<bool> guardedResultCapture(const Occurrence &entry,
-      const TransactionWriterView &producer, RuleOp consumer, unsigned capture) {
-    if (consumer == producer.rule ||
+      const TransactionWriterView &producer, size_t producerOccurrence,
+      RuleOp consumer, unsigned capture) {
+    if ((consumer == producer.rule &&
+         size_t(&entry - occurrences.data()) == producerOccurrence) ||
         consumer->getParentOp() != entry.module ||
         consumer->hasAttr("ac.registration_path"))
       return false;
@@ -4027,10 +4029,25 @@ private:
     // the independent availability proof authenticates the supplied masks.
     llvm::DenseSet<Operation *> dataRequirements;
     llvm::DenseSet<unsigned> dataSlots;
+    llvm::DenseSet<Value> dataValues;
+    llvm::DenseSet<Operation *> computations;
+    SmallVector<Value> work{payload};
+    dataValues.insert(payload);
+    while (!work.empty()) {
+      Value value = work.pop_back_val();
+      for (Operation *user : value.getUsers()) {
+        if (failed(budget.debit(1, user))) return failure();
+        if (user->getParentOp() != consumer || !isStrictBitsOperation(user)) continue;
+        computations.insert(user);
+        for (Value result : user->getResults())
+          if (dataValues.insert(result).second) work.push_back(result);
+      }
+    }
     auto *terminator = body.getTerminator();
     for (const auto &requirement : view.requirements) {
       auto operation = requirement.operation;
-      if (operation.getPayload() != payload)
+      Value requiredPayload = operation.getPayload();
+      if (!dataValues.contains(requiredPayload))
         continue;
       auto kind = requirement.kind.getValue();
       if (kind != "state_write" && kind != "return")
@@ -4047,7 +4064,7 @@ private:
       if (kind == "state_write" && requirement.operand == 1 && writer) {
         for (const auto &candidate : writer->candidates) {
           if (failed(budget.debit(1, consumer))) return failure();
-          if (terminator->getOperand(candidate.dataIndex) == payload) {
+          if (terminator->getOperand(candidate.dataIndex) == requiredPayload) {
             dataSlots.insert(candidate.dataIndex);
             matched = true;
           }
@@ -4055,7 +4072,7 @@ private:
       } else if (kind == "return") {
         uint64_t count = writer ? writer->ordinaryResults : view.fireResult;
         if (requirement.operand < count &&
-            terminator->getOperand(requirement.operand) == payload) {
+            terminator->getOperand(requirement.operand) == requiredPayload) {
           dataSlots.insert(requirement.operand);
           matched = true;
         }
@@ -4065,8 +4082,9 @@ private:
     }
     if (!dataRequirements.empty()) {
       bool onlyData = true;
-      for (OpOperand &use : payload.getUses()) {
+      for (Value value : dataValues) for (OpOperand &use : value.getUses()) {
         if (failed(budget.debit(1, use.getOwner()))) return failure();
+        if (computations.contains(use.getOwner())) continue;
         if (dataRequirements.contains(use.getOwner()) && use.getOperandNumber() == 0)
           continue;
         if (use.getOwner() == terminator && dataSlots.contains(use.getOperandNumber()))
@@ -4248,7 +4266,7 @@ private:
           pending.emplace_back(*child, target.getBody().front().getArgument(operand), path);
         } else if (auto consumer = dyn_cast<RuleOp>(owner)) {
           if (!path.empty()) return false;
-          auto guarded = guardedResultCapture(at, writer, consumer, operand);
+          auto guarded = guardedResultCapture(at, writer, root, consumer, operand);
           if (failed(guarded)) return failure();
           if (!*guarded) return false;
           provedUse = true;

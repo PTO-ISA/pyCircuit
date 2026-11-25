@@ -1119,7 +1119,12 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
           const auto &check = sampled->plannedChecks[control];
           Value payload = isa<gfir::WriteOp>(op)
               ? cast<gfir::WriteOp>(op).getValue() : op.getOperand(use.operand);
-          Value available = sampled->guardAvailability.lookup(use.capture);
+          Value available;
+          for (unsigned capture : use.captures) {
+            Value next = sampled->guardAvailability.lookup(capture);
+            if (!next) return op.emitOpError("missing required data-use availability");
+            available = available ? binary("and", available, next) : next;
+          }
           if (!available)
             return op.emitOpError("missing required data-use availability");
           Value required = make(ac::ValueRequireOp::getOperationName(),
