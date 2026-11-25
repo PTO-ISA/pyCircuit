@@ -1075,7 +1075,7 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
       prepare.dependencies.push_back(*parent);
     }
     for (const auto &input : child.inputAvailability) {
-      auto parent = findWire(definition, {call.getInputs()[input.port], {}}, call);
+      auto parent = findWire(definition, {call.getInputs()[input.port], input.path}, call);
       if (failed(parent))
         return failure();
       prepare.dependencies.push_back(*parent);
