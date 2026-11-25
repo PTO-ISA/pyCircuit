@@ -675,7 +675,8 @@ private:
                          const gfir::StructuredDefinition &definition,
                          const gfir::StructuredRule *rule = nullptr,
                          const llvm::DenseMap<Value, std::string> *outer = nullptr,
-                         ArrayRef<std::string> stepTargets = {});
+                         ArrayRef<std::string> stepTargets = {},
+                         StringRef stepNatural = {}, StringRef stepOrdinal = {});
   LogicalResult emitLoop(raw_ostream &out, gfir::LoopOp loop,
                          const gfir::StructuredDefinition &definition,
                          const llvm::DenseMap<Value, std::string> &values,
@@ -2555,7 +2556,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
                                           const gfir::StructuredDefinition &definition,
                                           const gfir::StructuredRule *rule,
                                           const llvm::DenseMap<Value, std::string> *outer,
-                                          ArrayRef<std::string> stepTargets) {
+                                          ArrayRef<std::string> stepTargets,
+                                          StringRef stepNatural, StringRef stepOrdinal) {
   const auto &clocked = *definition.clocked;
   bool ruleResults = rule != nullptr;
   llvm::DenseMap<Value, std::string> values = outer ? *outer : llvm::DenseMap<Value, std::string>{};
@@ -2648,6 +2650,13 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     } else if (auto loop = dyn_cast<gfir::LoopOp>(op)) {
       if (failed(emitLoop(out, loop, definition, values, results)))
         return failure();
+      if (cast<gfir::StepOp>(loop.getBody().front().getTerminator()).getBreakIf() &&
+          loop.getTripCountAttr().getInt() != 0) {
+        out << "    if (!txn.pyc_running) { ";
+        if (failed(emitBlockedReturn(out, body, ruleResults)))
+          return failure();
+        out << "    }\n";
+      }
       continue;
     } else if (auto ordinal = dyn_cast<gfir::OrdinalBitsOp>(op)) {
       auto type = typedWire(ordinal.getValue().getType(), ordinal);
@@ -2656,10 +2665,22 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         return failure();
       text = *type + "::known(gfsim::Bits<" + std::to_string(*width) + ">{" +
              values.lookup(ordinal.getOrdinal()) + "})";
-    } else if (isa<gfir::StepOp>(op)) {
+    } else if (auto step = dyn_cast<gfir::StepOp>(op)) {
       if (!stepTargets.empty())
-        out << "    {\n      const auto pyc_next = std::tuple{" << join(args, ", ")
+        out << "    {\n      const auto pyc_next = std::tuple{"
+            << join(ArrayRef<std::string>(args).take_front(step.getValues().size()), ", ")
             << "};\n      std::tie(" << join(stepTargets, ", ") << ") = pyc_next;\n    }\n";
+      if (step.getBreakIf()) {
+        auto predicate = values.lookup(step.getBreakIf());
+        out << "    if (!" << predicate << ".isFullyKnown()) {\n"
+            << "      if (txn.pyc_check_active) txn.pyc_failed_check = pyc_check_base + "
+            << clocked.checkOffsets.lookup(step) << " + " << stepOrdinal << ";\n"
+               "      txn.pyc_running = false;\n"
+            << "      " << stepNatural << " = " << levelName << "(false);\n"
+               "      break;\n    }\n"
+            << "    if (pyc_behavior::isOne(" << predicate << ")) { "
+            << stepNatural << " = " << levelName << "(false); break; }\n";
+      }
       continue;
     } else if (auto guard = dyn_cast<gfir::GuardOp>(op)) {
       if (auto capture = clocked.guardedCaptureUses.find(guard);
@@ -2866,6 +2887,10 @@ LogicalResult BehavioralEmitter::emitLoop(
     out << "    " << *type << ' ' << name << " = " << values.lookup(initial) << ";\n";
   }
   uint64_t count = loop.getTripCountAttr().getInt();
+  auto step = cast<gfir::StepOp>(loop.getBody().front().getTerminator());
+  bool canBreak = static_cast<bool>(step.getBreakIf());
+  if (canBreak)
+    out << "    auto " << results.back() << " = " << levelName << "(true);\n";
   if (count) {
     auto ordinal = "pyc_ordinal_" + std::to_string(nextLoop++);
     out << "    for (std::uint64_t " << ordinal << " = 0; " << ordinal << " < "
@@ -2877,11 +2902,13 @@ LogicalResult BehavioralEmitter::emitLoop(
          llvm::zip(body.getArguments().drop_front(), results.drop_back()))
       iteration.try_emplace(argument, name);
     if (failed(emitBody(out, body, definition, nullptr, &iteration,
-                        results.drop_back())))
+                        results.drop_back(), canBreak ? StringRef(results.back()) : StringRef{},
+                        ordinal)))
       return failure();
     out << "    }\n";
   }
-  out << "    const auto " << results.back() << " = " << levelName << "(true);\n";
+  if (!canBreak)
+    out << "    const auto " << results.back() << " = " << levelName << "(true);\n";
   return success();
 }
 

@@ -1028,7 +1028,9 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
   for (Operation &op : body) {
     if (isa<gfir::YieldOp, gfir::StepOp>(op)) {
       SmallVector<Value> values;
-      for (Value value : op.getOperands())
+      ValueRange returned = isa<gfir::StepOp>(op)
+          ? ValueRange(cast<gfir::StepOp>(op).getValues()) : ValueRange(op.getOperands());
+      for (Value value : returned)
         values.push_back(mapping.lookup(value));
       return values;
     }
@@ -1044,7 +1046,17 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       for (Value initial : loop.getInitial())
         carried.push_back(mapping.lookup(initial));
       auto &body = loop.getBody().front();
+      auto step = cast<gfir::StepOp>(body.getTerminator());
       uint64_t count = loop.getTripCountAttr().getInt();
+      Value continuation = one;
+      Value parentPath;
+      DictionaryAttr parentPathIdentity;
+      if (step.getBreakIf() && count) {
+        if (!sampled)
+          return loop.emitOpError("break_if requires sampled Rule refinement");
+        parentPath = sampled->path;
+        parentPathIdentity = sampled->pathIdentity;
+      }
       for (uint64_t iteration = 0; iteration < count; ++iteration) {
         // Every iteration starts with the enclosing immutable SSA bindings.
         // Candidates and write intent belong to the same transaction and flow
@@ -1053,15 +1065,46 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
         for (auto [argument, value] :
              llvm::zip(body.getArguments().drop_front(), carried))
           nested.map(argument, value);
+        SmallVector<Value> previous;
+        if (step.getBreakIf() && iteration)
+          previous.assign(local.begin(), local.end());
         auto next = lowerBody(body, {}, local, localIntents, nested, iteration);
         if (failed(next))
           return failure();
+        if (step.getBreakIf()) {
+          // Later unrolled bodies still have immutable SSA definitions, but
+          // only iterations reached before a stop may replace candidates or
+          // carried values. Every body write is direct in this bounded profile,
+          // so its intent is already present after the first reached iteration.
+          if (iteration) {
+            for (unsigned state = 0; state < local.size(); ++state)
+              if (local[state] && local[state] != previous[state])
+                local[state] = merge(previous[state], continuation, local[state]);
+            for (auto [value, old] : llvm::zip(*next, carried))
+              value = merge(old, continuation, value);
+          }
+          Value stop = nested.lookup(step.getBreakIf());
+          auto selection = addControl("branch_select", step, stop);
+          if (failed(selection))
+            return failure();
+          Value keepGoing = known(stop, false);
+          continuation = binary("and", continuation, keepGoing);
+          sampled->path = sampled->path
+              ? binary("and", sampled->path, keepGoing) : keepGoing;
+          sampled->pathIdentity = builder.getDictionaryAttr({
+              builder.getNamedAttr("selection", builder.getI64IntegerAttr(*selection)),
+              builder.getNamedAttr("when_true", builder.getBoolAttr(false))});
+        }
         carried = std::move(*next);
+      }
+      if (step.getBreakIf() && count) {
+        sampled->path = parentPath;
+        sampled->pathIdentity = parentPathIdentity;
       }
       for (auto [result, value] :
            llvm::zip(loop.getResults().drop_back(), carried))
         mapping.map(result, value);
-      mapping.map(loop.getResults().back(), one);
+      mapping.map(loop.getResults().back(), step.getBreakIf() ? continuation : one);
     } else if (auto read = dyn_cast<gfir::ReadOp>(op)) {
       mapping.map(read.getValue(), local[plan.stateAccesses.lookup(read)]);
     } else if (auto write = dyn_cast<gfir::WriteOp>(op)) {

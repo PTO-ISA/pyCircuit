@@ -528,6 +528,8 @@ LogicalResult StepOp::verify() {
     return emitOpError("must terminate a gfir.loop body");
   if (!llvm::equal(getValues().getTypes(), loop.getInitial().getTypes()))
     return emitOpError("values must exactly match loop carried types");
+  if (getBreakIf() && !isa<ac::BitsType>(getBreakIf().getType()))
+    return emitOpError("break_if requires a Bits predicate");
   return success();
 }
 

@@ -473,6 +473,9 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
         uses.states.append(iteration.states.begin(), iteration.states.end());
         uses.writes.append(iteration.writes.begin(), iteration.writes.end());
         uses.hasFieldWrites |= iteration.hasFieldWrites;
+        uses.sampledControls = ac::detail::SourceCheckBudget::add(
+            uses.sampledControls,
+            ac::detail::SourceCheckBudget::multiply(count, iteration.sampledControls));
       }
     } else if (auto ordinal = dyn_cast<OrdinalBitsOp>(op)) {
       if (!isLoop || failed(verifyAttributes(ordinal, {})))
@@ -582,7 +585,15 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
       written.erase(std::unique(written.begin(), written.end()), written.end());
       plan.conditionalWrites.insert(written.begin(), written.end());
       plan.branchWrites.try_emplace(branch, std::move(written));
-    } else if (isa<YieldOp, StepOp>(op)) {
+    } else if (auto step = dyn_cast<StepOp>(op)) {
+      if (failed(verifyAttributes(step, {"operandSegmentSizes"})))
+        return failure();
+      if (step.getBreakIf()) {
+        if (!isBitOne(hardware, step.getBreakIf().getType(), step))
+          return step.emitOpError("break_if requires one bit");
+        ++uses.sampledControls;
+      }
+    } else if (isa<YieldOp>(op)) {
       if (failed(verifyAttributes(&op, {})))
         return failure();
     } else {
@@ -774,6 +785,8 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
         onCheck(&op);
       if (isa<GuardOp>(op) || plan.checkedBranches.contains(&op))
         onCheck(&op);
+      if (auto step = dyn_cast<StepOp>(op); step && step.getBreakIf())
+        onCheck(&op);
       if (plan.fifoCalls.contains(&op))
         onCheck(&op);
       if (auto memory = plan.transactionMemoryCalls.find(&op);
@@ -785,6 +798,11 @@ LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
       if (auto branch = dyn_cast<IfOp>(op)) {
         recurse(recurse, branch.getThenBody().front(), onCheck, onCall);
         recurse(recurse, branch.getElseBody().front(), onCheck, onCall);
+      } else if (auto loop = dyn_cast<LoopOp>(op)) {
+        auto step = cast<StepOp>(loop.getBody().front().getTerminator());
+        if (step.getBreakIf())
+          for (uint64_t i = 0, count = loop.getTripCountAttr().getInt(); i < count; ++i)
+            recurse(recurse, loop.getBody().front(), onCheck, onCall);
       }
     }
   };
