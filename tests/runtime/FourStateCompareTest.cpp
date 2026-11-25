@@ -77,6 +77,22 @@ TEST(FourStateCompareTest, OrdinaryEqualityRetainsUnknownSemantics) {
   EXPECT_EQ(knownMismatch.value(), Bit{0});
 }
 
+TEST(FourStateCompareTest, ExtractPreservesAllPlanesAcrossWordBoundaries) {
+  using Wide = gfsim::Bits<130>;
+  const auto input = gfsim::FourState<130>::fromMasks(
+      Wide{0xf0123456789abcdeULL, 0x123456789abcdef0ULL, 3},
+      Wide{0x5555555555555555ULL, 0xaaaaaaaaaaaaaaaaULL, 2},
+      Wide{0xaaaaaaaaaaaaaaaaULL, 0x5555555555555555ULL, 1});
+  const auto result = gfsim::extract<70>(input, 60);
+  for (unsigned i = 0; i < 70; ++i) {
+    EXPECT_EQ(result.value().bit(i), input.value().bit(60 + i));
+    EXPECT_EQ(result.knownMask().bit(i), input.knownMask().bit(60 + i));
+    EXPECT_EQ(result.zMask().bit(i), input.zMask().bit(60 + i));
+  }
+  EXPECT_EQ(gfsim::extract<70>(input, 61).knownMask(), gfsim::Bits<70>{0});
+  EXPECT_EQ(gfsim::extract<70>(input.value(), 130), gfsim::Bits<70>{0});
+}
+
 TEST(FourStateCompareTest, AvailabilityNormalizationPreservesThreeOutcomes) {
   auto outcome = [](const State &value) {
     return value.isFullyKnown() ? (value.value().toBool() ? 1 : 0) : 2;

@@ -34,7 +34,7 @@ unsigned mixRounds(unsigned x, unsigned rounds) {
   return value;
 }
 unsigned mix(unsigned x) {
-  return (mixRounds(x, 320) + (x ^ 0x33u)) & 255u;
+  return (mixRounds(x, 480) + (x ^ 0x33u)) & 255u;
 }
 struct TestSystem final : gfsim::SimSystem {
   explicit TestSystem(pyc_root &r) : root(r) {}
@@ -112,8 +112,27 @@ int main() {
       expect(root.result_1, saved);
       root.DiscardNext();
     }
+    // Commit an X payload, then supply fully known inputs. A binary Work plan
+    // must still see the unknown committed register until a later update.
+    drive(0, 0);
+    root.Work();
+    require(root.pyc_validate_checks(failure));
+    root.Xfer();
+    drive(0, 1);
+    root.x = gfsim::wire<gfsim::Bits<8>>::unknown();
+    root.Work();
+    require(root.pyc_validate_checks(failure));
+    root.Xfer();
     drive(17, 0);
-    root.Work(); observe(17, saved); root.DiscardNext();
+    root.Work();
+    expect(root.result_0, mix(17));
+    require(!root.result_1.packed().isFullyKnown());
+    root.DiscardNext();
+    drive(0, 0);
+    root.Reset();
+    root.Xfer();
+    drive(17, 0);
+    root.Work(); observe(17, 0); root.DiscardNext();
   }
   std::cout << "PASS\n";
 }

@@ -20,7 +20,7 @@ def MediumMix(x: ac.u8) -> ac.u8:  # noqa: N802
 @ac.module
 def MixingLeaf(packet: Payload) -> tuple[ac.u8, ac.u8]:  # noqa: N802
     mixed = packet.lanes[0]
-    for _round in range(320):
+    for _round in range(480):
         mixed = (mixed + packet.raw) ^ 0x5A
     return mixed + packet.lanes[1], packet.raw
 
