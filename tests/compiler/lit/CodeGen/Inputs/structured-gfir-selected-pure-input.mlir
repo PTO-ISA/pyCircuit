@@ -1,5 +1,7 @@
 #w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Top, ast_path = []}, expansion = []}, location = {path = "selected_input.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 1 : i64}}>
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Top, ast_path = []}, expansion = []}, location = {path = "selected_input.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 1 : i64}}>
+#w16 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<16>}, origin = {site = {definition = @Top, ast_path = []}, expansion = []}, location = {path = "selected_input.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 1 : i64}}>
+!b16 = !ac.bits<#w16>
 !b1 = !ac.bits<#w1>
 !b8 = !ac.bits<#w8>
 module attributes {gfir.contract = 1 : i64} {
@@ -10,8 +12,12 @@ module attributes {gfir.contract = 1 : i64} {
     gfir.rule @consume(%v = %value : !b8, %r = %run : !b1) -> (!b8) {
       // Availability of value is required only after this reached guard.
       gfir.guard %r : !b1
-      gfir.write @state, %v : !b8
-      gfir.yield %v : !b8
+      %zero = "ac.bits.constant4"() {pattern = "00000000"} : () -> !b8
+      %packed = "ac.bits.concat"(%v, %zero) : (!b8, !b8) -> !b16
+      %next = "ac.bits.extract"(%packed) {low = #w8} : (!b16) -> !b8
+      gfir.write @state, %next : !b8
+      %candidate = gfir.read @state : !b8
+      gfir.yield %candidate : !b8
     }
     %result = gfir.result @consume[0] : !b8
     %old = gfir.read @state : !b8
@@ -19,8 +25,10 @@ module attributes {gfir.contract = 1 : i64} {
   }
   gfir.module @Relay(%value: !b8, %run: !b1) -> (!b8, !b8)
       attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["value", "run"], output_names = ["result", "old"], domains = ["default"]} {
-    gfir.instance @sink of @Sink
-    %result, %old = gfir.call @sink(%value, %run) : (!b8, !b1) -> (!b8, !b8)
+    gfir.instance @first of @Sink
+    gfir.instance @second of @Sink
+    %first, %unused_old = gfir.call @first(%value, %run) : (!b8, !b1) -> (!b8, !b8)
+    %result, %old = gfir.call @second(%first, %run) : (!b8, !b1) -> (!b8, !b8)
     gfir.yield %result, %old : !b8, !b8
   }
   gfir.module @Identity(%value: !b8) -> (!b8)
