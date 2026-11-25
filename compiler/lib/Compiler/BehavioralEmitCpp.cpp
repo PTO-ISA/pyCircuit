@@ -13,6 +13,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include <algorithm>
 #include <bit>
+#include <functional>
 #include <limits>
 #include <map>
 
@@ -521,6 +522,9 @@ private:
   FailureOr<bool> emitKnownRuleSuffix(raw_ostream &out, Operation &first,
                                      const gfir::StructuredClocked &clocked,
                                      const llvm::DenseMap<Value, std::string> &prefix);
+  FailureOr<bool> emitNativeTransaction(raw_ostream &out,
+      const gfir::StructuredDefinition &definition,
+      const gfir::StructuredRule &rule);
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredDefinition &definition,
@@ -2523,6 +2527,8 @@ LogicalResult BehavioralEmitter::emitBranch(
   return success();
 }
 
+#include "BehavioralNativeTransactions.inc"
+
 LogicalResult
 BehavioralEmitter::declareClocked(raw_ostream &out,
                                  const gfir::StructuredDefinition &definition) {
@@ -2663,8 +2669,15 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     }
     out << ") {\n";
     out << "    constexpr unsigned pyc_check_base = 0;\n";
+    auto native = emitNativeTransaction(out, definition, rule);
+    if (failed(native))
+      return failure();
+    if (*native)
+      out << "    pyc_behavior::evaluateFourState([&]() {\n";
     if (failed(emitBody(out, operation.getBody().front(), definition, &rule)))
       return failure();
+    if (*native)
+      out << "    });\n";
     out << "  }\n";
   }
   return success();
