@@ -4029,15 +4029,16 @@ private:
     llvm::DenseSet<unsigned> dataSlots;
     auto *terminator = body.getTerminator();
     for (const auto &requirement : view.requirements) {
-      if (requirement.operation.getPayload() != payload)
+      auto operation = requirement.operation;
+      if (operation.getPayload() != payload)
         continue;
       auto kind = requirement.kind.getValue();
       if (kind != "state_write" && kind != "return")
         continue;
       if (failed(budget.debit(1, consumer))) return failure();
       const auto &control = view.controls[requirement.control];
-      auto available = dyn_cast<BlockArgument>(requirement.operation.getAvailability());
-      auto reached = isOne(requirement.operation.getPath());
+      auto available = dyn_cast<BlockArgument>(operation.getAvailability());
+      auto reached = isOne(operation.getPath());
       if (failed(reached)) return failure();
       if (!*reached || !available || available.getOwner() != &body ||
           control.executionPath.selectionControl || !control.invocation.empty())
