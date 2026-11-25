@@ -1347,7 +1347,8 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
             return failure();
           sampled->requirements.push_back(builder.getDictionaryAttr({
               builder.getNamedAttr("control", builder.getI64IntegerAttr(control)),
-              builder.getNamedAttr("kind", builder.getStringAttr(use.returned ? "return" : "state_write")),
+              builder.getNamedAttr("kind", builder.getStringAttr(use.kind == gfir::StructuredDataCaptureUse::Kind::Return ? "return" :
+                  use.kind == gfir::StructuredDataCaptureUse::Kind::Observation ? "log" : "state_write")),
               builder.getNamedAttr("operand", builder.getI64IntegerAttr(use.operand)),
               builder.getNamedAttr("occurrence", check.id.get("check")),
               builder.getNamedAttr("location", check.location)}));

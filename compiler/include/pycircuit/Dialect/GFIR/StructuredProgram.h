@@ -174,7 +174,7 @@ struct StructuredGuardCapture {
 struct StructuredDataCaptureUse {
   llvm::SmallVector<unsigned> captures;
   unsigned operand;
-  bool returned;
+  enum class Kind { StateWrite, Return, Observation } kind;
 };
 
 struct StructuredRule {

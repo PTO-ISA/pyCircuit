@@ -863,6 +863,9 @@ LogicalResult Analyzer::analyzeAvailability(
           // Demand is registered at the consuming statement below.
         } else if (auto yield = dyn_cast<YieldOp>(user); yield && yield->getParentOp() == rule) {
           // A pure computation before this return does not demand the value.
+        } else if (auto effect = dyn_cast<EffectOp>(user);
+                   effect && effect->getParentOp() == rule && effect.getKind() != "assert") {
+          // Observation payloads are demanded only at this reached statement.
         } else if (ac::detail::isStrictBitsOperation(user) && user->getParentOp() == rule) {
         } else {
           return user->emitOpError("available capture requires a direct guard, state write or return");
@@ -897,11 +900,16 @@ LogicalResult Analyzer::analyzeAvailability(
           return write.emitOpError("available writes currently require a whole scalar state");
         candidateRequired[clocked->stateAccesses.lookup(write)] = inputs;
         if (!inputs.empty())
-          clocked->dataCaptureUses[write].push_back({inputs, 1, false});
+          clocked->dataCaptureUses[write].push_back({inputs, 1, StructuredDataCaptureUse::Kind::StateWrite});
       } else if (auto yield = dyn_cast<YieldOp>(op)) {
         for (auto [ordinal, value] : llvm::enumerate(yield.getValues()))
           if (!required[value].empty())
-            clocked->dataCaptureUses[yield].push_back({required[value], unsigned(ordinal), true});
+            clocked->dataCaptureUses[yield].push_back({required[value], unsigned(ordinal), StructuredDataCaptureUse::Kind::Return});
+      } else if (auto effect = dyn_cast<EffectOp>(op); effect && effect.getKind() != "assert") {
+        for (auto [ordinal, value] : llvm::enumerate(effect.getValues()))
+          if (!required[value].empty())
+            clocked->dataCaptureUses[effect].push_back(
+                {required[value], unsigned(ordinal), StructuredDataCaptureUse::Kind::Observation});
       } else if (!inputs.empty() && !clocked->guardedCaptureUses.contains(&op)) {
         return op.emitOpError("available local values require a strict computation, whole state write or return");
       }

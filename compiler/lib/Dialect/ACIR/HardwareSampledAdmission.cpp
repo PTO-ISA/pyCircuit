@@ -4068,7 +4068,7 @@ private:
       if (!dataValues.contains(requiredPayload))
         continue;
       auto kind = requirement.kind.getValue();
-      if (kind != "state_write" && kind != "return")
+      if (kind != "state_write" && kind != "return" && kind != "log")
         continue;
       if (failed(budget.debit(1, consumer))) return failure();
       const auto &control = view.controls[requirement.control];
@@ -4092,6 +4092,20 @@ private:
         if (requirement.operand < count &&
             terminator->getOperand(requirement.operand) == requiredPayload) {
           dataSlots.insert(requirement.operand);
+          matched = true;
+        }
+      }
+      if (kind == "log") {
+        for (const auto &observation : view.observations) {
+          if (failed(budget.debit(1, consumer))) return failure();
+          // Bind this demand to the actual ordered observation instance and
+          // operand, not merely another equal payload in the Rule's suffix.
+          if (observation.id.get("site") != requirement.occurrence ||
+              observation.executionPath.selectionControl ||
+              observation.id.getAs<ArrayAttr>("invocation").size() ||
+              requirement.operand >= observation.values.size()) continue;
+          if (observation.values[requirement.operand] != requiredPayload) continue;
+          dataSlots.insert(observation.firstValueResult + requirement.operand);
           matched = true;
         }
       }
