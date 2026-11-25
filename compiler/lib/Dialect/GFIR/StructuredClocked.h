@@ -3,6 +3,7 @@
 
 #include "Dialect/ACIR/SourceCheckBudget.h"
 #include "pycircuit/Dialect/GFIR/StructuredProgram.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 
 namespace acir::gfir::detail {
 
@@ -20,11 +21,12 @@ mlir::LogicalResult verifyFifoPrimitive(PrimitiveOp primitive,
                                         const ac::HardwareAnalysis &hardware);
 mlir::FailureOr<StructuredMemory>
 describeRawMemory(PrimitiveOp primitive, const ac::HardwareAnalysis &hardware);
+using ClockedCallBinder = llvm::function_ref<
+    mlir::FailureOr<llvm::ArrayRef<StructuredChildState>>(StructuredClocked &)>;
 mlir::FailureOr<StructuredClocked>
 analyzeClocked(ModuleOp module, const ac::HardwareAnalysis &hardware,
                ac::detail::SourceCheckBudget &budget,
-               llvm::DenseMap<mlir::Operation *, StructuredChildMethod> childMethods,
-               llvm::ArrayRef<StructuredChildState> childStates);
+               ClockedCallBinder bindCalls);
 mlir::LogicalResult buildClockedChecks(ModuleOp module, StructuredClocked &plan,
                                       ac::detail::SourceCheckBudget &budget);
 

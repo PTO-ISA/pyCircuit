@@ -118,8 +118,8 @@ private:
   llvm::StringMap<std::pair<unsigned, unsigned>> explicitInputs;
   LogicalResult verifyDefinition(ModuleOp module, bool clocked);
   FailureOr<StructuredDefinition> analyzeDefinition(ModuleOp module);
-  FailureOr<llvm::DenseMap<Operation *, StructuredChildMethod>>
-  bindChildMethods(StructuredDefinition &definition);
+  LogicalResult bindOrderedMethods(StructuredDefinition &definition,
+                                   StructuredClocked &local);
   FailureOr<InstancePath> resolveInstancePath(ModuleOp owner, ArrayRef<StringAttr> names,
                                                CallOp call);
   FailureOr<unsigned> bindStateRoute(StructuredDefinition &caller, const InstancePath &path,
@@ -451,9 +451,9 @@ LogicalResult Analyzer::bindMethodFormals(StructuredDefinition &caller,
   return success();
 }
 
-FailureOr<llvm::DenseMap<Operation *, StructuredChildMethod>>
-Analyzer::bindChildMethods(StructuredDefinition &definition) {
-  llvm::DenseMap<Operation *, StructuredChildMethod> calls;
+LogicalResult Analyzer::bindOrderedMethods(StructuredDefinition &definition,
+                                            StructuredClocked &local) {
+  auto &calls = local.childMethodCalls;
   auto module = definition.module;
   auto &body = module.getBody().front();
   for (auto [index, rule] : llvm::enumerate(body.getOps<RuleOp>())) {
@@ -461,47 +461,53 @@ Analyzer::bindChildMethods(StructuredDefinition &definition) {
     bool usesChild = false;
     for (auto call : ordered.getOps<CallOp>()) {
       auto receiver = call.getReceiverAttr();
-      if (!receiver)
+      if (!receiver && !call.getBindingsAttr())
         continue;
-      auto first = dyn_cast_or_null<InstanceOp>(
-          SymbolTable::lookupSymbolIn(module, receiver.getRootReference()));
-      if (!first)
-        continue;
-      auto *firstDefinition = hardware.lookupDefinition(first.getCalleeAttr().getValue());
-      if (receiver.getNestedReferences().empty() && isa_and_nonnull<PrimitiveOp>(firstDefinition))
-        continue;
+      SmallVector<StringAttr> receiverNames;
+      if (receiver) {
+        auto first = dyn_cast_or_null<InstanceOp>(
+            SymbolTable::lookupSymbolIn(module, receiver.getRootReference()));
+        if (!first)
+          continue;
+        auto *firstDefinition = hardware.lookupDefinition(first.getCalleeAttr().getValue());
+        if (receiver.getNestedReferences().empty() &&
+            isa_and_nonnull<PrimitiveOp>(firstDefinition))
+          continue;
+        receiverNames = symbolComponents(receiver);
+      }
       if (!call.getInterfaceAttr())
         return call.emitOpError("ordered instance call requires a Method name");
-      auto path = resolveInstancePath(module, symbolComponents(receiver), call);
+      auto path = resolveInstancePath(module, receiverNames, call);
       if (failed(path))
         return failure();
-      unsigned childIndex = path->definitions.back();
-      const auto &child = result.definitions[childIndex].clocked;
-      if (failed(budget.debit(child->methods.size(), call)))
+      unsigned calleeIndex = receiver ? path->definitions.back() : result.definitions.size();
+      const auto &callee = receiver ? *result.definitions[calleeIndex].clocked : local;
+      if (failed(budget.debit(callee.methods.size(), call)))
         return failure();
-      auto found = llvm::find_if(child->methods, [&](MethodOp method) {
+      auto found = llvm::find_if(callee.methods, [&](MethodOp method) {
         return method.getSymName() == call.getInterfaceAttr().getValue();
       });
-      if (found == child->methods.end())
+      if (found == callee.methods.end())
         return call.emitOpError("interface must resolve to a Method on the actual receiver");
       MethodOp method = *found;
       if (!detail::matchesSignature(call, method.getFunctionType()))
         return call.emitOpError("child Method operands and results must match its signature");
-      unsigned methodIndex = found - child->methods.begin();
-      auto effects = child->directMethodEffects.find(methodIndex);
-      if (effects == child->directMethodEffects.end())
-        return call.emitOpError("child Method requires a bounded guard-free chain of state and value operations");
+      unsigned methodIndex = found - callee.methods.begin();
+      auto effects = callee.directMethodEffects.find(methodIndex);
+      if (effects == callee.directMethodEffects.end())
+        return call.emitOpError("bound Method requires a bounded guard-free chain of state and value operations");
       const auto &effect = effects->second;
       if (failed(budget.debit(effect.expandedWork, call)))
         return failure();
-      StructuredChildMethod binding{path->instances, childIndex, methodIndex, {}, {}};
-      for (unsigned state : effect.states) {
-        const bool writes = llvm::is_contained(effect.writes, state);
-        auto slot = bindStateRoute(definition, *path, state, writes, index, call);
-        if (failed(slot))
-          return failure();
-        binding.states.emplace_back(state, *slot);
-      }
+      StructuredChildMethod binding{path->instances, calleeIndex, methodIndex, {}, {}};
+      if (receiver)
+        for (unsigned state : effect.states) {
+          const bool writes = llvm::is_contained(effect.writes, state);
+          auto slot = bindStateRoute(definition, *path, state, writes, index, call);
+          if (failed(slot))
+            return failure();
+          binding.states.emplace_back(state, *slot);
+        }
       if (failed(bindMethodFormals(definition, binding, method, effect, index, call)))
         return failure();
       calls.try_emplace(call, std::move(binding));
@@ -512,7 +518,7 @@ Analyzer::bindChildMethods(StructuredDefinition &definition) {
         if (isa<IfOp, LoopOp>(op) || (isa<CallOp>(op) && !calls.contains(&op)))
           return op.emitOpError("child Method caller requires a direct ordered body");
   }
-  return calls;
+  return success();
 }
 
 FailureOr<SmallVector<unsigned>>
@@ -958,11 +964,12 @@ FailureOr<StructuredDefinition> Analyzer::analyzeDefinition(ModuleOp module) {
   auto &body = module.getBody().front();
   llvm::StringMap<unsigned> rules;
   if (clockedModules.contains(module)) {
-    auto childMethods = bindChildMethods(definition);
-    if (failed(childMethods))
-      return failure();
-    auto plan = detail::analyzeClocked(module, hardware, budget, std::move(*childMethods),
-                                       definition.childStates);
+    auto plan = detail::analyzeClocked(module, hardware, budget,
+        [&](StructuredClocked &analysis) -> FailureOr<ArrayRef<StructuredChildState>> {
+          if (failed(bindOrderedMethods(definition, analysis)))
+            return failure();
+          return ArrayRef(definition.childStates);
+        });
     if (failed(plan))
       return failure();
     definition.clocked = std::move(*plan);

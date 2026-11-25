@@ -70,14 +70,24 @@ module attributes {gfir.contract = 1 : i64} {
     gfir.instance @unused of @Relay {domains = {default = "default"}}
     %q, %rows = gfir.call @relay() : () -> (!Record, !Rows)
     %untouched, %untouched_rows = gfir.call @unused() : () -> (!Record, !Rows)
+    gfir.method @add_to(%entry: !b8, %delta: !b8) -> (!b8)
+        attributes {writable = {destination = 0 : i64}} {
+      %next = "ac.bits.binary"(%entry, %delta) {opcode = "add"} : (!b8, !b8) -> !b8
+      gfir.write @destination, %next : !b8
+      gfir.yield %next : !b8
+    }
     gfir.rule @writer(%enabled = %allow : !b1, %key = %index : !b1) -> (!b32) {
       %three = "ac.bits.constant4"() {pattern = "00000011"} : () -> !b8
-      %five = "ac.bits.constant4"() {pattern = "00000101"} : () -> !b8
+      %two = "ac.bits.constant4"() {pattern = "00000010"} : () -> !b8
       %first_sum, %first_row = gfir.call @relay::@leaf["apply"](%three, %key) : (!b8, !b1) -> (!b8, !b8)
       %saved_sum, %saved_row = gfir.call @relay::@leaf["snapshot"](%key) : (!b1) -> (!b8, !b8)
-      %second_sum, %second_row = gfir.call @relay::@leaf["apply_bound"](%five)
+      %bound_sum, %bound_row = gfir.call @relay::@leaf["apply_bound"](%three)
           bindings(0 = @relay::@leaf::@record["sum"], 1 = @relay::@leaf::@table[%key : !b1])
           : (!b8, !b8, !b8) -> (!b8, !b8)
+      %second_sum = gfir.call self["add_to"](%two)
+          bindings(0 = @relay::@leaf::@record["sum"]) : (!b8, !b8) -> !b8
+      %second_row = gfir.call self["add_to"](%two)
+          bindings(0 = @relay::@leaf::@table[%key : !b1]) : (!b8, !b8) -> !b8
       gfir.guard %enabled : !b1 loc("nested.py":60:1)
       %saved = "ac.bits.concat"(%saved_sum, %saved_row, %second_sum, %second_row) : (!b8, !b8, !b8, !b8) -> !b32
       gfir.yield %saved : !b32
