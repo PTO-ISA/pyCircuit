@@ -791,6 +791,57 @@ class AvailabilityProof {
       std::swap(left, right);
     return node("eq", {left, right});
   }
+  bool isConstantOneCompanion(Value value) {
+    auto instance = value.getDefiningOp<InstanceOp>();
+    if (!instance)
+      return false;
+    auto target = dyn_cast_or_null<ModuleOp>(analysis.lookupDefinition(instance.getCallee()));
+    auto companions = target ? target->getAttrOfType<ArrayAttr>("ac.output_validity")
+                             : ArrayAttr();
+    if (!companions || !charge(companions.size(), instance))
+      return false;
+    unsigned ordinal = cast<OpResult>(value).getResultNumber();
+    if (llvm::none_of(companions, [&](Attribute raw) {
+          auto slot = dyn_cast<IntegerAttr>(raw);
+          return slot && slot.getInt() >= 0 && uint64_t(slot.getInt()) == ordinal;
+        }))
+      return false;
+
+    // Follow the actual yielded companion. A known-one input stays total
+    // across forwarding, conjunctions and selections with two total arms.
+    if (target.getBody().empty() || target.getBody().front().empty())
+      return false;
+    auto &body = target.getBody().front();
+    auto yield = dyn_cast<YieldOp>(body.back());
+    if (!yield || ordinal >= yield.getValues().size())
+      return false;
+    SmallVector<Value> pending{yield.getValues()[ordinal]};
+    DenseSet<Value> visited;
+    while (!pending.empty()) {
+      Value flag = pending.pop_back_val();
+      if (!charge(1, instance))
+        return false;
+      if (!visited.insert(flag).second)
+        continue;
+      if (auto argument = dyn_cast<BlockArgument>(flag)) {
+        if (argument.getOwner() != &body ||
+            argument.getArgNumber() >= instance.getInputs().size() ||
+            formula(instance.getInputs()[argument.getArgNumber()]) != 1)
+          return false;
+      } else if (auto andOp = flag.getDefiningOp<BitsBinaryOp>();
+                 andOp && andOp.getOpcode() == "and") {
+        llvm::append_range(pending, andOp->getOperands());
+      } else if (auto choice = flag.getDefiningOp<BitsSelectOp>()) {
+        pending.push_back(choice.getTrueValue());
+        pending.push_back(choice.getFalseValue());
+      } else {
+        auto known = knownGuard(flag);
+        if (failed(known) || !known->value_or(false))
+          return false;
+      }
+    }
+    return true;
+  }
   Expr formula(Value value) {
     if (!charge(1, value.getParentBlock()->getParentOp())) return 0;
     value = wire(value);
@@ -816,6 +867,8 @@ class AvailabilityProof {
     else if (auto number = constant(value);
              number && (*number == "0" || *number == "1"))
       result = *number == "1" ? 1 : 0;
+    else if (isConstantOneCompanion(value))
+      result = 1;
     else if (auto get = value.getDefiningOp<TableGetOp>();
              get && value == get->getResult(0) && constant(get.getIndex())) {
       uint64_t ordinal;
