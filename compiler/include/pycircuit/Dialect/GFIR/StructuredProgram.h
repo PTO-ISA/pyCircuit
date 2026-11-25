@@ -141,7 +141,7 @@ struct StructuredMethodEffects {
 };
 
 struct StructuredAvailabilitySource {
-  enum class Kind { Rule, ChildOutput, ChildField, Select, Input, PureOutput };
+  enum class Kind { Rule, ChildOutput, ChildField, Select, Input, PureOutput, FieldInput };
   Kind kind;
   /// Rule or clocked call ordinal in the enclosing definition.
   unsigned index;
@@ -162,6 +162,8 @@ struct StructuredAvailabilitySelect {
 struct StructuredInputAvailability {
   unsigned port;
   mlir::StringAttr name;
+  unsigned wire;
+  llvm::SmallVector<mlir::StringAttr> path;
 };
 
 struct StructuredGuardCapture {

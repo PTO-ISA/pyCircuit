@@ -41,6 +41,10 @@ std::string wholeOutputName(unsigned port) { return "output_value_" + std::to_st
 std::string wholeSnapshotName(unsigned port) { return "pyc_output_value_" + std::to_string(port); }
 std::string availabilityName(unsigned port) { return "pyc_available_" + std::to_string(port); }
 std::string pureAvailabilityName(unsigned output) { return "pyc_availability_output_" + std::to_string(output); }
+std::string inputAvailabilityName(const gfir::StructuredInputAvailability &input, unsigned ordinal) {
+  return input.path.empty() ? "pyc_input_available_" + std::to_string(input.port)
+                            : "pyc_input_field_available_" + std::to_string(ordinal);
+}
 std::string fieldAvailabilityName(unsigned field) {
   return "pyc_field_available_" + std::to_string(field);
 }
@@ -659,12 +663,9 @@ SmallVector<unsigned> pureAvailabilityInputs(const gfir::StructuredDefinition &d
                                             unsigned result) {
   SmallVector<unsigned> ports;
   const auto &output = definition.outputs[result];
-  auto module = definition.module;
-  for (const auto &input : definition.inputAvailability) {
-    auto argument = module.getBody().front().getArgument(input.port);
-    const auto &leaves = definition.valueWires.find(argument)->second;
-    if (llvm::any_of(leaves, [&](unsigned leaf) { return llvm::is_contained(output.inputs, leaf); }))
-      ports.push_back(input.port);
+  for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability)) {
+    if (llvm::is_contained(output.inputs, input.wire))
+      ports.push_back(ordinal);
   }
   return ports;
 }
@@ -676,8 +677,8 @@ void pureAvailabilitySignature(raw_ostream &out, const gfir::StructuredDefinitio
   SmallVector<std::string> parameters;
   for (unsigned input : definition.outputs[result].inputs)
     parameters.push_back("const " + graphType(definition.wires[input], tables) + " &" + wireName(input));
-  for (unsigned port : pureAvailabilityInputs(definition, result))
-    parameters.push_back("const pyc_behavior::Level &pyc_input_available_" + std::to_string(port));
+  for (unsigned ordinal : pureAvailabilityInputs(definition, result))
+    parameters.push_back("const pyc_behavior::Level &" + inputAvailabilityName(definition.inputAvailability[ordinal], ordinal));
   out << join(parameters, ", ") << ") const";
 }
 
@@ -1301,11 +1302,16 @@ LogicalResult BehavioralEmitter::emitWires(
         for (unsigned input : wire.dependencies)
           arguments.push_back(wireName(input));
         auto call = cast<gfir::CallOp>(wire.endpoint.value.getDefiningOp());
-        for (unsigned port : pureAvailabilityInputs(child, wire.call->output)) {
-          auto actual = call.getInputs()[port];
+        for (unsigned ordinal : pureAvailabilityInputs(child, wire.call->output)) {
+          const auto &input = child.inputAvailability[ordinal];
+          auto actual = call.getInputs()[input.port];
           const auto &leaves = definition.valueWires.find(actual)->second;
+          auto leaf = llvm::find_if(leaves, [&](unsigned wire) {
+            return definition.wires[wire].endpoint.path == input.path;
+          });
+          if (leaf == leaves.end()) return failure();
           const auto &sources = definition.wireAvailability.empty()
-              ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+              ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
           auto available = availabilityExpression(definition, sources, instancePrefix);
           if (failed(available)) return failure();
           arguments.push_back(definition.fourStateAvailability ? *available : levelName.str() + "(" + *available + ")");
@@ -3702,6 +3708,10 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
     StringRef instancePrefix) {
   SmallVector<std::string> terms;
   for (const auto &source : sources) {
+    if (source.kind == gfir::StructuredAvailabilitySource::Kind::FieldInput) {
+      terms.push_back("pyc_input_field_available_" + std::to_string(source.index));
+      continue;
+    }
     if (source.kind == gfir::StructuredAvailabilitySource::Kind::PureOutput) {
       terms.push_back("pyc_availability_call_" + std::to_string(source.index));
       continue;

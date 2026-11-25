@@ -961,11 +961,29 @@ LogicalResult ClockedMaterializer::cloneGraph() {
 LogicalResult ClockedMaterializer::bindGraph() {
   for (auto [original, copy] : graphOperations) {
     SmallVector<Value> operands;
-    for (Value operand : original->getOperands()) {
+    const gfir::StructuredDefinition *logicalChild = nullptr;
+    if (isa<gfir::CallOp>(original)) {
+      auto callee = copy->getAttrOfType<FlatSymbolRefAttr>("callee");
+      for (const auto &child : program.definitions) {
+        auto module = child.module;
+        if (module.getSymName() == callee.getValue()) logicalChild = &child;
+      }
+    }
+    for (auto [port, operand] : llvm::enumerate(original->getOperands())) {
       auto value = graph.lookupOrNull(operand);
       if (!value)
         return original->emitOpError("missing verified graph value in clocked refinement");
-      operands.push_back(value);
+      bool flattened = logicalChild && llvm::any_of(logicalChild->inputAvailability, [&](const auto &input) {
+        return input.port == port && !input.path.empty();
+      });
+      if (flattened) {
+        for (const auto &input : logicalChild->inputAvailability) {
+          if (input.port != port) continue;
+          auto field = projectField(value, input.path);
+          if (failed(field)) return failure();
+          operands.push_back(*field);
+        }
+      } else operands.push_back(value);
     }
     if (isa<gfir::CallOp>(original)) {
       auto callee = copy->getAttrOfType<FlatSymbolRefAttr>("callee");
@@ -1003,8 +1021,12 @@ LogicalResult ClockedMaterializer::bindGraph() {
           for (const auto &input : child.inputAvailability) {
             auto actual = original->getOperand(input.port);
             const auto &leaves = definition.valueWires.find(actual)->second;
+            auto leaf = llvm::find_if(leaves, [&](unsigned index) {
+              return definition.wires[index].endpoint.path == input.path;
+            });
+            if (leaf == leaves.end()) return failure();
             const auto &sources = definition.wireAvailability.empty()
-                ? gfir::StructuredAvailability{} : definition.wireAvailability[leaves.front()];
+                ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
             auto available = availability(sources);
             if (failed(available)) return failure();
             operands.push_back(*available);
@@ -1226,6 +1248,8 @@ FailureOr<Value> ClockedMaterializer::availability(
   for (const auto &source : sources) {
     Value value;
     switch (source.kind) {
+    case gfir::StructuredAvailabilitySource::Kind::FieldInput:
+      return this->source.emitOpError("field availability inputs require a pure Module");
     case gfir::StructuredAvailabilitySource::Kind::PureOutput: {
       const auto &wire = definition.wires[source.index];
       const auto &child = program.definitions[wire.call->definition];

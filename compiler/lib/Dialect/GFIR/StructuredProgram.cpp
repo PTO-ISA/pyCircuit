@@ -675,10 +675,16 @@ LogicalResult Analyzer::analyzeAvailability(
     for (unsigned port = 0; port < definition.module.getFunctionType().getNumInputs(); ++port) {
       if (!demands->second.contains(port))
         continue;
-      std::string name = "__pyc_valid_in_" + std::to_string(port);
-      while (!names.insert(name).second)
-        name += "_";
-      definition.inputAvailability.push_back({port, StringAttr::get(package.getContext(), name)});
+      auto argument = definition.module.getBody().front().getArgument(port);
+      const auto &leaves = definition.valueWires.find(argument)->second;
+      for (auto [ordinal, leaf] : llvm::enumerate(leaves)) {
+        const auto &wire = definition.wires[leaf];
+        std::string name = "__pyc_valid_in_" + std::to_string(port);
+        if (!wire.endpoint.path.empty()) name += "_" + std::to_string(ordinal);
+        while (!names.insert(name).second) name += "_";
+        definition.inputAvailability.push_back({port, StringAttr::get(package.getContext(), name),
+                                               leaf, wire.endpoint.path});
+      }
     }
   }
   if (!hasLocalResults && !hasChildResults && definition.inputAvailability.empty())
@@ -719,10 +725,10 @@ LogicalResult Analyzer::analyzeAvailability(
     }
     const auto &wire = definition.wires[index];
     if (auto argument = dyn_cast<BlockArgument>(wire.endpoint.value)) {
-      if (llvm::any_of(definition.inputAvailability, [&](const auto &input) {
-            return input.port == argument.getArgNumber();
-          }))
-        wireSources[index].push_back({Source::Kind::Input, argument.getArgNumber()});
+      for (auto [ordinal, input] : llvm::enumerate(definition.inputAvailability))
+        if (input.wire == index)
+          wireSources[index].push_back({input.path.empty() ? Source::Kind::Input : Source::Kind::FieldInput,
+                                      input.path.empty() ? argument.getArgNumber() : unsigned(ordinal)});
       continue;
     }
     if (wire.ruleResult) {
@@ -817,9 +823,15 @@ LogicalResult Analyzer::analyzeAvailability(
       const auto &leaves = definition.valueWires.find(actual)->second;
       if (llvm::none_of(leaves, [&](unsigned leaf) { return !wireSources[leaf].empty(); }))
         continue;
-      if (!callee || leaves.size() != 1 ||
-          !isa<ac::BitsType>(actual.getType()))
-        return call.emitOpError("available Module input currently requires a scalar receiver");
+      const bool record = isa<ac::StructType>(actual.getType());
+      if (!callee || (!record && (!isa<ac::BitsType>(actual.getType()) || leaves.size() != 1)) ||
+          (record && (clockedModules.contains(callee) ||
+                      llvm::any_of(leaves, [&](unsigned leaf) {
+                        return !isa<ac::BitsType>(definition.wires[leaf].type);
+                      }))))
+        return call.emitOpError("available Module inputs require scalar Bits or a pure Struct of Bits fields");
+      if (record && callee.getSymName() == result.root.getCalleeAttr().getValue())
+        return call.emitOpError("a selected root cannot also receive a partial Struct through an instance");
       if (!clockedModules.contains(callee) &&
           llvm::any_of(callee.getFunctionType().getResults(), [](Type type) {
             return !isa<ac::BitsType>(type);

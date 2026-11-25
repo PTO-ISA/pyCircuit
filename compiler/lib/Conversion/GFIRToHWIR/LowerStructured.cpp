@@ -18,6 +18,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/APSInt.h"
 #include <functional>
 #include <utility>
@@ -53,10 +54,39 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
   OperationState definition(source.getLoc(), ac::ModuleOp::getOperationName());
   for (StringRef name : {"sym_name", "source_owner"})
     definition.addAttribute(name, source->getAttr(name));
-  SmallVector<Type> inputTypes(source.getFunctionType().getInputs());
+  SmallVector<Type> inputTypes;
   SmallVector<Type> outputTypes(source.getFunctionType().getResults());
-  SmallVector<Attribute> inputNames(source.getInputNames().getValue());
+  SmallVector<Attribute> inputNames;
   SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
+  SmallVector<SmallVector<unsigned>> inputSlots(source.getFunctionType().getNumInputs());
+  SmallVector<unsigned> companionSlots(facts.inputAvailability.size());
+  llvm::StringSet<> names;
+  for (auto list : {source.getInputNames(), source.getOutputNames()})
+    for (auto name : list) names.insert(cast<StringAttr>(name).getValue());
+  for (const auto &input : facts.inputAvailability) names.insert(input.name.getValue());
+  for (auto [port, type] : llvm::enumerate(source.getFunctionType().getInputs())) {
+    bool flattened = llvm::any_of(facts.inputAvailability, [&](const auto &input) {
+      return input.port == port && !input.path.empty();
+    });
+    if (flattened) {
+      for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
+        if (input.port != port) continue;
+        companionSlots[ordinal] = inputTypes.size();
+        inputSlots[port].push_back(inputTypes.size());
+        inputTypes.push_back(facts.wires[input.wire].type);
+        std::string name = "__pyc_field_in_" + std::to_string(port) + "_" + std::to_string(ordinal);
+        while (!names.insert(name).second) name += "_";
+        inputNames.push_back(builder.getStringAttr(name));
+      }
+    } else {
+      for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability))
+        if (input.port == port) companionSlots[ordinal] = inputTypes.size();
+      inputSlots[port].push_back(inputTypes.size());
+      inputTypes.push_back(type);
+      inputNames.push_back(source.getInputNames()[port]);
+    }
+  }
+  unsigned sourceInputs = inputTypes.size();
   Type bit;
   if (!facts.inputAvailability.empty() || !facts.outputAvailability.empty() ||
       llvm::any_of(program.definitions, [](const auto &entry) { return !entry.inputAvailability.empty(); })) {
@@ -80,8 +110,8 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
         builder.getNamedAttr("origin", occurrence), builder.getNamedAttr("location", location)}));
     bit = ac::BitsType::get(builder.getContext(), width);
     SmallVector<Attribute> inputValidity(inputTypes.size(), builder.getI64IntegerAttr(-1));
-    for (const auto &input : facts.inputAvailability) {
-      inputValidity[input.port] = builder.getI64IntegerAttr(inputTypes.size());
+    for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
+      inputValidity[companionSlots[ordinal]] = builder.getI64IntegerAttr(inputTypes.size());
       inputTypes.push_back(bit);
       inputNames.push_back(input.name);
     }
@@ -97,7 +127,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
       definition.addAttribute("ac.output_validity", builder.getArrayAttr(outputValidity));
     SmallVector<Attribute> defaults(facts.inputAvailability.size(), builder.getI64IntegerAttr(1));
     definition.addAttribute("ac.internal_ports", builder.getDictionaryAttr({
-        builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(source.getFunctionType().getNumInputs())),
+        builder.getNamedAttr("source_inputs", builder.getI64IntegerAttr(sourceInputs)),
         builder.getNamedAttr("source_outputs", builder.getI64IntegerAttr(source.getFunctionType().getNumResults())),
         builder.getNamedAttr("root_inputs", builder.getArrayAttr(defaults))}));
   }
@@ -111,11 +141,53 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
   auto *block = new Block;
   module.getBody().push_back(block);
   IRMapping mapping;
-  for (BlockArgument input : source.getBody().front().getArguments())
-    mapping.map(input, block->addArgument(input.getType(), input.getLoc()));
+  for (unsigned index = 0; index < sourceInputs; ++index)
+    block->addArgument(inputTypes[index], source.getLoc());
+  builder.setInsertionPointToEnd(block);
+  ac::HardwareAnalysis inputAnalysis(package);
+  for (BlockArgument argument : source.getBody().front().getArguments()) {
+    unsigned port = argument.getArgNumber();
+    bool flattened = llvm::any_of(facts.inputAvailability, [&](const auto &input) {
+      return input.port == port && !input.path.empty();
+    });
+    if (!flattened) {
+      mapping.map(argument, block->getArgument(inputSlots[port].front()));
+      continue;
+    }
+    SmallVector<StringAttr> path;
+    std::function<FailureOr<Value>(Type)> rebuild = [&](Type type) -> FailureOr<Value> {
+      if (auto record = dyn_cast<ac::StructType>(type)) {
+        auto declaration = inputAnalysis.lookupStruct(record);
+        SmallVector<Value> values;
+        for (Attribute raw : declaration.getFields()) {
+          auto field = cast<DictionaryAttr>(raw);
+          path.push_back(field.getAs<StringAttr>("name"));
+          auto value = rebuild(field.getAs<TypeAttr>("type").getValue());
+          path.pop_back();
+          if (failed(value)) return failure();
+          values.push_back(*value);
+        }
+        OperationState create(source.getLoc(), ac::StructCreateOp::getOperationName());
+        create.addOperands(values);
+        create.addTypes(type);
+        return builder.create(create)->getResult(0);
+      }
+      for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability))
+        if (input.port == port && input.path == path)
+          return block->getArgument(companionSlots[ordinal]);
+      return failure();
+    };
+    auto value = rebuild(argument.getType());
+    if (failed(value)) return source.emitOpError("missing verified nominal input field");
+    mapping.map(argument, *value);
+  }
   llvm::DenseMap<unsigned, Value> inputCompanions;
-  for (const auto &input : facts.inputAvailability)
-    inputCompanions.try_emplace(input.port, block->addArgument(bit, source.getLoc()));
+  llvm::DenseMap<unsigned, Value> fieldInputCompanions;
+  for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
+    Value argument = block->addArgument(bit, source.getLoc());
+    if (input.path.empty()) inputCompanions.try_emplace(input.port, argument);
+    else fieldInputCompanions.try_emplace(ordinal, argument);
+  }
   llvm::DenseMap<std::pair<Operation *, unsigned>, Value> childCompanions;
   auto childFor = [&](gfir::CallOp call) -> const gfir::StructuredDefinition * {
     auto receiver = call.getReceiverAttr().getRootReference().getValue();
@@ -234,6 +306,8 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     for (const auto &item : sources) {
       Value value;
       switch (item.kind) {
+      case gfir::StructuredAvailabilitySource::Kind::FieldInput:
+        value = fieldInputCompanions.lookup(item.index); break;
       case gfir::StructuredAvailabilitySource::Kind::Input:
         value = inputCompanions.lookup(item.index); break;
       case gfir::StructuredAvailabilitySource::Kind::PureOutput: {
@@ -268,12 +342,24 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
   };
   for (auto [sourceOp, targetOp] : operations) {
     SmallVector<Value> operands;
-    for (Value operand : sourceOp->getOperands()) {
+    const gfir::StructuredDefinition *child = nullptr;
+    if (auto call = dyn_cast<gfir::CallOp>(sourceOp)) child = childFor(call);
+    for (auto [port, operand] : llvm::enumerate(sourceOp->getOperands())) {
       Value mapped = mapping.lookupOrNull(operand);
       if (!mapped)
         return sourceOp->emitOpError()
                << "operand outside the verified structured module graph";
-      operands.push_back(mapped);
+      bool flattened = child && llvm::any_of(child->inputAvailability, [&](const auto &input) {
+        return input.port == port && !input.path.empty();
+      });
+      if (flattened) {
+        for (const auto &input : child->inputAvailability) {
+          if (input.port != port) continue;
+          auto value = project(mapped, input.path);
+          if (failed(value)) return failure();
+          operands.push_back(*value);
+        }
+      } else operands.push_back(mapped);
     }
     if (auto domain = domainInputs.find(sourceOp); domain != domainInputs.end()) {
       for (unsigned wire : {domain->second.first, domain->second.second}) {
@@ -285,11 +371,15 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
       }
     }
     if (auto call = dyn_cast<gfir::CallOp>(sourceOp))
-      if (const auto *child = childFor(call))
+      if (child)
         for (const auto &input : child->inputAvailability) {
           const auto &leaves = facts.valueWires.find(call.getInputs()[input.port])->second;
+          auto leaf = llvm::find_if(leaves, [&](unsigned index) {
+            return facts.wires[index].endpoint.path == input.path;
+          });
+          if (leaf == leaves.end()) return failure();
           const auto &sources = facts.wireAvailability.empty()
-              ? gfir::StructuredAvailability{} : facts.wireAvailability[leaves.front()];
+              ? gfir::StructuredAvailability{} : facts.wireAvailability[*leaf];
           auto available = availability(sources);
           if (failed(available)) return failure();
           operands.push_back(*available);
