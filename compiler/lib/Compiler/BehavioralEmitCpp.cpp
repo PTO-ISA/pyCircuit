@@ -230,6 +230,138 @@ struct OutputGroup {
   SmallVector<unsigned> inputs;
 };
 
+struct SelectGroup {
+  unsigned condition;
+  SmallVector<unsigned> selects;
+  SmallVector<std::pair<unsigned, unsigned>> forwarded;
+};
+
+struct SelectSchedule {
+  llvm::DenseMap<unsigned, SelectGroup> groups;
+  llvm::BitVector delayed;
+};
+
+std::optional<unsigned> forwardedBits(
+    const gfir::StructuredDefinition &definition, unsigned index) {
+  const auto &wire = definition.wires[index];
+  if (!isa<ac::BitsType>(wire.type))
+    return std::nullopt;
+  auto *op = wire.endpoint.value.getDefiningOp();
+  unsigned input;
+  if (wire.dependencies.size() == 1 &&
+      isa_and_nonnull<ac::StructCreateOp, ac::StructGetOp>(op)) {
+    input = wire.dependencies.front();
+  } else if (auto select = dyn_cast_or_null<ac::BitsSelectOp>(op);
+             select && wire.dependencies.size() == 3 &&
+             select.getTrueValue() == select.getFalseValue()) {
+    input = wire.dependencies[1];
+  } else {
+    return std::nullopt;
+  }
+  const auto &source = definition.wires[input];
+  if (isa<ac::BitsType>(source.type) && wire.width == source.width)
+    return input;
+  return std::nullopt;
+}
+
+SelectSchedule planSelects(const gfir::StructuredDefinition &definition,
+                           const llvm::BitVector &needed) {
+  const unsigned count = definition.order.size();
+  SelectSchedule result;
+  result.delayed.resize(count);
+  SmallVector<unsigned> origin(count), position(count), firstUse(count, count);
+  for (auto [at, index] : llvm::enumerate(definition.order)) {
+    position[index] = at;
+    origin[index] = index;
+    if (needed.test(index))
+      if (auto source = forwardedBits(definition, index))
+        origin[index] = origin[*source];
+  }
+  for (unsigned index : definition.order) {
+    if (!needed.test(index) || origin[index] != index)
+      continue;
+    for (unsigned input : definition.dependencies(index)) {
+      auto &use = firstUse[origin[input]];
+      use = std::min(use, position[index]);
+    }
+  }
+
+  struct Pending {
+    SmallVector<unsigned> selects;
+    unsigned deadline;
+  };
+  llvm::DenseMap<unsigned, Pending> pending;
+  SmallVector<unsigned> scheduledAt(count, count);
+  auto finish = [&](unsigned condition, Pending &group) {
+    if (group.selects.size() >= 3) {
+      unsigned last = group.selects.back();
+      for (unsigned index : group.selects)
+        scheduledAt[index] = last;
+      result.groups.try_emplace(last, SelectGroup{condition, std::move(group.selects), {}});
+    }
+    group.selects.clear();
+    group.deadline = count;
+  };
+  for (unsigned index : definition.order) {
+    if (!needed.test(index) || origin[index] != index)
+      continue;
+    const auto &wire = definition.wires[index];
+    if (wire.dependencies.size() != 3 ||
+        !wire.endpoint.value.getDefiningOp<ac::BitsSelectOp>())
+      continue;
+    unsigned condition = origin[wire.dependencies[0]];
+    auto &group = pending.try_emplace(condition, Pending{{}, count}).first->second;
+    // Every member's operands will exist at the last select, and its result
+    // must be published before the first consumer that actually computes.
+    if (position[index] >= group.deadline)
+      finish(condition, group);
+    group.selects.push_back(index);
+    group.deadline = std::min(group.deadline, firstUse[index]);
+  }
+  for (auto &entry : pending)
+    finish(entry.first, entry.second);
+
+  for (unsigned index : definition.order) {
+    if (!needed.test(index))
+      continue;
+    unsigned source = origin[index];
+    unsigned at = scheduledAt[source];
+    if (at == count || position[index] >= position[at])
+      continue;
+    result.delayed.set(index);
+    if (source != index)
+      result.groups.find(at)->second.forwarded.emplace_back(index, source);
+  }
+  return result;
+}
+
+void emitSelectGroup(raw_ostream &out,
+                     const gfir::StructuredDefinition &definition,
+                     const SelectGroup &group) {
+  for (unsigned index : group.selects)
+    out << "    auto " << wireName(index) << " = "
+        << carrier(definition.wires[index].width) << "::unknown();\n";
+  const auto predicate = wireName(group.condition);
+  out << "    if (" << predicate << ".isFullyKnown()) {\n"
+      << "      if (" << predicate << ".value().toBool()) {\n";
+  for (unsigned arm : {1u, 2u}) {
+    if (arm == 2)
+      out << "      } else {\n";
+    for (unsigned index : group.selects)
+      out << "        " << wireName(index) << " = "
+          << wireName(definition.wires[index].dependencies[arm]) << ";\n";
+  }
+  out << "      }\n    } else {\n";
+  for (unsigned index : group.selects) {
+    const auto &inputs = definition.wires[index].dependencies;
+    out << "      " << wireName(index) << " = gfsim::select(" << predicate << ", "
+        << wireName(inputs[1]) << ", " << wireName(inputs[2]) << ");\n";
+  }
+  out << "    }\n";
+  for (auto [index, source] : group.forwarded)
+    out << "    const auto &" << wireName(index) << " = " << wireName(source) << ";\n";
+}
+
 struct WholeOutput {
   std::string type;
   // A local Rule result must outlive its frame. Committed state and a child's
@@ -294,7 +426,8 @@ private:
                                     const gfir::StructuredWire *packedTable = nullptr);
   LogicalResult emitWires(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
-                          ArrayRef<unsigned> outputs, StringRef instancePrefix = {});
+                          ArrayRef<unsigned> outputs, StringRef instancePrefix = {},
+                          bool groupSelects = false);
   std::optional<unsigned> internOutputGroup(unsigned definition, ArrayRef<unsigned> outputs);
   FailureOr<bool> emitOutputGroup(raw_ostream &out,
                                   const gfir::StructuredDefinition &definition,
@@ -727,7 +860,7 @@ FailureOr<bool> BehavioralEmitter::emitScalarRegion(
 
 LogicalResult BehavioralEmitter::emitWires(
     raw_ostream &out, const gfir::StructuredDefinition &definition,
-    ArrayRef<unsigned> outputs, StringRef instancePrefix) {
+    ArrayRef<unsigned> outputs, StringRef instancePrefix, bool groupSelects) {
   llvm::DenseMap<unsigned, unsigned> packedLookups;
   auto needed = wireClosure(definition, outputs, [&](unsigned index, unsigned input) {
     if (index >= definition.wires.size() || input >= definition.wires.size() ||
@@ -745,6 +878,9 @@ LogicalResult BehavioralEmitter::emitWires(
     }
     return false;
   });
+  SelectSchedule selectSchedule;
+  if (groupSelects)
+    selectSchedule = planSelects(definition, needed);
   llvm::BitVector emitted(definition.order.size());
   for (auto [index, wire] : llvm::enumerate(definition.wires))
     if (isa<BlockArgument>(wire.endpoint.value))
@@ -757,6 +893,16 @@ LogicalResult BehavioralEmitter::emitWires(
   for (unsigned index : definition.order) {
     if (!needed.test(index) || emitted.test(index))
       continue;
+    if (groupSelects && selectSchedule.delayed.test(index))
+      continue;
+    if (auto group = selectSchedule.groups.find(index); group != selectSchedule.groups.end()) {
+      emitSelectGroup(out, definition, group->second);
+      for (unsigned member : group->second.selects)
+        emitted.set(member);
+      for (const auto &alias : group->second.forwarded)
+        emitted.set(alias.first);
+      continue;
+    }
     if (index >= definition.firstClockedCallNode()) {
       if (failed(emitClockedCall(out, definition,
                                  index - definition.firstClockedCallNode(), instancePrefix)))
@@ -897,6 +1043,10 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
     if (failed(group))
       return failure();
     llvm::raw_string_ostream out((*group)->source);
+    bool groupSelects = !isClocked(definition) &&
+        llvm::none_of(definition.wires, [](const gfir::StructuredWire &wire) {
+          return wire.call.has_value();
+        });
     for (unsigned ordinal = 0; ordinal < outputGroups[index].size(); ++ordinal) {
       const auto &outputs = outputGroups[index][ordinal];
       groupSignature(out, definition, tableWireTypes, outputs, ordinal,
@@ -909,7 +1059,7 @@ LogicalResult BehavioralEmitter::emitOutputGroups() {
         roots.push_back(wire);
         values.push_back(wireName(wire));
       }
-      if (failed(emitWires(out, definition, roots)))
+      if (failed(emitWires(out, definition, roots, {}, groupSelects)))
         return failure();
       out << "    return {" << join(values, ", ") << "};\n}\n";
     }
