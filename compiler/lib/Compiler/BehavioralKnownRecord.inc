@@ -136,7 +136,6 @@ void BehavioralEmitter::declareKnownRecord(raw_ostream &out, const KnownRecordPl
           << "      bool " << field << "_enabled;\n";
   }
   out << "    };\n"
-         "    template <bool Known>\n"
          "    void applyKnown(Wire &mirror, const KnownEdit &edit) noexcept {\n"
          "      auto image = mirror.packed().value();\n";
   for (const auto &edit : plan.edits) {
@@ -148,15 +147,16 @@ void BehavioralEmitter::declareKnownRecord(raw_ostream &out, const KnownRecordPl
           << "        const auto row = edit." << field << "_row;\n"
           << "        const unsigned low = " << low << " + (decltype(" << field
           << ")::size - 1 - row) * " << edit.width << ";\n"
-          << "        pyc_behavior::applyKnownField<Known>(mirror, image, " << field
+          << "        pyc_behavior::applyKnownRecordRow(image, " << field
           << ".element(row), low, edit." << field << ");\n"
           << "      }\n";
     } else {
-      out << "      pyc_behavior::applyKnownField<Known>(mirror, image, " << field
-          << ", " << low << ", edit." << field << ");\n";
+      out << "      " << field << " = pyc_behavior::limitBits<" << edit.width
+          << ">(edit." << field << ");\n"
+          << "      pyc_behavior::writeKnownBits<" << edit.width << ">(image, "
+          << low << ", " << field << ");\n";
     }
   }
-  out << "      if constexpr (Known)\n"
-         "        mirror = Wire::fromPacked(Wire::packed_type::known(image));\n"
+  out << "      mirror = Wire::fromPacked(Wire::packed_type::known(image));\n"
          "    }\n";
 }

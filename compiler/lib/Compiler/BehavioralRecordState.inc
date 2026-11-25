@@ -12,6 +12,10 @@ bool fieldInPath(const RecordFieldLayout &leaf, const gfir::StructuredWritePath 
   return leaf.low >= path.low && leaf.low + leaf.width <= path.low + path.width;
 }
 
+bool isNativeRecordScalar(const RecordFieldLayout &field) {
+  return isa<ac::BitsType>(field.type) && field.width <= 64;
+}
+
 LogicalResult BehavioralEmitter::planRecordStates() {
   for (const auto &definition : program.definitions) {
     if (!definition.clocked)
@@ -144,21 +148,30 @@ const RecordStateLayout *BehavioralEmitter::recordLayout(
   return position == recordLayouts.end() ? nullptr : &position->second;
 }
 
+const RecordFieldLayout *BehavioralEmitter::recordFieldLayout(
+    const gfir::StructuredDefinition &definition, const gfir::StructuredWire &wire) const {
+  if (!wire.state)
+    return nullptr;
+  const auto *layout = recordLayout(definition, *wire.state);
+  if (!layout)
+    return nullptr;
+  auto field = llvm::find_if(*layout, [&](const RecordFieldLayout &field) {
+    return field.low == wire.low && field.width == wire.width;
+  });
+  return field == layout->end() ? nullptr : &*field;
+}
+
 std::optional<std::string> BehavioralEmitter::recordField(
     const gfir::StructuredDefinition &definition, const gfir::StructuredWire &wire,
     StringRef instancePrefix) const {
-  if (!wire.state)
+  if (!recordFieldLayout(definition, wire))
     return std::nullopt;
-  const auto *layout = recordLayout(definition, *wire.state);
-  if (!layout || llvm::none_of(*layout, [&](const RecordFieldLayout &field) {
-        return field.low == wire.low && field.width == wire.width;
-      }))
-    return std::nullopt;
-  auto value = instancePrefix.str() + stateName(*wire.state) + ".fields." +
-               recordFieldName(wire.low);
-  if (!isa<ac::TableType>(wire.type))
-    value += ".packed()";
-  return value;
+  auto owner = instancePrefix.str() + stateName(*wire.state);
+  auto member = owner + ".fields." + recordFieldName(wire.low);
+  if (isa<ac::TableType>(wire.type))
+    return member;
+  return "pyc_behavior::readRecordField<" + std::to_string(wire.low) + ", " +
+         std::to_string(wire.width) + ">(" + owner + ".value(), " + member + ")";
 }
 
 FailureOr<std::string> BehavioralEmitter::ruleInputType(BlockArgument argument,
@@ -211,16 +224,26 @@ void BehavioralEmitter::declareRecordState(raw_ostream &out, const RecordStateLa
     out << "> " << recordFieldName(field.low) << ";\n";
   }
   out << "    };\n";
-  for (const auto &field : layout)
-    out << "    " << field.wire << ' ' << recordFieldName(field.low) << ";\n";
+  for (const auto &field : layout) {
+    bool native = known && isNativeRecordScalar(field);
+    out << "    " << (native ? nativeInteger(field.width) : field.wire) << ' '
+        << recordFieldName(field.low) << (native ? "{};\n" : ";\n");
+  }
   if (known)
     declareKnownRecord(out, *known);
 
   out << "    void load(const Wire &value) noexcept {\n";
-  for (const auto &field : layout)
-    out << "      " << recordFieldName(field.low) << " = pyc_behavior::unpack<"
-        << field.wire << ">(pyc_behavior::slice<" << field.width << ">(value.packed(), "
-        << field.low << "));\n";
+  for (const auto &field : layout) {
+    out << "      " << recordFieldName(field.low) << " = ";
+    if (known && isNativeRecordScalar(field)) {
+      out << "static_cast<" << nativeInteger(field.width) << ">("
+          << "pyc_behavior::sliceWords<" << field.width << ">(value.packed().value(), "
+          << field.low << ").value());\n";
+    } else {
+      out << "pyc_behavior::unpack<" << field.wire << ">(pyc_behavior::slice<"
+          << field.width << ">(value.packed(), " << field.low << "));\n";
+    }
+  }
   out << "    }\n";
 
   out << "    void apply(Wire &mirror, const Candidate &candidate) noexcept {\n";
@@ -232,7 +255,7 @@ void BehavioralEmitter::declareRecordState(raw_ostream &out, const RecordStateLa
         << '<' << field.low << ">(mirror, " << member << ", candidate." << member << ");\n";
   }
   out << "    }\n"
-      << "    void merge(Candidate &result, const pyc_behavior::Level &condition, "
+      << "    void merge(const Wire &mirror, Candidate &result, const pyc_behavior::Level &condition, "
          "const Candidate &yes, const Candidate &no) const noexcept {\n";
   for (const auto &field : layout) {
     if (!field.written)
@@ -242,7 +265,8 @@ void BehavioralEmitter::declareRecordState(raw_ostream &out, const RecordStateLa
     if (field.indexWidth)
       out << "mergeRecordRowEdit(";
     else
-      out << "mergeRecordField(condition, " << member << ", ";
+      out << "mergeRecordField(condition, pyc_behavior::readRecordField<"
+          << field.low << ", " << field.width << ">(mirror, " << member << "), ";
     out << "yes." << member << ", no." << member << ");\n";
   }
   out << "    }\n  };\n"

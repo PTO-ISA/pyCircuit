@@ -18,8 +18,7 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
   if (whole)
     native << "      if (!" << wholeInputName << ".isFullyKnown()) return false;\n";
   if (record)
-    native << "      const bool pyc_committed_known = " << stateName(0)
-           << ".isFullyKnown();\n";
+    native << "      if (!" << stateName(0) << ".isFullyKnown()) return false;\n";
   SmallVector<unsigned> origins(definition.wires.size());
   SmallVector<std::string> scalars(definition.wires.size());
   llvm::BitVector ready(definition.wires.size()), materialized(definition.wires.size());
@@ -72,10 +71,7 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
     if (!materialize(origin))
       return {};
     name = "pyc_native_input_" + std::to_string(origin);
-    native << "      if (";
-    if (record && wire.state)
-      native << "!pyc_committed_known && ";
-    native << '!' << wireName(origin) << ".isFullyKnown()) return false;\n"
+    native << "      if (!" << wireName(origin) << ".isFullyKnown()) return false;\n"
            << "      const auto " << name << " = static_cast<" << type
            << ">(" << wireName(origin) << ".value().value());\n";
     return name;
@@ -189,8 +185,15 @@ FailureOr<bool> BehavioralEmitter::emitNativeCaptures(
       }
       if (!llvm::all_of(wire.dependencies, materialize))
         return false;
-    } else if (!wire.state || !recordField(definition, wire, {})) {
-      return false;
+    } else {
+      const auto *field = recordFieldLayout(definition, wire);
+      if (!field)
+        return false;
+      if (record && isNativeRecordScalar(*field)) {
+        scalars[index] = stateName(*wire.state) + ".fields." + recordFieldName(field->low);
+        ready.set(index);
+        continue;
+      }
     }
     auto value = expression(wire, definition, {});
     if (failed(value))

@@ -627,6 +627,8 @@ private:
   LogicalResult planRecordStates();
   const RecordStateLayout *recordLayout(
       const gfir::StructuredDefinition &definition, unsigned state) const;
+  const RecordFieldLayout *recordFieldLayout(
+      const gfir::StructuredDefinition &definition, const gfir::StructuredWire &wire) const;
   std::optional<std::string> recordField(
       const gfir::StructuredDefinition &definition, const gfir::StructuredWire &wire,
       StringRef instancePrefix) const;
@@ -2927,7 +2929,7 @@ LogicalResult BehavioralEmitter::emitBranch(
   for (unsigned state : clocked.branchWrites.find(branch)->second) {
     if (recordLayout(definition, state)) {
       const auto owner = stateName(state);
-      out << "      " << owner << ".fields.merge(txn." << owner << ", " << predicate
+      out << "      " << owner << ".merge(txn." << owner << ", " << predicate
           << ", " << thenFrame << '.' << owner << ", " << elseFrame << '.' << owner << ");\n";
     } else {
       auto variable = clocked.variables[state];

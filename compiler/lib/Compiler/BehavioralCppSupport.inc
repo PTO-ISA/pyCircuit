@@ -448,7 +448,9 @@ void replacePackedRows(wire<State> &state, unsigned low,
 } // namespace pyc_behavior
 )cpp";
 
-constexpr llvm::StringLiteral behavioralRecordSupport = R"cpp(namespace pyc_behavior {
+constexpr llvm::StringLiteral behavioralRecordSupport = R"cpp(#include <type_traits>
+
+namespace pyc_behavior {
 
 template <class Wire, class Layout> class RecordState {
 public:
@@ -487,13 +489,15 @@ public:
     }
   }
 
+  void merge(Candidate &result, const Level &condition, const Candidate &yes,
+             const Candidate &no) const noexcept {
+    fields.merge(mirror_, result, condition, yes, no);
+  }
+
 protected:
   template <class Edit>
-  void applyKnown(const Edit &edit, bool known) noexcept {
-    if (known)
-      fields.template applyKnown<true>(mirror_, edit);
-    else
-      fields.template applyKnown<false>(mirror_, edit);
+  void applyKnown(const Edit &edit) noexcept {
+    fields.applyKnown(mirror_, edit);
   }
 
 private:
@@ -529,11 +533,9 @@ public:
   // intent here so neither a pointer nor a copy survives a subsequent Work.
   void commit(const typename Layout::KnownEdit *edit) noexcept {
     if (pendingKnown_ && edit) {
-      Base::applyKnown(*edit, known_);
-      // A known edit preserves this proof. It can also fill the last unknown
-      // field, so recheck only when committed state was already unknown.
-      if (!known_)
-        known_ = Base::value().isFullyKnown();
+      // Native capture requires a fully known record. Only a writing Xfer
+      // can change committed state, and it invalidates the capture key.
+      Base::applyKnown(*edit);
     } else {
       Base::commit();
       known_ = Base::value().isFullyKnown();
@@ -546,39 +548,44 @@ private:
   bool pendingKnown_ = false;
 };
 
-template <bool Known, class State, class Image, class Field>
-void applyKnownField(State &mirror, Image &image, Field &field, unsigned low,
-                     std::uint64_t value) noexcept {
-  constexpr unsigned width = Field::width;
-  static_assert(width <= 64);
-  value = limitBits<width>(value);
-  field = Field::fromPacked(FourState<width>::known(Bits<width>{value}));
-  if constexpr (Known) {
-    // All untouched bits are already known. Update just the value words and
-    // rebuild the known carrier once after the full edit set.
-    writeKnownBits<width>(image, low, value);
-  } else {
-    mirror.assignSlice(low, field.packed());
-  }
+template <class Image, class Row>
+void applyKnownRecordRow(Image &image, Row &row, unsigned low,
+                         std::uint64_t value) noexcept {
+  row = Row::fromPacked(FourState<Row::width>::known(Bits<Row::width>{value}));
+  writeKnownBits<Row::width>(image, low, value);
 }
 
-template <unsigned Low, class State, class Field>
-void applyRecordField(State &mirror, Field &current,
+template <unsigned Low, unsigned Width, class State, class Field>
+decltype(auto) readRecordField(const State &mirror, const Field &field) noexcept {
+  // Compact scalar members carry the value plane. Cold reads use the
+  // committed mirror, which also holds their known and Z planes.
+  if constexpr (std::is_integral_v<Field>)
+    return slice<Width>(mirror.packed(), Low);
+  else
+    return field.packed();
+}
+
+template <unsigned Low, class State, class Storage, class Field>
+void applyRecordField(State &mirror, Storage &current,
                       const std::optional<Field> &edit) noexcept {
   if (edit) {
-    current = *edit;
-    mirror.assignSlice(Low, pack(current));
+    if constexpr (std::is_integral_v<Storage>)
+      current = static_cast<Storage>(edit->packed().value().value());
+    else
+      current = *edit;
+    mirror.assignSlice(Low, pack(*edit));
   }
 }
 
 template <class Field>
-std::optional<Field> mergeRecordField(const Level &condition, const Field &current,
+std::optional<Field> mergeRecordField(const Level &condition,
+                                      const typename Field::packed_type &current,
                                       const std::optional<Field> &yes,
                                       const std::optional<Field> &no) noexcept {
   if (!yes && !no)
     return std::nullopt;
   return Field::fromPacked(gfsim::select(condition.packed(),
-      pack(yes ? *yes : current), pack(no ? *no : current)));
+      yes ? pack(*yes) : current, no ? pack(*no) : current));
 }
 
 enum class RowMerge { None, NewValue, OldValue };
