@@ -2760,10 +2760,6 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     });
     if (initialized.wasInterrupted()) return failure();
   }
-  const bool queueConjunction = orderedFifo && !ordered &&
-      llvm::all_of(ArrayRef(rule->checks).drop_front(), [&](const auto &check) {
-        return clocked.fifoCalls.contains(check.operation);
-      });
   struct ReachedControl {
     unsigned ordinal;
     DemandKind demand;
@@ -2793,24 +2789,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       ordered->controls.push_back({ordinal, demand, ordered->path});
       return success();
     }
-    if (queueConjunction && rule->checks.size() > 2) {
-      // With only Queue controls, a known zero makes the entire demand
-      // false. An unknown earlier in the prefix is provisional until every
-      // remaining Queue has been checked.
-      out << "    if (!pyc_behavior::isOne(" << predicate << ")) {\n"
-          << "      if (" << predicate << ".isFullyKnown()) {\n"
-          << "        txn.pyc_failed_check = " << noCheck << ";\n"
-             "        txn.pyc_running = false;\n        ";
-      if (failed(emitBlockedReturn(out, body, ruleResults)))
-        return failure();
-      out << "      }\n"
-          << "      if (txn.pyc_running && txn.pyc_check_active) "
-          << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(site)
-          << ";\n      txn.pyc_running = false;\n"
-             "    }\n";
-      return success();
-    }
-    if (orderedFifo && !queueConjunction) {
+    if (orderedFifo) {
       unsigned ordinal = clocked.checkOffsets.lookup(site);
       auto raw = "pyc_control_" + std::to_string(ordinal);
       auto reached = raw + "_reached";
@@ -3304,7 +3283,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
           << control.ordinal << ";\n";
     out << "    }\n";
-  } else if (orderedFifo && !queueConjunction) {
+  } else if (orderedFifo) {
     // Match the independently verified HWIR diagnostic demand. Continue only
     // private value/candidate work after a failed control, retaining each actual
     // source-point reach. A later unavailable Queue can suppress an earlier
