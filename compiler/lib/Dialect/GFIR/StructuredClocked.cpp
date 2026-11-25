@@ -332,8 +332,6 @@ LogicalResult ClockedAnalyzer::bindState(Operation *op, FlatSymbolRefAttr target
   }
   if (!ac::areEquivalentHardwareTypes(value.getType(), type))
     return op->emitOpError("state access payload type does not match its target");
-  if (!body && isa<ac::TableType>(type))
-    return op->emitOpError("Table state reads require an ordered body");
   plan.stateAccesses.try_emplace(op, ordinal);
   if (body) {
     body->states.push_back(ordinal);
@@ -636,12 +634,14 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
     return module.emitOpError("recursive GFIR methods are unsupported");
   plan.methodOrder = std::move(order);
   for (unsigned index : plan.methodOrder) {
+    auto method = plan.methods[index];
+    if (failed(merge(methodUses[index], BodyUses{}, method)))
+      return failure();
     const auto &uses = methodUses[index];
     if (uses.sampledControls != 0) {
       plan.sampledMethods.insert(index);
       continue;
     }
-    auto method = plan.methods[index];
     if (llvm::any_of(method.getBody().front(), [](Operation &op) {
           return !isa<ReadOp, WriteOp, YieldOp, CallOp>(op) && !isCombinational(&op);
         }))
