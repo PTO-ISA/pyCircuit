@@ -170,7 +170,7 @@ struct StructuredGuardCapture {
 };
 
 struct StructuredDataCaptureUse {
-  unsigned capture;
+  llvm::SmallVector<unsigned> captures;
   unsigned operand;
   bool returned;
 };

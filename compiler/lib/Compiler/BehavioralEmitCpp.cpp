@@ -2741,7 +2741,16 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     Operation &op = *current;
     if (auto uses = clocked.dataCaptureUses.find(&op); uses != clocked.dataCaptureUses.end()) {
       for (auto [ordinal, use] : llvm::enumerate(uses->second)) {
-        auto available = "txn.pyc_capture_available_" + std::to_string(use.capture);
+        std::string available;
+        for (unsigned capture : use.captures) {
+          auto next = "txn.pyc_capture_available_" + std::to_string(capture);
+          if (available.empty()) available = next;
+          else if (definition.fourStateAvailability)
+            available = "pyc_behavior::Level::fromPacked(gfsim::bit_and((" + available +
+                        ").packed(), " + next + ".packed()))";
+          else
+            available = "(" + available + " && " + next + ")";
+        }
         out << "    if (!";
         if (definition.fourStateAvailability)
           out << "pyc_behavior::isOne(" << available << ')';
@@ -2749,8 +2758,8 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           out << available;
         out << ") { ";
         if (definition.fourStateAvailability)
-          out << "if (txn.pyc_check_active && !" << available
-              << ".isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
+          out << "if (txn.pyc_check_active && !(" << available
+              << ").isFullyKnown()) txn.pyc_failed_check = pyc_check_base + "
               << clocked.checkOffsets.lookup(&op) + ordinal << "; ";
         out << "txn.pyc_running = false; ";
         if (failed(emitBlockedReturn(out, body, ruleResults)))
