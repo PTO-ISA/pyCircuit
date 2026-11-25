@@ -794,8 +794,10 @@ LogicalResult ClockedAnalyzer::resolveRuleEffects(
         });
     if (!rule.assertions.empty() || !rule.observations.empty()) {
       auto unsupported = rule.operation.walk([&](Operation *op) {
-        if (isa<CallOp, LoopOp>(op)) {
-          op->emitOpError("effect Rule supports selected effects without calls or loops");
+        bool resource = plan.fifoCalls.contains(op) || plan.transactionMemoryCalls.contains(op);
+        if (isa<LoopOp>(op) ||
+            (isa<CallOp>(op) && (!resource || !rule.assertions.empty()))) {
+          op->emitOpError("effect Rule supports resource observations without Methods or loops");
           return WalkResult::interrupt();
         }
         return WalkResult::advance();
@@ -874,10 +876,13 @@ LogicalResult ClockedAnalyzer::resolveRuleEffects(
             if (isa<YieldOp, ReadOp>(nested) || isCombinational(&nested) ||
                 isa<ac::TableGetOp, ac::TableSplatOp>(nested))
               continue;
+            if (auto effect = dyn_cast<EffectOp>(nested);
+                effect && effect.getKind() != "assert")
+              continue;
             auto access = plan.fifoCalls.find(&nested);
             if (access != plan.fifoCalls.end())
               continue;
-            return nested.emitOpError("selected FIFO arms support values and FIFO accesses only");
+            return nested.emitOpError("selected FIFO arms support values, FIFO accesses and observations only");
           }
       } else if (isa<LoopOp>(op) ||
           (isa<CallOp>(op) && !plan.fifoCalls.contains(&op) &&
