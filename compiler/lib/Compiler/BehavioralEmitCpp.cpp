@@ -76,6 +76,8 @@ bool needsDomain(const gfir::StructuredClocked &clocked) {
 
 constexpr StringLiteral levelName = "pyc_behavior::level";
 constexpr StringLiteral noCheck = "std::numeric_limits<unsigned>::max()";
+constexpr unsigned minScalarOperations = 8;
+constexpr unsigned maxScalarOperations = 64;
 
 std::string cppString(StringRef value) {
   std::string text;
@@ -317,6 +319,11 @@ private:
   FailureOr<std::string> valueExpression(Value result, ArrayRef<std::string> args);
   FailureOr<std::string> tableMapExpression(ac::TableMapOp map, unsigned result,
                                            ArrayRef<std::string> args);
+  bool isNativeScalar(Operation &op);
+  FailureOr<std::string> nativeScalarExpression(Operation &op, unsigned width,
+                                                ArrayRef<std::string> args);
+  FailureOr<bool> emitScalarRegion(raw_ostream &out, ArrayRef<Operation *> operations,
+                                   llvm::DenseMap<Value, std::string> &values);
   LogicalResult emitInitial(raw_ostream &out, gfir::VarOp variable, unsigned index);
   LogicalResult emitBody(raw_ostream &out, Block &body,
                          const gfir::StructuredDefinition &definition,
@@ -489,8 +496,11 @@ BehavioralEmitter::bitExpression(Operation *op, unsigned bitWidth,
   if (auto compare = dyn_cast<ac::BitsCompareOp>(op))
     return call("compare<gfsim::ComparePredicate::" +
                 compare.getPredicate().upper() + ">");
-  if (isa<ac::BitsSelectOp>(op))
+  if (auto select = dyn_cast<ac::BitsSelectOp>(op)) {
+    if (select.getTrueValue() == select.getFalseValue())
+      return args[1];
     return call("select");
+  }
   if (isa<ac::BitsConcatOp>(op))
     return concatenate(args);
   std::string width = std::to_string(bitWidth);
@@ -510,6 +520,209 @@ BehavioralEmitter::bitExpression(Operation *op, unsigned bitWidth,
     return call(mode.str() + "<" + width + ">");
   }
   return op->emitOpError("operation lacks behavioral C++ emission");
+}
+
+bool BehavioralEmitter::isNativeScalar(Operation &op) {
+  if (auto constant = dyn_cast<ac::BitsConstant4Op>(op)) {
+    if (constant.getPattern().find_first_not_of("01") != StringRef::npos)
+      return false;
+  } else if (auto binary = dyn_cast<ac::BitsBinaryOp>(op)) {
+    if (!llvm::is_contained(
+            ArrayRef<StringRef>{"add", "sub", "mul", "and", "or", "xor"},
+            binary.getOpcode()))
+      return false;
+  } else if (!isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsCompareOp,
+                  ac::BitsSelectOp, ac::BitsConcatOp, ac::BitsExtractOp,
+                  ac::BitsResizeOp>(op)) {
+    return false;
+  }
+  auto fits = [&](Type type) {
+    auto width = analysis.getPackedWidth(type, {}, &op);
+    return succeeded(width) && *width > 0 && *width <= 64;
+  };
+  return llvm::all_of(op.getResultTypes(), fits) &&
+         llvm::all_of(op.getOperandTypes(), fits);
+}
+
+FailureOr<std::string> BehavioralEmitter::nativeScalarExpression(
+    Operation &op, unsigned width, ArrayRef<std::string> args) {
+  auto operandWidth = [&](Value operand) {
+    return analysis.getPackedWidth(operand.getType(), {}, &op);
+  };
+  if (auto constant = dyn_cast<ac::BitsConstantOp>(op)) {
+    auto value = integer(constant.getValue(), analysis, &op);
+    if (failed(value))
+      return failure();
+    return std::to_string(value->zextOrTrunc(width).getZExtValue()) + "ULL";
+  }
+  if (auto constant = dyn_cast<ac::BitsConstant4Op>(op)) {
+    uint64_t value;
+    if (constant.getPattern().getAsInteger(2, value))
+      return constant.emitOpError("invalid known scalar literal");
+    return std::to_string(value) + "ULL";
+  }
+  if (isa<ac::BitsUnaryOp>(op))
+    return "~" + args.front();
+  if (auto binary = dyn_cast<ac::BitsBinaryOp>(op)) {
+    auto token = llvm::StringSwitch<StringRef>(binary.getOpcode())
+                     .Case("add", "+").Case("sub", "-").Case("mul", "*")
+                     .Case("and", "&").Case("or", "|").Case("xor", "^").Default("");
+    return args[0] + " " + token.str() + " " + args[1];
+  }
+  if (auto compare = dyn_cast<ac::BitsCompareOp>(op)) {
+    auto predicate = compare.getPredicate();
+    std::string lhs = args[0], rhs = args[1];
+    if (predicate.starts_with("s")) {
+      auto bits = operandWidth(compare.getLhs());
+      if (failed(bits))
+        return failure();
+      auto sign = "(std::uint64_t{1} << " + std::to_string(*bits - 1) + ")";
+      lhs = "(" + lhs + " ^ " + sign + ")";
+      rhs = "(" + rhs + " ^ " + sign + ")";
+    }
+    if (predicate.starts_with("u") || predicate.starts_with("s"))
+      predicate = predicate.drop_front();
+    auto token = llvm::StringSwitch<StringRef>(predicate)
+                     .Cases("eq", "case_eq", "==").Case("ne", "!=")
+                     .Case("lt", "<").Case("le", "<=").Case("gt", ">").Case("ge", ">=")
+                     .Default("");
+    return lhs + " " + token.str() + " " + rhs;
+  }
+  if (auto select = dyn_cast<ac::BitsSelectOp>(op)) {
+    if (select.getTrueValue() == select.getFalseValue())
+      return args[1];
+    return args[0] + " ? " + args[1] + " : " + args[2];
+  }
+  if (auto concat = dyn_cast<ac::BitsConcatOp>(op)) {
+    std::string result = args.front();
+    for (unsigned i = 1; i < args.size(); ++i) {
+      auto bits = operandWidth(concat.getOperand(i));
+      if (failed(bits))
+        return failure();
+      result = "((" + result + " << " + std::to_string(*bits) + ") | " + args[i] + ")";
+    }
+    return result;
+  }
+  if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
+    auto low = integer(extract.getLow(), analysis, &op);
+    if (failed(low))
+      return failure();
+    return args.front() + " >> " + std::to_string(low->getZExtValue());
+  }
+  auto resize = cast<ac::BitsResizeOp>(op);
+  if (resize.getMode() == "sext") {
+    auto bits = operandWidth(resize.getInput());
+    if (failed(bits))
+      return failure();
+    return "pyc_behavior::extendSign<" + std::to_string(*bits) + ">(" + args.front() + ")";
+  }
+  return args.front();
+}
+
+FailureOr<bool> BehavioralEmitter::emitScalarRegion(
+    raw_ostream &out, ArrayRef<Operation *> operations,
+    llvm::DenseMap<Value, std::string> &values) {
+  llvm::SmallDenseSet<Operation *> members(operations.begin(), operations.end());
+  llvm::SmallDenseSet<Value> seenInputs;
+  SmallVector<Value> inputs, outputs;
+  for (Operation *op : operations) {
+    for (Value input : op->getOperands())
+      if (!members.contains(input.getDefiningOp()) && seenInputs.insert(input).second)
+        inputs.push_back(input);
+    Value result = op->getResult(0);
+    if (llvm::any_of(result.getUsers(),
+                     [&](Operation *user) { return !members.contains(user); }))
+      outputs.push_back(result);
+  }
+  if (inputs.empty() || outputs.empty())
+    return false;
+
+  llvm::DenseMap<Value, std::string> local;
+  SmallVector<std::string> parameters, arguments, known, exported;
+  for (auto [index, input] : llvm::enumerate(inputs)) {
+    auto name = "pyc_scalar_input_" + std::to_string(index);
+    parameters.push_back("const auto &" + name);
+    arguments.push_back(pack(values.lookup(input)));
+    known.push_back(name + ".isFullyKnown()");
+    local.try_emplace(input, std::move(name));
+  }
+  for (Value output : outputs) {
+    exported.push_back(wireName(values.size()));
+    values.try_emplace(output, exported.back());
+  }
+  llvm::DenseMap<Value, unsigned> widths;
+  for (Operation *op : operations) {
+    Value result = op->getResult(0);
+    auto width = analysis.getPackedWidth(result.getType(), {}, op);
+    if (failed(width))
+      return failure();
+    widths.try_emplace(result, *width);
+    local.try_emplace(result, "pyc_scalar_" + std::to_string(local.size()));
+  }
+
+  auto emit = [&](bool native) -> LogicalResult {
+    llvm::DenseMap<Value, std::string> singleUse;
+    for (Operation *op : operations) {
+      Value result = op->getResult(0);
+      unsigned width = widths.lookup(result);
+      SmallVector<std::string> operands;
+      for (Value input : op->getOperands()) {
+        if (auto expression = singleUse.find(input); expression != singleUse.end()) {
+          operands.push_back(expression->second);
+          continue;
+        }
+        auto argument = local.lookup(input);
+        if (native && seenInputs.contains(input))
+          argument += ".value().value()";
+        operands.push_back(std::move(argument));
+      }
+      auto expression = native ? nativeScalarExpression(*op, width, operands)
+                               : bitExpression(op, width, operands);
+      if (failed(expression))
+        return failure();
+      if (native) {
+        *expression = "pyc_behavior::limitBits<" + std::to_string(width) + ">(" +
+                      *expression + ")";
+        // Expressions used only in one arm stay inside that arm's conditional.
+        if (result.hasOneUse() && members.contains(*result.getUsers().begin()) &&
+            !llvm::is_contained(outputs, result)) {
+          singleUse.try_emplace(result, std::move(*expression));
+          continue;
+        }
+      }
+      out << "        const auto " << local.lookup(result) << " = " << *expression << ";\n";
+    }
+    SmallVector<std::string> returned;
+    for (Value result : outputs) {
+      unsigned width = widths.lookup(result);
+      auto value = local.lookup(result);
+      if (native)
+        value = carrier(width) + "::known(gfsim::Bits<" + std::to_string(width) + ">{" +
+                value + "})";
+      auto type = typedWire(result.getType(), result.getDefiningOp());
+      if (failed(type))
+        return failure();
+      returned.push_back(unpack(*type, value));
+    }
+    out << "        return std::tuple{" << join(returned, ", ") << "};\n";
+    return success();
+  };
+
+  out << "    const auto [" << join(exported, ", ") << "] = []("
+      << join(parameters, ", ") << ") {\n"
+      << "      if (" << join(known, " && ") << ") {\n";
+  if (failed(emit(true)))
+    return failure();
+  out << "      }\n      return pyc_behavior::evaluateFourState([]("
+      << join(parameters, ", ") << ") {\n";
+  if (failed(emit(false)))
+    return failure();
+  SmallVector<std::string> names;
+  for (Value input : inputs)
+    names.push_back(local.lookup(input));
+  out << "      }, " << join(names, ", ") << ");\n"
+      << "    }(" << join(arguments, ", ") << ");\n";
+  return true;
 }
 
 LogicalResult BehavioralEmitter::emitWires(
@@ -1382,10 +1595,33 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
     out << "    }\n";
     return success();
   };
-  for (Operation &op : body) {
-    if (rule && rule->assertions.empty() && rule->afterSnapshot == &op) {
+  Operation *snapshotBoundary = rule && rule->assertions.empty() ? rule->afterSnapshot : nullptr;
+  auto nextRegion = body.begin();
+  for (auto iterator = body.begin(); iterator != body.end();) {
+    auto current = iterator++;
+    Operation &op = *current;
+    if (snapshotBoundary == &op) {
       snapshot();
       out << "    if (!pyc_active) return;\n";
+    }
+    if (current == nextRegion) {
+      SmallVector<Operation *, 16> scalar;
+      for (; nextRegion != body.end() &&
+             scalar.size() < maxScalarOperations &&
+             (nextRegion == current || &*nextRegion != snapshotBoundary) &&
+             isNativeScalar(*nextRegion); ++nextRegion)
+        scalar.push_back(&*nextRegion);
+      if (scalar.empty()) {
+        nextRegion = iterator;
+      } else if (scalar.size() >= minScalarOperations) {
+        auto emitted = emitScalarRegion(out, scalar, values);
+        if (failed(emitted))
+          return failure();
+        if (*emitted) {
+          iterator = nextRegion;
+          continue;
+        }
+      }
     }
     SmallVector<std::string> args, results;
     for (Value input : op.getOperands())

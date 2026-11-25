@@ -115,6 +115,27 @@ inline bool isOne(const Level &value) noexcept {
   return value.isFullyKnown() && value.value().toBool();
 }
 
+template <unsigned Width>
+constexpr std::uint64_t limitBits(std::uint64_t value) noexcept {
+  if constexpr (Width < 64)
+    return value & ((std::uint64_t{1} << Width) - 1);
+  return value;
+}
+
+template <unsigned Width>
+constexpr std::uint64_t extendSign(std::uint64_t value) noexcept {
+  constexpr auto sign = std::uint64_t{1} << (Width - 1);
+  return (value ^ sign) - sign;
+}
+
+template <class Evaluate, class... Inputs>
+#if defined(__GNUC__) || defined(__clang__)
+[[gnu::cold, gnu::noinline]]
+#endif
+auto evaluateFourState(Evaluate evaluate, const Inputs &...inputs) noexcept {
+  return evaluate(inputs...);
+}
+
 // Behavioral owners query Current directly and prepare all transfers after the
 // caller has resolved both sides. Only the enclosing sample may commit them.
 template <class T, std::size_t Depth, gfsim::QueueReadyPolicy Policy,

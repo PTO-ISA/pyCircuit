@@ -45,44 +45,45 @@ module attributes {gfir.contract = 1 : i64} {
       %delay3 = gfir.read @delay3 : !b16
       // Preserve the source's zero extension, sign-bit merge and arithmetic.
       // In particular, multiplication by one still propagates unknown input.
-      %zero = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000000"} : () -> !b34
-      %sign_mask = "ac.bits.constant4"() {pattern = "1111111111111111110000000000000000"} : () -> !b34
-      %wide0 = "ac.bits.resize"(%input) {mode = "zext"} : (!b16) -> !b34
-      %sign0 = "ac.bits.extract"(%input) {low = #w15} : (!b16) -> !b1
-      %extension0 = "ac.bits.select"(%sign0, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
-      %signed0 = "ac.bits.binary"(%wide0, %extension0) {opcode = "or"} : (!b34, !b34) -> !b34
-      %weight0 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000001"} : () -> !b34
-      %tap0 = "ac.bits.binary"(%signed0, %weight0) {opcode = "mul"} : (!b34, !b34) -> !b34
-      %wide1 = "ac.bits.resize"(%delay1) {mode = "zext"} : (!b16) -> !b34
-      %sign1 = "ac.bits.extract"(%delay1) {low = #w15} : (!b16) -> !b1
-      %extension1 = "ac.bits.select"(%sign1, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
-      %signed1 = "ac.bits.binary"(%wide1, %extension1) {opcode = "or"} : (!b34, !b34) -> !b34
-      %weight1 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000010"} : () -> !b34
-      %tap1 = "ac.bits.binary"(%signed1, %weight1) {opcode = "mul"} : (!b34, !b34) -> !b34
-      %wide2 = "ac.bits.resize"(%delay2) {mode = "zext"} : (!b16) -> !b34
-      %sign2 = "ac.bits.extract"(%delay2) {low = #w15} : (!b16) -> !b1
-      %extension2 = "ac.bits.select"(%sign2, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
-      %signed2 = "ac.bits.binary"(%wide2, %extension2) {opcode = "or"} : (!b34, !b34) -> !b34
-      %weight2 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000011"} : () -> !b34
-      %tap2 = "ac.bits.binary"(%signed2, %weight2) {opcode = "mul"} : (!b34, !b34) -> !b34
-      %wide3 = "ac.bits.resize"(%delay3) {mode = "zext"} : (!b16) -> !b34
-      %sign3 = "ac.bits.extract"(%delay3) {low = #w15} : (!b16) -> !b1
-      %extension3 = "ac.bits.select"(%sign3, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
-      %signed3 = "ac.bits.binary"(%wide3, %extension3) {opcode = "or"} : (!b34, !b34) -> !b34
-      %weight3 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000100"} : () -> !b34
-      %tap3 = "ac.bits.binary"(%signed3, %weight3) {opcode = "mul"} : (!b34, !b34) -> !b34
-      %sum01 = "ac.bits.binary"(%tap0, %tap1) {opcode = "add"} : (!b34, !b34) -> !b34
-      %sum012 = "ac.bits.binary"(%sum01, %tap2) {opcode = "add"} : (!b34, !b34) -> !b34
-      %total = "ac.bits.binary"(%sum012, %tap3) {opcode = "add"} : (!b34, !b34) -> !b34
-      // Data selection is a four-state bit merge, not a transaction guard.
-      %next3 = "ac.bits.select"(%valid, %delay2, %delay3) : (!b1, !b16, !b16) -> !b16
-      gfir.write @delay3, %next3 : !b16
-      %next2 = "ac.bits.select"(%valid, %delay1, %delay2) : (!b1, !b16, !b16) -> !b16
-      gfir.write @delay2, %next2 : !b16
-      %next1 = "ac.bits.select"(%valid, %input, %delay1) : (!b1, !b16, !b16) -> !b16
-      gfir.write @delay1, %next1 : !b16
-      %next_output = "ac.bits.select"(%valid, %total, %old_output) : (!b1, !b34, !b34) -> !b34
-      gfir.write @y_out, %next_output : !b34
+      // Select proposal values before writing so that unknown valid merges data.
+      %next:4 = gfir.if %valid : !b1 -> (!b16, !b16, !b16, !b34) {
+        %zero = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000000"} : () -> !b34
+        %sign_mask = "ac.bits.constant4"() {pattern = "1111111111111111110000000000000000"} : () -> !b34
+        %wide0 = "ac.bits.resize"(%input) {mode = "zext"} : (!b16) -> !b34
+        %sign0 = "ac.bits.extract"(%input) {low = #w15} : (!b16) -> !b1
+        %extension0 = "ac.bits.select"(%sign0, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
+        %signed0 = "ac.bits.binary"(%wide0, %extension0) {opcode = "or"} : (!b34, !b34) -> !b34
+        %weight0 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000001"} : () -> !b34
+        %tap0 = "ac.bits.binary"(%signed0, %weight0) {opcode = "mul"} : (!b34, !b34) -> !b34
+        %wide1 = "ac.bits.resize"(%delay1) {mode = "zext"} : (!b16) -> !b34
+        %sign1 = "ac.bits.extract"(%delay1) {low = #w15} : (!b16) -> !b1
+        %extension1 = "ac.bits.select"(%sign1, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
+        %signed1 = "ac.bits.binary"(%wide1, %extension1) {opcode = "or"} : (!b34, !b34) -> !b34
+        %weight1 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000010"} : () -> !b34
+        %tap1 = "ac.bits.binary"(%signed1, %weight1) {opcode = "mul"} : (!b34, !b34) -> !b34
+        %wide2 = "ac.bits.resize"(%delay2) {mode = "zext"} : (!b16) -> !b34
+        %sign2 = "ac.bits.extract"(%delay2) {low = #w15} : (!b16) -> !b1
+        %extension2 = "ac.bits.select"(%sign2, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
+        %signed2 = "ac.bits.binary"(%wide2, %extension2) {opcode = "or"} : (!b34, !b34) -> !b34
+        %weight2 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000011"} : () -> !b34
+        %tap2 = "ac.bits.binary"(%signed2, %weight2) {opcode = "mul"} : (!b34, !b34) -> !b34
+        %wide3 = "ac.bits.resize"(%delay3) {mode = "zext"} : (!b16) -> !b34
+        %sign3 = "ac.bits.extract"(%delay3) {low = #w15} : (!b16) -> !b1
+        %extension3 = "ac.bits.select"(%sign3, %sign_mask, %zero) : (!b1, !b34, !b34) -> !b34
+        %signed3 = "ac.bits.binary"(%wide3, %extension3) {opcode = "or"} : (!b34, !b34) -> !b34
+        %weight3 = "ac.bits.constant4"() {pattern = "0000000000000000000000000000000100"} : () -> !b34
+        %tap3 = "ac.bits.binary"(%signed3, %weight3) {opcode = "mul"} : (!b34, !b34) -> !b34
+        %sum01 = "ac.bits.binary"(%tap0, %tap1) {opcode = "add"} : (!b34, !b34) -> !b34
+        %sum012 = "ac.bits.binary"(%sum01, %tap2) {opcode = "add"} : (!b34, !b34) -> !b34
+        %total = "ac.bits.binary"(%sum012, %tap3) {opcode = "add"} : (!b34, !b34) -> !b34
+        gfir.yield %delay2, %delay1, %input, %total : !b16, !b16, !b16, !b34
+      } else {
+        gfir.yield %delay3, %delay2, %delay1, %old_output : !b16, !b16, !b16, !b34
+      }
+      gfir.write @delay3, %next#0 : !b16
+      gfir.write @delay2, %next#1 : !b16
+      gfir.write @delay1, %next#2 : !b16
+      gfir.write @y_out, %next#3 : !b34
       gfir.write @y_valid, %valid : !b1
       gfir.yield %previous : !R
     }
