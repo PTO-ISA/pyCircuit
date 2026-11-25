@@ -113,7 +113,7 @@ private:
   ArrayRef<StructuredChildState> childStates;
   StructuredClocked plan;
   llvm::StringMap<unsigned> variables, fifos, memories, methods;
-  SmallVector<BodyUses> methodUses, ruleUses;
+  SmallVector<BodyUses, 0> methodUses, ruleUses;
 };
 
 LogicalResult ClockedAnalyzer::collect() {
