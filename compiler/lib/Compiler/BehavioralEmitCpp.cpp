@@ -445,6 +445,13 @@ struct WholeOutput {
   bool snapshot;
 };
 
+struct WholeInput {
+  BlockArgument argument;
+  std::string type;
+};
+
+constexpr llvm::StringLiteral wholeInputName = "pyc_whole_input";
+
 struct RecordFieldLayout {
   unsigned low;
   unsigned width;
@@ -485,18 +492,24 @@ void groupSignature(raw_ostream &out, const gfir::StructuredDefinition &definiti
 void preparationSignature(raw_ostream &out,
                           const gfir::StructuredDefinition &definition,
                           const TableWireTypes &tables,
+                          const WholeInput *whole,
                           StringRef owner = {}) {
   out << "void " << owner << "prepare(";
   bool comma = !definition.explicitDomains;
   if (comma)
     out << "const pyc_behavior::Level &pyc_clock, "
            "const pyc_behavior::Level &pyc_reset";
-  for (unsigned input : definition.preparationInputs) {
+  auto parameter = [&](StringRef type, StringRef name) {
     if (comma)
       out << ", ";
-    out << "const " << graphType(definition.wires[input], tables) << " &" << wireName(input);
+    out << "const " << type << " &" << name;
     comma = true;
-  }
+  };
+  if (whole)
+    parameter(whole->type, wholeInputName);
+  else
+    for (unsigned input : definition.preparationInputs)
+      parameter(graphType(definition.wires[input], tables), wireName(input));
   if (definition.incomingState)
     out << ", const ChildTxnState &pyc_incoming, bool pyc_incoming_enabled";
   if (hasObservations(definition))
@@ -535,6 +548,8 @@ private:
   LogicalResult emitOutputGroupBody(unsigned index, unsigned ordinal);
   LogicalResult emitOutputCallables();
   LogicalResult planWholeOutputs();
+  LogicalResult planWholeInputs();
+  const WholeInput *wholeInput(const gfir::StructuredDefinition &definition) const;
   LogicalResult planRecordStates();
   const RecordStateLayout *recordLayout(
       const gfir::StructuredDefinition &definition, unsigned state) const;
@@ -629,6 +644,7 @@ private:
   SmallVector<SmallVector<OutputGroup>> outputGroups;
   SmallVector<llvm::BitVector> usedOutputs;
   SmallVector<llvm::DenseMap<unsigned, WholeOutput>> wholeOutputs;
+  llvm::DenseMap<Operation *, WholeInput> wholeInputs;
   llvm::BitVector memoizedRules;
   SmallVector<uint64_t> groupWorkRemaining;
   llvm::DenseMap<Operation *, RecordStateLayout> recordLayouts;
@@ -1578,6 +1594,47 @@ void BehavioralEmitter::planEvaluationMemoization() {
   }
 }
 
+LogicalResult BehavioralEmitter::planWholeInputs() {
+  for (auto [index, definition] : llvm::enumerate(program.definitions)) {
+    if (!memoizedRules.test(index) || definition.preparationInputs.size() < 2)
+      continue;
+    const auto &rule = definition.clocked->rules.front();
+    if (rule.afterSnapshot)
+      continue;
+    auto operation = rule.operation;
+    auto argument = dyn_cast<BlockArgument>(
+        definition.wires[definition.preparationInputs.front()].endpoint.value);
+    if (!argument || !isa<ac::StructType>(argument.getType()) ||
+        !llvm::all_of(argument.getUsers(), [&](Operation *user) { return user == operation; }))
+      continue;
+    if (llvm::any_of(llvm::zip_equal(operation.getCaptures(), operation.getBody().front().getArguments()),
+                     [&](const auto &binding) {
+          return std::get<0>(binding) == argument && recordCaptures.contains(std::get<1>(binding));
+        }))
+      continue;
+    auto leaves = definition.valueWires.find(argument);
+    if (leaves == definition.valueWires.end() ||
+        leaves->second.size() != definition.preparationInputs.size() ||
+        !llvm::all_of(leaves->second, [&](unsigned leaf) {
+          return llvm::is_contained(definition.preparationInputs, leaf);
+        }))
+      continue;
+    // The graph inventories each nominal leaf exactly once. Keep its schedule
+    // and replace the C++ carrier only when all uses capture this whole value.
+    auto wire = typedWire(argument.getType(), operation);
+    if (failed(wire))
+      return failure();
+    wholeInputs.try_emplace(definition.module, WholeInput{argument, std::move(*wire)});
+  }
+  return success();
+}
+
+const WholeInput *BehavioralEmitter::wholeInput(
+    const gfir::StructuredDefinition &definition) const {
+  auto found = wholeInputs.find(definition.module);
+  return found == wholeInputs.end() ? nullptr : &found->second;
+}
+
 LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index) {
   const auto &definition = program.definitions[index];
   out << "struct " << moduleName(index) << " {\n";
@@ -1617,7 +1674,7 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
   }
   if (isClocked(definition)) {
     out << "  ";
-    preparationSignature(out, definition, tableWireTypes);
+    preparationSignature(out, definition, tableWireTypes, wholeInput(definition));
     out << ";\n  void reset() noexcept;\n  void discard() noexcept;\n"
            "  void commit() noexcept;\n";
   }
@@ -1662,11 +1719,15 @@ LogicalResult BehavioralEmitter::declareModule(raw_ostream &out, unsigned index)
     out << "private:\n";
     if (memoizedRules.test(index)) {
       const auto &rule = definition.clocked->rules.front();
-      out << "  std::optional<std::tuple<";
-      llvm::interleaveComma(definition.preparationInputs, out, [&](unsigned input) {
-        out << graphType(definition.wires[input], tableWireTypes);
-      });
-      out << ">> pyc_memo_key;\n";
+      if (const auto *whole = wholeInput(definition)) {
+        out << "  std::optional<" << whole->type << "> pyc_memo_key;\n";
+      } else {
+        out << "  std::optional<std::tuple<";
+        llvm::interleaveComma(definition.preparationInputs, out, [&](unsigned input) {
+          out << graphType(definition.wires[input], tableWireTypes);
+        });
+        out << ">> pyc_memo_key;\n";
+      }
       if (rule.afterSnapshot) {
         auto operation = rule.operation;
         SmallVector<std::string> types;
@@ -1738,7 +1799,8 @@ LogicalResult BehavioralEmitter::emitModule(raw_ostream &out, unsigned index,
     auto &prepare = header ? *header : out;
     if (header)
       prepare << "inline ";
-    preparationSignature(prepare, definition, tableWireTypes, moduleName(index) + "::");
+    preparationSignature(prepare, definition, tableWireTypes, wholeInput(definition),
+                         moduleName(index) + "::");
     prepare << " {\n";
     if (failed(emitTemporalWork(prepare, index)))
       return failure();
@@ -3024,6 +3086,7 @@ FailureOr<SmallVector<std::string>> BehavioralEmitter::captureExpressions(
     const gfir::StructuredDefinition &definition, const gfir::StructuredRule &rule) {
   auto operation = rule.operation;
   SmallVector<std::string> values;
+  const auto *whole = wholeInput(definition);
   for (auto [argument, capture] :
        llvm::zip_equal(operation.getBody().front().getArguments(), operation.getCaptures())) {
     if (auto fields = recordCaptures.find(argument); fields != recordCaptures.end()) {
@@ -3031,6 +3094,10 @@ FailureOr<SmallVector<std::string>> BehavioralEmitter::captureExpressions(
       for (unsigned field : fields->second.fields)
         parts.push_back(wireName(field));
       values.push_back("std::tuple{" + join(parts, ", ") + "}");
+      continue;
+    }
+    if (whole && capture == whole->argument) {
+      values.push_back(wholeInputName.str());
       continue;
     }
     auto value = graphWire(capture, definition, operation);
@@ -3045,11 +3112,16 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
     raw_ostream &out, const gfir::StructuredDefinition &definition) {
   const auto &rule = definition.clocked->rules.front();
   const unsigned grant = definition.wires.size();
+  const auto *whole = wholeInput(definition);
   out << "    const auto " << wireName(grant) << " = " << levelName << "(true);\n"
       << "    if (!pyc_memo_key";
-  for (auto [slot, input] : llvm::enumerate(definition.preparationInputs))
-    out << "\n        || !pyc_behavior::sameMasks(std::get<" << slot << ">(*pyc_memo_key), "
-        << wireName(input) << ')';
+  if (whole)
+    out << "\n        || !pyc_behavior::sameMasks(pyc_memo_key->packed(), "
+        << wholeInputName << ".packed())";
+  else
+    for (auto [slot, input] : llvm::enumerate(definition.preparationInputs))
+      out << "\n        || !pyc_behavior::sameMasks(std::get<" << slot << ">(*pyc_memo_key), "
+          << wireName(input) << ')';
   out << ") {\n      pyc_memo_key.reset();\n";
   if (failed(emitWires(out, definition, rule.dependencies)))
     return failure();
@@ -3065,8 +3137,11 @@ LogicalResult BehavioralEmitter::emitMemoizedRule(
     out << ");\n";
   }
   out << "      pyc_memo_key.emplace(";
-  llvm::interleaveComma(definition.preparationInputs, out,
-                        [&](unsigned input) { out << wireName(input); });
+  if (whole)
+    out << wholeInputName;
+  else
+    llvm::interleaveComma(definition.preparationInputs, out,
+                          [&](unsigned input) { out << wireName(input); });
   out << ");\n    }\n";
   if (rule.afterSnapshot) {
     out << "    TxnFrame0 " << frameName(0) << ";\n"
@@ -3101,17 +3176,25 @@ LogicalResult BehavioralEmitter::emitClockedCall(
   } else {
     out << "pyc_clock, pyc_reset";
   }
-  for (unsigned input : child.preparationInputs) {
-    const auto &endpoint = child.wires[input].endpoint;
-    unsigned argument = cast<BlockArgument>(endpoint.value).getArgNumber();
-    auto actual = operation.getInputs()[argument];
-    const auto &leaves = definition.valueWires.find(actual)->second;
-    auto leaf = llvm::find_if(leaves, [&](unsigned wire) {
-      return definition.wires[wire].endpoint.path == endpoint.path;
-    });
-    if (leaf == leaves.end())
-      return operation.emitOpError("clocked child preparation input is unresolved");
-    out << ", " << wireName(*leaf);
+  if (const auto *whole = wholeInput(child)) {
+    auto actual = operation.getInputs()[whole->argument.getArgNumber()];
+    auto input = graphWire(actual, definition, operation);
+    if (failed(input))
+      return failure();
+    out << ", " << *input;
+  } else {
+    for (unsigned input : child.preparationInputs) {
+      const auto &endpoint = child.wires[input].endpoint;
+      unsigned argument = cast<BlockArgument>(endpoint.value).getArgNumber();
+      auto actual = operation.getInputs()[argument];
+      const auto &leaves = definition.valueWires.find(actual)->second;
+      auto leaf = llvm::find_if(leaves, [&](unsigned wire) {
+        return definition.wires[wire].endpoint.path == endpoint.path;
+      });
+      if (leaf == leaves.end())
+        return operation.emitOpError("clocked child preparation input is unresolved");
+      out << ", " << wireName(*leaf);
+    }
   }
   if (child.incomingState) {
     auto writer = call.childState ? definition.childStates[*call.childState].writer
@@ -3618,12 +3701,13 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
   }
 
   llvm::SmallDenseSet<unsigned> declaredInputs;
+  const auto *whole = wholeInput(definition);
   for (const auto &output : definition.outputs) {
     for (unsigned input : output.inputs)
       declaredInputs.insert(input);
   }
-  for (unsigned input : definition.preparationInputs)
-    declaredInputs.insert(input);
+  if (!whole)
+    declaredInputs.insert(definition.preparationInputs.begin(), definition.preparationInputs.end());
 
   for (auto [index, wire] : llvm::enumerate(definition.wires)) {
     if (!isa<BlockArgument>(wire.endpoint.value) ||
@@ -3639,12 +3723,17 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group, bool inlin
     bool comma = !definition.explicitDomains;
     if (comma)
       work << clock << ", pyc_reset";
-    for (unsigned input : definition.preparationInputs) {
+    auto inputArgument = [&](StringRef value) {
       if (comma)
         work << ", ";
-      work << wireName(input);
+      work << value;
       comma = true;
-    }
+    };
+    if (whole)
+      inputArgument(inputs[whole->argument.getArgNumber()]);
+    else
+      for (unsigned input : definition.preparationInputs)
+        inputArgument(wireName(input));
     if (observes)
       work << ", pyc_sink_, pyc_observation_base_";
     work << ");\n";
@@ -3768,6 +3857,8 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
   if (failed(planWholeOutputs()) || failed(planRecordStates()))
     return failure();
   planEvaluationMemoization();
+  if (failed(planWholeInputs()))
+    return failure();
   outputGroups.resize(program.definitions.size());
   for (const auto &definition : program.definitions)
     usedOutputs.emplace_back(definition.outputs.size());
