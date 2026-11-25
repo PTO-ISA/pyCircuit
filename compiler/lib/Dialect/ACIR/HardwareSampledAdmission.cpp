@@ -4023,6 +4023,24 @@ private:
       if (failed(known)) return failure();
       return known->value_or(false);
     };
+    auto capturedAvailability = [&](Value root) -> FailureOr<bool> {
+      SmallVector<Value> pending{root};
+      llvm::DenseSet<Value> visited;
+      while (!pending.empty()) {
+        Value value = pending.pop_back_val();
+        if (failed(budget.debit(1, consumer))) return failure();
+        if (!visited.insert(value).second) continue;
+        if (auto argument = dyn_cast<BlockArgument>(value)) {
+          if (argument.getOwner() != &body) return false;
+          continue;
+        }
+        auto conjunction = value.getDefiningOp<BitsBinaryOp>();
+        if (!conjunction || conjunction->getParentOp() != consumer ||
+            conjunction.getOpcode() != "and") return false;
+        pending.append(conjunction->getOperands().begin(), conjunction->getOperands().end());
+      }
+      return true;
+    };
     // A direct data consumer may expose the captured payload only through a
     // checked whole-state proposal or its ordinary return. Admission parsing
     // authenticates the complete prefix and the proposal's final enable;
@@ -4054,10 +4072,10 @@ private:
         continue;
       if (failed(budget.debit(1, consumer))) return failure();
       const auto &control = view.controls[requirement.control];
-      auto available = dyn_cast<BlockArgument>(operation.getAvailability());
+      auto available = capturedAvailability(operation.getAvailability());
       auto reached = isOne(operation.getPath());
-      if (failed(reached)) return failure();
-      if (!*reached || !available || available.getOwner() != &body ||
+      if (failed(reached) || failed(available)) return failure();
+      if (!*reached || !*available ||
           control.executionPath.selectionControl || !control.invocation.empty())
         return false;
       bool matched = false;
