@@ -1216,7 +1216,8 @@ ClockedMaterializer::lowerBody(Block &body, ValueRange inputs,
       }
       for (unsigned state : plan.branchWrites.find(branch)->second) {
         local[state] = merge(elseState[state], predicate, thenState[state]);
-        localIntents[state] = merge(elseIntents[state], predicate, thenIntents[state]);
+        localIntents[state] = make(ac::BitsSelectOp::getOperationName(),
+            {predicate, thenIntents[state], elseIntents[state]}, {bit})->getResult(0);
       }
       for (auto [result, yes, no] : llvm::zip(branch.getResults(), *thenValues, *elseValues))
         mapping.map(result, merge(no, predicate, yes));
