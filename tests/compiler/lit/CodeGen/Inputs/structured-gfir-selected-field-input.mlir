@@ -7,7 +7,7 @@
 !Control = !ac.struct<"Control">
 !Packet = !ac.struct<"Packet">
 module attributes {gfir.contract = 1 : i64} {
-  ac.struct "Control" fields [{name = "selector", type = !b1}, {name = "permit", type = !b1}]
+  ac.struct "Control" fields [{name = "selector", type = !b1}, {name = "permit", type = !b1}, {name = "run", type = !b1}]
   ac.struct "Packet" fields [{name = "control", type = !Control}, {name = "data", type = !b8}, {name = "fallback", type = !b8}]
   gfir.module @Sink(%value: !b8, %run: !b1) -> (!b8, !b8)
       attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["value", "run"], output_names = ["result", "old"], domains = ["default"]} {
@@ -46,11 +46,19 @@ module attributes {gfir.contract = 1 : i64} {
     %control = ac.struct.get %packet["control"] : (!Packet) -> !Control
     %selector = ac.struct.get %control["selector"] : (!Control) -> !b1
     %ready = ac.struct.get %control["permit"] : (!Control) -> !b1
+    %run = ac.struct.get %control["run"] : (!Control) -> !b1
     %yes = ac.struct.get %packet["data"] : (!Packet) -> !b8
     %no = ac.struct.get %packet["fallback"] : (!Packet) -> !b8
     %selected = "ac.bits.select"(%selector, %yes, %no) : (!b1, !b8, !b8) -> !b8
     gfir.instance @identity of @Identity
-    %result = gfir.call @identity(%selected) : (!b8) -> !b8
+    %forwarded = gfir.call @identity(%selected) : (!b8) -> !b8
+    gfir.rule @capture(%v = %forwarded : !b8, %r = %run : !b1) -> (!b8) {
+      gfir.guard %r : !b1
+      gfir.write @marker, %v : !b8
+      %candidate = gfir.read @marker : !b8
+      gfir.yield %candidate : !b8
+    }
+    %result = gfir.result @capture[0] : !b8
     gfir.yield %result, %ready : !b8, !b1
   }
   gfir.module @Top(%offer: !b1, %data: !b8, %select: !b1, %fallback: !b8, %run: !b1) -> (!b8, !b8, !b8)
@@ -63,7 +71,7 @@ module attributes {gfir.contract = 1 : i64} {
       gfir.yield %value : !b8
     }
     %produced = gfir.result @produce[0] : !b8
-    %control = ac.struct.create(%select, %offer) : (!b1, !b1) -> !Control
+    %control = ac.struct.create(%select, %offer, %run) : (!b1, !b1, !b1) -> !Control
     %packet = ac.struct.create(%control, %produced, %fallback) : (!Control, !b8, !b8) -> !Packet
     gfir.instance @pick of @Pick
     // ready depends only on the total permit field, before produce admits.

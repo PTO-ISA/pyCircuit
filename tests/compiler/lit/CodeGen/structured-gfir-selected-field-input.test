@@ -1,7 +1,7 @@
 # A nested Struct mixes partial data with total controls. Its total ready
 # field feeds the producer; only payload/availability fields form a DAG.
-# The same independent oracle crosses two pure functions before the existing
-# clocked Relay/Sink boundaries; pure calls introduce no sampling domain.
+# The receiver projects scalar fields, then guards a state write and candidate
+# return. Its total ready field remains available before that transaction.
 # Selected value availability crosses a clocked Relay and Sink. The Sink guard
 # precedes its first value use (state-write/return). Two-owner snapshots and exact
 # select X/Z masks expose absent/unselected arms, discard and failed-edge retries.
