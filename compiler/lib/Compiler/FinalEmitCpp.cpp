@@ -294,9 +294,7 @@ LogicalResult emitCppRecords(HardwareEmitContext &context, raw_ostream &out) {
 void appendCppDutHeader(FinalCppSourceParts &parts,
                         ArrayRef<std::string> inputs,
                         ArrayRef<std::string> outputs,
-                        StringRef configure, bool hasChecks, bool observes,
-                        bool alwaysActiveRoot) {
-  const bool singleRoot = alwaysActiveRoot && !hasChecks && !observes;
+                        StringRef configure, bool hasChecks, bool observes) {
   llvm::raw_string_ostream out(parts.systemHeader);
   out << "#include <gfsim/SimSystem.h>\n#include <stdexcept>\n"
          "class pyc_dut final {\npublic:\n";
@@ -323,9 +321,8 @@ void appendCppDutHeader(FinalCppSourceParts &parts,
            "    observation_sink_.system = &system_;\n";
   out << "    if (!" << configure
       << " || "
-         "!system_.AttachObservations(observations_) || !system_."
-      << (singleRoot ? "AddAlwaysActiveRootWithNoChecks" : "AddModule")
-      << "(*root_)) throw std::logic_error(\"DUT setup "
+         "!system_.AttachObservations(observations_) || !system_.AddModule"
+         "(*root_)) throw std::logic_error(\"DUT setup "
          "failed\");\n"
          "  }\n  pyc_dut(const pyc_dut &) = delete;\n"
          "  pyc_dut &operator=(const pyc_dut &) = delete;\n"
@@ -362,8 +359,6 @@ void appendCppDutHeader(FinalCppSourceParts &parts,
            "source_failure_{};\n";
   else
     out << "    bool Precheck() noexcept override { return true; }\n";
-  if (singleRoot)
-    out << "  public:\n    using gfsim::SimSystem::AddAlwaysActiveRootWithNoChecks;\n";
   out << "  };\n"
          "  gfsim::WorkExecutor executor_;\n";
   if (observes)
@@ -442,6 +437,8 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
       "#include <bit>\n#include <type_traits>\n#include <utility>\n"
       "#include <cstddef>\n#include <cstdint>\n";
   parts.supportHeader += cppWorkRuntimeSupport().str();
+  if (isSystemRoot(*root) && context.sourceChecks().managedSampling)
+    parts.supportHeader += cppSystemClockSupport().str();
   if (observes)
     parts.supportHeader += cppObservationSupport().str();
   parts.supportHeader +=

@@ -67,8 +67,11 @@ For compiler development, a closed MLIR package with `gfir.contract = 1 : i64`
 and one `gfir.root` can enter at the native GFIR boundary. Both generation paths
 use the same structural analysis of module calls, field dependencies, state
 ownership, and Rule admission. The behavioral path emits logical evaluation and
-state proposals for the built-in gfsim runtime. The hardware path verifies physical
-storage and controls in HWIR before emitting final C++ or Verilog.
+state proposals for the built-in gfsim runtime. The emitted support header adapts
+the existing FIFO and RAM kernels and sampled clock evaluation. The generated
+DUT uses ordinary `SimSystem::AddModule` registration and the same installed
+Runtime as final C++. The hardware path verifies physical storage and controls in
+HWIR before emitting final C++ or Verilog.
 
 ```mermaid
 flowchart LR

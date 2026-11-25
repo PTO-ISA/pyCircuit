@@ -9,24 +9,9 @@
 
 namespace gfsim {
 
-namespace detail {
-
-inline void checkDffeClock(const SampledClockEvaluation &clock) {
-  if (clock.fault == SampledClockFault::UnknownClock)
-    throw FourStateViolation("dffe clock must be known");
-  if (clock.fault == SampledClockFault::UnknownReset)
-    throw FourStateViolation("dffe reset must be known at posedge");
-}
-
-inline bool dffeEnabled(const wire<Bits<1>> &enabled) {
-  if (!enabled.isFullyKnown())
-    throw FourStateViolation("dffe enable must be known at posedge");
-  return enabled.value().toBool();
-}
-
-} // namespace detail
-
-// Scalar register modules and bulk hardware owners share this transition.
+// This is the sole register state transition implementation. Both scalar
+// modules and bulk owners pass plain state and borrowed pins to the same
+// kernel.
 template <class T = Bits<1>> struct dffe_kernel {
   struct Current {
     wire<T> q;
@@ -56,7 +41,10 @@ template <class T = Bits<1>> struct dffe_kernel {
     try {
       const auto clock =
           evaluateSampledClock(current.clock, inputs.clk, inputs.rst);
-      detail::checkDffeClock(clock);
+      if (clock.fault == SampledClockFault::UnknownClock)
+        throw FourStateViolation("dffe clock must be known");
+      if (clock.fault == SampledClockFault::UnknownReset)
+        throw FourStateViolation("dffe reset must be known at posedge");
       pending.clock = clock.nextClock;
       pending.valid = true;
       if (!clock.rising)
@@ -65,7 +53,9 @@ template <class T = Bits<1>> struct dffe_kernel {
         pending.q = inputs.init;
         return;
       }
-      if (detail::dffeEnabled(inputs.en))
+      if (!inputs.en.isFullyKnown())
+        throw FourStateViolation("dffe enable must be known at posedge");
+      if (inputs.en.value().toBool())
         pending.q = inputs.d;
     } catch (...) {
       discard(current, pending);

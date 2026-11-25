@@ -17,6 +17,8 @@ using namespace mlir;
 namespace acir::compiler {
 namespace {
 
+#include "BehavioralCppSupport.inc"
+
 std::string wireName(unsigned index) { return "value_" + std::to_string(index); }
 std::string moduleName(unsigned index) { return "pyc_gfir_module_" + std::to_string(index); }
 std::string functionName(unsigned index) { return "output_" + std::to_string(index); }
@@ -67,7 +69,7 @@ bool needsDomain(const gfir::StructuredClocked &clocked) {
       [](const gfir::StructuredRule &rule) { return rule.sampled; });
 }
 
-constexpr StringLiteral levelName = "gfsim::behavior::level";
+constexpr StringLiteral levelName = "pyc_behavior::level";
 constexpr StringLiteral noCheck = "std::numeric_limits<unsigned>::max()";
 
 std::string cppString(StringRef value) {
@@ -197,8 +199,8 @@ void preparationSignature(raw_ostream &out,
   out << "void " << owner << "prepare(";
   bool comma = !definition.explicitDomains;
   if (comma)
-    out << "const gfsim::behavior::Level &pyc_clock, "
-           "const gfsim::behavior::Level &pyc_reset";
+    out << "const pyc_behavior::Level &pyc_clock, "
+           "const pyc_behavior::Level &pyc_reset";
   for (unsigned input : definition.preparationInputs) {
     if (comma)
       out << ", ";
@@ -834,18 +836,18 @@ BehavioralEmitter::valueExpression(Value result, ArrayRef<std::string> args) {
     auto size = analysis.getTableSize(cast<ac::TableType>(type), {}, op);
     if (failed(size))
       return failure();
-    return "gfsim::behavior::splat<" + std::to_string(*size) + ">(" + args.front() + ")";
+    return "pyc_behavior::splat<" + std::to_string(*size) + ">(" + args.front() + ")";
   }
   if (auto map = dyn_cast<ac::TableMapOp>(op))
     return tableMapExpression(map, cast<OpResult>(result).getResultNumber(), args);
   if (isa<ac::TableGetOp>(op)) {
     unsigned ordinal = cast<OpResult>(result).getResultNumber();
     if (ordinal == 0)
-      return "std::get<0>(gfsim::behavior::lookup(" + join(args, ", ") + "))";
+      return "std::get<0>(pyc_behavior::lookup(" + join(args, ", ") + "))";
     auto size = analysis.getTableSize(cast<ac::TableType>(op->getOperand(0).getType()), {}, op);
     if (failed(size))
       return failure();
-    return "gfsim::behavior::Level::fromPacked(gfsim::behavior::inRange<" +
+    return "pyc_behavior::Level::fromPacked(pyc_behavior::inRange<" +
            std::to_string(*size) + ">(" + args[1] + "))";
   }
   auto wire = typedWire(type, op);
@@ -1019,7 +1021,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       out << "    txn." << resultName(index) << " = " << values.lookup(value) << ";\n";
   };
   auto requireKnownOne = [&](StringRef predicate, Operation *site) -> LogicalResult {
-    out << "    if (!gfsim::behavior::isOne(" << predicate << ")) {\n"
+    out << "    if (!pyc_behavior::isOne(" << predicate << ")) {\n"
         << "      if (txn.pyc_check_active && !" << predicate << ".isFullyKnown()) "
         << "txn.pyc_failed_check = pyc_check_base + " << clocked.checkOffsets.lookup(site) << ";\n"
            "      txn.pyc_running = false;\n      ";
@@ -1124,7 +1126,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
               << "    txn." << memoryPinName(use.memory, 0, 3) << " = true;\n";
           text = *name + ".read(" + args.front() + ")";
         } else if (use.access == gfir::StructuredMemoryAccess::Result) {
-          out << "    if (!gfsim::behavior::isOne(" << *name << ".live(" << use.port
+          out << "    if (!pyc_behavior::isOne(" << *name << ".live(" << use.port
               << "))) { txn.pyc_running = false; ";
           if (failed(emitBlockedReturn(out, body, ruleResults)))
             return failure();
@@ -1202,7 +1204,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
           out << "      auto pyc_field = " << *type << "::fromPacked(gfsim::extract<"
               << path->second.width << ">(" << frame << "->packed(), "
               << path->second.low << "));\n"
-              << "      gfsim::behavior::replace(pyc_field, "
+              << "      pyc_behavior::replace(pyc_field, "
               << values.lookup(write.getIndex()) << ", "
               << values.lookup(write.getValue()) << ");\n";
           replacement = "pyc_field.packed()";
@@ -1214,7 +1216,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
       if (write.getIndex()) {
         out << "    if (!" << frame << ") " << frame << ".emplace(" << state
             << ".value());\n";
-        text = "gfsim::behavior::replace(*" + frame + ", " +
+        text = "pyc_behavior::replace(*" + frame + ", " +
                values.lookup(write.getIndex()) + ", " + values.lookup(write.getValue()) + ")";
       } else {
         text = frame + " = " + values.lookup(write.getValue());
@@ -1229,7 +1231,7 @@ LogicalResult BehavioralEmitter::emitBody(raw_ostream &out, Block &body,
         out << "    return std::tuple{" << join(args, ", ") << "};\n";
       continue;
     } else if (isa<ac::TableGetOp>(op)) {
-      text = "gfsim::behavior::lookup(" + join(args, ", ") + ")";
+      text = "pyc_behavior::lookup(" + join(args, ", ") + ")";
     } else {
       auto value = valueExpression(op.getResult(0), args);
       if (failed(value))
@@ -1352,7 +1354,7 @@ LogicalResult BehavioralEmitter::emitBranch(
         << "::fromPacked(gfsim::select(" << predicate << ".packed(), "
         << candidate(thenFrame) << ", " << candidate(elseFrame) << "));\n"
         << "      txn." << intentName(state)
-        << " = gfsim::behavior::Level::fromPacked(gfsim::select(" << predicate
+        << " = pyc_behavior::Level::fromPacked(gfsim::select(" << predicate
         << ".packed(), " << thenFrame << '.' << intentName(state) << ".packed(), "
         << elseFrame << '.' << intentName(state) << ".packed()));\n";
   }
@@ -1377,13 +1379,13 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
                                  const gfir::StructuredDefinition &definition) {
   const auto &clocked = *definition.clocked;
   if (needsDomain(clocked))
-    out << "  gfsim::behavior::SampledDomain pyc_domain;\n";
+    out << "  pyc_behavior::SampledDomain pyc_domain;\n";
   for (const auto &fifo : clocked.fifos) {
     auto name = instanceName(fifo.instance);
     auto type = common.cppType(fifo.element, fifo.instance);
     if (failed(name) || failed(type))
       return failure();
-    out << "  gfsim::behavior::Fifo<" << *type << ", " << fifo.depth
+    out << "  pyc_behavior::Fifo<" << *type << ", " << fifo.depth
         << ", gfsim::QueueReadyPolicy::"
         << (fifo.downstreamPop ? "DownstreamPop" : "LocalOccupancy") << ", "
         << fifo.latency << "> " << *name << ";\n";
@@ -1393,7 +1395,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     auto type = common.cppType(memory.element, memory.instance);
     if (failed(name) || failed(type))
       return failure();
-    out << "  gfsim::behavior::" << (memory.asynchronous() ? "ByteMemory" : "SyncMemory")
+    out << "  pyc_behavior::" << (memory.asynchronous() ? "ByteMemory" : "SyncMemory")
         << '<' << *type << ", " << memory.addressWidth << ", " << memory.depth;
     if (!memory.asynchronous())
       out << ", " << memory.readPorts();
@@ -1404,7 +1406,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
     auto type = common.cppType(variable.getInitial().getType(), variable);
     if (failed(type) || failed(emitInitial(out, variable, index)))
       return failure();
-    out << "  gfsim::behavior::State<" << *type << "> " << stateName(index) << ";\n";
+    out << "  pyc_behavior::State<" << *type << "> " << stateName(index) << ";\n";
   }
   if (!clocked.variables.empty()) {
     out << "  void pyc_reset_state() noexcept {\n";
@@ -1443,7 +1445,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
           << "    unsigned pyc_failed_check = " << noCheck << ";\n"
           << "    bool pyc_check_active = false;\n";
     for (auto assertion : rule.assertions)
-      out << "    gfsim::behavior::Level pyc_assert_condition_"
+      out << "    pyc_behavior::Level pyc_assert_condition_"
           << clocked.checkOffsets.lookup(assertion) << ";\n";
     for (const auto &observation : rule.observations) {
       auto effect = observation.operation;
@@ -1462,7 +1464,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
         return failure();
       out << "    std::optional<" << *wire << "> " << stateName(state) << ";\n";
       if (clocked.conditionalWrites.contains(state))
-        out << "    gfsim::behavior::Level " << intentName(state)
+        out << "    pyc_behavior::Level " << intentName(state)
             << " = " << levelName << "(false);\n";
     }
     for (auto [fifoId, fifo] : llvm::enumerate(clocked.fifos)) {
@@ -1473,7 +1475,7 @@ BehavioralEmitter::declareClocked(raw_ostream &out,
         return failure();
       out << "    " << *type << " " << payloadName(fifoId) << ";\n";
       if (rule.sampled && fifo.downstreamPop)
-        out << "    gfsim::behavior::Level " << recipientName(fifoId) << ";\n";
+        out << "    pyc_behavior::Level " << recipientName(fifoId) << ";\n";
     }
     for (auto [memoryIndex, memory] : llvm::enumerate(clocked.memories)) {
       auto declare = [&](gfir::CallOp call, unsigned port) -> LogicalResult {
@@ -1528,7 +1530,7 @@ BehavioralEmitter::recipient(const gfir::StructuredDefinition &definition,
     auto wires = definition.valueWires.find(call.getInputs().front());
     if (wires == definition.valueWires.end() || wires->second.size() != 1)
       return call.emitOpError("FIFO recipient has no single-bit graph value");
-    return "gfsim::behavior::Level::fromPacked(" + wireName(wires->second.front()) + ")";
+    return "pyc_behavior::Level::fromPacked(" + wireName(wires->second.front()) + ")";
   }
   if (fifo.consumer && fifo.consumer != rule)
     return wireName(definition.wires.size() + *fifo.consumer);
@@ -1587,7 +1589,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
       std::string combined = checks.front();
       for (const auto &check : ArrayRef<std::string>(checks).drop_front())
         combined = "gfsim::bit_and(" + combined + ", " + check + ")";
-      grantExpr = "gfsim::behavior::Level::fromPacked(" + combined + ")";
+      grantExpr = "pyc_behavior::Level::fromPacked(" + combined + ")";
     }
     out << "    const auto " << wireName(grant) << " = " << grantExpr << ";\n";
   }
@@ -1619,7 +1621,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
     if (needsDomain(*definition.clocked) && rule.resultUses.empty() &&
         !rule.readsByteMemory && rule.assertions.empty() && rule.observations.empty())
       out << "pyc_active && ";
-    out << "gfsim::behavior::isOne(" << wireName(grant) << ")) ";
+    out << "pyc_behavior::isOne(" << wireName(grant) << ")) ";
   }
   out << instancePrefix << ruleName(index) << '(' << frameName(index);
   if (rule.afterSnapshot)
@@ -1657,7 +1659,7 @@ LogicalResult BehavioralEmitter::emitGrant(raw_ostream &out,
             << ", true, true, pyc_sink->system->cycle());\n";
       };
       if (effect.getValues().empty()) {
-        stage("gfsim::behavior::level(true).packed()", true);
+        stage("pyc_behavior::level(true).packed()", true);
         continue;
       }
       for (Value value : effect.getValues()) {
@@ -1693,8 +1695,8 @@ LogicalResult BehavioralEmitter::emitClockedCall(
     auto entry = program.root;
     auto policy = entry.getExecutionPolicyAttr();
     bool ifOne = policy && policy.getAs<StringAttr>("reset").getValue() == "if_one";
-    out << "gfsim::behavior::Level::fromPacked(" << wireName(call.domainInputs->first)
-        << "), gfsim::interpretReset(gfsim::behavior::Level::fromPacked("
+    out << "pyc_behavior::Level::fromPacked(" << wireName(call.domainInputs->first)
+        << "), gfsim::interpretReset(pyc_behavior::Level::fromPacked("
         << wireName(call.domainInputs->second) << "), gfsim::ResetSemantics::"
         << (ifOne ? "IfOne" : "Strict") << ')';
   } else {
@@ -1847,10 +1849,10 @@ LogicalResult BehavioralEmitter::emitPreparation(raw_ostream &out,
     if (auto writer = writers.find(index); writer != writers.end()) {
       std::string enabled = wireName(definition.wires.size() + writer->second);
       if (plan.rules[writer->second].sampled)
-        enabled = "gfsim::behavior::Level::fromPacked(gfsim::bit_and(" + enabled +
+        enabled = "pyc_behavior::Level::fromPacked(gfsim::bit_and(" + enabled +
                   ".packed(), " + levelName.str() + "(" + frameName(writer->second) + ".pyc_running).packed()))";
       if (plan.conditionalWrites.contains(index))
-        enabled = "gfsim::behavior::Level::fromPacked(gfsim::bit_and(" + enabled +
+        enabled = "pyc_behavior::Level::fromPacked(gfsim::bit_and(" + enabled +
                   ".packed(), " + frameName(writer->second) + '.' + intentName(index) + ".packed()))";
       out << ".prepare(" << enabled
           << ", " << frameName(writer->second) << '.' << stateName(index) << ");\n";
@@ -2148,7 +2150,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     auto wire = legalizeIdentifier(output.name.getValue(), [&] { return root.emitOpError(); });
     if (failed(wire))
       return failure();
-    header << "  gfsim::behavior::Level " << *wire << ";\n";
+    header << "  pyc_behavior::Level " << *wire << ";\n";
     (*outputRows[output.port].getAsObject())["availability"] = *wire;
     controls.emplace_back(llvm::json::Object{{"direction", "output"},
                                              {"role", "availability"},
@@ -2169,7 +2171,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
           {"fields", llvm::json::Array{llvm::json::Object{
               {"path", llvm::json::Array{}}, {"low", 0}, {"width", 1}}}}});
       inputs.push_back(*pin);
-      header << "  gfsim::behavior::Level " << *pin << ";\n";
+      header << "  pyc_behavior::Level " << *pin << ";\n";
       (StringRef(role) == "clock" ? clock : reset) = *pin;
     }
   }
@@ -2179,7 +2181,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     header << "  pyc_observation_sink *pyc_sink_;\n"
            << "  std::size_t pyc_observation_base_;\n";
   if (system)
-    header << "  gfsim::SystemSampledClock pyc_system_clock;\n";
+    header << "  pyc_system_sampled_clock pyc_system_clock;\n";
   header << "};\n";
   for (size_t i = 1; i < components.size(); ++i)
     header << "}\n";
@@ -2291,8 +2293,7 @@ LogicalResult BehavioralEmitter::emitRoot(FinalCppSourceGroup &group) {
     addCppSystemDriver(parts, clock, reset, program.samples, resetIfOne);
   }
   appendCppDutHeader(parts, inputs, outputs, configure,
-                     /*hasChecks=*/definition.hasChecks(), observes,
-                     /*alwaysActiveRoot=*/true);
+                     /*hasChecks=*/definition.hasChecks(), observes);
   llvm::raw_string_ostream map(parts.portMap);
   map << llvm::json::Value(llvm::json::Object{
       {"schema_version", 1}, {"target", "cpp"}, {"inputs", std::move(inputRows)},
@@ -2339,14 +2340,21 @@ FailureOr<FinalCppSourceParts> BehavioralEmitter::emit() {
     parts.supportHeader += "namespace gfsim { struct SimFailureInfo; }\n";
   if (hasObservations(program.definitions[program.rootIndex]))
     parts.supportHeader += cppObservationSupport().str();
-  if (llvm::any_of(program.definitions, [](const gfir::StructuredDefinition &definition) {
-        return isClocked(definition) || llvm::any_of(definition.wires,
-            [](const gfir::StructuredWire &wire) {
-              return isa_and_nonnull<ac::TableSplatOp, ac::TableGetOp, ac::TableMapOp>(
-                  wire.endpoint.value.getDefiningOp());
-            });
-      }))
-    parts.supportHeader += "#include <gfsim/behavior.h>\n#include <optional>\n";
+  bool usesModelSupport = llvm::any_of(program.definitions, [](const auto &definition) {
+    return isClocked(definition) || llvm::any_of(definition.wires,
+        [](const gfir::StructuredWire &wire) {
+          return isa_and_nonnull<ac::TableSplatOp, ac::TableGetOp, ac::TableMapOp>(
+              wire.endpoint.value.getDefiningOp());
+        });
+  });
+  auto root = program.root;
+  bool system = root.getKind() == "system";
+  if (usesModelSupport || system)
+    parts.supportHeader += "#include <gfsim/sampled_clock.h>\n";
+  if (usesModelSupport)
+    parts.supportHeader += behavioralCppSupport.str();
+  if (system)
+    parts.supportHeader += cppSystemClockSupport().str();
   llvm::raw_string_ostream support(parts.supportHeader);
   if (failed(emitCppRecords(common, support)))
     return failure();

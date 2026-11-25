@@ -73,16 +73,11 @@ struct byte_mem_kernel {
   }
   static void work(const Current &current, Inputs inputs, Pending &pending,
                    Outputs outputs) {
-    prepare(current, inputs, pending, &outputs.rdata);
-  }
-  static void prepare(const Current &current, Inputs inputs, Pending &pending,
-                      wire<T> *rdata = nullptr) {
     discard(current, pending);
     try {
       if (!inputs.raddr.isFullyKnown())
         throw FourStateViolation("byte_mem read address must be known");
-      if (rdata)
-        read(current, inputs.raddr, {*rdata});
+      read(current, inputs.raddr, outputs);
       if (!inputs.clk.isFullyKnown())
         throw FourStateViolation("byte_mem clock must be known");
       pending.clock = inputs.clk.value().toBool();

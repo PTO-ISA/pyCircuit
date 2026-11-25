@@ -18,6 +18,31 @@
 #include <tuple>
 using namespace mlir;
 namespace acir::compiler {
+StringRef cppSystemClockSupport() {
+  return R"cpp(
+class pyc_system_sampled_clock {
+public:
+  void prepare(const gfsim::wire<gfsim::Bits<1>> &clock,
+               const gfsim::wire<gfsim::Bits<1>> &reset,
+               gfsim::ResetSemantics semantics) {
+    const auto sample = gfsim::evaluateSampledClock(clock_, clock, reset, semantics);
+    if (sample.fault == gfsim::SampledClockFault::UnknownClock)
+      throw gfsim::FourStateViolation("System clock must be known");
+    if (sample.fault == gfsim::SampledClockFault::UnknownReset)
+      throw gfsim::FourStateViolation("System reset must be known at posedge");
+    nextClock_ = sample.nextClock;
+  }
+  void reset() noexcept { nextClock_ = false; }
+  void discard() noexcept { nextClock_ = clock_; }
+  void commit() noexcept { clock_ = nextClock_; }
+
+private:
+  bool clock_ = false;
+  bool nextClock_ = false;
+};
+)cpp";
+}
+
 std::string jsonString(StringRef value) {
   std::string text;
   llvm::raw_string_ostream out(text);

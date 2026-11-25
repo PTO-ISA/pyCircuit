@@ -48,26 +48,4 @@ inline SampledClockEvaluation evaluateSampledClock(
   return {next, true, reset.value().toBool(), SampledClockFault::None};
 }
 
-// A generated System owns its input-domain history even when its design
-// has no storage or resource consuming that domain.
-class SystemSampledClock {
-public:
-  void prepare(const wire<Bits<1>> &clock, const wire<Bits<1>> &reset,
-               ResetSemantics semantics) {
-    const auto sample = evaluateSampledClock(clock_, clock, reset, semantics);
-    if (sample.fault == SampledClockFault::UnknownClock)
-      throw FourStateViolation("System clock must be known");
-    if (sample.fault == SampledClockFault::UnknownReset)
-      throw FourStateViolation("System reset must be known at posedge");
-    nextClock_ = sample.nextClock;
-  }
-  void reset() noexcept { nextClock_ = false; }
-  void discard() noexcept { nextClock_ = clock_; }
-  void commit() noexcept { clock_ = nextClock_; }
-
-private:
-  bool clock_ = false;
-  bool nextClock_ = false;
-};
-
 } // namespace gfsim

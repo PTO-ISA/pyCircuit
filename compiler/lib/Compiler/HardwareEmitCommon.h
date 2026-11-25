@@ -158,6 +158,7 @@ mlir::FailureOr<std::string> emissionMetadataJson(mlir::Attribute value,
 mlir::FailureOr<std::string>
 observationSiteMetadataJson(ac::SourceObserveOp observe);
 llvm::StringRef cppObservationSupport();
+llvm::StringRef cppSystemClockSupport();
 void appendCppObservationDescriptor(llvm::raw_ostream &out,
                                     const std::array<uint64_t, 5> &entry,
                                     unsigned valueIndex, uint64_t groupSize,

@@ -2235,7 +2235,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     out << "  std::array<std::string, " << ctx.sourceChecks().checks.size()
         << "> pyc_check_instances_;\n";
   if (!systemPins.empty())
-    out << "  gfsim::SystemSampledClock pyc_system_clock;\n";
+    out << "  pyc_system_sampled_clock pyc_system_clock;\n";
   out << "  std::shared_ptr<" << family << "> pyc_implementation;\n};\n";
   if (!names.cppNamespace.empty())
     out << "} // namespace " << names.cppNamespace << "\n";

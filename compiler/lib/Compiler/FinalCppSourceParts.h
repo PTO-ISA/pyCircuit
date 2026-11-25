@@ -22,8 +22,7 @@ mlir::LogicalResult emitCppRecords(HardwareEmitContext &context,
 void appendCppDutHeader(FinalCppSourceParts &parts,
                         llvm::ArrayRef<std::string> inputs,
                         llvm::ArrayRef<std::string> outputs,
-                        llvm::StringRef configure, bool hasChecks, bool observes,
-                        bool alwaysActiveRoot = false);
+                        llvm::StringRef configure, bool hasChecks, bool observes);
 void addCppSystemDriver(FinalCppSourceParts &parts, llvm::StringRef clock,
                         llvm::StringRef reset, mlir::ArrayAttr samples,
                         bool resetIfOne);
