@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/GFIR/StructuredProgram.h"
+#include "Dialect/ACIR/HardwareValueAvailability.h"
 #include "Dialect/GFIR/StructuredClocked.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
@@ -24,9 +25,8 @@ LogicalResult verifyAttributes(Operation *op, ArrayRef<StringRef> allowed) {
 }
 
 bool isCombinational(Operation *op) {
-  return isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
-             ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
-             ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
+  return ac::detail::isStrictBitsOperation(op) ||
+         isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsSelectOp,
              ac::StructCreateOp, ac::StructGetOp>(op);
 }
 
@@ -540,8 +540,9 @@ LogicalResult Analyzer::analyzeAvailability(
     for (unsigned dep : wire.dependencies) {
       if (dep >= wireSources.size() || wireSources[dep].empty())
         continue;
-      if (!isa<ac::StructCreateOp, ac::StructGetOp>(site))
-        return site->emitOpError("gated Rule results require a supported field transport");
+      if (!isa<ac::StructCreateOp, ac::StructGetOp>(site) &&
+          !ac::detail::isStrictBitsOperation(site))
+        return site->emitOpError("gated Rule results require a supported graph operation");
       if (failed(merge(wireSources[index], wireSources[dep], site)))
         return failure();
     }

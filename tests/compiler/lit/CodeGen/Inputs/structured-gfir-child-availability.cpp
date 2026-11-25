@@ -37,12 +37,13 @@ int main(int argc, char **argv) {
   root.Reset();
   root.Xfer();
   std::string clock, reset, leftAllow, leftPayload, rightAllow, rightPayload,
-      leftEnable, rightEnable;
+      leftEnable, rightEnable, conjoined;
   unsigned leftValid, rightValid, leftQ, rightQ, leftSeen, rightSeen, accepted,
       samples = 0;
   while (rows >> clock >> reset >> leftAllow >> leftPayload >> rightAllow >>
          rightPayload >> leftEnable >> rightEnable >> std::hex >> leftValid >>
-         rightValid >> leftQ >> rightQ >> leftSeen >> rightSeen >> accepted) {
+         rightValid >> conjoined >> leftQ >> rightQ >> leftSeen >> rightSeen >>
+         accepted) {
     root.pyc_7079635f636c6b = bits<1>(clock);
     root.pyc_7079635f727374 = bits<1>(reset);
     root.left_allow = bits<1>(leftAllow);
@@ -61,7 +62,7 @@ int main(int argc, char **argv) {
     same(gfsim::extract<8>(root.packet.packed(), 0),
          gfsim::FourState<8>::known(gfsim::Bits<8>{leftQ}));
     if (leftValid)
-      same(gfsim::extract<1>(root.packet.packed(), 8), bits<1>(leftPayload).packed());
+      same(gfsim::extract<1>(root.packet.packed(), 8), bits<1>(conjoined).packed());
     if (rightValid)
       same(root.right_gate.packed(), bits<1>(rightPayload).packed());
     gfsim::SimFailureInfo failure;
@@ -73,5 +74,5 @@ int main(int argc, char **argv) {
     root.Xfer();
     ++samples;
   }
-  require(rows.eof() && samples == 28);
+  require(rows.eof() && samples == 30);
 }

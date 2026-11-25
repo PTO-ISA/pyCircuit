@@ -4191,6 +4191,10 @@ private:
             pending.emplace_back(occurrence, get.getResult(), FieldPath{});
           else if (path.front() == get.getFieldAttr())
             pending.emplace_back(occurrence, get.getResult(), FieldPath(path.begin() + 1, path.end()));
+        } else if (isStrictBitsOperation(owner)) {
+          if (!path.empty() || owner->getParentOp() != module)
+            return false;
+          pending.emplace_back(occurrence, owner->getResult(0), FieldPath{});
         } else {
           return false;
         }

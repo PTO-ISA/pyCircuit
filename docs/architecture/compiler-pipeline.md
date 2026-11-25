@@ -95,6 +95,8 @@ Results gated by sampled admission can supply output fields and direct Bits1
 guards in their own module or through a clocked child call. Availability
 follows the actual instance and field. A child Struct with independently
 available fields uses private typed field results in HWIR.
+Strict scalar Bits calculations carry the conjunction of their operands'
+availability.
 Repeated and nested Method calls on a direct child share its candidate
 within the caller Rule. Different child instances have separate candidates.
 An indexed write spells the index type inside

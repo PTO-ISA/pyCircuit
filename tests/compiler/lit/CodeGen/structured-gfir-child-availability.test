@@ -2,7 +2,9 @@
 # and independent result ports. Left uses the Struct, right the separate ports.
 # Each child's admission depends on its peer's total committed field, forming
 # real old-Q feedback while the gated field still requires child preparation.
-# Selected gates supply direct guards, while committed siblings stay total.
+# Left exports and consumes the strict scalar AND of both selected gates; right
+# retains the direct-guard baseline. A known-zero result still requires both
+# operands available. Committed siblings stay total independently of that AND.
 # Shared reference rows check all three targets against independent expectations,
 # including unavailable X/Z, reached unknowns, and global same-high retry.
 # REQUIRES: rtl-four-state-parameter-types

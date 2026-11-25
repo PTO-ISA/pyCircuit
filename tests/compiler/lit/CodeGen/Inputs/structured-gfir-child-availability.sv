@@ -13,7 +13,7 @@ module tb;
   pyc_root dut(.`PYC_PACKET_VALID(packet_valid), .`PYC_RIGHT_VALID(right_valid), .*);
   string path;
   integer fd,n,samples=0,expected_acceptance;
-  logic expected_left_valid,expected_right_valid;
+  logic expected_left_valid,expected_right_valid,expected_conjoined;
   logic [7:0] expected_left_q,expected_right_q,expected_left_seen,expected_right_seen;
   bit accepted;
   initial begin
@@ -22,12 +22,12 @@ module tb;
     #1;pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
     pyc_phase=0;pyc_root_commit_ok=0;#1;
     while(!$feof(fd))begin
-      n=$fscanf(fd,"%h %h %h %h %h %h %h %h %h %h %h %h %h %h %d\n",
+      n=$fscanf(fd,"%h %h %h %h %h %h %h %h %h %h %h %h %h %h %h %d\n",
         pyc_7079635f636c6b,pyc_7079635f727374,left_allow,left_payload,
         right_allow,right_payload,left_enable,right_enable,
-        expected_left_valid,expected_right_valid,expected_left_q,expected_right_q,
+        expected_left_valid,expected_right_valid,expected_conjoined,expected_left_q,expected_right_q,
         expected_left_seen,expected_right_seen,expected_acceptance);
-      if(n!=15)$fatal(1,"invalid row");
+      if(n!=16)$fatal(1,"invalid row");
       #1;pyc_phase=1;#1;
       if(packet_valid!==expected_left_valid || right_valid!==expected_right_valid)
         $fatal(1,"availability mismatch row %0d",samples);
@@ -35,7 +35,7 @@ module tb;
          left_seen!==expected_left_seen || right_seen!==expected_right_seen ||
          packet[7:0]!==expected_left_q)
         $fatal(1,"committed state mismatch row %0d",samples);
-      if(expected_left_valid && packet[8]!==left_payload)
+      if(expected_left_valid && packet[8]!==expected_conjoined)
         $fatal(1,"left payload mismatch row %0d",samples);
       if(expected_right_valid && right_gate!==right_payload)
         $fatal(1,"right payload mismatch row %0d",samples);
@@ -45,7 +45,7 @@ module tb;
       else begin pyc_phase=3;#1;pyc_phase=2;#1;end
       pyc_phase=0;pyc_root_commit_ok=0;#1;samples=samples+1;
     end
-    if(samples!=28)$fatal(1,"incomplete rows");
+    if(samples!=30)$fatal(1,"incomplete rows");
     $fclose(fd);$finish;
   end
 endmodule

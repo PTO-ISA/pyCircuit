@@ -40,10 +40,14 @@ module attributes {gfir.contract = 1 : i64} {
     %selected_right = ac.struct.get %other["gate"] : (!packet) -> !b1
     %ordinary_left = ac.struct.get %packet["committed"] : (!packet) -> !b8
     %ordinary_right = ac.struct.get %other["committed"] : (!packet) -> !b8
+    // Strict scalar dataflow needs both operands available, even when one
+    // operand alone determines a known-zero result. Right stays a direct guard.
+    %conjoined = "ac.bits.binary"(%selected_left, %selected_right) {opcode = "and"} : (!b1, !b1) -> !b1
+    %forwarded = ac.struct.create(%conjoined, %ordinary_left) : (!b1, !b8) -> !packet
     %zero = "ac.bits.constant4"() {pattern = "00000000"} : () -> !b8
     gfir.var @seen_left init %zero : !b8
     gfir.var @seen_right init %zero : !b8
-    gfir.rule @consume_left(%enabled = %left_enable : !b1, %value = %selected_left : !b1) -> () {
+    gfir.rule @consume_left(%enabled = %left_enable : !b1, %value = %conjoined : !b1) -> () {
       gfir.guard %enabled : !b1 loc("child_availability.py":40:1)
       gfir.guard %value : !b1 loc("child_availability.py":41:1)
       %old = gfir.read @seen_left : !b8
@@ -63,7 +67,7 @@ module attributes {gfir.contract = 1 : i64} {
     }
     %left_seen = gfir.read @seen_left : !b8
     %right_seen = gfir.read @seen_right : !b8
-    gfir.yield %packet, %selected_right, %ordinary_left, %ordinary_right, %left_seen, %right_seen : !packet, !b1, !b8, !b8, !b8, !b8
+    gfir.yield %forwarded, %selected_right, %ordinary_left, %ordinary_right, %left_seen, %right_seen : !packet, !b1, !b8, !b8, !b8, !b8
   }
   gfir.root @ChildAvailability kind "module" {domains = [{name = "default", edge = "rising", clock = {generated = "pyc_clk"}, reset = {generated = "pyc_rst"}}]}
 }

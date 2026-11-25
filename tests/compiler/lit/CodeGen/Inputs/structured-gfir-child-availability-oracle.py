@@ -1,12 +1,12 @@
-"""Independent clock, guard and four-counter model with old-Q peer feedback."""
+"""Independent strict-AND admission, clock and old-Q peer feedback model."""
 
 # Plan effective child admission; encode raw allows using reference peer parity.
 # clk rst left-admit left-payload right-admit right-payload left-enable right-enable
 stimuli = [
-    (0, 0, "0", "x", "1", "1", "1", "1"),
-    (1, 0, "0", "z", "1", "1", "1", "1"),
-    (0, 0, "1", "1", "0", "x", "1", "1"),
-    (1, 0, "1", "1", "0", "z", "1", "1"),
+    (0, 0, "0", "x", "1", "0", "1", "1"),
+    (1, 0, "0", "z", "1", "0", "1", "1"),  # zero cannot replace left availability
+    (0, 0, "1", "0", "0", "x", "1", "1"),
+    (1, 0, "1", "0", "0", "z", "1", "1"),  # zero cannot replace right availability
     (0, 0, "1", "0", "1", "1", "1", "1"),
     (1, 0, "1", "0", "1", "1", "1", "1"),  # available false
     (0, 0, "0", "z", "1", "1", "x", "1"),
@@ -31,6 +31,8 @@ stimuli = [
     (0, 0, "0", "x", "1", "1", "1", "1"),
     (1, 0, "0", "x", "1", "1", "1", "1"),
     (0, 0, "0", "z", "0", "x", "1", "1"),
+    (1, 0, "1", "0", "1", "z", "1", "0"),  # available AND is known zero
+    (0, 0, "0", "z", "0", "x", "1", "1"),
 ]
 history = 0
 issued = [0, 0]
@@ -39,15 +41,18 @@ for clock, reset, *signals in stimuli:
     left_allow, left_payload, right_allow, right_payload, *enable = signals
     allow = [left_allow, right_allow]
     payload = [left_payload, right_payload]
+    conjoined = "0" if "0" in payload else "1" if payload == ["1", "1"] else "x"
+    child_available = [int(value == "1") for value in allow]
+    available = [int(all(child_available)), child_available[1]]
+    consumed = [conjoined, right_payload]
     rising = bool(clock and not history)
     fault = False
     if rising and not reset:
         fault = any(value in ("x", "z") for value in allow + enable)
         fault |= any(
-            gate == "1" and admission == "1" and value in ("x", "z")
-            for gate, admission, value in zip(enable, allow, payload, strict=True)
+            gate == "1" and admission and value in ("x", "z")
+            for gate, admission, value in zip(enable, available, consumed, strict=True)
         )
-    available = [int(value == "1") for value in allow]
     raw_allow = [
         value if value in ("x", "z") else str(int(value) ^ (issued[1 - index] & 1))
         for index, value in enumerate(allow)
@@ -61,6 +66,7 @@ for clock, reset, *signals in stimuli:
         right_payload,
         *enable,
         *available,
+        conjoined,
         *(f"{value:x}" for value in issued + seen),
         int(not fault),
     )
@@ -72,7 +78,7 @@ for clock, reset, *signals in stimuli:
             seen = [0, 0]
         else:
             for index in range(2):
-                issued[index] = (issued[index] + available[index]) % 256
-                admitted = allow[index] == enable[index] == payload[index] == "1"
+                issued[index] = (issued[index] + child_available[index]) % 256
+                admitted = available[index] and enable[index] == consumed[index] == "1"
                 seen[index] = (seen[index] + int(admitted)) % 256
     history = clock

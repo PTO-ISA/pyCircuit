@@ -103,6 +103,11 @@ construction and projection. A caller can export the result or consume a
 Bits1 field at a direct ordered guard. An exported aggregate is available
 when all of its fields are available.
 
+Scalar Bits arithmetic, comparisons, bitwise operations, concatenation,
+slicing, and resizing require all operands to be available. A known carrier
+value can still be unavailable. Guard admission continues to use the
+availability condition derived from the actual operands.
+
 ```mermaid
 flowchart LR
     R["Child Rule result"] --> C["Actual child output and availability"]
