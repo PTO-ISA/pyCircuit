@@ -135,6 +135,7 @@ private:
   SmallVector<Value> fifoIncomingPops, fifoPopUnions;
   SmallVector<unsigned> fifoIncomingOrder;
   SmallVector<Attribute> queueWriters, externalPops;
+  llvm::DenseMap<unsigned, Value> selectAvailability;
   bool sampledQueues = false;
   SmallVector<Value> sampledEnables;
   SmallVector<Attribute> transactionWriters;
@@ -990,6 +991,10 @@ FailureOr<Value> ClockedMaterializer::availability(
     case gfir::StructuredAvailabilitySource::Kind::ChildField:
       value = childFieldCompanions.lookup({source.index, source.port}); break;
     case gfir::StructuredAvailabilitySource::Kind::Select: {
+      if (auto cached = selectAvailability.find(source.index); cached != selectAvailability.end()) {
+        value = cached->second;
+        break;
+      }
       const auto &select = definition.availabilitySelects[source.index];
       const auto &endpoint = definition.wires[select.selector].endpoint;
       auto condition = projectField(graph.lookup(endpoint.value), endpoint.path);
@@ -997,6 +1002,7 @@ FailureOr<Value> ClockedMaterializer::availability(
       if (failed(condition) || failed(yes) || failed(no))
         return failure();
       value = make(ac::BitsSelectOp::getOperationName(), {*condition, *yes, *no}, {bit})->getResult(0);
+      selectAvailability.try_emplace(source.index, value);
       break;
     }
     }

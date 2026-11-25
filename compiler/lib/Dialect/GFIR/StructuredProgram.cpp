@@ -536,7 +536,7 @@ LogicalResult Analyzer::analyzeAvailability(
         if (failed(budget.debit(1 + wireSources[*yes].size() + wireSources[*no].size(), select)))
           return failure();
         unsigned expression = definition.availabilitySelects.size();
-        definition.availabilitySelects.push_back({*condition, wireSources[*yes], wireSources[*no]});
+        definition.availabilitySelects.push_back({index, *condition, wireSources[*yes], wireSources[*no]});
         definition.fourStateAvailability = true;
         StructuredAvailability selected{{Source::Kind::Select, expression}};
         if (failed(merge(wireSources[index], selected, select)))

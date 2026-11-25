@@ -1181,6 +1181,17 @@ LogicalResult BehavioralEmitter::emitWires(
              wire.endpoint.value.getDefiningOp()));
     out << "    const auto " << (borrow ? "&" : "") << wireName(index)
         << " = " << *value << ";\n";
+    for (auto [ordinal, select] : llvm::enumerate(definition.availabilitySelects)) {
+      if (select.wire != index)
+        continue;
+      auto yes = availabilityExpression(definition, select.yes, instancePrefix);
+      auto no = availabilityExpression(definition, select.no, instancePrefix);
+      if (failed(yes) || failed(no))
+        return failure();
+      out << "    const auto pyc_availability_select_" << ordinal << " = " << levelName
+          << "::fromPacked(gfsim::select(" << wireName(select.selector) << ", ("
+          << *yes << ").packed(), (" << *no << ").packed()));\n";
+    }
     emitted.set(index);
   }
   return success();
@@ -3165,13 +3176,7 @@ FailureOr<std::string> BehavioralEmitter::availabilityExpression(
   SmallVector<std::string> terms;
   for (const auto &source : sources) {
     if (source.kind == gfir::StructuredAvailabilitySource::Kind::Select) {
-      const auto &select = definition.availabilitySelects[source.index];
-      auto yes = availabilityExpression(definition, select.yes, instancePrefix);
-      auto no = availabilityExpression(definition, select.no, instancePrefix);
-      if (failed(yes) || failed(no))
-        return failure();
-      terms.push_back(levelName.str() + "::fromPacked(gfsim::select(" +
-          wireName(select.selector) + ", (" + *yes + ").packed(), (" + *no + ").packed()))");
+      terms.push_back("pyc_availability_select_" + std::to_string(source.index));
       continue;
     }
     if (source.kind == gfir::StructuredAvailabilitySource::Kind::Rule) {

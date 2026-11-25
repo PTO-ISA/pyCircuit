@@ -121,6 +121,7 @@ struct StructuredAvailabilitySource {
 using StructuredAvailability = llvm::SmallVector<StructuredAvailabilitySource, 1>;
 
 struct StructuredAvailabilitySelect {
+  unsigned wire;
   unsigned selector;
   StructuredAvailability yes;
   StructuredAvailability no;
