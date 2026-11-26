@@ -4093,6 +4093,9 @@ private:
         }
       } else if (kind == "return") {
         uint64_t count = writer ? writer->ordinaryResults : view.fireResult;
+        // A discarded return still demands its payload when reached. With no
+        // ordinary slots, this witness authorizes only the internal check.
+        matched = writer && count == 0;
         if (requirement.operand < count &&
             terminator->getOperand(requirement.operand) == requiredPayload) {
           dataSlots.insert(requirement.operand);
@@ -4219,6 +4222,7 @@ private:
                                     const TransactionWriterView &writer) {
     if (writer.rule->hasAttr("ac.registration_path"))
       return false;
+    bool provedUse = false;
     SmallVector<std::tuple<size_t, Value, FieldPath>> pending;
     DenseMap<std::pair<size_t, Value>, SmallVector<FieldPath>> visited;
     DenseMap<Operation *, DenseMap<unsigned, unsigned>> companionPorts;
@@ -4270,6 +4274,7 @@ private:
                                       path.size() * sizeof(StringAttr)))) return failure();
             pending.emplace_back(*at.parent, at.allocation->getResult(operand), path);
           }
+          provedUse = true;
         } else if (auto instance = dyn_cast<InstanceOp>(owner)) {
           auto target = dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(instance));
           if (!target || !target.getBody().hasOneBlock()) return false;
@@ -4291,6 +4296,7 @@ private:
           auto guarded = guardedResultCapture(at, writer, root, consumer, operand);
           if (failed(guarded)) return failure();
           if (!*guarded) return false;
+          provedUse = true;
         } else if (auto create = dyn_cast<StructCreateOp>(owner)) {
           auto structure = analysis.lookupStruct(create.getResult().getType());
           if (!structure || operand >= structure.getFields().size())
@@ -4314,7 +4320,7 @@ private:
         }
       }
     }
-    return true;
+    return provedUse;
   }
 
   LogicalResult writers() {

@@ -1741,11 +1741,11 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   if (context.controls.size() + assertions.size() != context.plannedChecks.size())
     return rule.emitOpError("sampled refinement did not emit all verified checks");
   SmallVector<Value> yielded;
-  const auto &resultUses = plan.rules[index].resultUses;
-  // A reached return demand needs its ordinary payload witness even when
-  // no gfir.result references the Rule's result externally.
-  if (!resultUses.empty() ||
-      plan.dataCaptureUses.contains(rule.getBody().front().getTerminator()))
+  auto resultUses = llvm::make_filter_range(
+      plan.rules[index].resultUses,
+      [](gfir::ResultOp result) { return !result.getValue().use_empty(); });
+  // lowerBody has already emitted the checks for reached return values.
+  if (!resultUses.empty())
     yielded.append(*results);
   unsigned ordinaryResults = yielded.size();
   SmallVector<Attribute> candidateRows;
