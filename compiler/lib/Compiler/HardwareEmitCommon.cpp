@@ -621,8 +621,10 @@ buildObservationPlan(HardwareEmitContext &context) {
 } // namespace
 HardwareEmitContext::HardwareEmitContext(ModuleOp package,
                                          ac::HardwareAnalysis &analysis,
-                                         bool physical)
-    : package(package), analysis(analysis), physical_(physical) {}
+                                         bool physical,
+                                         const ac::HardwareSourceCheckPlan *sharedPlan)
+    : package(package), analysis(analysis), physical_(physical),
+      sharedPlan_(sharedPlan) {}
 LogicalResult HardwareEmitContext::prepare() { return prepareImpl(false); }
 LogicalResult HardwareEmitContext::prepareNativeChecks() {
   return prepareImpl(true);
@@ -649,14 +651,31 @@ std::string HardwareEmitContext::rtlReset(StringRef expression) const {
 }
 LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   sourceChecks_.reset();
+  planFreshlyPrepared_ = false;
   names_.clear();
   if (!package)
     return failure();
-  // Building the plan includes full package verification. Retain that result
-  // instead of verifying and expanding the same occurrence closure twice.
-  auto checks = analysis.getSourceCheckPlan();
-  if (failed(checks))
-    return failure();
+  // A shared plan from the same emit invocation replaces the rebuild.
+  // The fresh flag stays false: the plan was not built by this context,
+  // so the prepared-parts entries still run their rebuild-and-compare.
+  if (sharedPlan_) {
+    sourceChecks_ = *sharedPlan_;
+    // Continue below for the observation gate and remaining preparation.
+  } else {
+    // Building the plan includes full package verification. Retain that
+    // result instead of verifying and expanding the same occurrence
+    // closure twice.
+    auto checks = analysis.getSourceCheckPlan();
+    if (failed(checks))
+      return failure();
+    sourceChecks_ = std::move(*checks);
+    planFreshlyPrepared_ = true;
+  }
+  // The C++ native observation plan prepares through `prepareNativeChecks()`
+  // and then re-closes the one instrumentation op it still cannot emit. This
+  // shared gate stays closed for `ac.observe` because the Verilog target has no
+  // observation channel yet, and a silently dropped observation is
+  // exactly what the fail-closed contract forbids.
   // The C++ native observation plan prepares through `prepareNativeChecks()`
   // and then re-closes the one instrumentation op it still cannot emit. This
   // shared gate stays closed for `ac.observe` because the Verilog target has no
@@ -1078,12 +1097,11 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     names_.try_emplace(site, std::move(names));
   }
   if (physical_) {
-    auto projection = analysis.getPhysicalProjection(*checks);
+    auto projection = analysis.getPhysicalProjection(sourceChecks_.value());
     if (failed(projection))
       return failure();
     physicalProjection_ = *projection;
   }
-  sourceChecks_ = std::move(*checks);
   return success();
 }
 const EmitNames &HardwareEmitContext::names(Operation *definition) const {

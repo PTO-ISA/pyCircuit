@@ -16,7 +16,8 @@ struct FinalCppSourceParts {
   uint64_t sourceCheckCount = 0;
 };
 mlir::FailureOr<FinalCppSourceParts> emitCppSourceParts(
-    mlir::ModuleOp package, ac::HardwareAnalysis &analysis);
+    mlir::ModuleOp package, ac::HardwareAnalysis &analysis,
+    const ac::HardwareSourceCheckPlan *sharedPlan = nullptr);
 mlir::LogicalResult emitCpp(mlir::ModuleOp package,
     ac::HardwareAnalysis &analysis, llvm::raw_ostream &out);
 } // namespace acir::compiler

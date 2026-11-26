@@ -82,7 +82,12 @@ int main(int argc, char **argv) {
   if (!package || failed(mlir::verify(*package)))
     return 1;
   acir::ac::HardwareAnalysis analysis(*package);
-  if (failed(analysis.verify()))
+  // Build the plan once: admission, entry metadata and every emitter
+  // context consume the same result. This replaces the standalone
+  // analysis.verify() (the plan build IS the admission) and the
+  // per-context rebuilds (each context receives the shared plan).
+  auto sharedPlan = analysis.getSourceCheckPlan();
+  if (failed(sharedPlan))
     return 1;
   if (format == "source") {
     std::string text;
@@ -215,7 +220,8 @@ int main(int argc, char **argv) {
     memberships.push_back({unit.owner, {}});
   }
   if (target == "cpp") {
-    auto parts = acir::compiler::emitCppSourceParts(*package, analysis);
+    auto parts = acir::compiler::emitCppSourceParts(*package, analysis,
+                                                    &*sharedPlan);
     if (failed(parts))
       return 1;
     llvm::json::Array groups;
@@ -256,7 +262,8 @@ int main(int argc, char **argv) {
     result["source_groups"] = std::move(groups);
   } else {
     auto parts =
-        acir::compiler::emitVerilogSourceParts(*package, analysis, physical);
+        acir::compiler::emitVerilogSourceParts(*package, analysis, physical,
+                                               &*sharedPlan);
     if (failed(parts))
       return 1;
     llvm::json::Array groups, standard;

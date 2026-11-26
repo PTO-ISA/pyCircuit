@@ -35,7 +35,8 @@ struct RtlPackageDependencies {
 class HardwareEmitContext {
 public:
   HardwareEmitContext(mlir::ModuleOp package, ac::HardwareAnalysis &analysis,
-                      bool physical = false);
+                      bool physical = false,
+                      const ac::HardwareSourceCheckPlan *sharedPlan = nullptr);
   mlir::LogicalResult prepare();
   bool isSystem();
   bool managesChecks();
@@ -104,6 +105,14 @@ public:
   mlir::FailureOr<std::string>
   cppWireExpression(mlir::Value value, const ac::HardwareBindings &bindings,
                     mlir::Operation *site) const;
+  /// One-shot: true only for the first consumer after prepare() actually
+  /// built a new plan from the current package (not from a shared plan).
+  /// The first prepared-parts call consumes it and skips the rebuild-and-
+  /// compare revalidation; subsequent calls and externally kept contexts
+  /// always revalidate. A flow that mutates the package must call prepare()
+  /// again, which rebuilds the plan and re-arms the flag.
+  bool hasFreshSourceCheckPlan() const { return planFreshlyPrepared_; }
+  void consumeFreshSourceCheckPlan() { planFreshlyPrepared_ = false; }
   mlir::ModuleOp package;
   ac::HardwareAnalysis &analysis;
   PhysicalVerilogLayout physicalLayout;
@@ -112,6 +121,12 @@ public:
 private:
   mlir::LogicalResult prepareImpl(bool allowSourceChecks);
   bool physical_ = false;
+  bool planFreshlyPrepared_ = false;
+  /// Plan shared by the same emit invocation (e.g. --target both). When
+  /// set, prepare() uses it directly instead of rebuilding. The shared
+  /// plan must have been built from the same immutable package; the emit
+  /// pipeline is read-only, so this is safe within the tool process.
+  const ac::HardwareSourceCheckPlan *sharedPlan_ = nullptr;
   std::optional<ac::HardwarePhysicalProjection> physicalProjection_;
   std::optional<ac::HardwareSourceCheckPlan> sourceChecks_;
   llvm::DenseMap<mlir::Operation *, EmitNames> names_;
