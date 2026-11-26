@@ -275,8 +275,9 @@ by a null direct ordinal and its actual root input dependencies, rather than
 guessing one reset pin. CDC stages retain their verified resource role. Legacy
 port-map schema 1 remains unchanged.
 
-Contract-7 physical simulation accepts sealed event batches with stable data
-and controls until delta drain. Startup root clocks must all be known zero,
+Contract-7 physical simulation seals clock and reset changes from one simulator
+update region into a batch. Root inputs stay stable through delta drain.
+Startup root clocks must all be known zero,
 matching managed false history; an invalid startup discards the entire batch,
 including asynchronous reset candidates. Later positive and negative events
 use the common policies. This restriction is versioned to the new adapter;

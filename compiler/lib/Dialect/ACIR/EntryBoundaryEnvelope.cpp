@@ -77,6 +77,37 @@ FailureOr<bool> needsEntryBoundary(const HardwareAnalysis &analysis,
   return false;
 }
 
+FailureOr<DictionaryAttr> getEntryBoundaryDomainBindings(
+    ModuleOp logical,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  auto declared = logical->getAttr("ac.domain_params");
+  if (!declared)
+    return DictionaryAttr();
+  auto formals = dyn_cast<ArrayAttr>(declared);
+  if (!formals)
+    return logical.emitOpError("entry domain formals require an array");
+
+  // Registered sources stay local while the adapter exposes their domains.
+  llvm::DenseSet<StringRef> localDomains;
+  if (!logical.getBody().empty())
+    for (auto source : logical.getBody().front().getOps<ClockSourceOp>()) {
+      if (failed(debit(8, source)))
+        return failure();
+      localDomains.insert(source.getDomain());
+    }
+  NamedAttrList bindings;
+  for (auto raw : formals) {
+    if (failed(debit(8, logical)))
+      return failure();
+    auto formal = dyn_cast<StringAttr>(raw);
+    if (!formal)
+      return logical.emitOpError("entry boundary domain formals require strings");
+    if (!localDomains.contains(formal.getValue()))
+      bindings.append(formal.getValue(), formal);
+  }
+  return bindings.getDictionary(logical.getContext());
+}
+
 LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normalizedInput,
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   auto package = analysis.getPackage();
@@ -228,26 +259,10 @@ LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normali
     if (!llvm::is_contained(ArrayRef<StringRef>{"instance_name", "callee", "parameters", "type_arguments", "occurrence", "ac.domain_bindings"},
                             attr.getName().getValue()))
       return error() << "entry boundary child cannot carry additional metadata";
-  NamedAttrList expectedDomains;
-  if (auto formals = logical->getAttrOfType<ArrayAttr>("ac.domain_params")) {
-    // The adapter exposes the entry's public domains. Its child instance
-    // receives only inherited bindings; registered sources stay local.
-    llvm::DenseSet<StringRef> localDomains;
-    if (!logical.getBody().empty())
-      for (auto source : logical.getBody().front().getOps<ClockSourceOp>()) {
-        if (failed(debit(8, source))) return failure();
-        localDomains.insert(source.getDomain());
-      }
-    for (Attribute raw : formals) {
-      auto formal = dyn_cast<StringAttr>(raw);
-      if (!formal) return error() << "entry boundary domain formals require strings";
-      if (!localDomains.contains(formal.getValue()))
-        expectedDomains.append(formal.getValue(), formal);
-    }
-  }
-  if (logical->hasAttr("ac.domain_params") ?
-      child->getAttr("ac.domain_bindings") != expectedDomains.getDictionary(package.getContext()) :
-      child->hasAttr("ac.domain_bindings"))
+  auto expectedDomains = getEntryBoundaryDomainBindings(logical, debit);
+  if (failed(expectedDomains))
+    return failure();
+  if (child->getAttr("ac.domain_bindings") != *expectedDomains)
     return error() << "entry boundary domain forwarding mismatch";
   NamedAttrList site(origin.getAs<DictionaryAttr>("site"));
   site.set("definition", FlatSymbolRefAttr::get(package.getContext(), entryBoundarySymbol));

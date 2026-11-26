@@ -9,6 +9,10 @@ inline constexpr llvm::StringLiteral entryBoundarySymbol = "pycircuit.__link_ent
 /// binding is performed after the owning caller's bounded structural admission.
 mlir::LogicalResult verifyEntryBoundaryAttribute(mlir::Operation *operation,
                                                 mlir::Attribute attribute);
+/// Bind only the logical entry's inherited domains on the canonical instance.
+mlir::FailureOr<mlir::DictionaryAttr> getEntryBoundaryDomainBindings(
+    ModuleOp logical,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
 mlir::LogicalResult verifyEntryBoundary(
     const HardwareAnalysis &analysis, bool normalizedInput,
     const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);

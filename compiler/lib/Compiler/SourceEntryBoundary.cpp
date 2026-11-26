@@ -200,15 +200,12 @@ FailureOr<OwningOpRef<ModuleOp>> normalizeEntryBoundary(ModuleOp original) {
   childState.addAttribute("parameters", attrs.getArrayAttr(actuals));
   childState.addAttribute("type_arguments", attrs.getArrayAttr({}));
   childState.addAttribute("occurrence", attrs.getDictionaryAttr(occurrence.getAttrs()));
-  if (auto domains = root->getAttrOfType<ArrayAttr>("ac.domain_params")) {
-    NamedAttrList bindings;
-    for (Attribute raw : domains) {
-      auto formal = dyn_cast<StringAttr>(raw);
-      if (!formal) return root.emitOpError("entry domain formals require strings");
-      bindings.append(formal.getValue(), formal);
-    }
-    childState.addAttribute("ac.domain_bindings", bindings.getDictionary(original.getContext()));
-  }
+  auto domainBindings = ac::detail::getEntryBoundaryDomainBindings(
+      root, [&](uint64_t units, Operation *op) { return budget.debit(units, op); });
+  if (failed(domainBindings))
+    return failure();
+  if (*domainBindings)
+    childState.addAttribute("ac.domain_bindings", *domainBindings);
   auto *child = Operation::create(childState); body->push_back(child);
   OperationState yieldState(root.getLoc(), ac::YieldOp::getOperationName());
   yieldState.addOperands(child->getResults()); body->push_back(Operation::create(yieldState));

@@ -825,14 +825,15 @@ LogicalResult emitCausalBatchCoordinator(HardwareEmitContext &context,
   for (const auto &port : outputs)
     out << "  " << port.type << " pyc_visible_output_" << port.ordinal << ";\n";
   out << "  task automatic pyc_start_waves(input bit resetting);\n";
+  if (!context.isPhysical())
+    out << "    pyc_batch_pending = 1'b1;\n";
   for (unsigned i = 0; i < layout->sourceInputCount; ++i) {
     auto id = name(root.getInputNames()[i]);
     if (failed(id))
       return failure();
     out << "    pyc_frozen_input_" << i << " = " << *id << ";\n";
   }
-  out << "    pyc_batch_pending <= 1'b1;\n"
-         "    pyc_wave_resetting = resetting;\n"
+  out << "    pyc_wave_resetting = resetting;\n"
          "    pyc_wave_number <= 0;\n"
          "    pyc_previous_derived_levels <= pyc_derived_levels;\n"
          "    pyc_wave_failed <= 1'b0;\n"
@@ -870,17 +871,25 @@ LogicalResult emitCausalBatchCoordinator(HardwareEmitContext &context,
           << "  always @(" << *id << ") pyc_event_slot_" << i
           << " <= ~pyc_event_slot_" << i << ";\n";
     }
-    out << "  initial pyc_event_seal <= 1'b1;\n";
+    // Reserve the batch before scheduling its NBA seal. The seal captures the
+    // settled inputs once, including the initial clock and reset levels.
+    out << "  initial begin\n"
+           "    pyc_batch_pending = 1'b1;\n"
+           "    pyc_event_seal <= 1'b1;\n"
+           "  end\n";
     if (!events.empty()) {
       out << "  always @(";
       for (auto [i, event] : llvm::enumerate(events))
         out << (i ? " or " : "") << "pyc_event_slot_" << event;
-      out << ")\n"
-             "    if (!pyc_batch_pending && !pyc_physical_fault)\n"
-             "      pyc_event_seal <= ~pyc_event_seal;\n";
+      out << ") begin\n"
+             "    if (!pyc_batch_pending && !pyc_physical_fault) begin\n"
+             "      pyc_batch_pending = 1'b1;\n"
+             "      pyc_event_seal <= ~pyc_event_seal;\n"
+             "    end\n"
+             "  end\n";
     }
     out << "  always @(pyc_event_seal)\n"
-           "    if (!pyc_batch_pending && !pyc_physical_fault) "
+           "    if (pyc_batch_pending && !pyc_physical_fault) "
            "pyc_start_waves(1'b0);\n";
   } else {
     out << "  assign pyc_check_complete = (pyc_wave_step == pyc_wait);\n"
@@ -948,7 +957,7 @@ LogicalResult emitCausalBatchCoordinator(HardwareEmitContext &context,
          "      end\n"
          "      pyc_discard: pyc_wave_step <= pyc_finish;\n"
          "      pyc_finish: begin\n"
-         "        pyc_batch_pending <= 1'b0;\n"
+         "        pyc_batch_pending = 1'b0;\n"
          "        pyc_wave_step <= pyc_idle;\n";
   if (context.isPhysical())
     out << "        pyc_initial_batch <= 1'b0;\n";
