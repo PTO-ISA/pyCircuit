@@ -140,13 +140,16 @@ public:
     budget.setPhase("transaction wiring");
     if (failed(verifyTransactionWiring(analysis, scopes, validation, budget)))
       return failure();
-    // The contract-7 final plan also describes every storage endpoint for
-    // port metadata and physical event batches, independently of assertions.
+    // Executable sampling needs the complete commit tree even without assertions.
+    for (auto system : package.getOps<SystemOp>())
+      plan.managedSampling |= system->hasAttr("ac.managed_sampling");
+    // Contract 7 final plans also describe all storage endpoints for port
+    // metadata and physical event batches.
     auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
     bool finalEvents = policy.stageValue == "final" && contract &&
                        contract.getInt() == 7;
     auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
-    if (!finalEvents && !nodes[*rootIndex]->hasChecks &&
+    if (!plan.managedSampling && !finalEvents && !nodes[*rootIndex]->hasChecks &&
         (!role || role.getValue() != "system"))
       return std::move(plan);
     budget.setPhase("occurrence summary");
@@ -604,6 +607,7 @@ private:
                               : IntegerType();
       return row && row.size() == 5 && kind &&
              (kind.getValue() == "callable_guard" ||
+              kind.getValue() == "ordered_guard" ||
               kind.getValue() == "branch_select" ||
               kind.getValue() == "value_available" ||
               kind.getValue() == "resource_available") &&
@@ -692,8 +696,9 @@ private:
           failed(comparison(record.get("id"), id)) ||
           failed(pathCost(row, invocation, ordinal)))
         return failure();
-      if (kindOf(row).getValue() == "callable_guard" ||
-          kindOf(row).getValue() == "branch_select") {
+      StringRef kind = kindOf(row).getValue();
+      bool siteIdentity = kind == "branch_select" || kind == "ordered_guard";
+      if (kind == "callable_guard" || siteIdentity) {
         for (uint64_t j = 0; j < ordinal; ++j) {
           if (failed(budget.debit(1, site)))
             return failure();
@@ -709,7 +714,7 @@ private:
             return failure();
           // Census all eligible selection-site comparisons without retaining
           // structural identity verdicts or stopping at a successful owner.
-          if (kindOf(row).getValue() == "branch_select" &&
+          if (siteIdentity &&
               failed(comparison(prior.getAs<DictionaryAttr>("id").get("check"),
                                 id.get("check"))))
             return failure();

@@ -26,6 +26,11 @@ verifyHardwareCDCMaterialization(mlir::ModuleOp logical,
 } // namespace acir::ac
 
 namespace acir::detail {
+/// Materialize a closed structured GFIR graph without changing the input.
+/// The returned candidate has passed native and common HWIR verification.
+mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
+materializeStructuredHardware(mlir::ModuleOp package);
+
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>> materializeTransactionResetMasks(
     mlir::ModuleOp routed, ac::detail::SourceCheckBudget &budget);
 mlir::LogicalResult verifyTransactionResetMaskMaterialization(
@@ -43,6 +48,7 @@ mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>> refineRoutedHardware(
 } // namespace acir::detail
 
 namespace acir {
+std::unique_ptr<mlir::Pass> createLowerStructuredGFIRPass();
 std::unique_ptr<mlir::Pass> createLowerTransactionsPass();
 void registerGFIRToHWIRPasses();
 } // namespace acir

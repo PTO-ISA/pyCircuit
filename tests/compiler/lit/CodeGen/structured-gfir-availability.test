@@ -1,0 +1,17 @@
+# A guarded result crosses Struct construction and projection into root exports.
+# An independent field projected from the same Struct remains always available.
+# Shared rows cover false/true/X/Z guards, X/Z payload, reset, hold and retry.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-availability.mlir --gfir-verify --mlir-print-debuginfo -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: %python %inputs/structured-gfir-availability-ports.py %t.behavior.json %t.final.json %t
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t -I%t.$kind %inputs/structured-gfir-availability.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %inputs/structured-gfir-availability.rows > %t.$kind.checks || exit; done
+# RUN: diff -u %t.final.checks %t.behavior.checks
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -I%t -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/structured-gfir-availability.sv
+# RUN: %vvp %t.vvp +rows=%inputs/structured-gfir-availability.rows > %t.rtl.log
+# RUN: %python -c 'import pathlib,sys; p=pathlib.Path; p(sys.argv[2]).write_text("".join(s+"\n" for s in p(sys.argv[1]).read_text().splitlines() if s.startswith("ROW ")))' %t.rtl.log %t.rtl.checks
+# RUN: diff -u %t.final.checks %t.rtl.checks

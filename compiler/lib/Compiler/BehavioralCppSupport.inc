@@ -1,0 +1,697 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Compiler-owned adapters emitted into the structured GFIR C++ support header.
+constexpr llvm::StringLiteral behavioralValueSupport = R"cpp(#include <cstddef>
+#include <cstdint>
+#include <type_traits>
+
+namespace pyc_behavior {
+
+using gfsim::Bits;
+using gfsim::FourState;
+using gfsim::table;
+using gfsim::wire;
+
+template <unsigned Out, unsigned In>
+Bits<Out> sliceWords(const Bits<In> &value, unsigned low) noexcept {
+  Bits<Out> result{};
+  const unsigned first = low / 64;
+  const unsigned shift = low % 64;
+  for (unsigned i = 0; i < Bits<Out>::kWords; ++i) {
+    auto word = value.word(first + i) >> shift;
+    if (shift)
+      word |= value.word(first + i + 1) << (64 - shift);
+    result.setWord(i, word);
+  }
+  return result;
+}
+
+template <unsigned Out, unsigned In>
+FourState<Out> slice(const FourState<In> &value, unsigned low) noexcept {
+  if constexpr (Out > In) {
+    return FourState<Out>::unknown();
+  } else if constexpr (Out == In) {
+    return low == 0 ? value : FourState<Out>::unknown();
+  } else if constexpr (In <= 64) {
+    return gfsim::extract<Out>(value, low);
+  } else {
+    if (low > In - Out)
+      return FourState<Out>::unknown();
+    return FourState<Out>::fromMasks(sliceWords<Out>(value.value(), low),
+                                     sliceWords<Out>(value.knownMask(), low),
+                                     sliceWords<Out>(value.zMask(), low));
+  }
+}
+
+template <unsigned... Width>
+auto concatenate(const FourState<Width> &...fields) noexcept {
+  constexpr unsigned total = (Width + ...);
+  if constexpr (sizeof...(Width) == 2 && total <= 64) {
+    return gfsim::concat(fields...);
+  } else {
+    auto result = FourState<total>::unknown();
+    unsigned low = total;
+    (result.assignSlice(low -= Width, fields), ...);
+    return result;
+  }
+}
+
+template <class T> const auto &pack(const wire<T> &value) noexcept {
+  return value.packed();
+}
+
+template <class T, std::size_t... Extents>
+auto pack(const wire<table<T, Extents...>> &rows) noexcept {
+  using Table = wire<table<T, Extents...>>;
+  if constexpr (Table::width <= 64) {
+    return rows.packed();
+  } else {
+    auto result = Table::packed_type::unknown();
+    constexpr unsigned width = wire<T>::width;
+    for (std::size_t i = 0; i < Table::size; ++i)
+      result.assignSlice((Table::size - 1 - i) * width, pack(rows.element(i)));
+    return result;
+  }
+}
+
+template <class Wire>
+Wire unpack(const typename Wire::packed_type &value) noexcept {
+  if constexpr (requires { typename Wire::element_type; } && Wire::width > 64) {
+    using Lane = wire<typename Wire::element_type>;
+    Wire result;
+    for (std::size_t i = 0; i < Wire::size; ++i)
+      result.element(i) =
+          unpack<Lane>(slice<Lane::width>(value, (Wire::size - 1 - i) * Lane::width));
+    return result;
+  } else {
+    return Wire::fromPacked(value);
+  }
+}
+
+template <unsigned Width>
+constexpr std::uint64_t limitBits(std::uint64_t value) noexcept {
+  if constexpr (Width < 64)
+    return value & ((std::uint64_t{1} << Width) - 1);
+  return value;
+}
+
+template <unsigned Width, unsigned Total>
+void writeKnownBits(Bits<Total> &image, unsigned low, std::uint64_t value) noexcept {
+  static_assert(Width <= 64 && Width <= Total);
+  const unsigned word = low / 64;
+  const unsigned shift = low % 64;
+  constexpr std::uint64_t mask = limitBits<Width>(~std::uint64_t{0});
+  value &= mask;
+  image.setWord(word, (image.word(word) & ~(mask << shift)) | (value << shift));
+  if (shift + Width > 64) {
+    const unsigned tail = 64 - shift;
+    image.setWord(word + 1, (image.word(word + 1) & ~(mask >> tail)) | (value >> tail));
+  }
+}
+
+template <unsigned... Width, class... Scalar>
+auto concatenateKnown(Scalar... fields) noexcept {
+  constexpr unsigned total = (Width + ...);
+  Bits<total> image{};
+  unsigned low = total;
+  (writeKnownBits<Width>(image, low -= Width, fields), ...);
+  return FourState<total>::known(image);
+}
+
+template <unsigned Width>
+constexpr std::uint64_t extendSign(std::uint64_t value) noexcept {
+  constexpr auto sign = std::uint64_t{1} << (Width - 1);
+  return (value ^ sign) - sign;
+}
+
+template <unsigned Width>
+constexpr std::uint64_t shiftLeft(std::uint64_t value, std::uint64_t count) noexcept {
+  return count < Width ? value << count : 0;
+}
+
+template <unsigned Width>
+constexpr std::uint64_t shiftRight(std::uint64_t value, std::uint64_t count) noexcept {
+  return count < Width ? value >> count : 0;
+}
+
+template <class Evaluate, class... Inputs>
+#if defined(__GNUC__) || defined(__clang__)
+[[gnu::cold, gnu::noinline]]
+#endif
+auto evaluateFourState(Evaluate evaluate, const Inputs &...inputs) noexcept {
+  return evaluate(inputs...);
+}
+
+} // namespace pyc_behavior
+)cpp";
+
+constexpr llvm::StringLiteral behavioralCppSupport = R"cpp(#include <gfsim/byte_mem.h>
+#include <gfsim/fifo.h>
+#include <gfsim/sync_mem.h>
+
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <optional>
+
+namespace pyc_behavior {
+
+using Level = wire<Bits<1>>;
+
+template <unsigned W>
+bool sameMasks(const FourState<W> &left, const FourState<W> &right) noexcept {
+  return left.value() == right.value() && left.knownMask() == right.knownMask() &&
+         left.zMask() == right.zMask();
+}
+
+inline Level level(bool value) noexcept {
+  return Level::known(Bits<1>{value});
+}
+
+inline bool isOne(const Level &value) noexcept {
+  return value.isFullyKnown() && value.value().toBool();
+}
+
+// Behavioral owners query Current directly and prepare all transfers after the
+// caller has resolved both sides. Only the enclosing sample may commit them.
+template <class T, std::size_t Depth, gfsim::QueueReadyPolicy Policy,
+          std::uint64_t Latency>
+class Fifo {
+  using Kernel = gfsim::fifo_kernel<T, Depth, Policy, Latency>;
+
+public:
+  Level ready(const Level &recipient) const noexcept {
+    return Kernel::readReady(current_, recipient);
+  }
+  Level valid() const noexcept { return Kernel::readValid(current_); }
+  wire<T> data() const noexcept { return Kernel::readData(current_); }
+
+  void prepare(const Level &clock, const Level &reset, const Level &offered,
+               const wire<T> &value, const Level &recipient) {
+    Kernel::work(current_, {clock, reset, offered, value, recipient}, pending_,
+                 outputs());
+  }
+  void reset() noexcept {
+    Kernel::reset(current_, {Level{}, Level{}, Level{}, wire<T>{}, Level{}},
+                  pending_);
+  }
+  void commit() noexcept { Kernel::xfer(current_, pending_, outputs()); }
+  void discard() noexcept { Kernel::discard(current_, pending_); }
+
+private:
+  typename Kernel::Outputs outputs() noexcept {
+    return {unusedReady_, unusedValid_, unusedData_};
+  }
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
+  Level unusedReady_, unusedValid_;
+  wire<T> unusedData_;
+};
+
+template <class T, unsigned AddressWidth, std::size_t Depth, std::size_t Ports>
+class SyncMemory {
+  using Kernel = gfsim::sync_mem_kernel<T, AddressWidth, Depth, Ports>;
+  using Address = wire<Bits<AddressWidth>>;
+  using Mask = wire<Bits<Kernel::STRB_WIDTH>>;
+
+public:
+  const wire<T> &result(unsigned port) const noexcept { return responses_[port]; }
+  Level live(unsigned port) const noexcept { return level(current_.live[port]); }
+
+  void prepare(const Level &clock, const Level &reset,
+               const std::array<Level, Ports> &readEnabled,
+               const std::array<Address, Ports> &readAddress,
+               const Level &writeEnabled, const Address &writeAddress,
+               const wire<T> &data, const Mask &mask) {
+    typename Kernel::Inputs inputs{clock, reset, {}, {}, writeEnabled,
+                                  writeAddress, data, mask};
+    for (std::size_t port = 0; port < Ports; ++port) {
+      inputs.ren[port] = &readEnabled[port];
+      inputs.raddr[port] = &readAddress[port];
+    }
+    Kernel::work(current_, inputs, pending_, outputs());
+  }
+  void reset() noexcept {
+    Kernel::reset(current_, {Level{}, Level{}, {}, {}, Level{}, Address{},
+                             wire<T>{}, Mask{}}, pending_);
+  }
+  void commit() noexcept { Kernel::xfer(current_, pending_, outputs()); }
+  void discard() noexcept { Kernel::discard(current_, pending_); }
+
+private:
+  typename Kernel::Outputs outputs() noexcept {
+    typename Kernel::Outputs pins{};
+    for (std::size_t port = 0; port < Ports; ++port)
+      pins.rdata[port] = &responses_[port];
+    return pins;
+  }
+
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
+  std::array<wire<T>, Ports> responses_;
+};
+
+template <class T, unsigned AddressWidth, std::size_t Depth>
+class ByteMemory {
+  using Kernel = gfsim::byte_mem_kernel<T, AddressWidth, Depth>;
+  using Address = wire<Bits<AddressWidth>>;
+  using Mask = wire<Bits<Kernel::STRB_WIDTH>>;
+
+public:
+  wire<T> read(const Address &address) const noexcept {
+    wire<T> data;
+    Kernel::read(current_, address, {data});
+    return data;
+  }
+  void prepare(const Level &clock, const Level &reset, const Address &address,
+               const Level &writeEnabled, const Address &writeAddress,
+               const wire<T> &data, const Mask &mask) {
+    wire<T> unused;
+    Kernel::work(current_, {clock, reset, address, writeEnabled, writeAddress,
+                            data, mask}, pending_, {unused});
+  }
+  void reset() noexcept {
+    Kernel::reset(current_, {Level{}, Level{}, Address{}, Level{}, Address{},
+                             wire<T>{}, Mask{}}, pending_);
+  }
+  void commit() noexcept {
+    wire<T> unused;
+    Kernel::xfer(current_, pending_, {unused});
+  }
+  void discard() noexcept { Kernel::discard(current_, pending_); }
+
+private:
+  typename Kernel::Current current_;
+  typename Kernel::Pending pending_;
+};
+
+// All logical state in a verified domain shares committed edge history.
+// Clock-only samples still prepare their history for the enclosing Xfer.
+class SampledDomain {
+public:
+  gfsim::SampledClockEvaluation evaluate(const Level &clock,
+                                         const Level &reset) const noexcept {
+    return gfsim::evaluateSampledClock(clock_, clock, reset);
+  }
+
+  void prepare(const gfsim::SampledClockEvaluation &sample) {
+    if (sample.fault == gfsim::SampledClockFault::UnknownClock)
+      throw gfsim::FourStateViolation("dffe clock must be known");
+    if (sample.fault == gfsim::SampledClockFault::UnknownReset)
+      throw gfsim::FourStateViolation("dffe reset must be known at posedge");
+    nextClock_ = sample.nextClock;
+    writesState_ = sample.rising;
+    valid_ = true;
+  }
+
+  void reset() noexcept {
+    nextClock_ = false;
+    writesState_ = true;
+    valid_ = true;
+  }
+
+  bool commit() noexcept {
+    if (!valid_)
+      return false;
+    clock_ = nextClock_;
+    valid_ = false;
+    return writesState_;
+  }
+
+  void discard() noexcept { valid_ = false; }
+
+private:
+  bool clock_ = false;
+  bool nextClock_ = false;
+  bool writesState_ = false;
+  bool valid_ = false;
+};
+
+// A value proposal is read only when the domain commits a sample with writes.
+// Every such sample replaces all of its owner's proposals, including holds.
+template <class T> class State {
+public:
+  const wire<T> &value() const noexcept { return current_; }
+
+  void prepare(const Level &enabled, const std::optional<wire<T>> &candidate) {
+    if (!enabled.isFullyKnown())
+      throw gfsim::FourStateViolation("dffe enable must be known at posedge");
+    if (isOne(enabled))
+      pending_ = candidate;
+    else
+      hold();
+  }
+
+  void hold() noexcept { pending_.reset(); }
+  void reset(const wire<T> &initial) noexcept { pending_ = initial; }
+
+  void commit() noexcept {
+    if (pending_)
+      current_ = *pending_;
+  }
+
+private:
+  wire<T> current_;
+  std::optional<wire<T>> pending_;
+};
+
+template <class Wire> struct BoundState {
+  const Wire &committed;
+  std::optional<Wire> &candidate;
+
+  const Wire &value() const noexcept { return candidate ? *candidate : committed; }
+  void write(const Wire &next) noexcept { candidate = next; }
+  Wire &edit() noexcept {
+    if (!candidate)
+      candidate.emplace(committed);
+    return *candidate;
+  }
+};
+
+template <std::size_t Size, class T>
+wire<table<T, Size>> splat(const wire<T> &element) noexcept {
+  wire<table<T, Size>> result;
+  for (std::size_t row = 0; row < Size; ++row)
+    result.element(row) = element;
+  return result;
+}
+
+template <std::size_t Size, unsigned IndexWidth>
+FourState<1> inRange(const wire<Bits<IndexWidth>> &index) noexcept {
+  constexpr auto extentWidth = std::bit_width(Size);
+  constexpr unsigned width = IndexWidth > extentWidth ? IndexWidth : extentWidth;
+  return gfsim::compare<gfsim::ComparePredicate::ULT>(
+      gfsim::zero_extend<width>(index.packed()), FourState<width>::known(Bits<width>{Size}));
+}
+
+template <class T, std::size_t Size, unsigned IndexWidth>
+std::tuple<wire<T>, Level> lookup(const wire<table<T, Size>> &rows,
+                                 const wire<Bits<IndexWidth>> &index) noexcept {
+  auto range = Level::fromPacked(inRange<Size>(index));
+  if (isOne(range))
+    return {rows.element(index.value().value()), range};
+  return {wire<T>::unknown(), range};
+}
+
+template <class Table, unsigned Width, unsigned IndexWidth>
+auto lookupPacked(const FourState<Width> &value, unsigned low,
+                  const wire<Bits<IndexWidth>> &index) noexcept {
+  using Lane = wire<typename Table::element_type>;
+  auto range = Level::fromPacked(inRange<Table::size>(index));
+  if (!isOne(range))
+    return std::tuple{Lane::unknown(), range};
+  unsigned offset = (Table::size - 1 - index.value().value()) * Lane::width;
+  return std::tuple{unpack<Lane>(slice<Lane::width>(value, low + offset)), range};
+}
+
+template <class T, std::size_t Size, unsigned IndexWidth>
+void replace(wire<table<T, Size>> &rows, const wire<Bits<IndexWidth>> &index,
+             const wire<T> &value) noexcept {
+  if (index.isFullyKnown()) {
+    if (isOne(Level::fromPacked(inRange<Size>(index))))
+      rows.element(index.value().value()) = value;
+    return;
+  }
+  constexpr auto extentWidth = std::bit_width(Size);
+  constexpr unsigned width = IndexWidth > extentWidth ? IndexWidth : extentWidth;
+  const auto key = gfsim::zero_extend<width>(index.packed());
+  for (std::size_t row = 0; row < Size; ++row) {
+    const auto equal = gfsim::compare<gfsim::ComparePredicate::EQ>(
+        key, FourState<width>::known(Bits<width>{row}));
+    auto &old = rows.element(row);
+    old = wire<T>::fromPacked(gfsim::select(equal, value.packed(), old.packed()));
+  }
+}
+
+template <class T, std::size_t Size>
+wire<table<T, Size>> selectRows(const Level &condition,
+                                const wire<table<T, Size>> &yes,
+                                const wire<table<T, Size>> &no) noexcept {
+  if (condition.isFullyKnown())
+    return condition.value().toBool() ? yes : no;
+  wire<table<T, Size>> result;
+  for (std::size_t row = 0; row < Size; ++row)
+    result.element(row) = wire<T>::fromPacked(
+        gfsim::select(condition.packed(), yes.element(row).packed(), no.element(row).packed()));
+  return result;
+}
+
+template <class T, std::size_t Size, unsigned IndexWidth>
+wire<table<T, Size>> updatedTable(wire<table<T, Size>> rows,
+                                  const wire<Bits<IndexWidth>> &index,
+                                  const wire<T> &value) noexcept {
+  replace(rows, index, value);
+  return rows;
+}
+
+template <class Table, class State, unsigned IndexWidth>
+void replacePackedRows(wire<State> &state, unsigned low,
+                       const wire<Bits<IndexWidth>> &index,
+                       const wire<typename Table::element_type> &value) noexcept {
+  if (index.isFullyKnown()) {
+    if (isOne(Level::fromPacked(inRange<Table::size>(index)))) {
+      unsigned offset = (Table::size - 1 - index.value().value()) * value.width;
+      state.assignSlice(low + offset, pack(value));
+    }
+    return;
+  }
+  auto rows = unpack<Table>(slice<Table::width>(state.packed(), low));
+  replace(rows, index, value);
+  state.assignSlice(low, pack(rows));
+}
+
+template <class Field, unsigned Low, class Whole> struct BoundField {
+  BoundState<Whole> owner;
+  Field value() const noexcept {
+    return unpack<Field>(slice<Field::width>(pack(owner.value()), Low));
+  }
+  void write(const Field &next) noexcept { owner.edit().assignSlice(Low, pack(next)); }
+};
+
+template <class Field, unsigned Low, class Whole>
+auto bindField(BoundState<Whole> owner) noexcept {
+  return BoundField<Field, Low, Whole>{owner};
+}
+
+template <class Table, unsigned Low, class Whole, class Index> struct BoundRow {
+  using Row = wire<typename Table::element_type>;
+  BoundState<Whole> owner;
+  Index index;
+
+  Row value() const noexcept {
+    if constexpr (std::is_same_v<Whole, Table>)
+      return std::get<0>(lookup(owner.value(), index));
+    else
+      return std::get<0>(lookupPacked<Table>(owner.value().packed(), Low, index));
+  }
+  void write(const Row &next) noexcept {
+    if constexpr (std::is_same_v<Whole, Table>)
+      replace(owner.edit(), index, next);
+    else
+      replacePackedRows<Table>(owner.edit(), Low, index, next);
+  }
+};
+
+template <class Table, unsigned Low, class Whole, class Index>
+auto bindRow(BoundState<Whole> owner, const Index &index) noexcept {
+  return BoundRow<Table, Low, Whole, Index>{owner, index};
+}
+
+} // namespace pyc_behavior
+)cpp";
+
+constexpr llvm::StringLiteral behavioralRecordSupport = R"cpp(namespace pyc_behavior {
+
+template <class Wire, class Layout> class RecordState {
+public:
+  using Candidate = typename Layout::Candidate;
+
+  Layout fields;
+  const Wire &value() const noexcept { return mirror_; }
+
+  void prepare(const Level &enabled, const Candidate &candidate) {
+    if (!enabled.isFullyKnown())
+      throw gfsim::FourStateViolation("dffe enable must be known at posedge");
+    if (isOne(enabled)) {
+      reset_.reset();
+      pending_ = candidate;
+    } else {
+      hold();
+    }
+  }
+
+  void hold() noexcept {
+    pending_.reset();
+    reset_.reset();
+  }
+
+  void reset(const Wire &initial) noexcept {
+    pending_.reset();
+    reset_ = initial;
+  }
+
+  void commit() noexcept {
+    if (reset_) {
+      mirror_ = *reset_;
+      fields.load(mirror_);
+    } else if (pending_) {
+      fields.apply(mirror_, *pending_);
+    }
+  }
+
+  void merge(Candidate &result, const Level &condition, const Candidate &yes,
+             const Candidate &no) const noexcept {
+    fields.merge(mirror_, result, condition, yes, no);
+  }
+
+protected:
+  template <class Edit>
+  void applyKnown(const Edit &edit) noexcept {
+    fields.applyKnown(mirror_, edit);
+  }
+
+private:
+  Wire mirror_;
+  std::optional<Wire> reset_;
+  std::optional<Candidate> pending_;
+};
+
+template <class Wire, class Layout>
+class KnownRecordState : public RecordState<Wire, Layout> {
+  using Base = RecordState<Wire, Layout>;
+
+public:
+  void prepare(const Level &enabled, const typename Layout::Candidate &candidate) {
+    Base::prepare(enabled, candidate);
+    pendingKnown_ = false;
+  }
+
+  void prepareKnown() noexcept {
+    Base::hold();
+    pendingKnown_ = true;
+  }
+
+  void reset(const Wire &initial) noexcept {
+    Base::reset(initial);
+    pendingKnown_ = false;
+  }
+
+  void discard() noexcept { pendingKnown_ = false; }
+  bool isFullyKnown() const noexcept { return known_; }
+
+  // The caller owns the memo entry until commit. Keep only the prepared
+  // intent here so neither a pointer nor a copy survives a subsequent Work.
+  void commit(const typename Layout::KnownEdit *edit) noexcept {
+    if (pendingKnown_ && edit) {
+      // Native capture requires a fully known record. Only a writing Xfer
+      // can change committed state, and it invalidates the capture key.
+      Base::applyKnown(*edit);
+    } else {
+      Base::commit();
+      known_ = Base::value().isFullyKnown();
+    }
+    pendingKnown_ = false;
+  }
+
+private:
+  bool known_ = false;
+  bool pendingKnown_ = false;
+};
+
+template <class Image, class Row>
+void applyKnownRecordRow(Image &image, Row &row, unsigned low,
+                         std::uint64_t value) noexcept {
+  row = Row::fromPacked(FourState<Row::width>::known(Bits<Row::width>{value}));
+  writeKnownBits<Row::width>(image, low, value);
+}
+
+template <unsigned Low, unsigned Width, class State, class Field>
+decltype(auto) readRecordField(const State &mirror, const Field &field) noexcept {
+  // Compact scalar members carry the value plane. Cold reads use the
+  // committed mirror, which also holds their known and Z planes.
+  if constexpr (std::is_integral_v<Field>)
+    return slice<Width>(mirror.packed(), Low);
+  else
+    return field.packed();
+}
+
+template <unsigned Low, class State, class Storage, class Field>
+void applyRecordField(State &mirror, Storage &current,
+                      const std::optional<Field> &edit) noexcept {
+  if (edit) {
+    if constexpr (std::is_integral_v<Storage>)
+      current = static_cast<Storage>(edit->packed().value().value());
+    else
+      current = *edit;
+    mirror.assignSlice(Low, pack(*edit));
+  }
+}
+
+template <class Field>
+std::optional<Field> mergeRecordField(const Level &condition,
+                                      const typename Field::packed_type &current,
+                                      const std::optional<Field> &yes,
+                                      const std::optional<Field> &no) noexcept {
+  if (!yes && !no)
+    return std::nullopt;
+  return Field::fromPacked(gfsim::select(condition.packed(),
+      yes ? pack(*yes) : current, no ? pack(*no) : current));
+}
+
+enum class RowMerge { None, NewValue, OldValue };
+
+template <class Index, class Row> struct RecordRowEdit {
+  Index index;
+  Row value;
+  RowMerge merge = RowMerge::None;
+};
+
+template <class Edit>
+std::optional<Edit> mergeRecordRowEdit(std::optional<Edit> yes,
+                                        std::optional<Edit> no) noexcept {
+  // A single lexical row write with no loop or call can reach both arms
+  // only if it precedes the branch. Both candidates then contain that same
+  // edit. One-sided edits meet the committed row, but keep the true arm's
+  // value plane even where the output becomes unknown.
+  if (yes) {
+    if (!no && yes->merge == RowMerge::None)
+      yes->merge = RowMerge::NewValue;
+    return yes;
+  }
+  if (no)
+    no->merge = RowMerge::OldValue;
+  return no;
+}
+
+template <unsigned Low, class State, class Table, class Edit>
+void applyRecordRow(State &mirror, Table &current,
+                    const std::optional<Edit> &candidate) noexcept {
+  if (!candidate)
+    return;
+  const auto &edit = *candidate;
+  using Row = wire<typename Table::element_type>;
+  auto apply = [&](std::size_t index, const Row &value) {
+    auto &old = current.element(index);
+    if (edit.merge == RowMerge::OldValue)
+      old = Row::fromPacked(gfsim::select(FourState<1>::unknown(), old.packed(), value.packed()));
+    else if (edit.merge == RowMerge::NewValue)
+      old = Row::fromPacked(gfsim::select(FourState<1>::unknown(), value.packed(), old.packed()));
+    else
+      old = value;
+    mirror.assignSlice(Low + (Table::size - 1 - index) * Row::width, old.packed());
+  };
+  if (edit.index.isFullyKnown()) {
+    const auto index = edit.index.value().value();
+    if (index < Table::size)
+      apply(index, edit.value);
+    return;
+  }
+  evaluateFourState([&] {
+    auto updated = current;
+    replace(updated, edit.index, edit.value);
+    for (std::size_t index = 0; index < Table::size; ++index)
+      apply(index, updated.element(index));
+  });
+}
+
+} // namespace pyc_behavior
+)cpp";

@@ -1,4 +1,5 @@
 #include "FinalCppNames.h"
+#include "mlir/IR/Operation.h"
 
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSet.h"
@@ -9,6 +10,21 @@
 using namespace mlir;
 
 namespace acir::compiler {
+
+LogicalResult CppNameScope::insert(StringRef name, Operation *site) {
+  SmallVector<StringRef> parts;
+  name.drop_front(2).split(parts, "::");
+  std::string prefix;
+  for (size_t i = 0; i + 1 < parts.size(); ++i) {
+    prefix += "::" + parts[i].str();
+    if (types.contains(prefix))
+      return site->emitOpError() << "emitted hardware name collision";
+    namespaces.insert(prefix);
+  }
+  if (namespaces.contains(name) || !types.insert(name).second)
+    return site->emitOpError() << "emitted hardware name collision";
+  return success();
+}
 
 bool isAsciiAlpha(char value) {
   return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');

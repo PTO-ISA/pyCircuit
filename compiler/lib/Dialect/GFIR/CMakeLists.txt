@@ -26,3 +26,12 @@ target_include_directories(GFIRDialect PUBLIC
   "$<BUILD_INTERFACE:${PYCIRCUIT_BINARY_DIR}/include>"
   "$<INSTALL_INTERFACE:include>"
 )
+
+# The structured verifier consumes typed operations from both dialects.
+add_acir_library(GFIRStructured SOURCES
+  RecoverStructuredRowWrite.cpp
+  StructuredClocked.cpp
+  StructuredProgram.cpp
+  LINK_LIBRARIES GFIRDialect ACIRAnalysis MLIRPass
+)
+target_include_directories(GFIRStructured PRIVATE "${PYCIRCUIT_SOURCE_DIR}/lib")

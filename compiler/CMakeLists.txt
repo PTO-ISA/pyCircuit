@@ -379,6 +379,9 @@ function(pycircuit_verify_layering)
   set(forbidden
     "GFIRDialect:ACIRDialect"
     "GFIRDialect:ACIRAnalysis"
+    "GFIRStructured:HWIRValidation"
+    "GFIRStructured:ACIRToGFIR"
+    "GFIRStructured:ACIRCodegen"
     "ACIRCore:ACIRDialect"
     "ACIRCore:ACIRAnalysis"
     "ACIRDialect:ACIRAnalysis"

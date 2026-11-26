@@ -7,6 +7,7 @@ using namespace mlir;
 
 namespace acir {
 void registerGFIRToHWIRPasses() {
+  registerPass([] { return createLowerStructuredGFIRPass(); });
   registerPass([] { return createLowerTransactionsPass(); });
 }
 } // namespace acir

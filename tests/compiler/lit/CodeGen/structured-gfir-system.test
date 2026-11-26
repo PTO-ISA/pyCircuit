@@ -1,0 +1,33 @@
+# Generated SystemRunner and pycircuit_sim execute exactly the finite schedule.
+# The held-high Z reset is legal; strict fails only on the later rising X reset,
+# after four committed samples. A child owns the state and its domain history.
+# The bundle also compiles with an ordinary entry and an unselected System.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: cp %inputs/structured-gfir-system.mlir %t.if_one.mlir
+# RUN: sed 's/reset = "if_one"/reset = "strict"/' %inputs/structured-gfir-system.mlir > %t.strict.mlir
+# RUN: sed '/gfir.instance @counter/d; /gfir.call @counter/d; s/"1x"/"x0"/' %inputs/structured-gfir-system.mlir > %t.empty.mlir
+# RUN: for mode in if_one strict empty; do %pycircuit_opt %t.$mode.mlir --gfir-verify -o %t.$mode.gfir || exit; %pycircuit_emit %t.$mode.gfir --input-stage gfir --target cpp > %t.$mode.behavior.json || exit; %pycircuit_opt %t.$mode.gfir --gfir-to-hwir --ac-verify-hardware -o %t.$mode.hwir || exit; %pycircuit_emit %t.$mode.hwir --target cpp > %t.$mode.final.json || exit; done
+# RUN: for mode in if_one strict empty; do for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$mode.$kind.json %t.$mode.$kind || exit; done; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for mode in if_one strict empty; do for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$mode.$kind %t.$mode.$kind/simulation_main.cpp @%t.$mode.$kind/sources.rsp "$RTLIB" -o %t.$mode.$kind.exe || exit; done; done
+# RUN: for kind in behavior final; do %t.if_one.$kind.exe --config %t.if_one.$kind/config.json > %t.if_one.$kind.stdout || exit; %python %inputs/structured-gfir-system-result.py %t.if_one.$kind.stdout TERMINATED 7 || exit; done
+# RUN: not %t.strict.behavior.exe --config %t.strict.behavior/config.json > %t.strict.behavior.stdout 2>&1
+# RUN: not %t.strict.final.exe --config %t.strict.final/config.json > %t.strict.final.stdout 2>&1
+# RUN: not %t.empty.behavior.exe --config %t.empty.behavior/config.json > %t.empty.behavior.stdout 2>&1
+# RUN: not %t.empty.final.exe --config %t.empty.final/config.json > %t.empty.final.stdout 2>&1
+# RUN: for mode in strict empty; do for kind in behavior final; do %python %inputs/structured-gfir-system-result.py %t.$mode.$kind.stdout FAILED 4 || exit; done; done
+# RUN: not %t.if_one.behavior.exe --config %t.if_one.behavior/config.json --cycles 7
+# RUN: not %t.if_one.final.exe --config %t.if_one.final/config.json --cycles 7
+# RUN: for mode in if_one strict empty; do %pycircuit_emit %t.$mode.hwir --target verilog --format source > %t.$mode.sv || exit; %iverilog -g2012 -s pycircuit_sim -o %t.$mode.vvp %t.$mode.sv %include/verilog/dffe.v || exit; done
+# RUN: %vvp %t.if_one.vvp > %t.if_one.rtl.stdout
+# RUN: %python %inputs/structured-gfir-system-result.py %t.if_one.rtl.stdout TERMINATED 7
+# RUN: not %vvp %t.strict.vvp > %t.strict.rtl.stdout 2>&1
+# RUN: %python %inputs/structured-gfir-system-result.py %t.strict.rtl.stdout RTL_FAILED 4
+# RUN: not %vvp %t.empty.vvp > %t.empty.rtl.stdout 2>&1
+# RUN: %python %inputs/structured-gfir-system-result.py %t.empty.rtl.stdout RTL_FAILED 4
+# RUN: not %vvp %t.if_one.vvp +cycles=7
+# RUN: sed '/^  "ac\.system"/s/callee = @Scenario,/callee = @Unused,/' %t.if_one.hwir > %t.mixed.input.hwir
+# RUN: grep -q '^  "ac\.system".*callee = @Unused,' %t.mixed.input.hwir
+# RUN: %pycircuit_opt %t.mixed.input.hwir --ac-verify-hardware -o %t.mixed.hwir
+# RUN: %pycircuit_emit %t.mixed.hwir --target cpp > %t.mixed.final.json
+# RUN: %python %inputs/unpack_bundle.py %t.mixed.final.json %t.mixed.final
+# RUN: %cxx -std=c++20 -pthread -I%include -I%t.mixed.final -fsyntax-only @%t.mixed.final/sources.rsp

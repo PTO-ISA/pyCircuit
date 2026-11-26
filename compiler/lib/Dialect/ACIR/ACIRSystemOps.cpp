@@ -59,13 +59,20 @@ getSystemSamples(mlir::Operation *declaration) {
     return mlir::ArrayAttr::get(declaration->getContext(), {});
   auto error = [&] { return declaration->emitOpError(); };
   auto kind = declaration->getAttrOfType<mlir::StringAttr>("ac.root_kind");
-  auto metadata = mlir::dyn_cast<mlir::DictionaryAttr>(raw);
-  auto rows =
-      metadata ? metadata.getAs<mlir::ArrayAttr>("rows") : mlir::ArrayAttr();
   if (!mlir::isa<ModuleOp, ModuleImportOp>(declaration) ||
       !mlir::isa_and_nonnull<mlir::ModuleOp>(declaration->getParentOp()) ||
-      !kind || kind.getValue() != "system" || !metadata ||
-      (metadata.size() != 3 && metadata.size() != 4) || !rows || rows.empty() ||
+      !kind || kind.getValue() != "system")
+    return error() << "ac.system_samples requires a System declaration";
+  return getSystemSampleRows(mlir::dyn_cast<mlir::DictionaryAttr>(raw), declaration);
+}
+
+mlir::FailureOr<mlir::ArrayAttr>
+getSystemSampleRows(mlir::DictionaryAttr metadata, mlir::Operation *declaration) {
+  auto error = [&] { return declaration->emitOpError(); };
+  auto rows =
+      metadata ? metadata.getAs<mlir::ArrayAttr>("rows") : mlir::ArrayAttr();
+  if (!metadata || (metadata.size() != 3 && metadata.size() != 4) ||
+      !rows || rows.empty() ||
       rows.size() > HardwareSourceCheckLimits{}.maxWorkUnits)
     return error() << "ac.system_samples requires a bounded nonempty rows, "
                       "origin and location dictionary on a System declaration";
@@ -75,8 +82,10 @@ getSystemSamples(mlir::Operation *declaration) {
           error)))
     return mlir::failure();
   auto inputs = readSystemSampleInputs(declaration);
-  if (mlir::failed(inputs) || (metadata.size() == 4 && inputs->empty()))
+  if (mlir::failed(inputs))
     return mlir::failure();
+  if (metadata.size() == 4 && inputs->empty())
+    return error() << "explicit System samples require logical input ordinals";
   unsigned width = inputs->empty() ? 2 : inputs->size();
   for (auto rawRow : rows) {
     auto row = mlir::dyn_cast<mlir::StringAttr>(rawRow);

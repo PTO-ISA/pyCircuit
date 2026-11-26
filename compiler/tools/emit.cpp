@@ -2,6 +2,7 @@
 // Emit source-owned modules from verified final ACIR. Publication is
 // transactional in the Python driver; this transport writes nothing before
 // complete success.
+#include "Compiler/BehavioralEmitCpp.h"
 #include "Compiler/FinalCppNames.h"
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/FinalSourceMap.h"
@@ -10,11 +11,13 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/GFIR/GFIRDialect.h"
+#include "pycircuit/Dialect/GFIR/StructuredProgram.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -33,6 +36,140 @@ std::string attributeText(Attribute attr) {
   llvm::raw_string_ostream stream(text);
   attr.print(stream);
   return text;
+}
+
+// A direct nonzero literal discharges division's X-on-zero case.
+bool knownNonzeroLiteral(Value value) {
+  if (auto constant = value.getDefiningOp<acir::ac::BitsConstantOp>()) {
+    auto tree = constant.getValue().getTree();
+    auto kind = tree.getAs<StringAttr>("kind");
+    auto literal = tree.getAs<DictionaryAttr>("value");
+    auto number = literal ? literal.getAs<acir::ac::MathIntAttr>("value")
+                          : acir::ac::MathIntAttr();
+    return kind && kind.getValue() == "literal" && number &&
+           number.getCanonicalValue() != "0";
+  }
+  if (auto constant = value.getDefiningOp<acir::ac::BitsConstant4Op>()) {
+    StringRef pattern = constant.getPattern();
+    return !pattern.contains('x') && !pattern.contains('z') &&
+           pattern.contains('1');
+  }
+  return false;
+}
+
+bool operationNeedsFourState(Operation *operation) {
+  if (operation->hasAttr("ac.verification_observer"))
+    return true;
+  if (auto constant = dyn_cast<acir::ac::BitsConstant4Op>(operation))
+    return constant.getPattern().contains('x') ||
+           constant.getPattern().contains('z');
+  if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(operation))
+    return compare.getPredicate() == "case_eq";
+  if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(operation))
+    return (binary.getOpcode() == "udiv" || binary.getOpcode() == "urem") &&
+           !knownNonzeroLiteral(binary.getRhs());
+  return isa<acir::ac::TableGetOp>(operation);
+}
+
+bool structuredNeedsFourState(const acir::gfir::StructuredProgram &program) {
+  llvm::StringMap<const acir::gfir::StructuredDefinition *> definitions;
+  for (const auto &definition : program.definitions) {
+    auto module = definition.module;
+    definitions.try_emplace(module.getSymName(), &definition);
+  }
+  llvm::DenseSet<Operation *> reached;
+  SmallVector<const acir::gfir::StructuredDefinition *> pending{
+      &program.definitions[program.rootIndex]};
+  while (!pending.empty()) {
+    const auto &definition = *pending.pop_back_val();
+    auto module = definition.module;
+    if (!reached.insert(module).second)
+      continue;
+    if (definition.hasChecks() ||
+        (definition.clocked && (!definition.clocked->fifos.empty() ||
+                                !definition.clocked->memories.empty())))
+      return true;
+    auto result = module.walk([&](Operation *operation) {
+      if (operationNeedsFourState(operation))
+        return WalkResult::interrupt();
+      if (auto instance = dyn_cast<acir::gfir::InstanceOp>(operation))
+        if (auto child = definitions.lookup(instance.getCalleeAttr().getValue()))
+          pending.push_back(child);
+      return WalkResult::advance();
+    });
+    if (result.wasInterrupted())
+      return true;
+  }
+  return false;
+}
+
+LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
+  auto program = acir::gfir::analyzeStructured(package);
+  if (failed(program))
+    return failure();
+  if (acir::gfir::recoverStructuredRowWrite(package, *program)) {
+    if (failed(mlir::verify(package)))
+      return failure();
+    program = acir::gfir::analyzeStructured(package);
+    if (failed(program))
+      return failure();
+  }
+  auto parts = acir::compiler::emitBehavioralCpp(package, *program);
+  if (failed(parts))
+    return failure();
+  if (format == "source") {
+    // This native view puts the headers before their source bodies. Quoted
+    // generated includes are unnecessary in this concatenated form.
+    auto append = [](StringRef source) {
+      SmallVector<StringRef> lines;
+      source.split(lines, '\n', -1, false);
+      for (StringRef line : lines)
+        if (!line.starts_with("#include \"") && line != "#pragma once")
+          llvm::outs() << line << '\n';
+    };
+    append(parts->supportHeader);
+    for (const auto &group : parts->sourceGroups)
+      append(group.header);
+    append(parts->systemHeader);
+    for (const auto &group : parts->sourceGroups)
+      append(group.source);
+    return success();
+  }
+  auto ports = llvm::json::parse(parts->portMap);
+  if (!ports) {
+    llvm::consumeError(ports.takeError());
+    return package.emitOpError("invalid behavioral C++ port map");
+  }
+  llvm::json::Array groups;
+  for (const auto &group : parts->sourceGroups)
+    groups.emplace_back(llvm::json::Object{
+        {"source", sourceOwner(group.sourceOwner)},
+        {"header_path", group.headerPath}, {"source_path", group.sourcePath},
+        {"header", group.header}, {"implementation", group.source}});
+  bool needsFourState = structuredNeedsFourState(*program);
+  llvm::json::Array sampleRows;
+  for (Attribute raw : program->samples) {
+    StringRef row = cast<StringAttr>(raw).getValue();
+    sampleRows.emplace_back(row);
+    needsFourState |= row.contains('x') || row.contains('z');
+  }
+  auto resetPolicy = program->root.getExecutionPolicyAttr();
+  auto root = program->definitions[program->rootIndex].module;
+  llvm::json::Object bundle{
+      {"entry", llvm::json::Object{{"definition", "@\"" + program->root.getCalleeAttr().getValue().str() + "\""},
+                                    {"arguments", llvm::json::Array{}}}},
+      {"entry_source", sourceOwner(root.getSourceOwner())},
+      {"reset_semantics", resetPolicy ? resetPolicy.getAs<StringAttr>("reset").getValue()
+                                      : StringRef("strict")},
+      {"needs_four_state", needsFourState},
+      {"system_samples", std::move(sampleRows)},
+      {"support_header", parts->supportHeader}, {"system_header", parts->systemHeader},
+      {"source_groups", std::move(groups)}, {"root_cpp_name", parts->rootCppName},
+      {"source_check_count", parts->sourceCheckCount}, {"simulation_main", parts->simulationMain},
+      {"simulation_config", parts->simulationConfig},
+      {"port_availability", std::move(*ports)}, {"source_maps", llvm::json::Array{}}};
+  llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(bundle)));
+  return success();
 }
 } // namespace
 
@@ -56,7 +193,7 @@ int main(int argc, char **argv) {
         "{0}\n", llvm::json::Value(llvm::json::Object{{"path", path}}));
     return 0;
   }
-  StringRef target, format = "json", rtlMode = "managed";
+  StringRef target, format = "json", rtlMode = "managed", inputStage;
   bool optionsValid = argc >= 4 && (argc % 2 == 0);
   for (int i = 2; optionsValid && i + 1 < argc; i += 2) {
     StringRef option(argv[i]);
@@ -66,20 +203,29 @@ int main(int argc, char **argv) {
       format = argv[i + 1];
     else if (option == "--rtl-mode")
       rtlMode = argv[i + 1];
+    else if (option == "--input-stage" && inputStage.empty())
+      inputStage = argv[i + 1];
     else
       optionsValid = false;
   }
   if (!optionsValid || (target != "cpp" && target != "verilog") ||
       (format != "json" && format != "source") ||
       (rtlMode != "managed" && rtlMode != "physical") ||
-      (target != "verilog" && rtlMode != "managed")) {
+      (target != "verilog" && rtlMode != "managed") ||
+      (!inputStage.empty() && inputStage != "gfir") ||
+      (inputStage == "gfir" && target != "cpp")) {
     llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog "
-                    "[--format json|source] [--rtl-mode managed|physical]\n";
+                    "[--format json|source] [--rtl-mode managed|physical]\n"
+                    "       pycircuit-emit GFIR.mlir --input-stage gfir --target cpp\n";
     return 2;
   }
   bool physical = rtlMode == "physical";
   auto package = parseSourceFile<ModuleOp>(argv[1], &context);
-  if (!package || failed(mlir::verify(*package)))
+  if (!package)
+    return 1;
+  if (inputStage == "gfir")
+    return failed(emitStructuredCpp(*package, format)) ? 1 : 0;
+  if (failed(mlir::verify(*package)))
     return 1;
   acir::ac::HardwareAnalysis analysis(*package);
   if (failed(analysis.verify()))
@@ -144,25 +290,6 @@ int main(int argc, char **argv) {
     sampleRows.emplace_back(row);
     needsFourState |= row.contains('x') || row.contains('z');
   }
-  // Only direct known, nonzero literals discharge division's X-on-zero
-  // behavior. Do not invent a runtime knownness/range proof in this driver.
-  auto knownNonzeroLiteral = [](Value value) {
-    if (auto constant = value.getDefiningOp<acir::ac::BitsConstantOp>()) {
-      auto tree = constant.getValue().getTree();
-      auto kind = tree.getAs<StringAttr>("kind");
-      auto literal = tree.getAs<DictionaryAttr>("value");
-      auto number = literal ? literal.getAs<acir::ac::MathIntAttr>("value")
-                            : acir::ac::MathIntAttr();
-      return kind && kind.getValue() == "literal" && number &&
-             number.getCanonicalValue() != "0";
-    }
-    if (auto constant = value.getDefiningOp<acir::ac::BitsConstant4Op>()) {
-      StringRef pattern = constant.getPattern();
-      return !pattern.contains('x') && !pattern.contains('z') &&
-             pattern.contains('1');
-    }
-    return false;
-  };
   // Select the simulator from the executable instance closure. Unselected
   // declarations from the same published source unit do not change the mode.
   // Initialized DFF/DFFE and known-preserving arithmetic retain the binary
@@ -175,20 +302,7 @@ int main(int argc, char **argv) {
     if (!reached.insert(definition).second)
       continue;
     definition.walk([&](Operation *operation) {
-      if (auto constant = dyn_cast<acir::ac::BitsConstant4Op>(operation)) {
-        StringRef pattern = constant.getPattern();
-        needsFourState |= pattern.contains('x') || pattern.contains('z');
-      }
-      if (operation->hasAttr("ac.verification_observer"))
-        needsFourState = true;
-      if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(operation))
-        needsFourState |= compare.getPredicate() == "case_eq";
-      if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(operation))
-        if ((binary.getOpcode() == "udiv" || binary.getOpcode() == "urem") &&
-            !knownNonzeroLiteral(binary.getRhs()))
-          needsFourState = true;
-      if (isa<acir::ac::TableGetOp>(operation))
-        needsFourState = true;
+      needsFourState |= operationNeedsFourState(operation);
       Operation *callee = nullptr;
       if (auto instance = dyn_cast<acir::ac::InstanceOp>(operation))
         callee = analysis.resolveCallee(instance);

@@ -1,0 +1,23 @@
+# Reuse the unchanged DigitalFilter independent signed recurrence and public ABI.
+# The native driver also verifies exact X/Z masks, recovery, cancelled proposals,
+# held clock levels, reset and executor failure for both C++ targets.
+# The unchanged RTL bench supplies the same managed WORK trace. Its optional
+# four-state helpers use physical edges without managed commits, so that macro
+# is deliberately not enabled here; RTL four-state coverage is not claimed.
+# This is correctness acceptance, not the historical issue #430 replay benchmark.
+# Exercise both the shipped gfir.if proposals and the source's linear selects.
+# Both forms emit the native Rule suffix. Behavioral
+# assertions remain in the unchanged independent driver, including X/Z cold use.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-digital-filter.mlir --gfir-verify -o %t.branched.gfir
+# RUN: %python %inputs/structured-gfir-digital-filter-linear.py %inputs/structured-gfir-digital-filter.mlir %t.linear.input.gfir
+# RUN: %pycircuit_opt %t.linear.input.gfir --gfir-verify -o %t.linear.gfir
+# RUN: for form in branched linear; do %pycircuit_emit %t.$form.gfir --input-stage gfir --target cpp > %t.$form.behavior.json || exit; %pycircuit_opt %t.$form.gfir --gfir-to-hwir --ac-verify-hardware -o %t.$form.hwir || exit; %pycircuit_emit %t.$form.hwir --target cpp > %t.$form.final.json || exit; done
+# RUN: for form in branched linear; do %FileCheck %s --check-prefix=NATIVE-SUFFIX < %t.$form.behavior.json || exit; done
+# RUN: for form in branched linear; do %python -c 'import json,sys; left,right=(json.load(open(p))["port_availability"] for p in sys.argv[1:]); assert left == right' %t.$form.behavior.json %t.$form.final.json || exit; for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$form.$kind.json %t.$form.$kind || exit; done; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for form in branched linear; do for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$form.$kind %src/examples/digital_filter/driver.cpp @%t.$form.$kind/sources.rsp "$RTLIB" -o %t.$form.$kind.exe || exit; done; done
+# RUN: for form in branched linear; do for kind in behavior final; do %t.$form.$kind.exe --config %src/examples/digital_filter/config.json --workers 2 > %t.$form.$kind.stdout || exit; grep '^WORK ' %t.$form.$kind.stdout > %t.$form.$kind.trace || exit; done; diff -u %t.$form.behavior.trace %t.$form.final.trace || exit; done
+# RUN: for form in branched linear; do %pycircuit_emit %t.$form.hwir --target verilog --format source > %t.$form.sv || exit; %iverilog -g2012 -s tb -o %t.$form.vvp %t.$form.sv %include/verilog/dffe.v %src/examples/digital_filter/rtl_tb.sv || exit; %vvp %t.$form.vvp > %t.$form.rtl.stdout || exit; grep '^WORK ' %t.$form.rtl.stdout > %t.$form.rtl.trace || exit; diff -u %t.$form.behavior.trace %t.$form.rtl.trace || exit; done
+# RUN: diff -u %t.branched.behavior.trace %t.linear.behavior.trace
+
+# NATIVE-SUFFIX: pyc_known_read_

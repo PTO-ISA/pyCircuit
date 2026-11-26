@@ -128,6 +128,16 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                 "in an executable package";
     return success();
   }
+  if (name == "ac.managed_sampling") {
+    auto package = dyn_cast_or_null<mlir::ModuleOp>(operation->getParentOp());
+    auto stage =
+        package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+    if (!isa<SystemOp>(operation) || !isa<UnitAttr>(attribute.getValue()) ||
+        !stage || stage.getValue() != "final" || package->hasAttr("ac.unit_kind"))
+      return operation->emitOpError()
+             << "ac.managed_sampling is a final HWIR root marker";
+    return success();
+  }
   if (name == "ac.registration_entry") {
     auto package = operation->getParentOfType<mlir::ModuleOp>();
     auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")

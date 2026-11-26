@@ -19,6 +19,8 @@ namespace acir::ac {
 /// Validated raw clock/reset rows on a System Module/ModuleImport declaration.
 /// The empty array means no authored sequence; present sequences are nonempty.
 mlir::FailureOr<mlir::ArrayAttr> getSystemSamples(mlir::Operation *declaration);
+mlir::FailureOr<mlir::ArrayAttr> getSystemSampleRows(mlir::DictionaryAttr samples,
+                                                   mlir::Operation *declaration);
 /// Explicit logical input ordinals for a multi-control System sample row.
 /// Empty means the existing clock/reset pair convention.
 mlir::FailureOr<llvm::SmallVector<unsigned>>
@@ -187,6 +189,7 @@ struct HardwareSourceCheckPlan {
   llvm::SmallVector<HardwareCheckCommitEndpoint> commits;
   llvm::SmallVector<HardwareCheckSamplingBinding> samplingBindings;
   llvm::SmallVector<HardwareCheckSamplingOccurrence> samplingOccurrences;
+  bool managedSampling = false;
   bool hasChecks() const { return !checks.empty(); }
 };
 /// Read-only physical-edge admission over the authenticated check inventory.

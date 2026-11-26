@@ -12,7 +12,9 @@
 namespace acir::ac::detail {
 class SourceCheckBudget;
 
-enum class SampledControlKind : uint8_t { CallableGuard, BranchSelect, ValueAvailable, ResourceAvailable };
+enum class SampledControlKind : uint8_t {
+  CallableGuard, OrderedGuard, BranchSelect, ValueAvailable, ResourceAvailable
+};
 struct SampledValueRequirement {
   uint64_t control = 0, operand = 0;
   mlir::StringAttr kind;

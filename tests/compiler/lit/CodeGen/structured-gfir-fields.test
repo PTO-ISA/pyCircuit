@@ -1,0 +1,16 @@
+# Wide nested writes and lookups preserve siblings and earlier SSA snapshots.
+# A test-owned ternary oracle supplies identical pre-commit expectations to
+# behavioral C++, final C++ and managed RTL, including X/Z row merges and holds.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %python %inputs/structured-gfir-fields-oracle.py > %t.rows
+# RUN: %pycircuit_opt %inputs/structured-gfir-fields.mlir --gfir-verify -o %t.gfir
+# RUN: sed '/^#indexMask = /s/#ac.math_int<1>/#ac.math_int<3>/' %inputs/structured-gfir-fields.mlir > %t.unbounded.gfir
+# RUN: not %pycircuit_opt %t.unbounded.gfir --gfir-verify -o /dev/null
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-fields.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %t.rows || exit; done
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/structured-gfir-fields.sv
+# RUN: %vvp %t.vvp +rows=%t.rows

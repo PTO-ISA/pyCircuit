@@ -9,12 +9,15 @@
 add_acir_library(GFIRToHWIR SOURCES
   LowerHardwareCDC.cpp
   LowerTransactions.cpp
+  LowerStructured.cpp
+  LowerStructuredClocked.cpp
   PassRegistration.cpp
   LINK_LIBRARIES
     ACIRConversionCommon
     ACIRDialect
     ACIRAnalysis
     GFIRValidation
+    GFIRStructured
     GFIRDialect
     HWIRValidation
     PycircuitStateInterfaces

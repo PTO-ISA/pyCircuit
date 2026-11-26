@@ -5,6 +5,13 @@
 #include "llvm/ADT/DenseSet.h"
 
 namespace acir::ac::detail {
+// These scalar operations require every operand. Select has separate
+// condition and arm availability semantics.
+inline bool isStrictBitsOperation(mlir::Operation *op) {
+  return mlir::isa<BitsUnaryOp, BitsBinaryOp, BitsCompareOp, BitsConcatOp,
+                   BitsExtractOp, BitsResizeOp>(op);
+}
+
 // Prove that selecting a row cannot change the existing availability plane.
 // This follows exact capture ordinals and uniform interface/storage producers;
 // row-dependent constructors/maps keep the selected-row proof path.

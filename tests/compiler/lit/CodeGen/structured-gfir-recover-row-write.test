@@ -1,0 +1,24 @@
+# REQUIRES: rtl-four-state-parameter-types
+# An indexed update on old Q keeps sibling writes and the original write intent.
+# The 152-bit record also exposes a full packed mirror. Its immutable wide
+# sibling, nested X/Z branches and row planes survive commit, discard and reset.
+# Recovery captures the nested 5+3-bit Tag as one composite field assignment.
+# RUN: %pycircuit_opt %inputs/structured-gfir-recover-row-write.mlir --gfir-verify -o %t.input
+# RUN: %pycircuit_opt %t.input --gfir-recover-row-write -o %t.recovered
+# RUN: %FileCheck %s --check-prefix=RECOVERED --input-file=%t.recovered
+# RUN: %pycircuit_opt %t.recovered --gfir-recover-row-write -o %t.twice
+# RUN: cmp %t.recovered %t.twice
+# RUN: %pycircuit_emit %t.input --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_emit %t.recovered --input-stage gfir --target cpp > %t.explicit.json
+# RUN: cmp %t.behavior.json %t.explicit.json
+# RUN: for kind in input recovered; do %pycircuit_opt %t.$kind --gfir-to-hwir --ac-verify-hardware -o %t.$kind.hwir || exit; %pycircuit_emit %t.$kind.hwir --target cpp > %t.$kind.json || exit; %pycircuit_emit %t.$kind.hwir --target verilog --format source --rtl-mode physical > %t.$kind.sv || exit; %iverilog -g2012 -s tb -o %t.$kind.vvp %t.$kind.sv %include/verilog/dff.v %include/verilog/dffe.v %inputs/structured-gfir-recover-row-write.sv || exit; %vvp %t.$kind.vvp || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; for kind in behavior input recovered; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind.cpp || exit; %cxx -std=c++20 -pthread -I%include -I%t.$kind.cpp %inputs/structured-gfir-recover-row-write.cpp @%t.$kind.cpp/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe || exit; done
+# The same nominal Table on a different state owner is outside the proof.
+# RUN: %python -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).read_text().replace("    %%old = gfir.read @state", "    gfir.var @other init %%state : !State\n    %%old = gfir.read @other"), end="")' %inputs/structured-gfir-recover-row-write.mlir > %t.foreign
+# RUN: %pycircuit_opt %t.foreign --gfir-verify -o %t.foreign.verified
+# RUN: %pycircuit_opt %t.foreign --gfir-recover-row-write -o %t.foreign.recovered
+# RUN: cmp %t.foreign.verified %t.foreign.recovered
+
+# RECOVERED: gfir.write @state["tag"]
+# RECOVERED: gfir.if
+# RECOVERED: gfir.write @state["rows"][%

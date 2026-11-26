@@ -281,6 +281,107 @@ LogicalResult emitDefinitionOnce(HardwareEmitContext &context,
   return emitHardwareCppDefinition(context, module, out);
 }
 } // namespace
+
+void addCppSystemDriver(FinalCppSourceParts &parts, StringRef clock,
+                        StringRef reset, ArrayAttr samples, bool resetIfOne,
+                        ArrayRef<std::string> sampledInputs) {
+  parts.simulationConfig =
+      "{\"deadlock_window\":null,\"max_domain_cycles\":{},"
+      "\"max_ticks\":9223372036854775807,"
+      "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}\n";
+  SystemControls controls{clock.str(), reset.str(), {}};
+  controls.sampled.append(sampledInputs.begin(), sampledInputs.end());
+  parts.simulationMain = systemSimulationMain(controls,
+      StringRef(parts.simulationConfig).trim(), samples, resetIfOne);
+}
+
+LogicalResult emitCppRecords(HardwareEmitContext &context, raw_ostream &out) {
+  for (auto declaration : context.package.getOps<ac::EnumOp>())
+    if (failed(emitEnum(context, declaration, out)))
+      return failure();
+  llvm::DenseSet<Operation *> done;
+  for (auto record : context.analysis.getStructs())
+    if (failed(emitRecord(context, record, out, done)))
+      return failure();
+  return success();
+}
+
+void appendCppDutHeader(FinalCppSourceParts &parts,
+                        ArrayRef<std::string> inputs,
+                        ArrayRef<std::string> outputs,
+                        StringRef configure, bool hasChecks, bool observes) {
+  llvm::raw_string_ostream out(parts.systemHeader);
+  out << "#include <gfsim/SimSystem.h>\n#include <stdexcept>\n"
+         "class pyc_dut final {\npublic:\n";
+  auto ports = [&](StringRef typeName, ArrayRef<std::string> names) {
+    out << "  struct " << typeName << " {\n";
+    for (const auto &name : names)
+      out << "    decltype(std::declval<pyc_root>()." << name << ") "
+          << name << ";\n";
+    out << "  };\n";
+  };
+  ports("Inputs", inputs);
+  ports("Outputs", outputs);
+  out << "  explicit pyc_dut(std::size_t workers = 1) : executor_(workers), ";
+  if (observes)
+    out << "root_(std::make_shared<pyc_root>(\"root\", &executor_, "
+           "&observation_sink_, 0))";
+  else
+    out << "root_(std::make_shared<pyc_root>(\"root\", &executor_))";
+  if (hasChecks)
+    out << ", system_(*root_)";
+  out << " {\n";
+  if (observes)
+    out << "    observation_sink_.slots = &observations_;\n"
+           "    observation_sink_.system = &system_;\n";
+  out << "    if (!" << configure
+      << " || "
+         "!system_.AttachObservations(observations_) || !system_.AddModule"
+         "(*root_)) throw std::logic_error(\"DUT setup "
+         "failed\");\n"
+         "  }\n  pyc_dut(const pyc_dut &) = delete;\n"
+         "  pyc_dut &operator=(const pyc_dut &) = delete;\n"
+         "  // Control-thread access only, between sampling epochs.\n"
+         "  void drive(const Inputs &inputs) {\n";
+  for (auto &name : inputs)
+    out << "    root_->" << name << " = inputs." << name << ";\n";
+  out << "  }\n  Outputs sample() const {\n"
+         "    if (system_.state() != gfsim::SimSystemState::Ready || "
+         "system_.cycle() == 0) throw std::logic_error(\"no successful DUT "
+         "sample\");\n"
+         "    return {";
+  llvm::interleaveComma(outputs, out, [&](const std::string &name) {
+    out << "root_->" << name;
+  });
+  out << "};\n  }\n  gfsim::SimSystem &system() { return system_; }\n"
+         "  gfsim::ObservationSlots &observations() { return observations_; "
+         "}\n"
+         "private:\n  class System final : public gfsim::SimSystem {\n";
+  if (hasChecks)
+    out << "  public:\n    explicit System(pyc_root &root) noexcept : "
+           "root_(root) {}\n"
+           "  private:\n    bool Precheck() noexcept override {\n"
+           "      source_failure_ = {};\n"
+           "      return root_.pyc_validate_checks(source_failure_);\n    "
+           "}\n"
+           "    gfsim::SimFailureInfo DescribeFailure(gfsim::SimFailurePhase "
+           "phase) "
+           "const noexcept override {\n"
+           "      if (phase == gfsim::SimFailurePhase::Check && "
+           "!source_failure_.code.empty()) return source_failure_;\n"
+           "      return gfsim::SimSystem::DescribeFailure(phase);\n    }\n"
+           "    pyc_root &root_;\n    gfsim::SimFailureInfo "
+           "source_failure_{};\n";
+  else
+    out << "    bool Precheck() noexcept override { return true; }\n";
+  out << "  };\n"
+         "  gfsim::WorkExecutor executor_;\n";
+  if (observes)
+    out << "  pyc_observation_sink observation_sink_;\n";
+  out << "  std::shared_ptr<pyc_root> root_;\n"
+         "  gfsim::ObservationSlots observations_;\n  System system_;\n};\n";
+}
+
 FailureOr<FinalCppSourceParts>
 emitCppSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
   HardwareEmitContext context(package, analysis);
@@ -352,17 +453,10 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
       "#include <bit>\n#include <type_traits>\n#include <utility>\n"
       "#include <cstddef>\n#include <cstdint>\n";
   parts.supportHeader += cppWorkRuntimeSupport().str();
+  if (isSystemRoot(*root) && context.sourceChecks().managedSampling)
+    parts.supportHeader += cppSystemClockSupport().str();
   if (observes)
-    parts.supportHeader +=
-        "#include <gfsim/ObservationSlot.h>\n"
-        "// Native observation binding. A generated module reaches the "
-        "system-owned\n"
-        "// observation slots through this handle, which the DUT binds before "
-        "Build().\n"
-        "struct pyc_observation_sink {\n"
-        "  gfsim::ObservationSlots *slots = nullptr;\n"
-        "  const gfsim::SimSystem *system = nullptr;\n"
-        "};\n";
+    parts.supportHeader += cppObservationSupport().str();
   parts.supportHeader +=
       "constexpr std::int64_t pyc_floordiv(std::int64_t a, std::int64_t b) { "
       "return a/b - ((a%b != 0 && (a<0)!=(b<0)) ? 1 : 0); }\n"
@@ -380,13 +474,8 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
       "\n";
   {
     llvm::raw_string_ostream out(parts.supportHeader);
-    for (auto declaration : package.getOps<ac::EnumOp>())
-      if (failed(emitEnum(context, declaration, out)))
-        return failure();
-    llvm::DenseSet<Operation *> done;
-    for (auto record : analysis.getStructs())
-      if (failed(emitRecord(context, record, out, done)))
-        return failure();
+    if (failed(emitCppRecords(context, out)))
+      return failure();
     out.flush();
   }
   auto emitError = [&] { return package.emitOpError(); };
@@ -451,110 +540,39 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
   if (observes)
     parts.systemHeader += *descriptorTable;
   parts.systemHeader += observationMetadata;
-  {
-    llvm::raw_string_ostream out(parts.systemHeader);
-    out << "#include <gfsim/SimSystem.h>\n#include <stdexcept>\n"
-           "class pyc_dut final {\npublic:\n";
-    SmallVector<std::string> inputs, outputs;
-    auto ports = [&](StringRef typeName, ArrayRef<Attribute> names,
-                     SmallVectorImpl<std::string> &ports) -> LogicalResult {
-      out << "  struct " << typeName << " {\n";
-      for (Attribute raw : names) {
-        auto name = legalizeIdentifier(cast<StringAttr>(raw).getValue(),
-                                       [&] { return root->emitOpError(); });
-        if (failed(name))
-          return failure();
-        ports.push_back(*name);
-        out << "    decltype(std::declval<pyc_root>()." << *name << ") "
-            << *name << ";\n";
-      }
-      out << "  };\n";
-      return success();
-    };
-    SmallVector<Attribute> exposedOutputs(
-        root->getOutputNames().getValue().take_front(rootLayout->sourceOutputCount));
-    for (int64_t companion : rootLayout->outputValidity)
-      if (companion >= 0)
-        exposedOutputs.push_back(root->getOutputNames()[companion]);
-    if (failed(ports("Inputs",
-                     root->getInputNames().getValue().take_front(
-                         rootLayout->sourceInputCount),
-                     inputs)) ||
-        failed(ports("Outputs", exposedOutputs, outputs)))
-      return failure();
-    out << "  explicit pyc_dut(std::size_t workers = 1) : executor_(workers), ";
-    if (observes)
-      out << "root_(std::make_shared<pyc_root>(\"root\", &executor_, "
-             "&observation_sink_, 0))";
-    else
-      out << "root_(std::make_shared<pyc_root>(\"root\", &executor_))";
-    if (cppHasRootChecks(context, *root) || context.causalClocks())
-      out << ", system_(*root_)";
-    out << " {\n";
-    if (observes)
-      out << "    observation_sink_.slots = &observations_;\n"
-             "    observation_sink_.system = &system_;\n";
-    out << "    if (!" << *configure
-        << " || "
-           "!system_.AttachObservations(observations_) || "
-           "!system_.AddModule(*root_)) throw std::logic_error(\"DUT setup "
-           "failed\");\n"
-           "  }\n  pyc_dut(const pyc_dut &) = delete;\n"
-           "  pyc_dut &operator=(const pyc_dut &) = delete;\n"
-           "  // Control-thread access only, between sampling epochs.\n"
-           "  void drive(const Inputs &inputs) {\n";
-    for (auto &name : inputs)
-      out << "    root_->" << name << " = inputs." << name << ";\n";
-    out << "  }\n  Outputs sample() const {\n"
-           "    if (system_.state() != gfsim::SimSystemState::Ready || "
-           "system_.cycle() == 0) throw std::logic_error(\"no successful DUT "
-           "sample\");\n"
-           "    return {";
-    llvm::interleaveComma(outputs, out, [&](const std::string &name) {
-      out << "root_->" << name;
-    });
-    out << "};\n  }\n  gfsim::SimSystem &system() { return system_; }\n"
-           "  gfsim::ObservationSlots &observations() { return observations_; "
-           "}\n"
-           "private:\n  class System final : public gfsim::SimSystem {\n";
-    if (cppHasRootChecks(context, *root) || context.causalClocks())
-      out << "  public:\n    explicit System(pyc_root &root) noexcept : "
-             "root_(root) {}\n"
-             "  private:\n    bool Precheck() noexcept override {\n"
-             "      source_failure_ = {};\n"
-             "      return root_.pyc_validate_checks(source_failure_);\n    "
-             "}\n"
-             "    gfsim::SimFailureInfo DescribeFailure(gfsim::SimFailurePhase "
-             "phase) "
-             "const noexcept override {\n"
-             "      if (phase == gfsim::SimFailurePhase::Check && "
-             "!source_failure_.code.empty()) return source_failure_;\n"
-             "      return gfsim::SimSystem::DescribeFailure(phase);\n    }\n"
-             "    pyc_root &root_;\n    gfsim::SimFailureInfo "
-             "source_failure_{};\n";
-    else
-      out << "    bool Precheck() noexcept override { return true; }\n";
-    out << "  };\n"
-           "  gfsim::WorkExecutor executor_;\n";
-    if (observes)
-      out << "  pyc_observation_sink observation_sink_;\n";
-    out << "  std::shared_ptr<pyc_root> root_;\n"
-           "  gfsim::ObservationSlots observations_;\n  System system_;\n};\n";
-  }
+  SmallVector<Attribute> exposedOutputs(
+      root->getOutputNames().getValue().take_front(rootLayout->sourceOutputCount));
+  for (int64_t companion : rootLayout->outputValidity)
+    if (companion >= 0)
+      exposedOutputs.push_back(root->getOutputNames()[companion]);
+  auto legalizePorts = [&](ArrayRef<Attribute> names)
+      -> FailureOr<SmallVector<std::string>> {
+    SmallVector<std::string> result;
+    for (Attribute raw : names) {
+      auto name = legalizeIdentifier(cast<StringAttr>(raw).getValue(),
+                                     [&] { return root->emitOpError(); });
+      if (failed(name))
+        return failure();
+      result.push_back(std::move(*name));
+    }
+    return result;
+  };
+  auto inputs = legalizePorts(root->getInputNames().getValue().take_front(
+      rootLayout->sourceInputCount));
+  auto outputs = legalizePorts(exposedOutputs);
+  if (failed(inputs) || failed(outputs))
+    return failure();
+  appendCppDutHeader(parts, *inputs, *outputs, *configure,
+                     cppHasRootChecks(context, *root) || context.causalClocks(), observes);
   if (isSystemRoot(*root)) {
     auto controls = systemControls(*root);
     if (failed(controls))
       return failure();
-    parts.simulationConfig =
-        "{\"deadlock_window\":null,\"max_domain_cycles\":{},"
-        "\"max_ticks\":9223372036854775807,"
-        "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}\n";
     auto samples = ac::getSystemSamples(*root);
     if (failed(samples))
       return failure();
-    parts.simulationMain = systemSimulationMain(
-        *controls, StringRef(parts.simulationConfig).trim(), *samples,
-        context.resetIfOne());
+    addCppSystemDriver(parts, controls->clock, controls->reset, *samples,
+                       context.resetIfOne(), controls->sampled);
   }
   return parts;
 }

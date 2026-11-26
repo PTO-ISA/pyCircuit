@@ -24,6 +24,9 @@ def write(name, text):
 for key, name in (
     ("support_header", "pycircuit_support.hpp"),
     ("system_header", "pycircuit_system.hpp"),
+    ("simulation_main", "simulation_main.cpp"),
+    ("simulation_config", "config.json"),
+    ("simulation_top", "simulation_top.sv"),
 ):
     if key in bundle:
         write(name, bundle[key])

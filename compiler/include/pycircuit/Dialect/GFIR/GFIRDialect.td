@@ -6,15 +6,15 @@ include "mlir/IR/DialectBase.td"
 def GFIR_Dialect : Dialect {
   let name = "gfir";
   let cppNamespace = "::acir::gfir";
-  let summary = "pycircuit routed General Flow IR stage dialect";
+  let summary = "pycircuit structured General Flow IR dialect";
   let description = [{
-    GFIR owns the routed package's logical state operations. Routing
-    constructs gfir.state as the authenticated replacement of one source
-    ac.state declaration and gfir.state.update as its single candidate and
-    write-intent binding; no other operation belongs to this dialect and the
-    stage verifier admits exactly these two classes. Payloads keep their
-    common !ac.* logical types; the dialect declares no types or attributes
-    of its own.
+    GFIR represents reusable module graphs, static instance identities,
+    ordinary interface calls and a selected package root. Native operation
+    verification establishes local structure; the closed-package verifier
+    establishes executable admission. The dialect also retains routed logical
+    state declarations and updates for the existing staged pipeline. Payloads
+    use common !ac.* logical types; GFIR declares no types or attributes of its
+    own.
   }];
 }
 

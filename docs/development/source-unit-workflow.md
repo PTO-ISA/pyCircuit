@@ -61,6 +61,173 @@ The [compiler pipeline](../architecture/compiler-pipeline.md#ir-stages-and-libra
 maps source ACIR, routed GFIR and final HWIR to their library boundaries.
 Public `anchor` and `final` targets select GFIR and HWIR respectively.
 
+## Verify handwritten structured GFIR
+
+For compiler development, a closed MLIR package with `gfir.contract = 1 : i64`
+and one `gfir.root` can enter at the native GFIR boundary. Both generation paths
+use the same structural analysis of module calls, field dependencies, state
+ownership, and Rule admission. The behavioral path emits logical evaluation and
+state proposals for the built-in gfsim runtime. The emitted support header adapts
+the existing FIFO and RAM kernels and sampled clock evaluation. The generated
+DUT uses ordinary `SimSystem::AddModule` registration and the same installed
+Runtime as final C++. The hardware path verifies physical storage and controls in
+HWIR before emitting final C++ or Verilog.
+
+```mermaid
+flowchart LR
+    G["Closed GFIR package"] --> V["Structured verification"]
+    V --> N["Recover indexed Table writes when proven"]
+    N --> B["Behavioral C++ with gfsim"]
+    V --> H["Verified HWIR"]
+    H --> C["Final C++ with gfsim"]
+    H --> R["Verilog"]
+```
+
+```sh
+pycircuit-opt design.gfir.mlir --gfir-verify --mlir-print-debuginfo -o verified.gfir.mlir
+pycircuit-emit verified.gfir.mlir --input-stage gfir --target cpp > behavior.json
+pycircuit-opt verified.gfir.mlir --gfir-to-hwir --ac-verify-hardware -o final.mlir
+pycircuit-emit final.mlir --target cpp > final-cpp.json
+pycircuit-emit final.mlir --target verilog > rtl.json
+```
+
+Behavioral C++ generation can recover an indexed `gfir.write` from a whole
+Struct assignment when SSA and verified module bindings prove that the Table
+field performs one indexed update on the same committed Table. The rewrite
+preserves sibling field writes and four-state guard and index semantics. The
+emitter verifies the rewritten package before emission. To inspect it or use
+it as input to hardware lowering, run
+`pycircuit-opt verified.gfir.mlir --gfir-recover-row-write -o recovered.gfir.mlir`.
+
+Shared pure Module outputs can use fixed-width host integers when their
+required scalar inputs are fully known. A proven in-range Table lookup checks
+the selected row when it is read. A scalar Rule can evaluate only the demanded
+calculations for a known branch after saving its result snapshot. The four-state
+evaluator handles X and Z using the existing transaction and sampling contract.
+When one evaluation calls several pure output groups, scalar mask checks can
+be reused for the same actual value across calls. A completed native group
+establishes knownness for its results. A four-state result is checked at its
+consumer, and each selected Table row retains its own knownness check.
+For an eligible unsampled Rule with direct local Method calls, the native path
+checks inputs and state once. The Methods share one private candidate frame,
+which supplies proposals to the existing commit path.
+
+An eligible wide Struct with one local writer uses fields and Table rows for
+committed state. Ordered writes stage the affected fields and row edits. A
+Struct capture used only to replace a matching field can carry its individual
+leaves through the Rule. Commit updates the affected positions of the packed
+value used by the public ports. The packed value and field reads observe the
+same committed state, including all four-state planes.
+
+Use the generated DUT interface and port metadata to apply the same samples to
+each result. The GFIR package declares logical bindings and ordered effects.
+Sampling, preparation, checks, and whole-system commit use the existing runtime
+contract. The native entry covers the generated default rising domain and Module
+wrappers with named scalar clock/reset input pairs. Each clocked child of an
+explicit wrapper receives its mapped pair and owns its clock history. Such
+wrappers use managed RTL, with the domain pins carried as ordinary public inputs
+and the legacy implicit domain pair recorded as null.
+The `structured-gfir-availability` compiler test exercises field-sensitive root
+output availability and failure rollback with gfsim and managed RTL. Distinct
+ports and individual Struct fields retain their own conditions through
+construction and projection. An exported aggregate is available when all of
+its fields are available. Pure and clocked Module calls can receive a scalar
+input together with its compiler-owned availability. A child Module can
+receive a Struct of Bits fields with a separate condition for each field.
+HWIR carries those leaves on private inputs and reconstructs the declared
+Struct in the child.
+
+Scalar Bits arithmetic, comparisons, bitwise operations, concatenation,
+slicing, and resizing require all operands to be available. A known carrier
+value can still be unavailable. A selection derives availability from the
+selector and the participating arms. A straight-line Rule checks availability
+where a guard, whole-state write or return requires a value, including through
+strict scalar computations and reads of the Rule's candidate.
+
+An ordered FIFO `view` or `out` obtains the committed head. An empty queue
+blocks the Rule at that statement. An ordered `in` requires committed capacity
+under `local_occupancy`. With `downstream_pop`, a raw recipient or a local
+Rule's admitted `out` can supply credit. An earlier `out` in the same Rule
+can supply credit to a later `in`. For a selected `out` the own-credit
+selector is a scalar Module input captured by the Rule. The complete Rule's
+admission controls its results and all staged transfers. An ordered
+`gfir.if` can select transactional Memory operations. Its zero-result arms
+can also use FIFO `in`, `out`, and `view`, with one contributor per driven
+direction. A direct Rule body can combine FIFO and RAM operations. A
+selected resource arm on a System root can record observations.
+Synchronous RAM results use the actual response port's live bit. The old head
+or response can be available on a held or falling sample. Transfers and response
+aging use successful rising edges.
+
+```mermaid
+flowchart LR
+    S["Committed FIFO head or RAM response"] --> R["Ordered child Rule"]
+    R --> C["Actual child output and availability"]
+    C --> P["Parent projection or Module input"]
+    P --> G["Reached guard, write, or return"]
+    P --> O["Parent output and availability"]
+```
+
+A demand for an unavailable value blocks at that statement. Earlier reached
+checks retain their order, and an available X or Z still follows the consumer's
+four-state contract. The HWIR projection uses private, typed field results when
+callers use a Struct port whose fields have different availability. The
+behavioral path keeps the existing field evaluation schedule. An independent
+committed-state field can feed a peer before the child prepares its gated
+fields. Published anchors use the public source-unit workflow.
+
+Fixed-range `gfir.loop` carries typed values and shares the enclosing Rule's
+transaction candidate throughout one sample. Its ordinal block argument is
+`i64`. The `gfir.ordinal_bits` operation converts that argument to a closed
+Bits width validated against the trip count. Behavioral C++ emits a loop.
+HWIR expands the same iterations into SSA within the shared expansion budget.
+With `gfir.step (%next) : (!value) break_if %stop : !b1`, a known true stop
+returns the current iteration's carried values and clears natural completion.
+A reached unknown stop enters the sampled check sequence. A zero-trip loop
+returns its initial values and natural completion without executing the body.
+
+An ordered Rule can call a guard-free Method along an instance path such as
+`@relay::@store["update"]`. The Rule gives each actual state declaration a
+candidate slot. Repeated calls see earlier writes to that slot, including
+when a receiver owns several Bits, Struct, or Table states. Each independent
+Rule starts with the same committed values. A late guard cancels all of its
+candidates. HWIR forwards admitted candidates along the same instance paths
+through private ports.
+
+A Method declares a writable formal with
+`attributes {writable = {owner = 0 : i64}}` and addresses it as `@owner`.
+An ordered call can use `bindings(0 = @relay::@store::@record["count"])`.
+Both `self` and instance receivers use this binding form. The bound formal is
+in the function type. The SSA operand list supplies the remaining formals.
+Bindings can identify a complete owner, a Struct field, or a proven in-range
+Table row. The caller evaluates the index at entry. A nested Method can
+forward that view, and the bound formal's SSA value is an entry snapshot.
+
+A Rule on the selected generated-default-domain root can use
+`gfir.effect assert` in its direct body or a selected arm. The predicate is
+captured at the statement. Each Work uses final Rule admission and the
+interpreted reset mask to activate it.
+Sampling and guard checks precede assertions. A failed assertion leaves state
+and clock history at their previous committed values, including in generated
+System runs.
+
+Rules on a closed System root can use `gfir.effect log` and
+`gfir.effect report` in the direct body or a selected arm. The effects
+preserve their statement values and publish through gfsim after the
+transaction admits and the whole sample succeeds. A direct observation can
+demand a scalar with compiler-owned availability. It blocks the Rule at
+that statement if the scalar is unavailable. Available X and Z remain
+payload bits. A late false guard suppresses earlier effects in the same
+Rule. Known admitted held, falling, and reset samples can publish.
+
+An optional `ac.payload_constraint` on a state variable, native FIFO or Memory
+declaration, or native resource instance uses the existing source hardware
+constraint format. GFIR verifies the constraint against the actual closed
+storage or element type, including its nominal identity and Boolean or Integer
+domain where present. HWIR uses the verified physical layout.
+
+## Final artifact interfaces
+
 The C++ and Verilog representations differ, but element order, field identity,
 four-state value/known/Z information and clock/commit behavior must agree. For
 example, admitting a Table-valued Struct field requires a matching declaration,

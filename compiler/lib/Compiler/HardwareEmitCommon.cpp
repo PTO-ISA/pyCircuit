@@ -21,6 +21,31 @@
 #include <tuple>
 using namespace mlir;
 namespace acir::compiler {
+StringRef cppSystemClockSupport() {
+  return R"cpp(
+class pyc_system_sampled_clock {
+public:
+  void prepare(const gfsim::wire<gfsim::Bits<1>> &clock,
+               const gfsim::wire<gfsim::Bits<1>> &reset,
+               gfsim::ResetSemantics semantics) {
+    const auto sample = gfsim::evaluateSampledClock(clock_, clock, reset, semantics);
+    if (sample.fault == gfsim::SampledClockFault::UnknownClock)
+      throw gfsim::FourStateViolation("System clock must be known");
+    if (sample.fault == gfsim::SampledClockFault::UnknownReset)
+      throw gfsim::FourStateViolation("System reset must be known at posedge");
+    nextClock_ = sample.nextClock;
+  }
+  void reset() noexcept { nextClock_ = false; }
+  void discard() noexcept { nextClock_ = clock_; }
+  void commit() noexcept { clock_ = nextClock_; }
+
+private:
+  bool clock_ = false;
+  bool nextClock_ = false;
+};
+)cpp";
+}
+
 std::string jsonString(StringRef value) {
   std::string text;
   llvm::raw_string_ostream out(text);
@@ -637,7 +662,8 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
 bool HardwareEmitContext::managesChecks() {
   return causalClocks() || batchesPhysicalEvents() ||
          (!physical_ &&
-          (isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty())));
+          (isSystem() || (sourceChecks_ && (sourceChecks_->hasChecks() ||
+                                          sourceChecks_->managedSampling))));
 }
 bool HardwareEmitContext::batchesPhysicalEvents() const {
   auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
@@ -1035,21 +1061,8 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     if (failed(capabilities(definition, bindings, 1)))
       return failure();
   }
-  llvm::StringSet<> cpp, cppNamespaces, rtl, rtlTypes;
-  auto reserveCppName = [&](StringRef name, Operation *site) -> LogicalResult {
-    SmallVector<StringRef> parts;
-    name.drop_front(2).split(parts, "::");
-    std::string prefix;
-    for (size_t i = 0; i + 1 < parts.size(); ++i) {
-      prefix += "::" + parts[i].str();
-      if (cpp.contains(prefix))
-        return site->emitOpError() << "emitted hardware name collision";
-      cppNamespaces.insert(prefix);
-    }
-    if (cppNamespaces.contains(name) || !cpp.insert(name).second)
-      return site->emitOpError() << "emitted hardware name collision";
-    return success();
-  };
+  CppNameScope cpp;
+  llvm::StringSet<> rtl, rtlTypes;
   // Validate the complete nominal declaration closure shared by both targets.
   for (Operation &op : package.getBody()->getOperations()) {
     Type type;
@@ -1063,7 +1076,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
       return failure();
     auto cppName = cppType(type, &op), rtlName = rtlType(type, &op);
     if (failed(cppName) || failed(rtlName) ||
-        failed(reserveCppName(*cppName, &op)))
+        failed(cpp.insert(*cppName, &op)))
       return failure();
     // RTL typedefs share pycircuit_types, separately from global module names.
     if (!rtlTypes.insert(*rtlName).second)
@@ -1106,8 +1119,8 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     names.header = *header;
     names.source = *source;
     names.verilog = *v;
-    if (failed(reserveCppName(names.cppQualified, site)) ||
-        failed(reserveCppName(names.cppFamilyQualified, site)))
+    if (failed(cpp.insert(names.cppQualified, site)) ||
+        failed(cpp.insert(names.cppFamilyQualified, site)))
       return failure();
     if (!rtl.insert(names.rtl).second)
       return site->emitOpError() << "emitted hardware name collision";
@@ -2230,6 +2243,27 @@ observationPayloadWidth(HardwareEmitContext &context,
     return observe.emitOpError() << "numeric report requires at most 64 bits";
   return *width;
 }
+StringRef cppObservationSupport() {
+  return "#include <gfsim/ObservationSlot.h>\n"
+         "// Native observation binding. A generated module reaches the "
+         "system-owned\n"
+         "// observation slots through this handle, which the DUT binds before "
+         "Build().\n"
+         "struct pyc_observation_sink {\n"
+         "  gfsim::ObservationSlots *slots = nullptr;\n"
+         "  const gfsim::SimSystem *system = nullptr;\n"
+         "};\n";
+}
+
+void appendCppObservationDescriptor(raw_ostream &out,
+                                    const std::array<uint64_t, 5> &entry,
+                                    unsigned valueIndex, uint64_t groupSize,
+                                    uint64_t width) {
+  out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
+      << entry[3] << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
+      << ", " << valueIndex << ", " << groupSize << ", " << width << "},";
+}
+
 FailureOr<std::string>
 cppObservationDescriptorTable(HardwareEmitContext &context) {
   auto plan = buildObservationPlan(context);
@@ -2250,12 +2284,8 @@ cppObservationDescriptorTable(HardwareEmitContext &context) {
     auto width = observationPayloadWidth(context, occurrence);
     if (failed(width))
       return failure();
-    out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
-        << entry[3]
-        << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
-        << ", " << occurrence.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << ", "
-        << *width << "},";
+    appendCppObservationDescriptor(out, entry, occurrence.site.valueIndex,
+        std::max<std::size_t>(1, observe.getValues().size()), *width);
   }
   out << "\n};\n";
   out.flush();
@@ -2432,19 +2462,45 @@ FailureOr<std::string> emissionMetadataJson(Attribute value, Operation *site) {
   out << *converted;
   return text;
 }
-FailureOr<std::string>
-observationSiteMetadataJson(ac::SourceObserveOp observe) {
-  auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
+static FailureOr<std::string>
+observationSiteMetadataJson(DictionaryAttr identity, Operation *site) {
   if (failed(ac::detail::verifyObservationID(
-          identity, [&] { return observe.emitOpError(); })))
+          identity, [&] { return site->emitOpError(); })))
     return failure();
-  Builder builder(observe.getContext());
+  Builder builder(site->getContext());
   return emissionMetadataJson(
       builder.getDictionaryAttr(
           {builder.getNamedAttr("site", identity.get("site")),
            builder.getNamedAttr("invocation", identity.get("invocation")),
            builder.getNamedAttr("ordinal", identity.get("ordinal"))}),
-      observe);
+      site);
+}
+
+FailureOr<std::string>
+observationSiteMetadataJson(ac::SourceObserveOp observe) {
+  return observationSiteMetadataJson(
+      observe->getAttrOfType<DictionaryAttr>("ac.observation_id"), observe);
+}
+
+LogicalResult appendCppObservationMetadata(
+    raw_ostream &out, Operation *op, DictionaryAttr identity,
+    DictionaryAttr specification, StringRef kind, StringRef instance,
+    uint64_t ordinal, bool carriesValue, unsigned valueIndex, uint64_t groupSize) {
+  auto site = observationSiteMetadataJson(identity, op);
+  if (failed(site))
+    return failure();
+  auto registration = emissionMetadataJson(identity.get("registration"), op);
+  auto spec = emissionMetadataJson(specification, op);
+  if (failed(registration) || failed(spec))
+    return failure();
+  auto report = specification.getAs<StringAttr>("name");
+  out << "    {" << ordinal << ", " << cppMetadataString(kind) << ", "
+      << cppMetadataString(instance) << ", " << cppMetadataString(*registration)
+      << ", " << cppMetadataString(*site) << ", " << cppMetadataString(*spec)
+      << ", " << (carriesValue ? "true" : "false") << ", "
+      << cppMetadataString(report ? report.getValue() : StringRef()) << ", "
+      << valueIndex << ", " << groupSize << "},\n";
+  return success();
 }
 FailureOr<std::string>
 cppObservationRunnerMetadata(HardwareEmitContext &context) {
@@ -2464,14 +2520,6 @@ cppObservationRunnerMetadata(HardwareEmitContext &context) {
   for (const auto &entry : plan->occurrences) {
     auto observe = cast<ac::SourceObserveOp>(entry.site.op);
     auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
-    if (!identity)
-      return observe.emitOpError() << "observation identity is missing";
-    auto registration =
-        emissionMetadataJson(identity.get("registration"), observe);
-    auto site = observationSiteMetadataJson(observe);
-    auto spec = emissionMetadataJson(observe.getSpec(), observe);
-    if (failed(registration) || failed(site) || failed(spec))
-      return failure();
     std::string instance = "root";
     for (auto [operation, lane] : entry.logicalOwnerPath) {
       auto name = operation->getAttrOfType<StringAttr>("instance_name");
@@ -2481,16 +2529,11 @@ cppObservationRunnerMetadata(HardwareEmitContext &context) {
       if (isa<ac::CollectionOp>(operation))
         instance += "[" + std::to_string(lane) + "]";
     }
-    auto report = observe.getSpec().getAs<StringAttr>("name");
-    out << "    {" << entry.ordinal << ", "
-        << cppMetadataString(observe.getKind()) << ", "
-        << cppMetadataString(instance) << ", "
-        << cppMetadataString(*registration) << ", " << cppMetadataString(*site)
-        << ", " << cppMetadataString(*spec) << ", "
-        << (entry.site.carriesValue ? "true" : "false") << ", "
-        << cppMetadataString(report ? report.getValue() : StringRef()) << ", "
-        << entry.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << "},\n";
+    if (failed(appendCppObservationMetadata(
+            out, observe, identity, observe.getSpec(), observe.getKind(), instance,
+            entry.ordinal, entry.site.carriesValue, entry.site.valueIndex,
+            std::max<std::size_t>(1, observe.getValues().size()))))
+      return failure();
   }
   out << "  };\n  return entries;\n}\n";
   return text;

@@ -1,0 +1,15 @@
+# Distinct ordered Rules return local FIFO credit only after complete admission.
+# The late receive guard blocks both full replacements; X/Z failure discards the
+# reserved pop and clock edge. Both C++ targets and managed RTL share exact rows.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-local-fifo-credit.mlir --gfir-verify -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: %python -c 'import json,pathlib,sys; a,b=[json.load(open(p))["port_availability"] for p in sys.argv[1:3]]; assert a==b; o=a["outputs"]; assert len(o)==1 and o[0]["name"]=="result"; w=o[0]["availability"]; assert isinstance(w,str) and w; p=pathlib.Path(sys.argv[3]); p.mkdir(exist_ok=True); (p/"credit_ports.hpp").write_text("#define PYC_RESULT_VALID "+w+"\n"); (p/"credit_ports.svh").write_text("`define PYC_RESULT_VALID "+w+"\n")' %t.behavior.json %t.final.json %t
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t -I%t.$kind %inputs/structured-gfir-local-fifo-credit.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe > %t.$kind.rows || exit; done
+# RUN: diff -u %t.behavior.rows %t.final.rows
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -I%t -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %include/verilog/fifo.v %inputs/structured-gfir-local-fifo-credit.sv
+# RUN: %vvp %t.vvp +rows=%t.behavior.rows

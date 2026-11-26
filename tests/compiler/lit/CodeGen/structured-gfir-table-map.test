@@ -1,0 +1,12 @@
+# A real Table[3, Bits8] connection traverses two pure children. Full-width
+# indexing must not alias index 8 to row 0. Unknown writes merge only possible
+# rows; table.get retains its X/X unknown and X/0 known-out-of-range contract.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-table-map.mlir --gfir-verify -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-table-map.cpp @%t.$kind/sources.rsp -o %t.$kind.exe || exit; %t.$kind.exe || exit; done
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s tb -o %t.vvp %t.sv %inputs/structured-gfir-table-map.sv
+# RUN: %vvp %t.vvp

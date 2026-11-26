@@ -2495,6 +2495,21 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
               scalarInputCount))) ||
       failed(scalarPorts(scalarOutputTypes, scalarOutputNames)))
     return failure();
+  SmallVector<std::string, 2> systemPins;
+  auto rootKind = definition->getAttrOfType<StringAttr>("ac.root_kind");
+  if (selectedRoot && ctx.sourceChecks().managedSampling && rootKind &&
+      rootKind.getValue() == "system") {
+    auto domains = definition->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+    for (StringRef role : {"clock", "reset"}) {
+      auto ordinal = domains ? domains.getAs<IntegerAttr>(role) : IntegerAttr{};
+      if (!ordinal || ordinal.getValue().uge(scalarInputCount))
+        return definition.emitOpError("System has no verified sampling controls");
+      auto pin = id(cast<StringAttr>(definition.getInputNames()[ordinal.getInt()]).getValue());
+      if (failed(pin))
+        return failure();
+      systemPins.push_back(std::move(*pin));
+    }
+  }
   auto bridge = [&](bool input) -> LogicalResult {
     auto types = input ? definition.getFunctionType().getInputs()
                        : definition.getFunctionType().getResults();
@@ -2601,8 +2616,12 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
             << (at - derivedSources.begin()) << "];\n";
       }
     }
-    out << "    };\n    try {\n"
-           "      pyc_implementation->pyc_begin_macrostep(seed);\n";
+    out << "    };\n    try {\n";
+    if (!systemPins.empty())
+      out << "      pyc_system_clock.prepare(" << systemPins[0] << ", " << systemPins[1]
+          << ", gfsim::ResetSemantics::" << (ctx.resetIfOne() ? "IfOne" : "Strict")
+          << ");\n";
+    out << "      pyc_implementation->pyc_begin_macrostep(seed);\n";
     for (const auto &sampling : ctx.sourceChecks().samplingOccurrences) {
       const auto &checkOwner =
           ctx.sourceChecks().owners[sampling.ownerOccurrence];
@@ -2659,12 +2678,21 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
            "      pyc_fail_macrostep(\"clock-source DAG wave bound exceeded\");\n"
            "    } catch (...) { DiscardNext(); throw; }\n";
   } else {
-    out << "    pyc_implementation->Work();\n";
+    if (systemPins.empty()) {
+      out << "    pyc_implementation->Work();\n";
+    } else {
+      out << "    try {\n      pyc_implementation->Work();\n"
+          << "      pyc_system_clock.prepare(" << systemPins[0] << ", " << systemPins[1]
+          << ", gfsim::ResetSemantics::" << (ctx.resetIfOne() ? "IfOne" : "Strict")
+          << ");\n    } catch (...) { DiscardNext(); throw; }\n";
+    }
     if (failed(bridge(false)))
       return failure();
   }
   out << "  }\n  void Xfer() noexcept override {\n"
          "    pyc_implementation->Xfer();\n";
+  if (!systemPins.empty())
+    out << "    pyc_system_clock.commit();\n";
   if (causal && selectedRoot) {
     if (failed(bridge(false)))
       return failure();
@@ -2672,6 +2700,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   }
   out << "  }\n  void DiscardNext() noexcept override {\n"
          "    pyc_implementation->DiscardNext();\n";
+  if (!systemPins.empty())
+    out << "    pyc_system_clock.discard();\n";
   if (causal && selectedRoot)
     out << "    pyc_macrostep_complete_ = false;\n";
   out << "  }\n";
@@ -2685,7 +2715,10 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     return failure();
   if (bindRootInputs)
     out << "    pyc_bind_root_inputs();\n";
-  out << "    pyc_implementation->Reset();\n  }\n  bool HasWork() const "
+  out << "    pyc_implementation->Reset();\n";
+  if (!systemPins.empty())
+    out << "    pyc_system_clock.reset();\n";
+  out << "  }\n  bool HasWork() const "
          "noexcept "
          "override { return true; }\n";
   if (cppHasRootChecks(ctx, definition)) {
@@ -2694,6 +2727,10 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   } else if (causal && selectedRoot) {
     out << "  bool pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept {\n"
            "    failure = pyc_macrostep_failure_; return failure.code.empty();\n  }\n";
+  } else if (!ctx.sourceChecks().owners.empty() &&
+             ctx.sourceChecks().owners.front().definition == definition) {
+    out << "  bool pyc_validate_checks(gfsim::SimFailureInfo &) const noexcept "
+           "{ return true; }\n";
   }
   out << "private:\n";
   if (causal)
@@ -2757,6 +2794,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (cppHasRootChecks(ctx, definition))
     out << "  std::array<std::string, " << ctx.sourceChecks().checks.size()
         << "> pyc_check_instances_;\n";
+  if (!systemPins.empty())
+    out << "  pyc_system_sampled_clock pyc_system_clock;\n";
   out << "  std::shared_ptr<" << family << "> pyc_implementation;\n};\n";
   if (!names.cppNamespace.empty())
     out << "} // namespace " << names.cppNamespace << "\n";

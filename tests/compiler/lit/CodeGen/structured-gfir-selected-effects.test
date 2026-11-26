@@ -1,0 +1,17 @@
+# Only selected nested arms assert/publish immutable SSA snapshots. Held/reset
+# epochs still publish; late false and a later reached X fault publish nothing.
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_opt %inputs/structured-gfir-selected-effects.mlir --gfir-verify -o %t.gfir
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
+# RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
+# RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
+# RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %t.$kind/simulation_main.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; done
+# RUN: not %t.behavior.exe --config %t.behavior/config.json > %t.behavior.stdout 2>&1
+# RUN: not %t.final.exe --config %t.final/config.json > %t.final.stdout 2>&1
+# RUN: for kind in behavior final; do %python %inputs/structured-gfir-system-result.py %t.$kind.stdout FAILED 14 || exit; done
+# RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s pycircuit_sim -o %t.vvp %t.sv %include/verilog/dffe.v
+# RUN: not %vvp %t.vvp > %t.rtl.stdout 2>&1
+# RUN: %python %inputs/structured-gfir-system-result.py %t.rtl.stdout RTL_FAILED 14
+# RUN: %python %inputs/structured-gfir-selected-effects-result.py %t.behavior.stdout %t.final.stdout %t.rtl.stdout

@@ -791,6 +791,94 @@ class AvailabilityProof {
       std::swap(left, right);
     return node("eq", {left, right});
   }
+  // Summarize the actual yielded expression in terms of this definition's
+  // known-one inputs. Value keys retain lexical definition identity.
+  DenseMap<Value, SmallVector<unsigned>> companionInputs;
+  DenseSet<Value> companionActive;
+  bool collectOneInputs(Value value, ModuleOp owner,
+                        SmallVectorImpl<unsigned> &inputs, unsigned depth = 0) {
+    if (!charge(1, owner) || depth >= 128)
+      return false;
+    auto cached = companionInputs.find(value);
+    if (cached != companionInputs.end()) {
+      if (!charge(cached->second.size(), owner)) return false;
+      llvm::append_range(inputs, cached->second);
+      return true;
+    }
+    if (!companionActive.insert(value).second) return false;
+    llvm::scope_exit cleanup([&] { companionActive.erase(value); });
+    SmallVector<unsigned> required;
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      if (argument.getOwner() != &owner.getBody().front()) return false;
+      required.push_back(argument.getArgNumber());
+    } else if (auto instance = value.getDefiningOp<InstanceOp>()) {
+      auto target = dyn_cast_or_null<ModuleOp>(
+          analysis.lookupDefinition(instance.getCallee()));
+      if (!target || !target.getBody().hasOneBlock() ||
+          target.getBody().front().empty()) return false;
+      auto yield = dyn_cast<YieldOp>(target.getBody().front().back());
+      unsigned ordinal = cast<OpResult>(value).getResultNumber();
+      if (!yield || ordinal >= yield.getValues().size()) return false;
+      SmallVector<unsigned> nested;
+      if (!collectOneInputs(yield.getValues()[ordinal], target, nested, depth + 1))
+        return false;
+      for (unsigned input : nested) {
+        if (input >= instance.getInputs().size() ||
+            !collectOneInputs(instance.getInputs()[input], owner, required, depth + 1))
+          return false;
+      }
+    } else if (auto binary = value.getDefiningOp<BitsBinaryOp>();
+               binary && binary.getOpcode() == "and") {
+      for (Value operand : binary->getOperands())
+        if (!collectOneInputs(operand, owner, required, depth + 1)) return false;
+    } else if (auto select = value.getDefiningOp<BitsSelectOp>()) {
+      if (!collectOneInputs(select.getTrueValue(), owner, required, depth + 1) ||
+          !collectOneInputs(select.getFalseValue(), owner, required, depth + 1))
+        return false;
+    } else {
+      auto known = knownGuard(value);
+      if (failed(known) || !known->value_or(false)) return false;
+    }
+    llvm::sort(required);
+    required.erase(std::unique(required.begin(), required.end()), required.end());
+    if (!charge(1 + required.size(), owner)) return false;
+    companionInputs.try_emplace(value, required);
+    llvm::append_range(inputs, required);
+    return true;
+  }
+  bool isConstantOneCompanion(Value value) {
+    auto instance = value.getDefiningOp<InstanceOp>();
+    if (!instance)
+      return false;
+    auto target = dyn_cast_or_null<ModuleOp>(analysis.lookupDefinition(instance.getCallee()));
+    auto companions = target ? target->getAttrOfType<ArrayAttr>("ac.output_validity")
+                             : ArrayAttr();
+    if (!companions || !charge(companions.size(), instance))
+      return false;
+    unsigned ordinal = cast<OpResult>(value).getResultNumber();
+    if (llvm::none_of(companions, [&](Attribute raw) {
+          auto slot = dyn_cast<IntegerAttr>(raw);
+          return slot && slot.getInt() >= 0 && uint64_t(slot.getInt()) == ordinal;
+        }))
+      return false;
+
+    // Follow the actual yielded companion. A known-one input stays total
+    // across forwarding, conjunctions and selections with two total arms.
+    if (target.getBody().empty() || target.getBody().front().empty())
+      return false;
+    auto &body = target.getBody().front();
+    auto yield = dyn_cast<YieldOp>(body.back());
+    if (!yield || ordinal >= yield.getValues().size())
+      return false;
+    SmallVector<unsigned> required;
+    if (!collectOneInputs(yield.getValues()[ordinal], target, required))
+      return false;
+    for (unsigned input : required)
+      if (input >= instance.getInputs().size() ||
+          formula(instance.getInputs()[input]) != 1)
+        return false;
+    return true;
+  }
   Expr formula(Value value) {
     if (!charge(1, value.getParentBlock()->getParentOp())) return 0;
     value = wire(value);
@@ -816,6 +904,8 @@ class AvailabilityProof {
     else if (auto number = constant(value);
              number && (*number == "0" || *number == "1"))
       result = *number == "1" ? 1 : 0;
+    else if (isConstantOneCompanion(value))
+      result = 1;
     else if (auto get = value.getDefiningOp<TableGetOp>();
              get && value == get->getResult(0) && constant(get.getIndex())) {
       uint64_t ordinal;
