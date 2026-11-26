@@ -1,0 +1,30 @@
+{
+  "schema": "wse-allgather-timing/1",
+  "name": "provisional-fixed-calendar-packet-model",
+  "parameters": {
+    "noc_clock_hz": {"value": 2000000000, "status": "documented", "source": "whitepaper 2.2/5.1", "unit": "Hz"},
+    "core_clock_hz": {"value": 1400000000, "status": "documented", "source": "whitepaper 3", "unit": "Hz"},
+    "link_bytes_per_noc_cycle": {"value": 64, "status": "documented", "source": "whitepaper 5.1", "unit": "B/cycle/direction"},
+    "storage": {"value": "UB", "status": "pending", "source": "user provisional choice; S-2 remains open"},
+    "ub_read_bytes_per_core_cycle": {"value": 128, "status": "pending", "source": "user provisional bandwidth; core clock interpretation", "unit": "B/core-cycle"},
+    "ub_write_bytes_per_core_cycle": {"value": 128, "status": "pending", "source": "user provisional bandwidth; core clock interpretation", "unit": "B/core-cycle"},
+    "ub_read_first_beat_ns": {"value": 100, "status": "pending", "source": "user provisional first-word latency", "unit": "ns"},
+    "ub_write_first_beat_ns": {"value": 100, "status": "pending", "source": "user provisional first-word latency", "unit": "ns"},
+    "independent_ub_ports": {"value": true, "status": "pending", "source": "user provisional independent read/write ports"},
+    "packet_boundary": {"value": "source", "status": "pending", "source": "user option 1: merge functional fragments before flitization"},
+    "epoch_tag_bits": {"value": 8, "status": "pending", "source": "existing Calendar baseline; C-5 remains open", "unit": "bit"},
+    "header_policy": {"value": "per-flit", "status": "pending", "source": "Calendar 1.8 baseline; C-2 remains open"},
+    "endpoint_buffering": {"value": "whole-packet", "status": "pending", "source": "conservative first timing model"},
+    "hop_noc_cycles": {"value": 1, "status": "pending", "source": "provisional pipelined hop including one wire transfer", "unit": "NoC cycle"},
+    "injection_flits_per_noc_cycle": {"value": 1, "status": "pending", "source": "provisional endpoint throughput"},
+    "ejection_flits_per_noc_cycle": {"value": 1, "status": "pending", "source": "provisional endpoint throughput"},
+    "multicast_branch_issue": {"value": "parallel", "status": "pending", "source": "provisional simultaneous replication to distinct ports"},
+    "tx_cdc_noc_cycles": {"value": 2, "status": "pending", "source": "provisional abstract core-to-NoC crossing budget", "unit": "NoC cycle"},
+    "rx_cdc_noc_cycles": {"value": 2, "status": "pending", "source": "provisional abstract NoC-to-core crossing budget", "unit": "NoC cycle"},
+    "alignment_noc_cycles": {"value": 16, "status": "pending", "source": "provisional phase alignment and completion feedback budget", "unit": "NoC cycle"},
+    "arm_noc_cycles": {"value": 8, "status": "pending", "source": "provisional receive preparation before Calendar origin", "unit": "NoC cycle"},
+    "guard_noc_cycles": {"value": 1, "status": "pending", "source": "provisional final commit/retire guard", "unit": "NoC cycle"},
+    "slot_noc_cycles": {"value": 1024, "status": "pending", "source": "fixed payload-independent source window, shared by ROW and COL", "unit": "NoC cycle"},
+    "slots_per_period": {"value": 8, "status": "pending", "source": "one fixed Calendar table for both phases"}
+  }
+}

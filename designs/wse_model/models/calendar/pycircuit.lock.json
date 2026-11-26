@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/PTO-ISA/pyCircuit.git",
+  "revision": "7942030dd623bb8db6a0a3bcb061fa11f667f43a",
+  "llvm_mlir": "22.1.8",
+  "availability": "local-unpublished",
+  "note": "Requires the integrated compiler checkout; this snapshot does not publish compiler patches."
+}

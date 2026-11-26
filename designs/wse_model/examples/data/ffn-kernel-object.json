@@ -1,0 +1,25 @@
+{
+  "$comment": "A declared kernel object manifest that satisfies F1/F2/F3 for the FFN example (keyCount 2, nodeCount 40, table 2 x 40 x 16 = 1280 B in .rodata at 64 B alignment). This is the shape a conforming toolchain must report; it is checked by tools/check_repo_standards.py and by tests/unit/test_compiler_selfcheck.py.",
+  "schema": "wse-model/kernel-object/1",
+  "sections": [
+    { "name": ".text", "addr_align": 4, "size": 512 },
+    { "name": ".rodata", "addr_align": 64, "size": 1280 }
+  ],
+  "symbols": [
+    {
+      "name": "ffn_fused",
+      "kind": "function",
+      "section": ".text",
+      "size": 512,
+      "is_global": true
+    },
+    {
+      "name": "kCalendarRoute",
+      "kind": "read-only object",
+      "section": ".rodata",
+      "size": 1280,
+      "addr_align": 64,
+      "is_global": false
+    }
+  ]
+}

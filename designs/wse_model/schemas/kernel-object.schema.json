@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/PTO-ISA/wse-model/schemas/kernel-object.schema.json",
+  "title": "WSE kernel object manifest",
+  "description": "The declared symbol and section view of a compiled kernel object, consumed by the F1/F2/F3 self-checks of Calendar 3.10. The model does not parse ELF; it checks this manifest, which is what llvm-nm and llvm-readelf would report.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "sections", "symbols"],
+  "properties": {
+    "schema": { "const": "wse-model/kernel-object/1" },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "addr_align"],
+        "properties": {
+          "name": { "enum": [".text", ".rodata", ".data", ".bss", "other"] },
+          "addr_align": { "type": "integer", "minimum": 1 },
+          "size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "section"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "kind": {
+            "enum": [
+              "function",
+              "read-only object",
+              "writable object",
+              "bss object",
+              "other"
+            ],
+            "description": "Spelled the way llvm-nm reports it: T/t, R/r, D/d, B/b."
+          },
+          "section": { "enum": [".text", ".rodata", ".data", ".bss", "other"] },
+          "size": { "type": "integer", "minimum": 0 },
+          "addr_align": { "type": "integer", "minimum": 1 },
+          "is_global": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

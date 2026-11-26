@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wse-model"
+version = "0.1.0"
+description = "WSE architecture semantics and pyCircuit Calendar/AllGather models"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "jsonschema>=4.20", "ruff==0.11.8", "black==24.10.0"]
+
+[project.scripts]
+wse-model = "wse_model.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+wse_model = ["py.typed", "data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-ra --tb=short"
+markers = [
+    "unit: pure Python semantic and host checks",
+    "contract: interface and schema checks",
+    "integration: complete model scenarios and opt-in external payload comparison",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["docs/design"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "T20"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/wse_model/calendar/route_bits.py" = ["E741"]
+"src/wse_model/cli.py" = ["T201"]
+"tests/**/*.py" = ["T201", "N803", "N806"]
+"tools/*.py" = ["T201"]
+"examples/**/*.py" = ["T201", "N803", "N806"]
