@@ -2,6 +2,7 @@
 #define PYCIRCUIT_DIALECT_ACIR_HARDWAREANALYSIS_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "pycircuit/Dialect/ACIR/RegisterContracts.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysisContext.h"
 #include "pycircuit/Dialect/ACIR/HardwarePackedWidth.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
@@ -18,6 +19,19 @@ namespace acir::ac {
 /// Validated raw clock/reset rows on a System Module/ModuleImport declaration.
 /// The empty array means no authored sequence; present sequences are nonempty.
 mlir::FailureOr<mlir::ArrayAttr> getSystemSamples(mlir::Operation *declaration);
+/// Explicit logical input ordinals for a multi-control System sample row.
+/// Empty means the existing clock/reset pair convention.
+mlir::FailureOr<llvm::SmallVector<unsigned>>
+getSystemSampleInputs(mlir::Operation *declaration);
+
+/// Verify the normalized transaction-wide reset predicate.
+mlir::FailureOr<mlir::Value> getVerifiedTransactionResetMask(RuleOp rule);
+struct StateLayout {
+  mlir::Value clock, reset, initial, resetValue;
+  RegisterPolicy policy;
+  mlir::StringAttr domain;
+};
+mlir::FailureOr<StateLayout> getStateLayout(mlir::Operation *state);
 
 /// Read the closed policy on the single root selection and reject overrides.
 /// A saved package without the attribute means strict; this never mutates IR.
@@ -104,10 +118,17 @@ mlir::FailureOr<MemoryPrimitiveLayout>
 getMemoryPrimitiveLayout(InstanceOp instance,
                          const HardwareBindings &parentBindings = {});
 
+struct HardwareSamplingReset {
+  mlir::Value value;
+  RegisterResetKind kind = RegisterResetKind::Sync;
+  RegisterResetPolarity polarity = RegisterResetPolarity::High;
+};
 struct HardwareCheckSamplingBinding {
   ModuleOp definition;
   mlir::Value clock, reset;
   uint64_t localOrdinal = 0;
+  RegisterEdge edge = RegisterEdge::Posedge;
+  llvm::SmallVector<HardwareSamplingReset> resets;
 };
 struct HardwareCheckSamplingOccurrence {
   uint64_t bindingIndex = 0, ownerOccurrence = 0, ordinal = 0;
@@ -172,6 +193,8 @@ struct HardwareSourceCheckPlan {
 struct HardwarePhysicalProjection {
   ModuleOp root;
   unsigned clockInput = 0, resetInput = 0;
+  // Contract 5 event sources, deduplicated by actual root argument identity.
+  llvm::SmallVector<unsigned> clockInputs, resetInputs;
 };
 /// Field paths and packed leaf records moved to HardwareAnalysisContext.h:
 /// the shared packed-width core (r8 review) uses the same value types.

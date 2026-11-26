@@ -93,14 +93,26 @@ def _relative_file_path(value: object) -> tuple[str, tuple[str, ...], bytes]:
 def _execution_metadata(value: Mapping[str, object]) -> tuple[list[str], bool]:
     present = {"system_samples", "needs_four_state"} & set(value)
     if not present:
+        if "system_sample_inputs" in value:
+            raise _PublicationError("generated execution metadata is incomplete")
         return [], False
     if present != {"system_samples", "needs_four_state"}:
         raise _PublicationError("generated execution metadata is incomplete")
     rows, needs_four_state = value["system_samples"], value["needs_four_state"]
     if type(rows) is not list or type(needs_four_state) is not bool:
         raise _PublicationError("generated execution metadata has invalid types")
+    inputs = value.get("system_sample_inputs", [])
+    if (
+        type(inputs) is not list
+        or any(type(index) is not int or not 0 <= index < 2**32 for index in inputs)
+        or len(set(inputs)) != len(inputs)
+    ):
+        raise _PublicationError("generated System sample input ordinals are invalid")
+    width = len(inputs) if inputs else 2
     if any(
-        type(row) is not str or len(row) != 2 or any(bit not in "01xz" for bit in row)
+        type(row) is not str
+        or len(row) != width
+        or any(bit not in "01xz" for bit in row)
         for row in rows
     ):
         raise _PublicationError("generated System sample rows are not canonical")
@@ -138,6 +150,7 @@ def _generated_receipt(
     }
     if type(value) is not dict or set(value) - {
         "system_samples",
+        "system_sample_inputs",
         "needs_four_state",
         "execution_model",
     } not in (

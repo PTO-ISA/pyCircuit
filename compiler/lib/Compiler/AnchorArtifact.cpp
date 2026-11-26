@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/GFIRPackageValidation.h"
 #include "pycircuit/Dialect/ACIR/HWIRPackageValidation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Interfaces/LogicalStateInterfaces.h"
 #include "mlir/AsmParser/AsmParser.h"
@@ -510,7 +511,8 @@ FailureOr<json::Object> manifest(const Files &files, ac::detail::EmitError emitE
                      "configuration_identity", "content_identity", "files", "definitions", "sources", "producer"}) ||
       object->getString("kind") != "pycircuit-anchor" ||
       !((object->getInteger("schema") == 3 && object->getInteger("routed_contract") == 4) ||
-        (object->getInteger("schema") == 4 && object->getInteger("routed_contract") == 5)))
+        (object->getInteger("schema") == 4 && object->getInteger("routed_contract") == 5) ||
+        (object->getInteger("schema") == 6 && object->getInteger("routed_contract") == 7)))
     return emitError() << "unsupported anchor schema/contract; regenerate from source units";
   auto owner = object->getObject("owner");
   auto producer = object->getObject("producer");
@@ -550,6 +552,27 @@ OwningOpRef<mlir::ModuleOp> fragment(StringRef bytes, MLIRContext &context) {
       !parsed->getOperation()->getRegion(0).hasOneBlock())
     return {};
   return parsed;
+}
+
+json::Value domainBindingJSON(Attribute attribute) {
+  if (auto text = dyn_cast<StringAttr>(attribute)) return text.getValue().str();
+  if (auto symbol = dyn_cast<FlatSymbolRefAttr>(attribute)) return symbol.getValue().str();
+  if (auto integer = dyn_cast<IntegerAttr>(attribute)) return integer.getInt();
+  if (auto integer = dyn_cast<ac::MathIntAttr>(attribute)) return integer.getCanonicalValue().str();
+  if (auto array = dyn_cast<ArrayAttr>(attribute)) {
+    json::Array values;
+    for (Attribute element : array) values.push_back(domainBindingJSON(element));
+    return values;
+  }
+  if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
+    json::Object values;
+    for (NamedAttribute field : dictionary) values[field.getName().getValue()] = domainBindingJSON(field.getValue());
+    return values;
+  }
+  std::string text;
+  llvm::raw_string_ostream out(text);
+  attribute.print(out);
+  return text;
 }
 
 FailureOr<json::Object> configuration(mlir::ModuleOp package, const json::Array &definitions,
@@ -596,6 +619,66 @@ FailureOr<json::Object> configuration(mlir::ModuleOp package, const json::Array 
       {"integer_arguments", std::move(integers)}, {"type_arguments", std::move(types)},
       {"domain", system.getDomain()}, {"reset_semantics", *reset == ac::HardwareResetSemantics::Strict ? "strict" : "if_one"},
       {"graph_sha256", graphHash.str()}, {"definitions", std::move(variants)}};
+  auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  if (contract && contract.getInt() == 7) {
+    auto domains = ac::getHardwareDomainPlan(package);
+    if (failed(domains)) return failure();
+    auto value = domainBindingJSON(ac::serializeHardwareDomainBindings(*domains));
+    auto rows = value.getAsArray();
+    llvm::sort(*rows, [](const json::Value &a, const json::Value &b) {
+      return *canonical(a) < *canonical(b);
+    });
+    result["domain_bindings"] = std::move(value);
+    if (root->hasAttr("ac.port_domains")) {
+      auto ports = ac::getHardwarePortDomains(root);
+      auto layout = ac::getModulePortLayout(root);
+      auto clocks = implementation->getAttrOfType<DictionaryAttr>(
+          "ac.domain_clock_inputs");
+      if (failed(ports) || failed(layout) || !clocks)
+        return emitError() << "anchor port domains require verified root clocks";
+      json::Array rows;
+      auto append = [&](bool input) -> LogicalResult {
+        unsigned count = input ? layout->sourceInputCount
+                               : layout->sourceOutputCount;
+        const auto &portDomains = input ? ports->inputs : ports->outputs;
+        const auto &companions = input ? layout->inputValidity
+                                       : layout->outputValidity;
+        for (unsigned ordinal = 0; ordinal < count; ++ordinal) {
+          auto domain = portDomains[ordinal];
+          if (!domain) continue;
+          auto clock = clocks.getAs<IntegerAttr>(domain.getValue());
+          json::Object row{{"direction", input ? "input" : "output"},
+                           {"source_ordinal", ordinal},
+                           {"domain", domain.getValue()}};
+          if (clock) {
+            row["clock_input"] = clock.getInt();
+          } else if (domains->clockSources) {
+            const auto &rootClocks = domains->occurrences.front().clocks;
+            auto source = rootClocks.find(domain.getValue());
+            if (source == rootClocks.end())
+              return emitError() << "anchor port domain has no clock source";
+            row["clock_source"] = domainBindingJSON(
+                ac::getHardwareClockSourceIdentity(*domains->clockSources,
+                                                   source->second));
+          } else {
+            return emitError() << "anchor port domain has no actual root clock";
+          }
+          if (companions[ordinal] >= 0)
+            row["companion"] = companions[ordinal];
+          rows.emplace_back(std::move(row));
+        }
+        return success();
+      };
+      if (failed(append(true)) || failed(append(false))) return failure();
+      llvm::sort(rows, [](const json::Value &a, const json::Value &b) {
+        return *canonical(a) < *canonical(b);
+      });
+      result["port_domain_bindings"] = std::move(rows);
+    }
+    if (domains->clockSources)
+      result["clock_sources"] =
+          domainBindingJSON(ac::serializeHardwareClockSources(*domains->clockSources));
+  }
   if (system->hasAttr("ac.entry_boundary"))
     result["implementation_root"] = json::Object{{"source", ownerJSON(implementation.getSourceOwner())},
         {"definition", symbol(implementation.getSymName())}, {"variant_id", string(*implementationRow, "variant_id")}};
@@ -753,7 +836,8 @@ LogicalResult writeAnchorArtifacts(
         StringRef(path).ends_with("/spec.ac") ? "spec" : "body";
     inventory.push_back(json::Object{{"path", path}, {"role", role}, {"sha256", anchorSha256(text)}});
   }
-  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", boundary ? 4 : 3}, {"routed_contract", boundary ? 5 : 4},
+  auto contract = routed->getAttrOfType<IntegerAttr>("ac.routed_contract").getInt();
+  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", contract == 7 ? 6 : boundary ? 4 : 3}, {"routed_contract", contract},
     {"owner", json::Object{{"kind", "anchor"}, {"source", json::Object(*rootSource)}, {"definition", root}}},
     {"root", root}, {"configuration", json::Object(*config)}, {"configuration_identity", identity(*config)},
     {"files", std::move(inventory)}, {"definitions", std::move(definitions)}, {"sources", std::move(provenance)},
@@ -774,11 +858,23 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   if (failed(parsed)) return failure();
   auto &document = *parsed;
   auto config = document.getObject("configuration");
-  bool boundary = document.getInteger("schema") == 4;
+  bool boundary = config && config->getObject("implementation_root");
+  bool domains = document.getInteger("schema") == 6;
+  if (!config || (domains && !config->getArray("domain_bindings")) ||
+      (!domains && config->get("domain_bindings")) ||
+      (config->get("port_domain_bindings") &&
+       (!domains || !config->getArray("port_domain_bindings"))) ||
+      (config->get("clock_sources") &&
+       (!domains || !config->getArray("clock_sources"))))
+    return emitError() << "anchor domain configuration schema mismatch";
+  json::Object configCore(*config);
+  configCore.erase("domain_bindings");
+  configCore.erase("port_domain_bindings");
+  configCore.erase("clock_sources");
   auto definitions = document.getArray("definitions"), sources = document.getArray("sources");
   if (!definitions || definitions->empty() || !sources || sources->empty() ||
-      !(boundary ? keys(config, {"root", "implementation_root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})
-                  : keys(config, {"root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})) ||
+      !(boundary ? keys(&configCore, {"root", "implementation_root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})
+                  : keys(&configCore, {"root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})) ||
       !keys(config->getObject("root"), {"source", "definition", "variant_id"}) ||
       !ownerShape(config->getObject("root")->getObject("source")) ||
       !config->getObject("root")->getString("definition") ||
@@ -946,7 +1042,7 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   // until the complete assembled package has passed bounded native admission.
   if (failed(ac::verifyRoutedPackage(*graph))) return failure();
   auto contract = (*graph)->getAttrOfType<IntegerAttr>("ac.routed_contract");
-  if (!contract || contract.getInt() != (boundary ? 5 : 4))
+  if (!contract || contract.getInt() != document.getInteger("routed_contract"))
     return emitError() << "anchor schema and native routed contract differ";
 
   for (const auto &raw : *sources) {
@@ -982,18 +1078,12 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> refineVerifiedAnchor(
   if (fingerprint.empty() || anchorSha256(fingerprint) != anchor.verifiedPackageSha256)
     return emitError() << "loaded anchor changed after native verification";
   ac::HardwareSourceCheckLimits limits;
-  // Loaded routed anchors carry their logical states as GFIR operations; the
-  // previous unlowered-source scan recognized the retired ac.state classes.
-  // Keep the tighter stateful refinement budget for any routed logical state,
-  // detected through the common interface without a GFIR dependency here.
   bool stateful = false;
   (*anchor.package)->walk(
       [&](acir::LogicalStateOpInterface) { stateful = true; });
   if (stateful) limits.maxWorkUnits = 1024 * 1024;
-  ac::detail::SourceCheckBudget budget(limits);
-  auto candidate = acir::detail::materializeHardwareState(*anchor.package, budget);
-  if (failed(candidate) || failed(acir::detail::verifyHardwareStateMaterialization(
-          *anchor.package, **candidate, budget))) return failure();
+  auto candidate = acir::detail::refineRoutedHardware(*anchor.package, limits);
+  if (failed(candidate)) return failure();
   Builder builder((*anchor.package).getContext());
   (**candidate)->setAttr("ac.anchor_provenance", builder.getDictionaryAttr({
       builder.getNamedAttr("content_identity", builder.getStringAttr(anchor.contentIdentity)),

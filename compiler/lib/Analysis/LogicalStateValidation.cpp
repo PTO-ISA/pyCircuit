@@ -15,6 +15,28 @@
 using namespace mlir;
 
 namespace acir::ac {
+mlir::FailureOr<StateLayout> getStateLayout(Operation *state) {
+  auto package = state->getParentOfType<mlir::ModuleOp>();
+  auto contract = package ? package->getAttrOfType<IntegerAttr>("ac.routed_contract") : IntegerAttr();
+  int64_t version = contract ? contract.getInt() : 4;
+  auto policy = getRegisterPolicy(state);
+  if (failed(policy)) return failure();
+  bool current = version == 7 && isa<LogicalStateOpInterface>(state);
+  auto operand = [&](unsigned segment) -> Value {
+    if (current) {
+      auto sizes = state->getAttrOfType<DenseI32ArrayAttr>("operandSegmentSizes");
+      if (!sizes || sizes.size() != 4 || sizes[segment] != 1) return {};
+      unsigned index = 0;
+      for (unsigned i = 0; i < segment; ++i) index += sizes[i];
+      return index < state->getNumOperands() ? state->getOperand(index) : Value();
+    }
+    return segment < state->getNumOperands() ? state->getOperand(segment) : Value();
+  };
+  if (isa<LogicalStateOpInterface>(state) && failed(verifyLogicalStateStructure(state))) return failure();
+  return StateLayout{operand(0), operand(1), operand(2), current ? operand(3) : operand(2),
+                     *policy, state->getAttrOfType<StringAttr>("domain")};
+}
+
 namespace {
 
 LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
@@ -223,10 +245,10 @@ LogicalResult declarationBoundChecks(Operation *operation, Value clock,
                                      const HardwareBindings &bindings) {
   if (failed(stateControlPredicate(analysis, clock, bindings, operation,
                                    "state clock")) ||
-      failed(stateControlPredicate(analysis, reset, bindings, operation,
-                                   "state reset")))
+      (reset && failed(stateControlPredicate(analysis, reset, bindings, operation,
+                                   "state reset"))))
     return failure();
-  if (!areEquivalentHardwareTypes(initial.getType(), q.getType()))
+  if (initial && !areEquivalentHardwareTypes(initial.getType(), q.getType()))
     return operation->emitOpError()
            << "initial value and old-Q payload types must match";
   // Test the raw attribute so a present-but-malformed constraint is still
@@ -276,8 +298,14 @@ LogicalResult verifyLogicalStateDeclarationBinding(
                                                &bindings)))
       return failure();
   }
-  return detail::verifyClosedStateInitializer(analysis, state.getStateInitial(),
-                                              bindings, operation, budget);
+  auto layout = getStateLayout(operation);
+  if (failed(layout)) return failure();
+  if (layout->resetValue && layout->resetValue != layout->initial &&
+      (!areEquivalentHardwareTypes(layout->resetValue.getType(), state.getStateQ().getType()) ||
+       failed(detail::verifyClosedStateInitializer(analysis, layout->resetValue, bindings, operation, budget))))
+    return operation->emitOpError("reset value must be a closed initializer of the state payload type");
+  return layout->initial ? detail::verifyClosedStateInitializer(analysis, layout->initial,
+                                              bindings, operation, budget) : success();
 }
 
 LogicalResult verifyLogicalStateSourceBinding(SourceStateOp state) {

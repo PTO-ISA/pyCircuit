@@ -1,5 +1,6 @@
 #include "HardwareEmitCppChecks.h"
 #include "FinalCppNames.h"
+#include "pycircuit/Dialect/ACIR/HardwareClockSources.h"
 #include "llvm/ADT/STLExtras.h"
 #include <limits>
 
@@ -117,6 +118,11 @@ cppDefinitionChecks(const HardwareEmitContext &context,
 }
 void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
                          raw_ostream &out) {
+  const auto *clockPlan = context.causalClocks();
+  const bool causal =
+      clockPlan && llvm::any_of(clockPlan->occurrences, [&](const auto &owner) {
+        return owner.definition == definition;
+      });
   auto sites = cppDefinitionChecks(context, definition);
   bool reset = resetSnapshot(context, definition);
   bool samples = llvm::any_of(
@@ -143,6 +149,9 @@ void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
     for (StringRef field : {"clock", "pending_clock", "pending_valid", "valid"})
       out << "  std::array<bool, pyc_count> pyc_sampling_" << field << "_"
           << ordinal << "{};\n";
+    if (causal)
+      out << "  std::array<bool, pyc_count> pyc_sampling_wave_clock_"
+          << ordinal << "{};\n";
     out << "  std::array<gfsim::SampledClockEvaluation, pyc_count> "
            "pyc_sampling_evaluation_"
         << ordinal << "{};\n";
@@ -152,13 +161,51 @@ void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
     if (binding.definition != definition)
       continue;
     auto ordinal = binding.localOrdinal;
+    if (causal)
+      out << "  void pyc_seed_sampling_" << ordinal
+          << "(std::size_t lane, bool level) noexcept { pyc_sampling_wave_clock_"
+          << ordinal << "[lane] = level; }\n";
+    std::string history =
+        causal ? "(pyc_macrostep_active_ ? pyc_sampling_wave_clock_" +
+                     std::to_string(ordinal) + "[lane] : pyc_sampling_clock_" +
+                     std::to_string(ordinal) + "[lane])"
+               : "pyc_sampling_clock_" + std::to_string(ordinal) + "[lane]";
     out << "  void pyc_capture_sampling_" << ordinal
-        << "(std::size_t lane, const gfsim::wire<gfsim::Bits<1>> &clock, "
-           "const gfsim::wire<gfsim::Bits<1>> &reset) noexcept {\n"
-        << "    const auto evaluation = gfsim::evaluateSampledClock("
-           "pyc_sampling_clock_"
-        << ordinal << "[lane], clock, " << context.cppReset("reset") << ");\n"
-        << "    pyc_sampling_evaluation_" << ordinal << "[lane] = evaluation;\n"
+        << "(std::size_t lane, const gfsim::wire<gfsim::Bits<1>> &clock";
+    for (unsigned i = 0; i < binding.resets.size(); ++i)
+      out << ", const gfsim::wire<gfsim::Bits<1>> &reset_" << i;
+    out << ") noexcept {\n"
+        << "    auto evaluation = gfsim::evaluateSampledClock("
+        << history
+        << ", clock, gfsim::wire<gfsim::Bits<1>>::known("
+           "gfsim::Bits<1>{0}), gfsim::ResetSemantics::Strict, "
+        << (binding.edge == ac::RegisterEdge::Negedge
+                ? "gfsim::RegisterEdge::Negedge"
+                : "gfsim::RegisterEdge::Posedge")
+        << ", gfsim::RegisterResetKind::None);\n";
+    for (auto [i, reset] : llvm::enumerate(binding.resets)) {
+      out << "    { const auto reset = gfsim::evaluateSampledClock("
+          << history << ", clock, reset_" << i << ", "
+          << (context.resetIfOne() ? "gfsim::ResetSemantics::IfOne"
+                                   : "gfsim::ResetSemantics::Strict")
+          << ", "
+          << (binding.edge == ac::RegisterEdge::Negedge
+                  ? "gfsim::RegisterEdge::Negedge"
+                  : "gfsim::RegisterEdge::Posedge")
+          << ", "
+          << (reset.kind == ac::RegisterResetKind::Async
+                  ? "gfsim::RegisterResetKind::Async"
+                  : "gfsim::RegisterResetKind::Sync")
+          << ", "
+          << (reset.polarity == ac::RegisterResetPolarity::Low
+                  ? "gfsim::RegisterResetPolarity::Low"
+                  : "gfsim::RegisterResetPolarity::High")
+          << ");\n"
+          << "      evaluation.resetActive |= reset.resetActive;\n"
+          << "      if (reset.fault != gfsim::SampledClockFault::None) "
+             "evaluation.fault = reset.fault; }\n";
+    }
+    out << "    pyc_sampling_evaluation_" << ordinal << "[lane] = evaluation;\n"
         << "    pyc_sampling_pending_clock_" << ordinal
         << "[lane] = evaluation.nextClock;\n"
         << "    pyc_sampling_pending_valid_" << ordinal
@@ -215,6 +262,11 @@ void emitCppCheckClear(HardwareEmitContext &context, ac::ModuleOp definition,
 }
 void emitCppSamplingXfer(HardwareEmitContext &context, ac::ModuleOp definition,
                          raw_ostream &out) {
+  const auto *clockPlan = context.causalClocks();
+  const bool causal =
+      clockPlan && llvm::any_of(clockPlan->occurrences, [&](const auto &owner) {
+        return owner.definition == definition;
+      });
   for (const auto &binding : context.sourceChecks().samplingBindings) {
     if (binding.definition != definition)
       continue;
@@ -222,8 +274,12 @@ void emitCppSamplingXfer(HardwareEmitContext &context, ac::ModuleOp definition,
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; "
            "++pyc_lane)\n"
         << "      if (pyc_sampling_pending_valid_" << ordinal
-        << "[pyc_lane]) pyc_sampling_clock_" << ordinal
-        << "[pyc_lane] = pyc_sampling_pending_clock_" << ordinal
+        << "[pyc_lane]) "
+        << (causal ? "(pyc_macrostep_active_ ? pyc_sampling_wave_clock_" +
+                         std::to_string(ordinal) + "[pyc_lane] : pyc_sampling_clock_" +
+                         std::to_string(ordinal) + "[pyc_lane])"
+                   : "pyc_sampling_clock_" + std::to_string(ordinal) + "[pyc_lane]")
+        << " = pyc_sampling_pending_clock_" << ordinal
         << "[pyc_lane];\n";
   }
 }
@@ -244,13 +300,22 @@ emitCppCheckCapture(HardwareEmitContext &context, ac::ModuleOp definition,
     if (binding.definition != definition)
       continue;
     auto clock = value(binding.clock);
-    auto reset = value(binding.reset);
-    if (failed(clock) || failed(reset))
+    if (failed(clock))
       return failure();
+    SmallVector<std::string> resets;
+    for (auto reset : binding.resets) {
+      auto captured = value(reset.value);
+      if (failed(captured))
+        return failure();
+      resets.push_back(*captured);
+    }
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << count
         << "; ++pyc_lane) " << object << "pyc_capture_sampling_"
         << binding.localOrdinal << "(pyc_lane, " << *clock
-        << ".element(pyc_lane), " << *reset << ".element(pyc_lane));\n";
+        << ".element(pyc_lane)";
+    for (const auto &reset : resets)
+      out << ", " << reset << ".element(pyc_lane)";
+    out << ");\n";
   }
   if (resetSnapshot(context, definition)) {
     auto domain = definition->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
@@ -295,8 +360,12 @@ LogicalResult emitCppCheckInstanceNames(HardwareEmitContext &context,
 LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
                                         raw_ostream &out) {
   const auto &plan = context.sourceChecks();
+  const bool causal = context.causalClocks() != nullptr;
   out << "  bool pyc_validate_checks(gfsim::SimFailureInfo &failure) const "
          "noexcept {\n    failure = {};\n";
+  if (causal)
+    out << "    if (!pyc_macrostep_failure_.code.empty()) { failure = "
+           "pyc_macrostep_failure_; return false; }\n";
   // Missing Work/context completion is a model Check-phase failure, not a
   // source predicate failure. Validate the whole closure before selecting any
   // SourceExpect result, so an earlier false condition cannot hide a missing
@@ -390,14 +459,18 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
           return failure();
         out << "    {\n      const auto &pyc_reached = " << owner->object
             << "->pyc_get_check_path_" << site << "(" << lane << ");\n"
-            << "      if (!pyc_reached.isFullyKnown()) {\n"
+            << "      const auto &pyc_sampling = " << samplingOwner->object
+            << "->pyc_get_sampling_evaluation_" << *samplingLocal << "("
+            << samplingOwner->lane << ");\n"
+            << "      if (";
+        auto contract = context.package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+        if (contract && contract.getInt() == 7)
+          out << "pyc_sampling.rising && !pyc_sampling.resetActive && ";
+        out << "!pyc_reached.isFullyKnown()) {\n"
             << "        failure = {gfsim::SimFailurePhase::Check, "
             << viewLiteral("runtime_failure") << ", "
             << viewLiteral("sampled guard reachability is unknown")
             << ", {}, {}, {}};\n        return false;\n      }\n"
-            << "      const auto &pyc_sampling = " << samplingOwner->object
-            << "->pyc_get_sampling_evaluation_" << *samplingLocal << "("
-            << samplingOwner->lane << ");\n"
             << "      if (pyc_sampling.rising && !pyc_sampling.resetActive && "
                "pyc_reached.value().toBool() && !"
             << owner->object << "->pyc_get_check_condition_" << site << "(" << lane

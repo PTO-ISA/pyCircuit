@@ -2,6 +2,7 @@
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "HardwareEmitCppChecks.h"
+#include "pycircuit/Dialect/ACIR/HardwareClockSources.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
@@ -92,6 +93,14 @@ public:
   std::string knownGuard() const {
     return llvm::join(knownConditions.begin(), knownConditions.end(), " && ");
   }
+  LogicalResult settle() {
+    if (failed(collect(scopes.front())))
+      return failure();
+    for (auto &scope : scopes)
+      if (failed(outputs(scope)))
+        return failure();
+    return success();
+  }
   // IR use counts precede flattened port and field forwarding. Schedule once
   // with named planes to discover shared producers before deciding to inline.
   static FailureOr<std::string> emitOutlined(HardwareEmitContext &ctx,
@@ -118,11 +127,16 @@ public:
       for (auto &leaf : storage) {
         StringRef kind = ctx.analysis.getPrimitiveKind(leaf.bindings.owner);
         if (kind == "dff" || kind == "dffe") {
-          unsigned index = kind == "dff" ? 3 : 4;
-          auto init = emit(*leaf.scope, leaf.op->getOperand(index));
-          if (failed(init) ||
-              failed(setPort(*leaf.scope, leaf.op, index, {}, *init)))
+          auto policy = ac::getRegisterPolicy(leaf.op);
+          if (failed(policy))
             return failure();
+          if (policy->hasInitial) {
+            unsigned index = kind == "dff" ? 3 : 4;
+            auto init = emit(*leaf.scope, leaf.op->getOperand(index));
+            if (failed(init) ||
+                failed(setPort(*leaf.scope, leaf.op, index, {}, *init)))
+              return failure();
+          }
         }
         auto inputs = kernelInputs(leaf, "pyc_lane");
         auto outputs = kernelOutputs(leaf, "pyc_lane");
@@ -134,11 +148,18 @@ public:
       }
       return success();
     }
-    auto partitions =
-        ctx.analysis.getIndependentWorkSubtrees(scopes.front().definition);
-    if (failed(partitions))
-      return failure();
-    delegated = std::move(*partitions);
+    const auto *clockPlan = ctx.causalClocks();
+    const bool causal =
+        clockPlan && llvm::any_of(clockPlan->occurrences, [&](const auto &owner) {
+          return owner.definition == scopes.front().definition;
+        });
+    if (!causal) {
+      auto partitions =
+          ctx.analysis.getIndependentWorkSubtrees(scopes.front().definition);
+      if (failed(partitions))
+        return failure();
+      delegated = std::move(*partitions);
+    }
     // Only root inputs and stable register outputs can be borrowed by the
     // known-value plan. Other owners may publish new values during Work.
     if (known &&
@@ -497,7 +518,22 @@ private:
     // module connections retain raw pins; only the kernel consumes this view.
     // Host Reset does not sample physical reset. Its accessor returns borrowed
     // inputs, so retain persistent pin references rather than a temporary view.
-    if (!resetting)
+    bool policyRegister = false;
+    if (kind == "dff" || kind == "dffe") {
+      auto contract = ac::getRegisterContract(leaf.bindings.owner);
+      if (failed(contract))
+        return failure();
+      if (*contract == 3)
+        pins.back() = "&" + pins.back();
+      policyRegister = *contract == 3;
+      if (policyRegister) {
+        auto policy = ctx.cppRegisterPolicy(leaf.op);
+        if (failed(policy))
+          return failure();
+        pins.append(*policy);
+      }
+    }
+    if (!resetting && !policyRegister)
       pins[1] = ctx.cppReset(pins[1]);
     if (kind == "sync_mem")
       pins = {pins[0],
@@ -747,6 +783,17 @@ private:
     Operation *op = value.getDefiningOp();
     if (!op)
       return failure();
+    if (isa<ac::ValueZeroOp>(op)) {
+      auto plan = fieldPlane(value.getType(), path, s, op);
+      if (failed(plan))
+        return failure();
+      auto type = payload(plan->element, s, op);
+      if (failed(type))
+        return failure();
+      auto width = "gfsim::hardware_traits<" + *type + ">::width";
+      return wordType(width) + "::known(gfsim::Bits<" + width +
+             ">{0})";
+    }
     if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op)) {
       if (known)
         return failure();
@@ -1091,6 +1138,8 @@ private:
     if (auto literal = dyn_cast<ac::BitsConstantOp>(op))
       return path.empty() &&
              ctx.isClosedStatic(literal.getValue(), scope->bindings);
+    if (isa<ac::ValueZeroOp>(op))
+      return true;
     if (auto enumeration = dyn_cast<ac::EnumCreateOp>(op)) {
       if (!path.empty())
         return false;
@@ -1408,6 +1457,8 @@ private:
     auto *op = v.getDefiningOp();
     if (!op)
       return failure();
+    if (auto source = dyn_cast<ac::ClockSourceOp>(op))
+      return emit(s, source.getInput(), path);
     if (auto rule = dyn_cast<ac::RuleOp>(op))
       return emit(s,
                   cast<ac::YieldOp>(rule.getBody().front().back())
@@ -2006,6 +2057,11 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (failed(layout) || failed(rootBindings))
     return failure();
   const bool selectedRoot = rootBindings->owner == definition.getOperation();
+  const auto *clockPlan = ctx.causalClocks();
+  const bool causal =
+      clockPlan && llvm::any_of(clockPlan->occurrences, [&](const auto &owner) {
+        return owner.definition == definition;
+      });
   const unsigned scalarInputCount =
       selectedRoot ? layout->sourceInputCount
                    : definition.getFunctionType().getNumInputs();
@@ -2034,6 +2090,9 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (failed(subtreeWidth))
     return failure();
   bool observes = *subtreeWidth != 0;
+  if (causal && selectedRoot && observes)
+    return definition.emitOpError()
+           << "registered clock waves do not yet support observations";
   auto laneStride = cppObservationLaneStride(ctx, definition);
   if (failed(laneStride))
     return failure();
@@ -2101,6 +2160,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   out << " {}\n  " << names.cppFamilyClass << "(const " << names.cppFamilyClass
       << " &) = delete;\n  " << names.cppFamilyClass << " &operator=(const "
       << names.cppFamilyClass << " &) = delete;\n";
+  SmallVector<std::string> macroOutputs;
   auto familyPorts = [&](TypeRange types, ArrayAttr names, StringRef prefix,
                          StringRef count, const ac::HardwareBindings &bindings,
                          Operation *site) -> LogicalResult {
@@ -2163,6 +2223,33 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
             child.name + "_", child.count, child.bindings, child.op)))
       return failure();
   }
+  if (causal) {
+    for (auto raw : definition.getOutputNames()) {
+      auto name = id(cast<StringAttr>(raw).getValue());
+      if (failed(name))
+        return failure();
+      macroOutputs.push_back(*name);
+    }
+    for (auto &child : *children) {
+      if (!child.leaf)
+        continue;
+      auto kind = ctx.analysis.getPrimitiveKind(child.bindings.owner);
+      if (kind != "dff" && kind != "dffe")
+        return child.op->emitOpError()
+               << "registered clock waves require register-only storage";
+      for (auto raw :
+           child.bindings.owner->getAttrOfType<ArrayAttr>("output_names")) {
+        auto name = id(cast<StringAttr>(raw).getValue());
+        if (failed(name))
+          return failure();
+        macroOutputs.push_back(child.name + "_" + *name);
+      }
+    }
+    out << "private:\n  bool pyc_macrostep_active_ = false;\n";
+    for (const auto &name : macroOutputs)
+      out << "  decltype(" << name << ") pyc_saved_" << name << ";\n";
+    out << "public:\n";
+  }
   emitCppCheckStorage(ctx, definition, out);
   out << "  void pyc_clear_check_snapshots() noexcept {\n";
   emitCppCheckClear(ctx, definition, out);
@@ -2206,7 +2293,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     if (failed(WorkEmitter::emitOutlined(ctx, definition, outline)))
       return failure();
     std::string guard;
-    if (!observes) {
+    if (!observes && !causal) {
       CppWorkOutlining knownOutline;
       auto known = WorkEmitter::emitOutlined(ctx, definition, knownOutline, true);
       if (succeeded(known)) {
@@ -2221,10 +2308,90 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try {\n"
         << workBody << "    } catch (...) { DiscardNext(); throw; }\n  }\n";
   }
+  if (causal) {
+    out << "  template <class Seed> void pyc_begin_macrostep(Seed &seed) {\n"
+           "    if (pyc_macrostep_active_) throw "
+           "std::logic_error(\"macrostep already active\");\n";
+    for (const auto &name : macroOutputs)
+      out << "    pyc_saved_" << name << " = " << name << ";\n";
+    for (const auto &binding : ctx.sourceChecks().samplingBindings)
+      if (binding.definition == definition)
+        out << "    pyc_sampling_wave_clock_" << binding.localOrdinal
+            << " = pyc_sampling_clock_" << binding.localOrdinal << ";\n";
+    out << "    pyc_macrostep_active_ = true;\n    try {\n";
+    for (auto &child : *children)
+      if (child.leaf)
+        out << "      " << child.name
+            << "_state->begin_macrostep([&](std::size_t lane, auto &current) { "
+               "seed(static_cast<const void *>("
+            << child.name << "_state.get()), lane, current.clock); });\n";
+      else
+        out << "      " << child.name << "->pyc_begin_macrostep(seed);\n";
+    out << "    } catch (...) { DiscardNext(); throw; }\n  }\n"
+           "  void pyc_work_wave() { Work(); }\n"
+           "  void pyc_settle_wave() {\n";
+    WorkEmitter settle(ctx, definition, out);
+    if (failed(settle.settle()))
+      return failure();
+    out << "  }\n  bool pyc_advance_wave() noexcept {\n"
+           "    if (!pyc_macrostep_active_) return false;\n"
+           "    bool accepted = true;\n";
+    for (auto &child : *children) {
+      if (!child.leaf) {
+        out << "    accepted &= " << child.name << "->pyc_advance_wave();\n";
+        continue;
+      }
+      SmallVector<std::string> q;
+      for (auto raw :
+           child.bindings.owner->getAttrOfType<ArrayAttr>("output_names")) {
+        auto name = id(cast<StringAttr>(raw).getValue());
+        if (failed(name))
+          return failure();
+        q.push_back(child.name + "_" + *name + ".element(pyc_lane)");
+      }
+      out << "    accepted &= " << child.name
+          << "_state->advance_wave([&](std::size_t pyc_lane) noexcept { return typename "
+          << child.type << "::Outputs{" << join(q, ", ") << "}; });\n";
+    }
+    out << "    if (!accepted) return false;\n";
+    emitCppSamplingXfer(ctx, definition, out);
+    out << "    return true;\n  }\n"
+           "  bool pyc_macrostep_ready() const noexcept {\n"
+           "    if (!pyc_macrostep_active_) return false;\n";
+    for (auto &child : *children)
+      out << "    if (!" << child.name
+          << (child.leaf ? "_state->macrostep_ready()"
+                         : "->pyc_macrostep_ready()")
+          << ") return false;\n";
+    out << "    return true;\n  }\n"
+           "  void pyc_publish_macrostep() noexcept {\n"
+           "    if (!pyc_macrostep_ready()) { DiscardNext(); return; }\n";
+    for (auto &child : *children)
+      out << "    " << child.name
+          << (child.leaf ? "_state->commit_macrostep();"
+                         : "->pyc_publish_macrostep();")
+          << "\n";
+    for (const auto &binding : ctx.sourceChecks().samplingBindings)
+      if (binding.definition == definition)
+        out << "    pyc_sampling_clock_" << binding.localOrdinal
+            << " = pyc_sampling_wave_clock_" << binding.localOrdinal << ";\n";
+    out << "    pyc_macrostep_active_ = false;\n"
+           "    pyc_clear_check_snapshots();\n  }\n"
+           "  void pyc_discard_macrostep() noexcept { DiscardNext(); }\n";
+  }
   for (StringRef method : {"Xfer", "DiscardNext"}) {
     out << "  void " << method << "() noexcept {\n";
-    if (method == "DiscardNext")
+    if (method == "Xfer" && causal)
+      out << "    if (pyc_macrostep_active_) { pyc_publish_macrostep(); return; }\n";
+    if (method == "DiscardNext") {
       out << "    pyc_clear_check_snapshots();\n";
+      if (causal) {
+        out << "    if (pyc_macrostep_active_) {\n";
+        for (const auto &name : macroOutputs)
+          out << "      " << name << " = pyc_saved_" << name << ";\n";
+        out << "      pyc_macrostep_active_ = false;\n    }\n";
+      }
+    }
     for (auto &child : *children) {
       if (!child.leaf) {
         out << "    " << child.name << "->" << method << "();\n";
@@ -2272,8 +2439,10 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     }
     out << "  }\n";
   }
-  out << "  void Reset() noexcept {\n    pyc_clear_check_snapshots();\n"
-         "    pyc_stage_sampling_reset();\n";
+  out << "  void Reset() noexcept {\n";
+  if (causal)
+    out << "    DiscardNext();\n";
+  out << "    pyc_clear_check_snapshots();\n    pyc_stage_sampling_reset();\n";
   WorkEmitter reset(ctx, definition, out, true);
   if (failed(reset.run()))
     return failure();
@@ -2361,20 +2530,157 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     }
     return success();
   };
+  auto clockObject = [&](unsigned owner) -> FailureOr<std::string> {
+    SmallVector<ac::InstanceOp> path;
+    for (auto current = owner; clockPlan->occurrences[current].parent;
+         current = *clockPlan->occurrences[current].parent)
+      path.push_back(clockPlan->occurrences[current].allocation);
+    std::string object = "pyc_implementation";
+    for (auto allocation : llvm::reverse(path)) {
+      auto name = id(
+          allocation->getAttrOfType<StringAttr>("instance_name").getValue());
+      if (failed(name))
+        return failure();
+      object += "->pyc_instance_" + *name;
+    }
+    return object;
+  };
+  SmallVector<unsigned> derivedSources;
+  if (causal && selectedRoot)
+    for (auto [index, source] : llvm::enumerate(clockPlan->sources))
+      if (!source.rootInput)
+        derivedSources.push_back(index);
   out << "  void Work() override {\n";
+  if (causal && selectedRoot)
+    out << "    if (pyc_macrostep_complete_) DiscardNext();\n"
+           "    pyc_macrostep_failure_ = {};\n";
   if (failed(bridge(true)))
     return failure();
   if (bindRootInputs)
     out << "    pyc_bind_root_inputs();\n";
-  out << "    pyc_implementation->Work();\n";
-  if (failed(bridge(false)))
-    return failure();
-  out << "  }\n  void Xfer() noexcept override { pyc_implementation->Xfer(); "
-         "}\n  "
-         "void DiscardNext() noexcept override { "
-         "pyc_implementation->DiscardNext(); }\n  void Reset() noexcept "
-         "override "
-         "{\n";
+  if (causal && selectedRoot) {
+    for (const auto &source : clockPlan->sources) {
+      if (!source.rootInput)
+        continue;
+      auto name = id(cast<StringAttr>(definition.getInputNames()[*source.rootInput])
+                         .getValue());
+      if (failed(name))
+        return failure();
+      out << "    if (!" << *name << ".packed().isFullyKnown()) { "
+             "pyc_fail_macrostep(\"unknown root clock level\"); return; }\n";
+    }
+    out << "    bool changed = false;\n"
+           "    if (!pyc_capture_derived_levels(false, changed)) return;\n"
+           "    auto seed = [&](const void *storage, std::size_t, bool &clock) {\n";
+    for (const auto &occurrence : clockPlan->occurrences) {
+      unsigned owner = &occurrence - clockPlan->occurrences.data();
+      auto object = clockObject(owner);
+      if (failed(object))
+        return failure();
+      auto ownerDefinition = occurrence.definition;
+      for (Operation &op : ownerDefinition.getBody().front()) {
+        auto instance = dyn_cast<ac::InstanceOp>(op);
+        if (!instance)
+          continue;
+        auto bindings = ctx.analysis.bindInstance(instance, occurrence.bindings);
+        if (failed(bindings))
+          return failure();
+        auto kind = ctx.analysis.getPrimitiveKind(bindings->owner);
+        if (kind != "dff" && kind != "dffe")
+          continue;
+        auto source = ac::resolveHardwareClockSource(
+            *clockPlan, instance.getInputs()[0], owner);
+        auto name = id(instance.getInstanceName());
+        if (failed(source) || failed(name))
+          return failure();
+        auto at = llvm::find(derivedSources, *source);
+        if (at == derivedSources.end())
+          continue;
+        out << "      if (storage == " << *object << "->pyc_instance_" << *name
+            << "_state.get()) clock = pyc_derived_levels_["
+            << (at - derivedSources.begin()) << "];\n";
+      }
+    }
+    out << "    };\n    try {\n"
+           "      pyc_implementation->pyc_begin_macrostep(seed);\n";
+    for (const auto &sampling : ctx.sourceChecks().samplingOccurrences) {
+      const auto &checkOwner =
+          ctx.sourceChecks().owners[sampling.ownerOccurrence];
+      SmallVector<Operation *> checkPath;
+      for (const auto &step : checkOwner.path)
+        checkPath.push_back(step.allocation);
+      std::optional<unsigned> owner;
+      for (auto [index, occurrence] : llvm::enumerate(clockPlan->occurrences)) {
+        if (occurrence.definition != checkOwner.definition)
+          continue;
+        SmallVector<Operation *> path;
+        for (auto current = static_cast<unsigned>(index);
+             clockPlan->occurrences[current].parent;
+             current = *clockPlan->occurrences[current].parent)
+          path.push_back(clockPlan->occurrences[current].allocation);
+        std::reverse(path.begin(), path.end());
+        if (path == checkPath) {
+          owner = index;
+          break;
+        }
+      }
+      if (!owner)
+        return definition.emitOpError()
+               << "sampling owner is outside clock-source plan";
+      const auto &binding =
+          ctx.sourceChecks().samplingBindings[sampling.bindingIndex];
+      auto source =
+          ac::resolveHardwareClockSource(*clockPlan, binding.clock, *owner);
+      if (failed(source))
+        return failure();
+      auto at = llvm::find(derivedSources, *source);
+      if (at == derivedSources.end())
+        continue;
+      auto object = clockObject(*owner);
+      if (failed(object))
+        return failure();
+      out << "      " << *object << "->pyc_seed_sampling_" << binding.localOrdinal
+          << "(0, pyc_derived_levels_[" << (at - derivedSources.begin()) << "]);\n";
+    }
+    out << "      for (unsigned wave = 0; wave <= " << clockPlan->maxWaveDepth
+        << "; ++wave) {\n"
+           "        pyc_implementation->pyc_work_wave();\n";
+    if (cppHasRootChecks(ctx, definition))
+      out << "        gfsim::SimFailureInfo failure;\n"
+             "        if (!pyc_validate_checks(failure)) { pyc_macrostep_failure_ = failure; "
+             "DiscardNext(); return; }\n";
+    out << "        if (!pyc_implementation->pyc_advance_wave()) { "
+           "pyc_fail_macrostep(\"incomplete causal wave\"); return; }\n"
+           "        if (!pyc_capture_derived_levels(true, changed)) { DiscardNext(); return; }\n"
+           "        if (!changed) {\n"
+           "          pyc_implementation->pyc_settle_wave();\n"
+           "          pyc_macrostep_complete_ = true;\n          return;\n        }\n"
+           "      }\n"
+           "      pyc_fail_macrostep(\"clock-source DAG wave bound exceeded\");\n"
+           "    } catch (...) { DiscardNext(); throw; }\n";
+  } else {
+    out << "    pyc_implementation->Work();\n";
+    if (failed(bridge(false)))
+      return failure();
+  }
+  out << "  }\n  void Xfer() noexcept override {\n"
+         "    pyc_implementation->Xfer();\n";
+  if (causal && selectedRoot) {
+    if (failed(bridge(false)))
+      return failure();
+    out << "    pyc_macrostep_complete_ = false;\n";
+  }
+  out << "  }\n  void DiscardNext() noexcept override {\n"
+         "    pyc_implementation->DiscardNext();\n";
+  if (causal && selectedRoot)
+    out << "    pyc_macrostep_complete_ = false;\n";
+  out << "  }\n";
+  if (causal && selectedRoot)
+    out << "  bool CanXfer() const noexcept override { return pyc_macrostep_complete_ "
+           "&& pyc_implementation->pyc_macrostep_ready(); }\n";
+  out << "  void Reset() noexcept override {\n";
+  if (causal)
+    out << "    pyc_macrostep_failure_ = {};\n";
   if (failed(bridge(true)))
     return failure();
   if (bindRootInputs)
@@ -2382,10 +2688,46 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   out << "    pyc_implementation->Reset();\n  }\n  bool HasWork() const "
          "noexcept "
          "override { return true; }\n";
-  if (cppHasRootChecks(ctx, definition) &&
-      failed(emitCppRootCheckValidator(ctx, out)))
-    return failure();
+  if (cppHasRootChecks(ctx, definition)) {
+    if (failed(emitCppRootCheckValidator(ctx, out)))
+      return failure();
+  } else if (causal && selectedRoot) {
+    out << "  bool pyc_validate_checks(gfsim::SimFailureInfo &failure) const noexcept {\n"
+           "    failure = pyc_macrostep_failure_; return failure.code.empty();\n  }\n";
+  }
   out << "private:\n";
+  if (causal)
+    out << "  gfsim::SimFailureInfo pyc_macrostep_failure_{};\n";
+  if (causal && selectedRoot) {
+    out << "  bool pyc_macrostep_complete_ = false;\n"
+           "  std::array<bool, " << derivedSources.size() << "> pyc_derived_levels_{};\n"
+           "  void pyc_fail_macrostep(std::string_view message) noexcept {\n"
+           "    pyc_macrostep_failure_ = {gfsim::SimFailurePhase::Check, "
+           "\"runtime_failure\", message, {}, {}, {}};\n"
+           "    DiscardNext();\n  }\n"
+           "  bool pyc_capture_derived_levels(bool compare, bool &changed) noexcept {\n"
+           "    changed = false;\n";
+    for (auto [ordinal, index] : llvm::enumerate(derivedSources)) {
+      const auto &source = clockPlan->sources[index];
+      if (!isa_and_nonnull<ac::InstanceOp>(source.storage))
+        return definition.emitOpError()
+               << "native derived clock requires finalized register storage";
+      auto object = clockObject(source.storageOwnerOccurrence);
+      auto storage = id(
+          source.storage->getAttrOfType<StringAttr>("instance_name").getValue());
+      if (failed(object) || failed(storage))
+        return failure();
+      out << "    { const auto level = gfsim::extract<1>(" << *object
+          << "->pyc_instance_" << *storage << "_state->wave_current(0).q.packed(), "
+          << source.bitOffset << ");\n"
+             "      if (!level.isFullyKnown()) { "
+             "pyc_fail_macrostep(\"derived clock is unknown\"); return false; }\n"
+             "      const bool next = level.value().toBool();\n"
+             "      changed |= compare && next != pyc_derived_levels_["
+          << ordinal << "];\n      pyc_derived_levels_[" << ordinal << "] = next;\n    }\n";
+    }
+    out << "    return true;\n  }\n";
+  }
   if (bindRootInputs) {
     out << "  void pyc_bind_root_inputs() noexcept {\n";
     for (unsigned index = scalarInputCount;

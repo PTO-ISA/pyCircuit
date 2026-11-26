@@ -81,7 +81,8 @@ loads independently validate the scaffold, provenance, actuals, public prefix
 and logical/physical relationship. Applicability is checked at normalization;
 loads do not require the unrelated caller that triggered it to remain present.
 
-Boundary packages require `ac.routed_contract = 5 : i64`; ordinary packages keep
+Boundary packages use `ac.routed_contract = 5 : i64`; the domain/reset/CDC
+profile uses contract 7 with or without a boundary. Ordinary legacy packages keep
 contract 4. Removing metadata, downgrading the contract or supplying contract 5
 without a valid boundary rejects. Saved boundaries use
 [anchor schema 4](saved-anchor.md#identity-and-format), with separate logical and

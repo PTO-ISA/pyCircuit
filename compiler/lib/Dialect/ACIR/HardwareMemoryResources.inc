@@ -55,13 +55,11 @@
         return view.rule->emitOpError() << "memory_live requires its exact static response port";
       auto expected = normal(target->layout.allocation->getResult(target->layout.liveResult(*resource.memoryPort)), target->scope);
       if (failed(expected)) return failure();
-      bool live = same(*predicate, *expected);
-      auto clock = normal(view.clock, at), reset = normal(view.reset, at);
-      auto memoryClock = normal(target->layout.allocation.getInputs()[0], target->scope),
-           memoryReset = normal(target->layout.allocation.getInputs()[1], target->scope);
-      if (!live || failed(clock) || failed(reset) || failed(memoryClock) || failed(memoryReset) ||
-          !same(*clock, *memoryClock) || !same(*reset, *memoryReset))
-        return view.rule->emitOpError() << "Memory live predicate or domain differs from actual allocation";
+      if (!same(*predicate, *expected))
+        return view.rule->emitOpError() << "Memory live predicate differs from actual allocation";
+      if (failed(verifyResourceEvent(view, at, target->layout.allocation,
+                                     target->scope, /*commits=*/false)))
+        return failure();
     }
     return success();
   }
@@ -110,12 +108,11 @@
               (request != target->layout.isSynchronous() && !write))
             return rule->emitOpError() << "Memory proposal action/port differs from primitive layout";
           auto identity = normal(target->layout.allocation.getOutputs()[0], target->scope);
-          auto clock = normal(view->clock, at), reset = normal(view->reset, at);
-          auto memoryClock = normal(target->layout.allocation.getInputs()[0], target->scope),
-               memoryReset = normal(target->layout.allocation.getInputs()[1], target->scope);
-          if (failed(identity) || failed(clock) || failed(reset) || failed(memoryClock) || failed(memoryReset) ||
-              !same(*clock, *memoryClock) || !same(*reset, *memoryReset))
-            return rule->emitOpError() << "Memory proposal domain differs from physical allocation";
+          if (failed(identity) ||
+              failed(verifyResourceEvent(*view, at, target->layout.allocation,
+                                         target->scope,
+                                         write || request)))
+            return failure();
           if (failed(pay(sizeof(Proposal) + at.path.size() * sizeof(InstanceOp)))) return failure();
           proposals.push_back({view, &proposal, at, std::move(*target), *identity});
         }

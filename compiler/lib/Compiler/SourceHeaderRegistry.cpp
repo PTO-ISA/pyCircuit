@@ -138,13 +138,16 @@ createBuiltin(OpBuilder &builder, StringRef kind,
               ArrayRef<std::pair<StringRef, Type>> inputs,
               ArrayRef<std::pair<StringRef, Type>> outputs,
               ArrayRef<SmallVector<unsigned>> dependencies,
-              ac::detail::EmitError emitError) {
+              ac::detail::EmitError emitError, bool hasPayloadType,
+              StringRef primitiveKind) {
   std::string spelling = (Twine(builtinModuleName) + "." + kind).str();
   auto symbol = FlatSymbolRefAttr::get(builder.getContext(), spelling);
   SmallVector<Attribute> parameters;
-  for (auto [name, value] : llvm::zip(parameterNames, defaults))
+  for (auto [index, name] : llvm::enumerate(parameterNames))
     parameters.push_back(ac::getStaticParameterAttr(
-        builder, name, builtinLiteral(builder, value, symbol)));
+        builder, name, index < defaults.size()
+                           ? builtinLiteral(builder, defaults[index], symbol)
+                           : ac::StaticExprAttr()));
   SmallVector<Type> inputTypes, outputTypes;
   SmallVector<Attribute> inputNames, outputNames;
   for (auto [name, type] : inputs) {
@@ -167,12 +170,14 @@ createBuiltin(OpBuilder &builder, StringRef kind,
   state.addAttribute("parameters", builder.getArrayAttr(parameters));
   state.addAttribute("function_type", TypeAttr::get(builder.getFunctionType(
                                           inputTypes, outputTypes)));
-  state.addAttribute("type_parameters", builder.getStrArrayAttr({"T"}));
+  state.addAttribute("type_parameters",
+                     hasPayloadType ? builder.getStrArrayAttr({"T"})
+                                    : builder.getStrArrayAttr({}));
   state.addAttribute("input_names", builder.getArrayAttr(inputNames));
   state.addAttribute("output_names", builder.getArrayAttr(outputNames));
   state.addAttribute("dependency_summary", builder.getArrayAttr(summary));
   state.addAttribute("semantic_kind", builder.getStringAttr("hardware"));
-  state.addAttribute("primitive_kind", builder.getStringAttr(kind));
+  state.addAttribute("primitive_kind", builder.getStringAttr(primitiveKind));
   state.addAttribute("ac.declaration_role",
                      builder.getStringAttr("import_snapshot"));
   state.addAttribute("ac.origin", builtinOccurrence(builder, symbol));
@@ -211,10 +216,12 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
           ArrayRef<uint64_t> defaults,
           ArrayRef<std::pair<StringRef, Type>> inputs,
           ArrayRef<std::pair<StringRef, Type>> outputs,
-          ArrayRef<SmallVector<unsigned>> dependencies) -> LogicalResult {
+          ArrayRef<SmallVector<unsigned>> dependencies,
+          bool hasPayloadType = true, StringRef primitiveKind = {}) -> LogicalResult {
     auto declaration =
         createBuiltin(builtinBuilder, kind, parameterNames, defaults, inputs,
-                      outputs, dependencies, emitError);
+                      outputs, dependencies, emitError, hasPayloadType,
+                      primitiveKind.empty() ? kind : primitiveKind);
     if (failed(declaration))
       return failure();
     auto symbol = FlatSymbolRefAttr::get(context, (*declaration).getSymName());
@@ -266,6 +273,38 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
       dependencies[0].push_back(4);
     if (failed(addCatalogEntry(kind, {"DEPTH", "AVAILABILITY_LATENCY"},
                                {2, 1}, inputs, outputs, dependencies)))
+      return failure();
+  }
+
+  {
+    StringRef kind = "async_reg";
+    SmallVector<std::pair<StringRef, Type>> inputs{
+        {"source_clock", one(kind)}, {"target_clock", one(kind)},
+        {"whole_reset", one(kind)}, {"input", one(kind)}};
+    SmallVector<std::pair<StringRef, Type>> outputs{{"output", one(kind)}};
+    SmallVector<SmallVector<unsigned>> dependencies(1);
+    if (failed(addCatalogEntry(kind, {}, {}, inputs, outputs, dependencies,
+                               false)))
+      return failure();
+  }
+  for (StringRef kind : {"async_fifo", "async_fifo_independent_reset"}) {
+    SmallVector<std::pair<StringRef, Type>> inputs{
+        {"write_clock", one(kind)}, {"read_clock", one(kind)}};
+    if (kind == "async_fifo")
+      inputs.push_back({"whole_reset", one(kind)});
+    else
+      inputs.append({{"write_reset", one(kind)}, {"read_reset", one(kind)}});
+    inputs.append({{"push_payload", dataType(kind)},
+                   {"push_intent", one(kind)}, {"pop_intent", one(kind)}});
+    SmallVector<std::pair<StringRef, Type>> outputs{
+        {"head", dataType(kind)}, {"write_available", one(kind)},
+        {"read_available", one(kind)}};
+    SmallVector<SmallVector<unsigned>> dependencies(3);
+    if (kind == "async_fifo_independent_reset")
+      for (auto &dependency : dependencies)
+        dependency = {2, 3};
+    if (failed(addCatalogEntry(kind, {"DEPTH"}, {}, inputs, outputs,
+                               dependencies, true, "async_fifo")))
       return failure();
   }
 
@@ -431,9 +470,7 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
     auto owner = ac::detail::declarationSourceOwner(snapshot);
     if (auto module = dyn_cast<ac::ModuleImportOp>(snapshot)) {
       if (module.getPrimitiveKindAttr()) {
-        auto builtin =
-            registry.lookupBuiltin(module.getPrimitiveKindAttr().getValue());
-        if (!builtin || !detail::sameDeclaration(builtin.declaration, module))
+        if (!registry.isTrustedBuiltin(module))
           return emitError()
                  << "primitive snapshot differs from the canonical builtin "
                     "catalog";
@@ -685,8 +722,10 @@ bool SourceHeaderRegistry::isTrustedBuiltin(
     ac::ModuleImportOp declaration) const {
   if (!declaration)
     return false;
-  auto kind = declaration.getPrimitiveKindAttr();
-  auto found = kind ? builtins_.find(kind.getValue()) : builtins_.end();
+  auto name = declaration.getSymName();
+  if (!name.consume_front(builtinModuleName) || !name.consume_front("."))
+    return false;
+  auto found = builtins_.find(name);
   return found != builtins_.end() &&
          detail::sameDeclaration(found->second, declaration);
 }
@@ -698,9 +737,7 @@ LogicalResult SourceHeaderRegistry::verifyModuleImport(
   auto symbol = FlatSymbolRefAttr::get(declaration.getContext(),
                                        declaration.getSymName());
   if (declaration.getPrimitiveKindAttr()) {
-    ModuleInterfaceView builtin =
-        lookupBuiltin(declaration.getPrimitiveKindAttr().getValue());
-    if (!builtin || !detail::sameDeclaration(builtin.declaration, declaration))
+    if (!isTrustedBuiltin(declaration))
       return emitError() << "primitive import is not the canonical catalog "
                             "declaration: "
                          << symbol;

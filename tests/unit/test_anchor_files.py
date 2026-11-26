@@ -141,6 +141,17 @@ def test_portable_snapshot_is_byte_exact_and_creates_no_input_controls(tmp_path)
     assert anchor._discover_anchor_owner(source) == (manifest["owner"], False)
 
 
+def test_superseded_experimental_cdc_anchor_requires_regeneration(tmp_path):
+    source = tmp_path / "anchor"
+    manifest = _artifact(source)
+    assert anchor._capture_anchor(source) == manifest
+    manifest["schema"], manifest["routed_contract"] = 5, 6
+    manifest["configuration"]["domain_bindings"] = []
+    _save(source, manifest)
+    with pytest.raises(_PublicationError):
+        anchor._capture_anchor(source)
+
+
 @pytest.mark.parametrize("ordering", ["canonical", "reversed", "duplicate"])
 def test_source_provenance_uses_canonical_json_order(tmp_path, ordering):
     source = tmp_path / "anchor"

@@ -1,6 +1,8 @@
 #include "PackageVerification.h"
 #include "ACIRSourceContracts.h"
 #include "EntryBoundary.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 #include "HardwareSourceChecks.h"
 #include "HardwareValueAvailability.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
@@ -64,10 +66,27 @@ LogicalResult detail::verifyHardwarePackageStage(
   // re-validate it rather than trusting the routed pass.
   if ((policy.stageRequired || boundary || package->hasAttr("ac.routed_contract")) &&
       (!marker || !marker.getType().isSignlessInteger(64) ||
-       marker.getValue() != (boundary ? 5 : 4)))
+       (marker.getInt() != 7 && marker.getValue() != (boundary ? 5 : 4))))
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
+  bool domainProfile = marker && marker.getInt() == 7;
   auto closed = package.walk([&](Operation *operation) {
+    if (operation->hasAttr("ac.port_domains") &&
+        (!domainProfile || !isa<ModuleOp>(operation))) {
+      operation->emitOpError("ac.port_domains requires a contract-7 Module");
+      return WalkResult::interrupt();
+    }
+    if (!domainProfile && isa<ModuleOp, ModuleImportOp>(operation)) {
+      auto kind = operation->getAttrOfType<StringAttr>("ac.root_kind");
+      auto samples =
+          operation->getAttrOfType<DictionaryAttr>("ac.system_samples");
+      if (kind && kind.getValue() == "system" &&
+          (operation->hasAttr("ac.domain_clock_inputs") ||
+           (samples && samples.get("inputs")))) {
+        operation->emitOpError("multi-control System requires routed contract 7");
+        return WalkResult::interrupt();
+      }
+    }
     // HWIR rejects every routed logical-state interface unconditionally,
     // including retained dead regions; source state forms stay rejected by
     // their own declaration contract.
@@ -77,6 +96,15 @@ LogicalResult detail::verifyHardwarePackageStage(
             acir::LogicalStateUpdateOpInterface>(operation)) {
       operation->emitOpError()
           << "logical state cannot cross into executable final hardware";
+      return WalkResult::interrupt();
+    }
+    // Native CDC declarations describe logical resources. Even an unused
+    // declaration cannot leak into the executable primitive catalog.
+    bool logicalCDC = isCDCPrimitive(operation) ||
+                      isCDCInstance(dyn_cast<InstanceOp>(operation));
+    if (logicalCDC && (!policy.admitRoutedLogicalStateByName || !domainProfile)) {
+      operation->emitOpError()
+          << "logical CDC requires the current routed resource profile";
       return WalkResult::interrupt();
     }
     // A reference denotes a source allocation, never a runtime payload or an
@@ -114,8 +142,8 @@ LogicalResult detail::verifyHardwarePackageStage(
     if (!policy.admitRoutedLogicalStateByName ||
         operation == package.getOperation() ||
         isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, SystemOp, InstanceOp,
-            CollectionOp, RuleOp, YieldOp, SourceExpectOp,
-            SourceObserveOp>(operation) ||
+            CollectionOp, RuleOp, YieldOp, SourceExpectOp, SourceObserveOp,
+            CDCRefinementOp, ClockSourceOp>(operation) ||
         isCombinationalHardwareOperation(operation))
       return WalkResult::advance();
     // Closed routed admission: exactly the two concrete operations the GFIR
@@ -140,7 +168,8 @@ LogicalResult detail::verifyHardwarePackageEnvelope(
   auto package = analysis.getPackage();
   if (!package)
     return failure();
-  if (failed(verifyEntryBoundary(analysis, false, debit)))
+  if (failed(verifyEntryBoundary(analysis, false, debit)) ||
+      failed(verifyHardwareDomains(package)))
     return failure();
   auto registrations = package.walk([&](Operation *operation) {
     if (!operation->hasAttr("ac.registration_path") &&

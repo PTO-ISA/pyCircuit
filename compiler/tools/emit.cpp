@@ -200,10 +200,24 @@ int main(int argc, char **argv) {
         StringRef primitive = analysis.getPrimitiveKind(callee);
         if (!primitive.empty() && primitive != "dff" && primitive != "dffe")
           needsFourState = true;
+        if (primitive == "dff" || primitive == "dffe") {
+          auto policy = acir::ac::getRegisterPolicy(operation);
+          if (succeeded(policy) && !policy->hasInitial)
+            needsFourState = true;
+        }
       }
     });
   }
   result["system_samples"] = std::move(sampleRows);
+  auto sampleInputs = acir::ac::getSystemSampleInputs(root);
+  if (failed(sampleInputs))
+    return 1;
+  if (!sampleInputs->empty()) {
+    llvm::json::Array inputs;
+    for (unsigned ordinal : *sampleInputs)
+      inputs.emplace_back(ordinal);
+    result["system_sample_inputs"] = std::move(inputs);
+  }
   result["needs_four_state"] = needsFourState;
   auto units = acir::ac::collectFinalSourceUnits(*package, emitError);
   if (failed(units))
