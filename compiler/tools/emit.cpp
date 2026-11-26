@@ -17,6 +17,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -36,6 +37,72 @@ std::string attributeText(Attribute attr) {
   attr.print(stream);
   return text;
 }
+
+// A direct nonzero literal discharges division's X-on-zero case.
+bool knownNonzeroLiteral(Value value) {
+  if (auto constant = value.getDefiningOp<acir::ac::BitsConstantOp>()) {
+    auto tree = constant.getValue().getTree();
+    auto kind = tree.getAs<StringAttr>("kind");
+    auto literal = tree.getAs<DictionaryAttr>("value");
+    auto number = literal ? literal.getAs<acir::ac::MathIntAttr>("value")
+                          : acir::ac::MathIntAttr();
+    return kind && kind.getValue() == "literal" && number &&
+           number.getCanonicalValue() != "0";
+  }
+  if (auto constant = value.getDefiningOp<acir::ac::BitsConstant4Op>()) {
+    StringRef pattern = constant.getPattern();
+    return !pattern.contains('x') && !pattern.contains('z') &&
+           pattern.contains('1');
+  }
+  return false;
+}
+
+bool operationNeedsFourState(Operation *operation) {
+  if (operation->hasAttr("ac.verification_observer"))
+    return true;
+  if (auto constant = dyn_cast<acir::ac::BitsConstant4Op>(operation))
+    return constant.getPattern().contains('x') ||
+           constant.getPattern().contains('z');
+  if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(operation))
+    return compare.getPredicate() == "case_eq";
+  if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(operation))
+    return (binary.getOpcode() == "udiv" || binary.getOpcode() == "urem") &&
+           !knownNonzeroLiteral(binary.getRhs());
+  return isa<acir::ac::TableGetOp>(operation);
+}
+
+bool structuredNeedsFourState(const acir::gfir::StructuredProgram &program) {
+  llvm::StringMap<const acir::gfir::StructuredDefinition *> definitions;
+  for (const auto &definition : program.definitions) {
+    auto module = definition.module;
+    definitions.try_emplace(module.getSymName(), &definition);
+  }
+  llvm::DenseSet<Operation *> reached;
+  SmallVector<const acir::gfir::StructuredDefinition *> pending{
+      &program.definitions[program.rootIndex]};
+  while (!pending.empty()) {
+    const auto &definition = *pending.pop_back_val();
+    auto module = definition.module;
+    if (!reached.insert(module).second)
+      continue;
+    if (definition.hasChecks() ||
+        (definition.clocked && (!definition.clocked->fifos.empty() ||
+                                !definition.clocked->memories.empty())))
+      return true;
+    auto result = module.walk([&](Operation *operation) {
+      if (operationNeedsFourState(operation))
+        return WalkResult::interrupt();
+      if (auto instance = dyn_cast<acir::gfir::InstanceOp>(operation))
+        if (auto child = definitions.lookup(instance.getCalleeAttr().getValue()))
+          pending.push_back(child);
+      return WalkResult::advance();
+    });
+    if (result.wasInterrupted())
+      return true;
+  }
+  return false;
+}
+
 LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
   auto program = acir::gfir::analyzeStructured(package);
   if (failed(program))
@@ -79,26 +146,13 @@ LogicalResult emitStructuredCpp(ModuleOp package, StringRef format) {
         {"source", sourceOwner(group.sourceOwner)},
         {"header_path", group.headerPath}, {"source_path", group.sourcePath},
         {"header", group.header}, {"implementation", group.source}});
-  bool needsFourState = llvm::any_of(program->definitions, [](const auto &definition) {
-    return definition.clocked &&
-           (!definition.clocked->fifos.empty() || !definition.clocked->memories.empty());
-  });
+  bool needsFourState = structuredNeedsFourState(*program);
   llvm::json::Array sampleRows;
   for (Attribute raw : program->samples) {
     StringRef row = cast<StringAttr>(raw).getValue();
     sampleRows.emplace_back(row);
     needsFourState |= row.contains('x') || row.contains('z');
   }
-  package.walk([&](Operation *op) {
-    needsFourState |= isa<acir::ac::TableGetOp>(op);
-    if (auto pattern = dyn_cast<acir::ac::BitsConstant4Op>(op))
-      needsFourState |= pattern.getPattern().contains('x') ||
-                        pattern.getPattern().contains('z');
-    if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(op))
-      needsFourState |= compare.getPredicate() == "case_eq";
-    if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(op))
-      needsFourState |= binary.getOpcode() == "udiv" || binary.getOpcode() == "urem";
-  });
   auto resetPolicy = program->root.getExecutionPolicyAttr();
   auto root = program->definitions[program->rootIndex].module;
   llvm::json::Object bundle{
@@ -236,25 +290,6 @@ int main(int argc, char **argv) {
     sampleRows.emplace_back(row);
     needsFourState |= row.contains('x') || row.contains('z');
   }
-  // Only direct known, nonzero literals discharge division's X-on-zero
-  // behavior. Do not invent a runtime knownness/range proof in this driver.
-  auto knownNonzeroLiteral = [](Value value) {
-    if (auto constant = value.getDefiningOp<acir::ac::BitsConstantOp>()) {
-      auto tree = constant.getValue().getTree();
-      auto kind = tree.getAs<StringAttr>("kind");
-      auto literal = tree.getAs<DictionaryAttr>("value");
-      auto number = literal ? literal.getAs<acir::ac::MathIntAttr>("value")
-                            : acir::ac::MathIntAttr();
-      return kind && kind.getValue() == "literal" && number &&
-             number.getCanonicalValue() != "0";
-    }
-    if (auto constant = value.getDefiningOp<acir::ac::BitsConstant4Op>()) {
-      StringRef pattern = constant.getPattern();
-      return !pattern.contains('x') && !pattern.contains('z') &&
-             pattern.contains('1');
-    }
-    return false;
-  };
   // Select the simulator from the executable instance closure. Unselected
   // declarations from the same published source unit do not change the mode.
   // Initialized DFF/DFFE and known-preserving arithmetic retain the binary
@@ -267,20 +302,7 @@ int main(int argc, char **argv) {
     if (!reached.insert(definition).second)
       continue;
     definition.walk([&](Operation *operation) {
-      if (auto constant = dyn_cast<acir::ac::BitsConstant4Op>(operation)) {
-        StringRef pattern = constant.getPattern();
-        needsFourState |= pattern.contains('x') || pattern.contains('z');
-      }
-      if (operation->hasAttr("ac.verification_observer"))
-        needsFourState = true;
-      if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(operation))
-        needsFourState |= compare.getPredicate() == "case_eq";
-      if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(operation))
-        if ((binary.getOpcode() == "udiv" || binary.getOpcode() == "urem") &&
-            !knownNonzeroLiteral(binary.getRhs()))
-          needsFourState = true;
-      if (isa<acir::ac::TableGetOp>(operation))
-        needsFourState = true;
+      needsFourState |= operationNeedsFourState(operation);
       Operation *callee = nullptr;
       if (auto instance = dyn_cast<acir::ac::InstanceOp>(operation))
         callee = analysis.resolveCallee(instance);

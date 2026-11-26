@@ -1,14 +1,14 @@
-# A non-exported producer's actual Bits1 result is consumed by an ordered guard.
-# Independent shared rows distinguish availability from knownness, preserve an
-# earlier unknown check before a later blocked use, and exercise sampled failure,
-# held/reset eligibility and discarded-clock same-high retry.
+# A producer's Bits1 result is needed by a write that is later overwritten,
+# an ordered guard, and a return without a projection. A true assertion on the
+# admitted path and an unused result projection preserve all checks and effects.
+# The shared oracle covers absent values, X/Z, reset and failed-edge retries.
 # REQUIRES: rtl-four-state-parameter-types
 # RUN: %python %inputs/structured-gfir-guard-consumer-oracle.py > %t.rows
 # RUN: %pycircuit_opt %inputs/structured-gfir-guard-consumer.mlir --gfir-verify --mlir-print-debuginfo -o %t.gfir
 # RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
 # RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.hwir
 # RUN: %pycircuit_emit %t.hwir --target cpp > %t.final.json
-# RUN: %python -c 'import json,sys; a,b=[json.load(open(p)) for p in sys.argv[1:]]; assert a["source_check_count"] == b["source_check_count"] > 0; p=a["port_availability"]; assert p == b["port_availability"]; assert [r["name"] for r in p["outputs"]] == ["count"]; assert p["outputs"][0]["availability"] is None; assert not any(r.get("role") == "availability" for r in p["controls"])' %t.behavior.json %t.final.json
+# RUN: %python -c 'import json,sys; a,b=[json.load(open(p)) for p in sys.argv[1:]]; assert a["source_check_count"] == b["source_check_count"] > 0; p=a["port_availability"]; assert p == b["port_availability"]; assert [r["name"] for r in p["outputs"]] == ["count", "return_count"]; assert all(r["availability"] is None for r in p["outputs"]); assert not any(r.get("role") == "availability" for r in p["controls"])' %t.behavior.json %t.final.json
 # RUN: for kind in behavior final; do %python %inputs/unpack_bundle.py %t.$kind.json %t.$kind || exit; done
 # RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; for kind in behavior final; do %cxx -std=c++20 -pthread -I%include -I%t.$kind %inputs/structured-gfir-guard-consumer.cpp @%t.$kind/sources.rsp "$RTLIB" -o %t.$kind.exe || exit; %t.$kind.exe %t.rows || exit; done
 # RUN: %pycircuit_emit %t.hwir --target verilog --format source > %t.sv

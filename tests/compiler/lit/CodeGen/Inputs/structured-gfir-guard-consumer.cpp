@@ -16,15 +16,18 @@ int main(int argc, char **argv) {
   root.pyc_7079635f636c6b = bits<1>("0");
   root.pyc_7079635f727374 = bits<1>("0");
   root.Reset(); root.Xfer();
-  std::string clock, reset, offer, payload, enable, count;
+  std::string clock, reset, offer, payload, enable, late, count, returned;
   unsigned accepted, samples = 0;
-  while (rows >> clock >> reset >> offer >> payload >> enable >> count >> accepted) {
+  while (rows >> clock >> reset >> offer >> payload >> enable >> late >> count >> returned >> accepted) {
     root.pyc_7079635f636c6b = bits<1>(clock);
     root.pyc_7079635f727374 = bits<1>(reset);
     root.offer = bits<1>(offer); root.payload = bits<1>(payload); root.enable = bits<1>(enable);
+    root.late = bits<1>(late);
     root.Work();
     require(root.count.isFullyKnown());
     require(root.count.value().value() == std::stoul(count, nullptr, 16));
+    require(root.return_count.isFullyKnown());
+    require(root.return_count.value().value() == std::stoul(returned, nullptr, 16));
     gfsim::SimFailureInfo failure;
     require(root.pyc_validate_checks(failure) == bool(accepted));
     if (!accepted) {

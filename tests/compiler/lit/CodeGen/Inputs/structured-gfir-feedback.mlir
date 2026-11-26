@@ -8,8 +8,15 @@
 module attributes {gfir.contract = 1 : i64} {
   ac.struct "Offer" fields [{name = "payload", type = !b8}, {name = "mirror", type = !b8}, {name = "sent", type = !b1}]
 
+  gfir.module @unused() -> (!b8)
+      attributes {source_owner = {package = "", path = "unused.py"},
+                  input_names = [], output_names = ["value"]} {
+    %unknown = "ac.bits.constant4"() {pattern = "xxxxxxxx"} : () -> !b8
+    gfir.yield %unknown : !b8
+  }
+
   gfir.module @producer(%value: !b8, %ready: !b1) -> (!offer)
-      attributes {source_owner = {package = "", path = "producer.py"},
+      attributes {source_owner = {package = "", path = "top.py"},
                   input_names = ["value", "ready"], output_names = ["offer"]} {
     %aa = "ac.bits.constant4"() {pattern = "10101010"} : () -> !b8
     %mask = "ac.bits.constant4"() {pattern = "01010101"} : () -> !b8

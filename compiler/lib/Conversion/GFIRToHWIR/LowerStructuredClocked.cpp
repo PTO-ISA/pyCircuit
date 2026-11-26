@@ -4,6 +4,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MathExtras.h"
 #include <functional>
@@ -93,7 +94,7 @@ private:
   DictionaryAttr localResourceOwner();
   DictionaryAttr localQueueID(unsigned fifo);
   LogicalResult lowerSampled(unsigned index);
-  void bindTransactionWiring();
+  LogicalResult bindTransactionWiring();
   void bindQueueWiring();
   FailureOr<Value> zero(Type type);
   LogicalResult makeModule();
@@ -119,7 +120,6 @@ private:
       SmallVector<Value> &local, SmallVector<Value> &localIntents, IRMapping &mapping,
       ArrayRef<std::pair<unsigned, MethodPlace>> forwarded = {});
   DictionaryAttr localStateID(Operation *storage);
-  DictionaryAttr childStateID(unsigned receiver);
   FailureOr<Value> availability(const gfir::StructuredAvailability &sources);
   FailureOr<Value> projectField(Value value, ArrayRef<StringAttr> path);
 
@@ -134,7 +134,7 @@ private:
   Type bit;
   Value clock, reset, one, none;
   SmallVector<Value> incomingData, incomingEnable, incomingQ;
-  DictionaryAttr routeStateID(const gfir::StructuredStateRoute &route);
+  FailureOr<DictionaryAttr> routeStateID(const gfir::StructuredStateRoute &route);
   std::optional<unsigned> incomingLocal(unsigned state) const;
   struct ChildRoute {
     Value q, data, enable;
@@ -970,10 +970,13 @@ LogicalResult ClockedMaterializer::bindGraph() {
     const gfir::StructuredDefinition *logicalChild = nullptr;
     if (isa<gfir::CallOp>(original)) {
       auto callee = copy->getAttrOfType<FlatSymbolRefAttr>("callee");
-      for (const auto &child : program.definitions) {
+      auto child = llvm::find_if(program.definitions, [&](const auto &child) {
         auto module = child.module;
-        if (module.getSymName() == callee.getValue()) logicalChild = &child;
-      }
+        return module.getSymName() == callee.getValue();
+      });
+      if (child == program.definitions.end())
+        return original->emitOpError("missing verified callee definition");
+      logicalChild = &*child;
     }
     for (auto [port, operand] : llvm::enumerate(original->getOperands())) {
       auto value = graph.lookupOrNull(operand);
@@ -991,10 +994,8 @@ LogicalResult ClockedMaterializer::bindGraph() {
         }
       } else operands.push_back(value);
     }
-    if (isa<gfir::CallOp>(original)) {
-      auto callee = copy->getAttrOfType<FlatSymbolRefAttr>("callee");
-      auto *child = hardware.lookupDefinition(callee.getValue());
-      auto domains = child->getAttrOfType<ArrayAttr>("domains");
+    if (logicalChild) {
+      auto domains = logicalChild->module->getAttrOfType<ArrayAttr>("domains");
       if (domains && !domains.empty())
         operands.append({clock, reset});
       for (const auto &input : childInputs[copy]) {
@@ -1005,43 +1006,22 @@ LogicalResult ClockedMaterializer::bindGraph() {
           operands.append({input.data, input.enable});
         }
       }
-      auto planned = llvm::find_if(definition.clockedCalls, [&](const auto &call) {
-        return call.operation == original;
-      });
-      if (planned != definition.clockedCalls.end()) {
-        const auto &child = program.definitions[planned->definition];
-        for (const auto &input : child.inputAvailability) {
-          auto actual = original->getOperand(input.port);
-          const auto &leaves = definition.valueWires.find(actual)->second;
-          auto leaf = llvm::find_if(leaves, [&](unsigned index) {
-            return definition.wires[index].endpoint.path == input.path;
-          });
-          if (leaf == leaves.end()) return failure();
-          const auto &sources = definition.wireAvailability.empty()
-              ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
-          auto available = availability(sources);
-          if (failed(available))
-            return failure();
-          operands.push_back(*available);
-        }
-      } else {
-        for (const auto &child : program.definitions) {
-          auto module = child.module;
-          if (module.getSymName() != callee.getValue()) continue;
-          for (const auto &input : child.inputAvailability) {
-            auto actual = original->getOperand(input.port);
-            const auto &leaves = definition.valueWires.find(actual)->second;
-            auto leaf = llvm::find_if(leaves, [&](unsigned index) {
-              return definition.wires[index].endpoint.path == input.path;
-            });
-            if (leaf == leaves.end()) return failure();
-            const auto &sources = definition.wireAvailability.empty()
-                ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
-            auto available = availability(sources);
-            if (failed(available)) return failure();
-            operands.push_back(*available);
-          }
-        }
+      for (const auto &input : logicalChild->inputAvailability) {
+        auto wires = definition.valueWires.find(original->getOperand(input.port));
+        if (wires == definition.valueWires.end())
+          return original->emitOpError("missing verified input wires");
+        const auto &leaves = wires->second;
+        auto leaf = llvm::find_if(leaves, [&](unsigned index) {
+          return definition.wires[index].endpoint.path == input.path;
+        });
+        if (leaf == leaves.end())
+          return original->emitOpError("missing verified input companion field");
+        const auto &sources = definition.wireAvailability.empty()
+            ? gfir::StructuredAvailability{} : definition.wireAvailability[*leaf];
+        auto available = availability(sources);
+        if (failed(available))
+          return failure();
+        operands.push_back(*available);
       }
     }
     copy->setOperands(operands);
@@ -1225,16 +1205,21 @@ std::optional<unsigned> ClockedMaterializer::incomingLocal(unsigned state) const
   return {};
 }
 
-DictionaryAttr ClockedMaterializer::routeStateID(const gfir::StructuredStateRoute &route) {
+FailureOr<DictionaryAttr>
+ClockedMaterializer::routeStateID(const gfir::StructuredStateRoute &route) {
   ac::ModuleOp owner = target;
   SmallVector<Attribute> path;
   for (auto original : route.path) {
     ac::InstanceOp selected;
     for (auto instance : owner.getBody().front().getOps<ac::InstanceOp>())
       if (instance.getInstanceName() == original.getSymName()) selected = instance;
-    assert(selected && "verified route requires an allocated instance");
+    if (!selected)
+      return original.emitOpError("state route requires an allocated instance");
     path.push_back(selected->getAttr("occurrence"));
-    owner = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package, selected.getCalleeAttr()));
+    owner = dyn_cast_or_null<ac::ModuleOp>(
+        SymbolTable::lookupSymbolIn(package, selected.getCalleeAttr()));
+    if (!owner)
+      return original.emitOpError("state route requires a lowered Module");
   }
   auto variable = program.definitions[route.definition].clocked->variables[route.state];
   Operation *storage = nullptr;
@@ -1242,14 +1227,11 @@ DictionaryAttr ClockedMaterializer::routeStateID(const gfir::StructuredStateRout
     if (isa<ac::InstanceOp, ac::CollectionOp>(allocation) &&
         allocation.getAttrOfType<StringAttr>("instance_name") == variable.getSymNameAttr())
       storage = &allocation;
-  assert(storage && "verified route requires state storage");
+  if (!storage)
+    return variable.emitOpError("state route requires allocated storage");
   NamedAttrList id(localStateID(storage));
   id.set("owner", builder.getDictionaryAttr({builder.getNamedAttr("instance_path", builder.getArrayAttr(path))}));
   return id.getDictionary(builder.getContext());
-}
-
-DictionaryAttr ClockedMaterializer::childStateID(unsigned receiver) {
-  return routeStateID(definition.childStates[receiver].route);
 }
 
 FailureOr<Value> ClockedMaterializer::availability(
@@ -1703,6 +1685,13 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   OpBuilder::InsertionGuard insertion(builder);
   builder.setInsertionPointToEnd(body);
   Value outerOne = one, outerNone = none;
+  auto *outerSampled = sampled;
+  auto restoreOuter = [&] {
+    sampled = outerSampled;
+    one = outerOne;
+    none = outerNone;
+  };
+  auto restoreOnExit = llvm::scope_exit(restoreOuter);
   auto controlLiteral = [&](uint64_t value) {
     return make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
         builder.getNamedAttr("value", literal(value))})->getResult(0);
@@ -1746,18 +1735,17 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   IRMapping mapping;
   auto results = lowerBody(rule.getBody().front(),
       body->getArguments().take_front(clockCapture), local, localIntents, mapping);
-  if (failed(results)) {
-    sampled = nullptr;
-    one = outerOne;
-    none = outerNone;
+  if (failed(results))
     return failure();
-  }
   const auto &assertions = plan.rules[index].assertions;
   if (context.controls.size() + assertions.size() != context.plannedChecks.size())
     return rule.emitOpError("sampled refinement did not emit all verified checks");
   SmallVector<Value> yielded;
   const auto &resultUses = plan.rules[index].resultUses;
-  if (!resultUses.empty())
+  // A reached return demand needs its ordinary payload witness even when
+  // no gfir.result references the Rule's result externally.
+  if (!resultUses.empty() ||
+      plan.dataCaptureUses.contains(rule.getBody().front().getTerminator()))
     yielded.append(*results);
   unsigned ordinaryResults = yielded.size();
   SmallVector<Attribute> candidateRows;
@@ -1772,14 +1760,19 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   }
   SmallVector<std::pair<unsigned, unsigned>> childCandidates;
   for (unsigned receiver : plan.rules[index].childStates) {
-    if (definition.childStates[receiver].writer != index) continue;
+    const auto &child = definition.childStates[receiver];
+    if (child.writer != index)
+      continue;
+    auto stateID = routeStateID(child.route);
+    if (failed(stateID))
+      return failure();
     unsigned childCandidate = yielded.size();
     unsigned slot = childSlots.lookup(receiver);
     childCandidates.emplace_back(receiver, childCandidate);
     yielded.push_back(local[slot]);
     yielded.push_back(binary("and", context.prefix, localIntents[slot]));
     candidateRows.push_back(builder.getDictionaryAttr({
-        builder.getNamedAttr("state", childStateID(receiver)),
+        builder.getNamedAttr("state", *stateID),
         builder.getNamedAttr("data", builder.getI64IntegerAttr(childCandidate)),
         builder.getNamedAttr("enable", builder.getI64IntegerAttr(childCandidate + 1))}));
   }
@@ -1928,9 +1921,8 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
         builder.getNamedAttr("arguments", builder.getArrayAttr(arguments))}));
   }
   make(ac::YieldOp::getOperationName(), yielded, {});
-  sampled = nullptr;
-  one = outerOne;
-  none = outerNone;
+  restoreOuter();
+  restoreOnExit.release();
 
   builder.setInsertionPointToEnd(&target.getBody().front());
   OperationState operation(rule.getLoc(), ac::RuleOp::getOperationName());
@@ -2024,25 +2016,31 @@ LogicalResult ClockedMaterializer::lowerSampled(unsigned index) {
   return success();
 }
 
-void ClockedMaterializer::bindTransactionWiring() {
+LogicalResult ClockedMaterializer::bindTransactionWiring() {
   if (transactionWriters.empty() && definition.fieldOutputs.empty() &&
       llvm::none_of(definition.incomingStates, [](const auto &entry) { return entry.writable; }))
-    return;
+    return success();
   SmallVector<Attribute> declarations;
   for (auto [index, state] : llvm::enumerate(states))
     if (sampledEnables[index] || incomingLocal(index))
       declarations.push_back(state->getAttr("occurrence"));
   SmallVector<Attribute> incoming;
-  for (auto [index, entry] : llvm::enumerate(definition.incomingStates))
-    if (entry.writable)
-      incoming.push_back(builder.getDictionaryAttr({
-          builder.getNamedAttr("state", routeStateID(entry.route)),
-          builder.getNamedAttr("data", builder.getI64IntegerAttr(cast<BlockArgument>(incomingData[index]).getArgNumber())),
-          builder.getNamedAttr("enable", builder.getI64IntegerAttr(cast<BlockArgument>(incomingEnable[index]).getArgNumber()))}));
+  for (auto [index, entry] : llvm::enumerate(definition.incomingStates)) {
+    if (!entry.writable)
+      continue;
+    auto stateID = routeStateID(entry.route);
+    if (failed(stateID))
+      return failure();
+    incoming.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("state", *stateID),
+        builder.getNamedAttr("data", builder.getI64IntegerAttr(cast<BlockArgument>(incomingData[index]).getArgNumber())),
+        builder.getNamedAttr("enable", builder.getI64IntegerAttr(cast<BlockArgument>(incomingEnable[index]).getArgNumber()))}));
+  }
   target->setAttr("ac.transaction_wiring", builder.getDictionaryAttr({
       builder.getNamedAttr("states", builder.getArrayAttr(declarations)),
       builder.getNamedAttr("incoming", builder.getArrayAttr(incoming)),
       builder.getNamedAttr("writers", builder.getArrayAttr(transactionWriters))}));
+  return success();
 }
 
 void ClockedMaterializer::bindQueueWiring() {
@@ -2319,9 +2317,8 @@ LogicalResult ClockedMaterializer::run() {
       return failure();
   if (failed(makeModule()) || failed(allocate()) || failed(cloneGraph()) ||
       failed(lowerRules()) || failed(bindGraph()) || failed(bindStorage()) ||
-      failed(bindObservations()))
+      failed(bindObservations()) || failed(bindTransactionWiring()))
     return failure();
-  bindTransactionWiring();
   bindQueueWiring();
   return success();
 }

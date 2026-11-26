@@ -4,6 +4,7 @@
 # The acceptance cone demands both bytes before the delayed sent field.
 # Changing ready to depend on sent closes
 # a real cycle. Each model is checked against independent driver expectations.
+# Producer and top share a source owner across the intervening consumer.
 # RUN: %pycircuit_opt %inputs/structured-gfir-feedback.mlir --gfir-verify -o %t.gfir
 # RUN: sed 's/gfir.yield %ready, %accepted/gfir.yield %delivered, %accepted/' %inputs/structured-gfir-feedback.mlir > %t.cycle
 # RUN: not %pycircuit_opt %t.cycle --gfir-verify -o %t.rejected
@@ -12,6 +13,9 @@
 # RUN: %pycircuit_opt %t.gfir --gfir-to-hwir --ac-verify-hardware -o %t.final
 # RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp > %t.behavior.json
 # RUN: %pycircuit_emit %t.final --target cpp > %t.hardware.json
+# RUN: %python -c 'import json, sys; assert all(json.load(open(p))["needs_four_state"] is False for p in sys.argv[1:])' %t.behavior.json %t.hardware.json
+# RUN: %pycircuit_emit %t.gfir --input-stage gfir --target cpp --format source > %t.single.cpp
+# RUN: %cxx -std=c++20 -pthread -I%include -fsyntax-only %t.single.cpp
 # RUN: %python %inputs/unpack_bundle.py %t.behavior.json %t.behavior
 # RUN: %python %inputs/unpack_bundle.py %t.hardware.json %t.hardware
 # RUN: %cxx -std=c++20 -pthread -I%include -I%t.behavior %inputs/structured-gfir-feedback.cpp @%t.behavior/sources.rsp -o %t.behavior.exe

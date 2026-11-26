@@ -4080,12 +4080,16 @@ private:
         return false;
       bool matched = false;
       if (kind == "state_write" && requirement.operand == 1 && writer) {
+        // A reached write retains its demand after a later write replaces D.
+        // A surviving output must still be the exact demanded payload.
         for (const auto &candidate : writer->candidates) {
           if (failed(budget.debit(1, consumer))) return failure();
-          if (terminator->getOperand(candidate.dataIndex) == requiredPayload) {
+          Value data = terminator->getOperand(candidate.dataIndex);
+          if (!areEquivalentHardwareTypes(data.getType(), requiredPayload.getType()))
+            continue;
+          matched = true;
+          if (data == requiredPayload)
             dataSlots.insert(candidate.dataIndex);
-            matched = true;
-          }
         }
       } else if (kind == "return") {
         uint64_t count = writer ? writer->ordinaryResults : view.fireResult;
@@ -4112,20 +4116,6 @@ private:
       if (!matched) return false;
       dataRequirements.insert(requirement.operation);
     }
-    if (!dataRequirements.empty()) {
-      bool onlyData = true;
-      for (Value value : dataValues) for (OpOperand &use : value.getUses()) {
-        if (failed(budget.debit(1, use.getOwner()))) return failure();
-        if (computations.contains(use.getOwner())) continue;
-        if (dataRequirements.contains(use.getOwner()) && use.getOperandNumber() == 0)
-          continue;
-        if (use.getOwner() == terminator && dataSlots.contains(use.getOperandNumber()))
-          continue;
-        onlyData = false;
-      }
-      if (onlyData) return true;
-    }
-    if (!writer) return false;
     llvm::DenseSet<Operation *> requirements;
     llvm::DenseSet<unsigned> rawSlots;
     auto required = consumer->getAttrOfType<ArrayAttr>("ac.required_checks");
@@ -4157,67 +4147,69 @@ private:
       requirements.insert(operation);
       rawSlots.insert(guard.rawResult);
     }
-    if (requirements.empty()) return false;
-    // A child companion or conjunction is not a direct producer-fire capture.
-    // After this full use audit succeeds, writers() independently matches the
-    // actual payload/availability formulas with the common availability proof.
-
-    // Inspect all raw-payload fanout. Its only executable use is the exact
-    // known-one test of the matched ordered guard; the other two roles are
-    // authenticated use evidence and that guard's diagnostic raw slot.
-    auto *yield = body.getTerminator();
-    SmallVector<Value> pending;
-    for (OpOperand &use : payload.getUses()) {
-      if (failed(budget.debit(1, use.getOwner()))) return failure();
-      auto *owner = use.getOwner();
-      if (requirements.contains(owner) && use.getOperandNumber() == 0) continue;
-      if (dataRequirements.contains(owner) && use.getOperandNumber() == 0) continue;
-      if (owner == yield && rawSlots.contains(use.getOperandNumber())) continue;
-      if (owner == yield && dataSlots.contains(use.getOperandNumber())) continue;
-      auto compare = dyn_cast<BitsCompareOp>(owner);
-      if (!compare || compare.getPredicate() != "case_eq" ||
-          use.getOperandNumber() != 0 || owner->getParentOp() != consumer)
-        return false;
-      auto one = isOne(compare.getRhs());
-      if (failed(one)) return failure();
-      if (!*one) return false;
-      if (failed(charge(budget, consumer, 1, sizeof(Value)))) return failure();
-      pending.push_back(compare.getResult());
-    }
-    if (pending.empty()) return false;
-    bool livePrefix = false;
-    llvm::DenseSet<Value> visited;
-    while (!pending.empty()) {
-      Value value = pending.pop_back_val();
-      if (failed(charge(budget, consumer, 1, sizeof(Value)))) return failure();
-      if (!visited.insert(value).second) continue;
-      if (value.use_empty()) return false;
-      for (OpOperand &use : value.getUses()) {
-        if (failed(budget.debit(1, use.getOwner()))) return failure();
-        auto *owner = use.getOwner();
-        if (owner == yield) {
-          unsigned slot = use.getOperandNumber();
-          bool allowed = slot == view.fireResult;
-          for (const auto &control : view.controls) {
-            if (failed(budget.debit(1, consumer))) return failure();
-            allowed |= slot == control.reachedResult;
-          }
-          for (const auto &candidate : writer->candidates) {
-            if (failed(budget.debit(1, consumer))) return failure();
-            allowed |= slot == candidate.enableIndex;
-          }
-          if (!allowed) return false;
-          livePrefix = true;
+    if (requirements.empty() && dataRequirements.empty()) return false;
+    // writers() independently verifies all actual availability formulas.
+    // Identify the direct guard's known-one prefix separately from the strict
+    // data cone. An authored comparison can also be an ordinary payload.
+    llvm::DenseSet<Value> guardValues;
+    llvm::SmallDenseSet<unsigned> guardSlots;
+    if (!requirements.empty()) {
+      if (!writer) return false;
+      SmallVector<Value> pending;
+      for (Operation *user : payload.getUsers()) {
+        if (failed(budget.debit(1, user))) return failure();
+        auto compare = dyn_cast<BitsCompareOp>(user);
+        if (!compare || compare->getParentOp() != consumer ||
+            compare.getPredicate() != "case_eq" || compare.getLhs() != payload)
           continue;
-        }
-        auto conjunction = dyn_cast<BitsBinaryOp>(owner);
-        if (!conjunction || conjunction.getOpcode() != "and" ||
-            owner->getParentOp() != consumer) return false;
-        if (failed(charge(budget, consumer, 1, sizeof(Value)))) return failure();
-        pending.push_back(conjunction.getResult());
+        auto one = isOne(compare.getRhs());
+        if (failed(one)) return failure();
+        if (*one) pending.push_back(compare.getResult());
       }
+      while (!pending.empty()) {
+        Value value = pending.pop_back_val();
+        if (failed(budget.debit(1, consumer))) return failure();
+        if (!guardValues.insert(value).second) continue;
+        for (Operation *user : value.getUsers()) {
+          if (failed(budget.debit(1, user))) return failure();
+          if (auto conjunction = dyn_cast<BitsBinaryOp>(user);
+              conjunction && conjunction->getParentOp() == consumer &&
+              conjunction.getOpcode() == "and")
+            pending.push_back(conjunction.getResult());
+        }
+      }
+      if (failed(budget.debit(1 + view.controls.size() + writer->candidates.size() +
+                                  view.bodyChecks.size() + view.observations.size(),
+                              consumer)))
+        return failure();
+      guardSlots.insert(view.fireResult);
+      for (const auto &control : view.controls)
+        guardSlots.insert(control.reachedResult);
+      for (const auto &candidate : writer->candidates)
+        guardSlots.insert(candidate.enableIndex);
+      for (const auto &check : view.bodyChecks)
+        guardSlots.insert(check.pathResult);
+      for (const auto &observation : view.observations)
+        guardSlots.insert(observation.pathResult);
     }
-    return livePrefix;
+    bool livePrefix = false;
+    for (Value value : dataValues) for (OpOperand &use : value.getUses()) {
+      auto *owner = use.getOwner();
+      unsigned operand = use.getOperandNumber();
+      if (failed(budget.debit(1, owner))) return failure();
+      if (computations.contains(owner)) continue;
+      if (operand == 0 && (requirements.contains(owner) ||
+                           dataRequirements.contains(owner)))
+        continue;
+      if (owner != terminator) return false;
+      if (dataSlots.contains(operand) ||
+          (value == payload && rawSlots.contains(operand)))
+        continue;
+      if (!guardValues.contains(value) || !guardSlots.contains(operand))
+        return false;
+      livePrefix = true;
+    }
+    return requirements.empty() || livePrefix;
   }
 
   // Follow every conditional export through each actual allocation. A catalog
@@ -4227,7 +4219,6 @@ private:
                                     const TransactionWriterView &writer) {
     if (writer.rule->hasAttr("ac.registration_path"))
       return false;
-    bool provedUse = false;
     SmallVector<std::tuple<size_t, Value, FieldPath>> pending;
     DenseMap<std::pair<size_t, Value>, SmallVector<FieldPath>> visited;
     DenseMap<Operation *, DenseMap<unsigned, unsigned>> companionPorts;
@@ -4279,7 +4270,6 @@ private:
                                       path.size() * sizeof(StringAttr)))) return failure();
             pending.emplace_back(*at.parent, at.allocation->getResult(operand), path);
           }
-          provedUse = true;
         } else if (auto instance = dyn_cast<InstanceOp>(owner)) {
           auto target = dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(instance));
           if (!target || !target.getBody().hasOneBlock()) return false;
@@ -4301,7 +4291,6 @@ private:
           auto guarded = guardedResultCapture(at, writer, root, consumer, operand);
           if (failed(guarded)) return failure();
           if (!*guarded) return false;
-          provedUse = true;
         } else if (auto create = dyn_cast<StructCreateOp>(owner)) {
           auto structure = analysis.lookupStruct(create.getResult().getType());
           if (!structure || operand >= structure.getFields().size())
@@ -4325,7 +4314,7 @@ private:
         }
       }
     }
-    return provedUse;
+    return true;
   }
 
   LogicalResult writers() {

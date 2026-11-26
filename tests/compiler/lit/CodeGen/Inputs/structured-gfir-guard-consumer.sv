@@ -1,13 +1,13 @@
 module tb;
-  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0,offer=0,payload=0,enable=0;
-  wire [7:0] count;
+  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0,offer=0,payload=0,enable=0,late=0;
+  wire [7:0] count,return_count;
   logic [2:0] pyc_phase=0;
   logic pyc_root_commit_ok=0;
   wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   pyc_root dut(.*);
   string path;
   integer fd,n,samples=0,expected_acceptance;
-  logic [7:0] expected_count;
+  logic [7:0] expected_count,expected_return_count;
   bit accepted;
   initial begin
     if(!$value$plusargs("rows=%s",path))$fatal(1,"missing rows");
@@ -15,10 +15,10 @@ module tb;
     #1;pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
     pyc_phase=0;pyc_root_commit_ok=0;#1;
     while(!$feof(fd))begin
-      n=$fscanf(fd,"%h %h %h %h %h %h %d\n",pyc_7079635f636c6b,pyc_7079635f727374,offer,payload,enable,expected_count,expected_acceptance);
-      if(n!=7)$fatal(1,"invalid row");
+      n=$fscanf(fd,"%h %h %h %h %h %h %h %h %d\n",pyc_7079635f636c6b,pyc_7079635f727374,offer,payload,enable,late,expected_count,expected_return_count,expected_acceptance);
+      if(n!=9)$fatal(1,"invalid row");
       #1;pyc_phase=1;#1;
-      if(count!==expected_count)$fatal(1,"counter mismatch row %0d",samples);
+      if(count!==expected_count || return_count!==expected_return_count)$fatal(1,"counter mismatch row %0d",samples);
       accepted=(pyc_check_complete===1 && pyc_sampling_error===0 && pyc_local_error===0);
       if(accepted!==1'(expected_acceptance))$fatal(1,"acceptance mismatch row %0d",samples);
       if(accepted)begin pyc_root_commit_ok=1;pyc_phase=2;#1;end

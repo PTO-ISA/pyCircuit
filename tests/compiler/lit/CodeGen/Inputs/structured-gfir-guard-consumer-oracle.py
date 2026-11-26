@@ -1,6 +1,7 @@
 """Independent lexical guard admission and committed counter/clock oracle."""
 
 count = 0
+return_count = 0
 history = 0
 # clk rst producer-guard actual-payload consumer-first-guard
 stimuli = [
@@ -29,6 +30,8 @@ stimuli = [
     (0, 0, "0", "z", "1"),
 ]
 for clock, reset, offer, payload, enable in stimuli:
+    # In these samples the first reached write must block before the X guard.
+    late = "x" if offer == "0" and enable == "1" else "1"
     rising = bool(clock and not history)
     fault = False
     if rising and not reset:
@@ -36,12 +39,24 @@ for clock, reset, offer, payload, enable in stimuli:
         fault = offer in ("x", "z") or enable in ("x", "z")
         if enable == "1" and offer == "1" and payload in ("x", "z"):
             fault = True
-    print(clock, reset, offer, payload, enable, f"{count:x}", int(not fault))
+    print(
+        clock,
+        reset,
+        offer,
+        payload,
+        enable,
+        late,
+        f"{count:x}",
+        f"{return_count:x}",
+        int(not fault),
+    )
     if fault:
         continue
     if rising:
         if reset:
-            count = 0
-        elif offer == "1" and enable == "1" and payload == "1":
-            count = (count + 1) % 256
+            count = return_count = 0
+        elif offer == "1" and enable == "1":
+            return_count = (return_count + 1) % 256
+            if payload == "1":
+                count = (count + 1) % 256
     history = clock
