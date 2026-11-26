@@ -138,6 +138,11 @@ FailureOr<HardwarePhysicalProjection> getBatchedPhysicalProjection(
     if (failed(pins) || failed(policy) ||
         failed(clock(op->getOperand(pins->clock), endpoint.ownerOccurrence)))
       return failure();
+    const auto &bindings = plan.owners[endpoint.ownerOccurrence].bindings;
+    if (policy->hasInitial &&
+        failed(verifyClosedStateInitializer(
+            analysis, op->getOperand(pins->initial), bindings, op, &budget)))
+      return failure();
     if (policy->resetKind == RegisterResetKind::None)
       continue;
     if (failed(trace(op->getOperand(pins->reset), endpoint.ownerOccurrence,
@@ -147,8 +152,7 @@ FailureOr<HardwarePhysicalProjection> getBatchedPhysicalProjection(
     // without firing the register's edge-triggered RTL.
     if (pins->contract == 3 &&
         failed(verifyClosedStateInitializer(
-            analysis, op->getOperand(pins->resetValue),
-            plan.owners[endpoint.ownerOccurrence].bindings, op, &budget)))
+            analysis, op->getOperand(pins->resetValue), bindings, op, &budget)))
       return failure();
   }
   for (auto &inputs : {&projection.clockInputs, &projection.resetInputs}) {

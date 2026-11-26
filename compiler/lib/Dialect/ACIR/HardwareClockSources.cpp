@@ -565,6 +565,10 @@ private:
         return reject(
             &op,
             "registered-derived profile requires scalar instance hierarchy");
+      if (auto state = dyn_cast<acir::LogicalStateOpInterface>(op);
+          state && isa<TableType>(state.getStateQ().getType()))
+        return reject(&op,
+                      "registered-derived profile requires scalar storage");
       if (isa<QueueOp, CDCRefinementOp>(op))
         return reject(&op,
                       "registered-derived profile requires register storage");

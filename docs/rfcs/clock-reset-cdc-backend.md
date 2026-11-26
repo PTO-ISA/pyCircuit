@@ -1,6 +1,6 @@
 # 时钟域、状态复位与 CDC 后端方案
 
-状态：F1–F6 前后端接口已有确认结论；后端 IR 门禁已有执行证据，实际参数深度展开修复与 F7 前端联调仍分别验收。
+F1–F6 的接口确认见下文。后端增量包括 #437 的根端口分域、FIFO 双端复位和派生时钟。
 记录日期：2026-11-10。
 增量说明更新：2026-11-12。
 接口与行为示例补充：2026-11-12。
@@ -9,8 +9,8 @@
 状态契约增量对照核对：`5f66e0a5bc8a1bd67e7f19e11a74da61cb8a1621`。
 
 关联 [前端方案 #400](https://github.com/PTO-ISA/pyCircuit/issues/400)、
-[#376 D](https://github.com/PTO-ISA/pyCircuit/issues/376) 和
-[#319](https://github.com/PTO-ISA/pyCircuit/issues/319)。
+[#376 D](https://github.com/PTO-ISA/pyCircuit/issues/376)、
+[#319](https://github.com/PTO-ISA/pyCircuit/issues/319) 和 [#437](https://github.com/PTO-ISA/pyCircuit/issues/437)。
 
 本方案的后端边界从**逻辑锚点开始，包含锚点本身**，向下覆盖公共物理化、
 final 验证、C++ Runtime 和 Verilog 导出。Python 语法、静态容器解析、
@@ -144,17 +144,17 @@ Domain 容器接入复用静态绑定基础，不依赖完整 Module 实例列�
 资源构造处可显式提供整体 reset 和极性。省略时继承资源声明所在 Module 的默认复位及其极性，
 不从生产者或消费者的复位中自动选择。显式 reset 的极性默认 high，可覆盖；
 共同条件由作者显式提供整体复位信号，不隐式组合两侧复位。
-当前不支持两端独立复位。归零／清空、恢复同步及恢复期间禁止传输由公共后端负责，
-不要求作者编写释放计数或同步 guard。
+资源清空、恢复同步及恢复期间的传输屏蔽由公共后端负责。
+补充需求 #437 为 FIFO 增加显式双端复位契约。任一侧断言都会清空整条 FIFO，双方完成恢复后才允许传输。
 
 ### F6：普通 Module 和 System 边界
 
-普通 Module 的数据及接口控制输入／输出属于自身域，Reg／Queue 和 Method 的接口信号线同样受约束。
+嵌套 Module 的数据及接口控制输入／输出属于自身域，Reg／Queue 和 Method 的接口信号线同样受约束。
 子 Module 可以属于其他域，普通跨域连接仍经显式 CDC；时钟／复位沿用专门规则。
 普通层级沿实际 SSA 连接传递后代专用控制端口的角色；只转发复位的 Module 不会把复位误判成数据。
 这个角色只用于专用控制连接。同一个值若又作为普通数据或返回值使用，仍须检查实际数据域，
 不能因曾用作复位而获得跨域豁免，也不按端口名字推断角色。
-Issue #400 前部 Top 示例按补充规则改写为经 CDC 返回，或放到 System 分域观察，普通 Module 不增加跨域 I/O 豁免。
+选中的普通根可按 #437 使用 `ac.port_domains` 声明各公开端口的实际域。嵌套 Module 按原有规则检查普通连接。
 System 负责多域装配、激励和分域观察，由域配置形成根控制输入、采样映射和实际时钟连接，
 控制脚手架仍由编译器生成。
 
@@ -209,7 +209,7 @@ flowchart TB
 | 域与更新事件 | 局部域引用、实际实例绑定、逻辑时钟源身份及有效边沿 |
 | 状态 | 类型、初始化语义、复位条件、复位方式、极性和复位值 |
 | 事务 | 已规范化的候选值、写意图、激活条件、资源接纳及结果可用性 |
-| CDC | 显式组件的逻辑行为、容量、两侧域、端点角色及整体复位语义 |
+| CDC | 显式组件的逻辑行为、容量、两侧域、端点角色及复位语义 |
 | 检查 | 检查条件、采样与复位屏蔽、来源及逻辑提交对象 |
 
 锚点不能残留待执行的 Python 配置、待选择的默认域、未路由 Method 调用或
@@ -312,9 +312,9 @@ flowchart LR
 ```
 
 System 分域观察是验证边界，不产生 DUT 跨域数据通路。
-普通父 Module 的输入／输出仍遵守其自身域规则；不能把 slow 输出直接穿过 fast
-父 Module 返回。F6 已确认 #400 的早先 Top 示例应改写为经 CDC 返回，
-或移到 System 的分域观察边界，不增加普通 Module 的跨域 I/O 豁免。
+普通嵌套 Module 的输入／输出仍遵守其自身域，fast 接口通过 CDC 接收 slow 结果。
+选中的普通根可为公开的 slow 输出声明实际的 slow 域。
+需要在 fast 域消费该数据时仍须经 CDC。
 
 ### 3. 逻辑状态与复位契约
 
@@ -478,7 +478,7 @@ IR 可以推导哪里跨域并检查连接；后端不根据普通连线猜测�
 | AsyncFIFO | 正容量、单写域／单读域；本地成功操作才产生或消费 token；有序、不丢失、不重复，整体复位除外；跨域 availability 可延迟 |
 
 AsyncFIFO 不隐式广播，不将线上持续有值解释为反复入队，也不形成跨域原子事务。
-整体复位清空资源；恢复期间端点不可传输。
+整体复位与独立复位契约都清空资源，端点在恢复期间暂停传输。
 复位完成前保持不可用，以及在两域持续运行且无故障时最终恢复，属于逻辑合同；
 具体完成协议和延迟由所选物理化实现落实，不能无故永久阻塞。
 
@@ -539,7 +539,7 @@ fast 不必等待 slow 在同一拍完成接收；接纳失败的请求也不能
 - 逻辑域绑定、接口域归属和完整实例闭包。
 - 状态／update 配对、类型和独立实例所有权。
 - 更新事件、事务效果、复位屏蔽及结果 availability。
-- CDC 资源的逻辑端点、操作、容量和整体复位关系。
+- CDC 资源的逻辑端点、操作、容量和复位关系。
 - admission、提交对象、组合依赖环与逻辑时序切断。
 - 完整检查及观察清单。
 
@@ -637,7 +637,7 @@ FIFO 首个实现支持二次幂容量且至少为 2。这是物理化支持范�
 
 local released 不等待对端 ready 才产生。任一侧停钟时相关恢复无法完成，传输保持禁止。
 再次复位清除旧恢复记录；payload slots 不必清零。
-资源两端必须连接同一整体复位，不能隐式 OR 两个独立复位源。
+整体复位接口使用同一复位源。独立复位接口接收两路显式复位及其极性，任一侧断言触发同样的清空和恢复流程。
 
 物理化后保留可验证的组件边界和同步器身份，防止优化合并同步级、暴露第一级或引入旁路。
 这份派生实现可记录同步级数和编码选择；原逻辑锚点保持不变。
@@ -839,7 +839,7 @@ push／pop 分别绑定经认证的本地域 sampled Rule final fire 和本地 a
 AsyncReg 公共实现包含两级数据同步和独立的目标域两级释放，释放前数据级保持零，
 不等待源时钟。FIFO 使用两侧本地释放与对端释放同步，不共享跨域 occupancy。
 首个 FIFO 实现接受 2 的幂且至少 2 的容量；其他正容量保持逻辑合法并在物理化时拒绝。
-本次参数化电路将 final 组件 recipe 更新为 `implementation=2`，FIFO 见证的 depth
+整体复位 final 组件使用 `implementation=2`，FIFO 见证的 depth
 保留有类型的 StaticExpr；字面量与静态参数采用同一电路和验证路径。
 旧实验 implementation=1 的 final 组件明确拒绝，逻辑 routed 7／保存 schema 6 不变。
 final 保留自足的 `ac.cdc.refinement` 见证；重新加载 final 也必须重建并核对完整电路及端点，
@@ -852,6 +852,10 @@ final 保留自足的 `ac.cdc.refinement` 见证；重新加载 final 也必须�
 `ac.value.zero` 仅保留给可复用定义中未解析的 opaque TypeParam 叶子；
 不能用首个 actual 固化共享 body，Bits 与 Struct actual 必须保留各自类型和实例状态。
 零位不证明 nominal 值合法；payload bank 保持 unspecified 初始化，empty head 为已知 packed zero。
+
+[#437 的后端扩展](../architecture/routed-anchor.md#contract-7-domains-reset-policies-and-explicit-cdc)
+定义了选中根的 `ac.port_domains`、`resource_contract=2` 的独立复位 FIFO，以及注册派生时钟
+`ac.clock.source`。独立复位 FIFO 使用 `implementation=3`，三个逻辑结果的依赖摘要记录两路复位。
 
 ## 候选与证据
 

@@ -1876,9 +1876,11 @@ def _derived_clock_rows(initial_high):
         )
 
     step(0, 0)  # an initially-high derived source is history, not a new edge
-    for limit in (0, 2, 1, 0):
-        for _ in range(8):
+    for limit_index, limit in enumerate((0, 2, 1, 0)):
+        for cycle in range(8):
             step(1, limit)
+            if limit_index == 0 and cycle == 0:
+                step(1, 2)  # idle combinational echo follows data immediately
             step(1, limit)  # held root level cannot produce another child event
             step(0, limit)
     # A dormant child's X guard does not fault until a real derived edge.
@@ -1951,18 +1953,19 @@ def _derived_clock_rtl(rows, *, physical):
     selected = rows
     if physical:
         failure = next(i for i, row in enumerate(rows) if row[-1])
-        frozen = rows[failure][4:7]
         selected = []
-        previous_event, echo = (0, 0), 0
+        previous_event, published = rows[0][:2], rows[0][4:7]
         for i, row in enumerate(rows):
             if i >= failure:
-                selected.append((*row[:4], *frozen, row[-1]))
+                selected.append((*row[:4], *published, row[-1]))
                 continue
             event = row[:2]
             if event != previous_event:
-                echo = row[2]
+                published = row[4:7]
             previous_event = event
-            selected.append((*row[:6], echo, row[-1]))
+            # Settled idle outputs remain live; only failure restores the last
+            # successful event snapshot, which remains sticky thereafter.
+            selected.append(row)
     controls = (
         ""
         if physical

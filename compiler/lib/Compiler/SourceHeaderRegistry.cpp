@@ -300,6 +300,9 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
         {"head", dataType(kind)}, {"write_available", one(kind)},
         {"read_available", one(kind)}};
     SmallVector<SmallVector<unsigned>> dependencies(3);
+    if (kind == "async_fifo_independent_reset")
+      for (auto &dependency : dependencies)
+        dependency = {2, 3};
     if (failed(addCatalogEntry(kind, {"DEPTH"}, {}, inputs, outputs,
                                dependencies, true, "async_fifo")))
       return failure();

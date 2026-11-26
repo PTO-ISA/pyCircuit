@@ -225,6 +225,9 @@ and explicit `write_reset_polarity` and `read_reset_polarity`. Either asynchrono
 reset discards the queue and suppresses both admissions. After both pins
 deassert, local release and peer release synchronization advance on the
 respective clocks. A stopped endpoint prevents recovery of normal transfers.
+The head and both availability results have combinational dependencies on
+both reset inputs. Under strict reset semantics, an X or Z on either input
+faults the event batch, including when its peer is asserted.
 The payload bank can retain unreachable bits. Both raw reset pins contribute to
 each endpoint Rule's reset footprint. Strict reset interpretation rejects an
 unknown pin even while the other pin is asserted. Refinement implementation 3
@@ -317,11 +320,16 @@ batch. The managed interface can retry the same edge after discard. The
 physical simulation wrapper latches its fault. Synthesis connects the actual
 registered clock net to the child clock pin.
 
+Between batches, physical simulation exposes combinational results from
+committed storage and live inputs. During a batch it holds the previous event
+snapshot until publication. A physical fault holds the last published event
+snapshot.
+
 This profile admits scalar Module hierarchies with registers and sampled checks.
-Queue, Memory, CDC resources and source observations require separate wave
-contracts when combined with registered clock sources. The initializer must
-prove the selected clock bit known before the first batch, including an initial
-high level.
+Logical Table storage, Queue, Memory, CDC resources and source observations
+require separate wave contracts when combined with registered clock sources.
+The initializer must prove the selected clock bit known before the first
+batch, including an initial high level.
 
 ## Constrained ordinary extern declarations
 

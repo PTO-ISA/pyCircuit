@@ -162,8 +162,17 @@ LogicalResult verifyCDCPrimitiveDeclaration(const HardwareAnalysis &analysis,
   }
   auto dependencies = analysis.getImportDependencies(declaration, {});
   if (failed(dependencies)) return failure();
-  for (const auto &dependency : *dependencies)
-    if (!dependency.inputs.empty()) return reject();
+  for (const auto &dependency : *dependencies) {
+    if (independent) {
+      if (dependency.inputs.size() != 2 ||
+          dependency.inputs[0].port != 2 ||
+          !dependency.inputs[0].path.empty() ||
+          dependency.inputs[1].port != 3 ||
+          !dependency.inputs[1].path.empty())
+        return reject();
+    } else if (!dependency.inputs.empty())
+      return reject();
+  }
   return success();
 }
 FailureOr<CDCPrimitiveLayout> getCDCPrimitiveLayout(

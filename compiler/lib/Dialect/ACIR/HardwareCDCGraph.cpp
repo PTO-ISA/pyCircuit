@@ -263,7 +263,7 @@ public:
       auto semantics = getHardwareResetSemantics(analysis.getPackage());
       if (failed(semantics)) return failure();
       bool strict = *semantics == HardwareResetSemantics::Strict;
-      SmallVector<Ref> normalized, known;
+      SmallVector<Ref> normalized;
       for (unsigned i = 0; i < 2; ++i) {
         Ref raw(inputs[2 + i]);
         auto polarity = source->getAttrOfType<StringAttr>(
@@ -271,17 +271,14 @@ public:
         bool low = polarity.getValue() == "low";
         normalized.push_back(strict ? (low ? invert(raw) : raw)
                                     : equal(raw, low ? zeroBit : oneBit, "case_eq"));
-        if (strict)
-          known.push_back(binary("or", equal(raw, zeroBit, "case_eq"),
-                                 equal(raw, oneBit, "case_eq")));
       }
-      reset = binary("or", normalized[0], normalized[1]);
       if (strict) {
-        auto unknown = node(BitsConstant4Op::getOperationName(), {bit}, {},
-                            {b.getNamedAttr("pattern", b.getStringAttr("x"))});
-        // Preserve a fault on either raw pin even when the other is asserted.
-        reset = node(BitsSelectOp::getOperationName(), {bit},
-                     {binary("and", known[0], known[1]), reset, unknown});
+        // Boolean OR for known pins, but X for either unknown pin even when
+        // its peer is asserted. Keep four-state detectors off the reset tree.
+        reset = binary("or", binary("xor", normalized[0], normalized[1]),
+                       binary("and", normalized[0], normalized[1]));
+      } else {
+        reset = binary("or", normalized[0], normalized[1]);
       }
     }
     if (circuit.kind == "async_reg") {

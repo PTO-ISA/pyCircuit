@@ -966,8 +966,13 @@ LogicalResult emitCausalBatchCoordinator(HardwareEmitContext &context,
   out << "`endif\n";
   for (const auto &port : outputs) {
     out << "`ifndef SYNTHESIS\n"
-        << "  assign " << port.name << " = pyc_visible_output_" << port.ordinal << ";\n"
-        << "`else\n"
+        << "  assign " << port.name << " = ";
+    if (context.isPhysical())
+      out << "(pyc_batch_pending || pyc_physical_fault) ? ";
+    out << "pyc_visible_output_" << port.ordinal;
+    if (context.isPhysical())
+      out << " : pyc_wave_output_" << port.ordinal;
+    out << ";\n`else\n"
         << "  assign " << port.name << " = pyc_wave_output_" << port.ordinal << ";\n"
         << "`endif\n";
   }
@@ -1102,8 +1107,7 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
       expression = std::move(*id);
       if (context.batchesPhysicalEvents() || causal) {
         out << "\n`ifndef SYNTHESIS\n";
-        // Freeze only the active batch. Idle combinational outputs continue
-        // following ordinary data inputs, including roots with no event ports.
+        // Freeze input values for the active batch.
         if (failed(connection(name, "pyc_batch_pending ? pyc_frozen_input_" +
                                         std::to_string(index) + " : " +
                                         expression)))

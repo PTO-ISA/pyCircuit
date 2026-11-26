@@ -1265,3 +1265,85 @@ TEST_F(StateResetValueTest, PublishInitiallyHighDerivedClockForConsumers) {
   publishSaved(derivedClockDividerIR(false, true), derivedClockDividerIR(true, true, true),
                "PYCIRCUIT_TEST_DERIVED_CLOCK_ANCHOR");
 }
+
+
+TEST_F(StateResetValueTest, IndependentResetFIFORejectsResetFeedback) {
+  for (unsigned resetPin : {2u, 3u}) {
+    auto package = mlir::parseSourceString<mlir::ModuleOp>(
+        independentResetFIFOIR(true), &context);
+    ASSERT_TRUE(package);
+    ASSERT_TRUE(mlir::succeeded(ac::verifyRoutedPackage(*package)));
+    ac::InstanceOp fifo;
+    package->walk([&](ac::InstanceOp instance) {
+      if (instance.getInstanceName() == "requests") fifo = instance;
+    });
+    ASSERT_TRUE(fifo);
+    // Availability is masked by either reset in this same cycle. Feeding it
+    // back to either reset must already fail before native expansion.
+    fifo->setOperand(resetPin, fifo->getResult(1));
+    mlir::ScopedDiagnosticHandler expectedFailure(
+        &context, [](mlir::Diagnostic &) { return mlir::success(); });
+    EXPECT_TRUE(mlir::failed(ac::verifyRoutedPackage(*package)));
+  }
+}
+
+TEST_F(StateResetValueTest, DerivedClockProfileRejectsLogicalTableStorage) {
+  auto text = derivedClockDividerIR(true);
+  const auto aliases = text.find("module attributes");
+  text.insert(aliases, R"ir(
+#table_occ = {site = {definition = @"reset_value.fixture.Held", ast_path = [{kind = "index", value = 4 : i64}]}, expansion = []}
+!lanes = !ac.table<[#w8], !b9>
+)ir");
+  const auto state = text.find("    %q = \"gfir.state\"(%clk, %rst, %initial, %zero)");
+  ASSERT_NE(state, std::string::npos);
+  text.insert(state, R"ir(
+    %table_initial = "ac.table.splat"(%zero) {shape = [#w8]} : (!b9) -> !lanes
+    %disabled = "ac.bits.constant"() {value = #w0} : () -> !b1
+    %table = "gfir.state"(%clk, %table_initial) {instance_name = "lanes", occurrence = #table_occ, domain = "D", operandSegmentSizes = array<i32: 1, 0, 1, 0>, init_kind = "explicit", edge = "posedge", reset_kind = "none"} : (!b1, !lanes) -> !lanes
+    "gfir.state.update"(%table, %table, %disabled) : (!lanes, !lanes, !b1) -> ()
+)ir");
+  const std::string states = "states = [#occ]";
+  const auto wiring = text.find(states);
+  ASSERT_NE(wiring, std::string::npos);
+  text.replace(wiring, states.size(), "states = [#occ, #table_occ]");
+  auto package = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
+  ASSERT_TRUE(package);
+  mlir::ScopedDiagnosticHandler expectedFailure(
+      &context, [](mlir::Diagnostic &) { return mlir::success(); });
+  EXPECT_TRUE(mlir::failed(ac::verifyRoutedPackage(*package)));
+}
+
+TEST_F(StateResetValueTest, PhysicalProjectionRequiresClosedExplicitInitial) {
+  for (bool resetFree : {false, true}) {
+    auto routed = mlir::parseSourceString<mlir::ModuleOp>(
+        resetFree ? resetFreeStorageIR(true) : stateIR(true), &context);
+    ASSERT_TRUE(routed);
+    auto final = acir::detail::refineRoutedHardware(*routed);
+    ASSERT_TRUE(mlir::succeeded(final));
+    ac::HardwareAnalysis original(**final);
+    const auto staticPlan = original.getSourceCheckPlan();
+    ASSERT_TRUE(mlir::succeeded(staticPlan));
+    ASSERT_TRUE(mlir::succeeded(original.getPhysicalProjection(*staticPlan)));
+    auto root = *(*final)->getOps<ac::ModuleOp>().begin();
+    auto &body = root.getBody().front();
+    ac::InstanceOp reg;
+    root.walk([&](ac::InstanceOp instance) { reg = instance; });
+    ASSERT_TRUE(reg);
+    const auto pins = ac::getRegisterPrimitiveLayout(original.resolveCallee(reg));
+    ASSERT_TRUE(mlir::succeeded(pins));
+    // Edit the final artifact directly: logical-state initializer checks must
+    // not be the only protection of physical admission. The reset stays closed.
+    mlir::OpBuilder builder(reg);
+    mlir::OperationState resize(reg.getLoc(), "ac.bits.resize");
+    resize.addOperands(body.getArgument(0));
+    resize.addTypes(reg->getOperand(pins->initial).getType());
+    resize.addAttribute("mode", builder.getStringAttr("zext"));
+    reg->setOperand(pins->initial, builder.create(resize)->getResult(0));
+    ac::HardwareAnalysis modified(**final);
+    const auto dynamicPlan = modified.getSourceCheckPlan();
+    ASSERT_TRUE(mlir::succeeded(dynamicPlan));
+    mlir::ScopedDiagnosticHandler expectedFailure(
+        &context, [](mlir::Diagnostic &) { return mlir::success(); });
+    EXPECT_TRUE(mlir::failed(modified.getPhysicalProjection(*dynamicPlan)));
+  }
+}
