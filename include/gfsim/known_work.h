@@ -132,6 +132,12 @@ Word<Out> extract(const Word<In> &x, unsigned low) noexcept {
   return Word<Out>::known(gfsim::extract<Out>(x.value(), low));
 }
 
+template <unsigned Out, unsigned In, unsigned A>
+Word<Out> extract_lshr(const Word<In> &x, const Word<A> &amount,
+                       unsigned low) noexcept {
+  return extract<Out>(x, gfsim::detail::shiftedBitOffset<In>(amount.value(), low));
+}
+
 template <unsigned Out, unsigned In>
 Word<Out> truncate(const Word<In> &x) noexcept {
   return Word<Out>::known(gfsim::trunc<Out>(x.value()));

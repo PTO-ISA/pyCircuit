@@ -28,13 +28,12 @@ template <typename T> void expect(const T &wire, unsigned value) {
   require(wire.packed().value().value() == value);
 }
 // Independent byte arithmetic; no generated intermediates supply the oracle.
-unsigned mixRounds(unsigned x, unsigned rounds) {
-  unsigned value = x;
-  for (unsigned i = 0; i < rounds; ++i) value = ((value + x) & 255u) ^ 0x5au;
+unsigned mixRounds(unsigned value, unsigned increment, unsigned rounds) {
+  for (unsigned i = 0; i < rounds; ++i) value = ((value + increment) & 255u) ^ 0x5au;
   return value;
 }
 unsigned mix(unsigned x) {
-  return (mixRounds(x, 480) + (x ^ 0x33u)) & 255u;
+  return (mixRounds(x, 255u - x, 448) + (x ^ 0x33u)) & 255u;
 }
 struct TestSystem final : gfsim::SimSystem {
   explicit TestSystem(pyc_root &r) : root(r) {}
@@ -48,6 +47,8 @@ int main() {
   for (unsigned workers : {1u, 2u}) {
     gfsim::WorkExecutor pool(workers);
     pyc_root root("outline", &pool);
+    root.row = known<73>(0);
+    root.shift = known<73>(0);
     auto drive = [&](unsigned x, unsigned clock, bool allow = true) {
       root.x = known<8>(x);
       root.allow = known<1>(allow);
@@ -58,7 +59,7 @@ int main() {
       expect(root.result_0, mix(x));
       expect(root.result_1, saved);
       expect(root.result_2, x);
-      expect(root.result_3, mixRounds(x, 24));
+      expect(root.result_3, mixRounds(x, x, 24));
     };
     drive(0, 0);
     TestSystem system(root);
@@ -133,6 +134,43 @@ int main() {
     root.Xfer();
     drive(17, 0);
     root.Work(); observe(17, 0); root.DiscardNext();
+    // The window starts three bits above the shift count. Check source bits
+    // directly, including payload bits beneath X/Z and known zero fill.
+    using Wide = gfsim::Bits<73>;
+    const Wide value{0xa529409b03e16af7ULL, 0x155};
+    for (bool fullyKnown : {true, false}) {
+      const Wide unknown{0xc000000000000008ULL, 0x110};
+      const Wide knownMask = fullyKnown ? Wide::ones() : ~unknown;
+      const Wide zMask = fullyKnown ? Wide{} : Wide{0x8000000000000000ULL, 0x10};
+      root.row = gfsim::wire<Wide>::fromPacked(
+          gfsim::FourState<73>::fromMasks(value, knownMask, zMask));
+      for (unsigned shift : {0u, 57u, 63u, 69u, 73u}) {
+        root.shift = known<73>(shift);
+        root.Work();
+        const auto field = root.result_4.packed();
+        for (unsigned i = 0; i < 9; ++i) {
+          const unsigned bit = shift + 3 + i;
+          require(field.value().bit(i) == (bit < 73 && value.bit(bit)));
+          require(field.knownMask().bit(i) == (bit >= 73 || knownMask.bit(bit)));
+          require(field.zMask().bit(i) == (bit < 73 && zMask.bit(bit)));
+        }
+        root.DiscardNext();
+      }
+    }
+    // A set high count bit must not be lost in conversion to a native integer.
+    root.shift = gfsim::wire<Wide>::known(Wide{0, 1});
+    root.Work(); expect(root.result_4, 0); root.DiscardNext();
+    const Wide highBit{0, 1};
+    for (const Wide z : {Wide{}, highBit}) {
+      root.shift = gfsim::wire<Wide>::fromPacked(
+          gfsim::FourState<73>::fromMasks(Wide{}, ~highBit, z));
+      root.Work();
+      const auto field = root.result_4.packed();
+      require(field.value() == gfsim::Bits<9>{0});
+      require(field.knownMask() == gfsim::Bits<9>{0});
+      require(field.zMask() == gfsim::Bits<9>{0});
+      root.DiscardNext();
+    }
   }
   std::cout << "PASS\n";
 }
@@ -158,6 +196,21 @@ def inspect_work(directory):
             start = family.end()
             following = text.find("class pyc_family_", start)
             body = text[start : following if following >= 0 else len(text)]
+            if family[1].startswith("MixingLeaf"):
+                # One computation per data representation, shared by all rounds.
+                # Check the hot helpers so a once-only frame initializer is free
+                # to build and store constant operands in any layout.
+                hot = "".join(
+                    function_body(body, match.end() - 1)
+                    for match in re.finditer(
+                        r"void pyc_(?:known_)?work_part_\d+\([^)]*\)\s*\{", body
+                    )
+                )
+                for api in ("gfsim::", "gfsim::detail::known_work::"):
+                    assert hot.count(api + "bit_not(") <= 1, "repeated complement"
+                    assert api + "extract_lshr<" in hot, "missing shifted window"
+                    assert api + "lshr(" not in hot, "materialized wide shift"
+                assert "{90ULL}" not in hot, "round constant rebuilt during Work"
             for method in re.finditer(
                 r"\bvoid (Work|pyc_work_part_\d+|pyc_work_dispatch_\w+)\([^)]*\)\s*\{",
                 body,
