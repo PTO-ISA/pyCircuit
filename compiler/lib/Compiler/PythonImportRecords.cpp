@@ -6490,7 +6490,7 @@ public:
     auto transport = getOperation();
     auto &bindings = getAnalysis<SourceMemoryBindingsAnalysis>();
     auto result = bindings.lower(owner, *headers);
-    if (failed(result) || failed(::acir::normalizeSourceControlFlow(**result)) ||
+    if (failed(result) ||
         failed(verify(**result))) {
       signalPassFailure();
       return;
