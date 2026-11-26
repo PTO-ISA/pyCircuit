@@ -309,14 +309,39 @@ FourState<High + Low> concat(const FourState<High> &high,
       concat(high.zMask(), low.zMask()));
 }
 
+namespace detail {
+// First source bit of a slice taken after a logical right shift. Saturate
+// before adding the static offset, including for multiword shift amounts.
+template <unsigned W, unsigned AmountWidth>
+unsigned shiftedBitOffset(const Bits<AmountWidth> &amount, unsigned low) noexcept {
+  for (unsigned word = 1; word < Bits<AmountWidth>::kWords; ++word)
+    if (amount.word(word) != 0)
+      return W;
+  if (low >= W || amount.value() >= W - low)
+    return W;
+  return low + static_cast<unsigned>(amount.value());
+}
+} // namespace detail
+
 template <unsigned W, unsigned AmountWidth>
 unsigned boundedShift(const FourState<AmountWidth> &amount) noexcept {
-  for (unsigned word = 1; word < Bits<AmountWidth>::kWords; ++word)
-    if (amount.value().word(word) != 0)
-      return W;
-  if (amount.value().value() >= W)
-    return W;
-  return static_cast<unsigned>(amount.value().value());
+  return detail::shiftedBitOffset<W>(amount.value(), 0);
+}
+
+template <unsigned Out, unsigned In, unsigned A>
+FourState<Out> extract_lshr(const FourState<In> &value,
+                            const FourState<A> &amount, unsigned low) noexcept {
+  static_assert(Out <= In);
+  if (low > In - Out || !amount.isFullyKnown())
+    return FourState<Out>::unknown();
+  const unsigned first = detail::shiftedBitOffset<In>(amount.value(), low);
+  if (first <= In - Out)
+    return extract<Out>(value, first);
+  // Bits beyond the original value become known zeros in a logical shift.
+  const auto fill = shl(Bits<Out>::ones(), In - first);
+  return FourState<Out>::fromMasks(extract<Out>(value.value(), first),
+                                   extract<Out>(value.knownMask(), first) | fill,
+                                   extract<Out>(value.zMask(), first));
 }
 
 template <unsigned W, unsigned AmountWidth>

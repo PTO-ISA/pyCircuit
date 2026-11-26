@@ -80,6 +80,26 @@ TEST(TypedMemoryTest, ByteReadIsCurrentStateAndWritesCommitOnlyAtXfer) {
   mem.raddr = known<5>(8); mem.clk = known<1>(0); mem.Work(); mem.Xfer();
   EXPECT_EQ(mem.rdata.value(), gfsim::Bits<16>{0});
 }
+TEST(TypedMemoryTest, UnalignedWideByteReadPacksWordsAndZeroFillsTheTail) {
+  using Kernel = gfsim::byte_mem_kernel<gfsim::Bits<80>, 5, 12>;
+  Kernel::Current current;
+  for (unsigned i = 0; i < current.memory.size(); ++i)
+    current.memory[i] = static_cast<std::uint8_t>(0xa0 + i);
+
+  gfsim::wire<gfsim::Bits<80>> result;
+  Kernel::read(current, known<5>(1), {result});
+  ASSERT_TRUE(result.isFullyKnown());
+  EXPECT_EQ(result.value().word(0), 0xa8a7a6a5a4a3a2a1ULL);
+  EXPECT_EQ(result.value().word(1), 0xaaa9u);
+
+  Kernel::read(current, known<5>(3), {result});
+  ASSERT_TRUE(result.isFullyKnown());
+  EXPECT_EQ(result.value().word(0), 0xaaa9a8a7a6a5a4a3ULL);
+  EXPECT_EQ(result.value().word(1), 0xabu);
+
+  Kernel::read(current, gfsim::wire<gfsim::Bits<5>>::unknown(), {result});
+  EXPECT_FALSE(result.isFullyKnown());
+}
 TEST(TypedMemoryTest, DualPortReadsShareOldStorageAndIndependentOutputs) {
   gfsim::sync_mem_dp<gfsim::Bits<8>, 3, 5> mem("dual");
   mem.pokeEntry(0, gfsim::Bits<8>{7}); mem.pokeEntry(1, gfsim::Bits<8>{19});
