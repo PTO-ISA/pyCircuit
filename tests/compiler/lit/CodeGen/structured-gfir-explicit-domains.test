@@ -1,6 +1,6 @@
-# Two actual input clock/reset pairs map into two single-domain child instances.
-# The independent shared trace checks per-domain edges, held/reset eligibility,
-# whole-sample discard and exact same-high retry after the late child's fault.
+# Two domains drive remotely updated Storage instances while a direct Storage
+# instance of the same definition holds zero. The independent trace checks
+# edge/reset behavior, atomic discard and same-high retry after a late fault.
 # REQUIRES: rtl-four-state-parameter-types
 # RUN: %python %inputs/structured-gfir-explicit-domains-oracle.py > %t.rows
 # RUN: %pycircuit_opt %inputs/structured-gfir-explicit-domains.mlir --gfir-verify -o %t.gfir

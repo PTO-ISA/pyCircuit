@@ -11,20 +11,31 @@ module attributes {gfir.contract = 1 : i64} {
       %old = gfir.read @value : !b8
       gfir.yield %old : !b8
     }
+    gfir.method @increment() -> () {
+      %one = "ac.bits.constant4"() {pattern = "00000001"} : () -> !b8
+      %old = gfir.call self["inspect"]() : () -> !b8
+      %next = "ac.bits.binary"(%old, %one) {opcode = "add"} : (!b8, !b8) -> !b8
+      gfir.write @value, %next : !b8
+      gfir.yield
+    }
+    gfir.method @advance_twice(%enabled: !b1) -> () {
+      gfir.if %enabled : !b1 -> () {
+        gfir.call self["increment"]() : () -> ()
+        gfir.call self["increment"]() : () -> ()
+        gfir.yield
+      } else { gfir.yield }
+      gfir.yield
+    }
     gfir.rule @advance(%first = %a : !b1, %second = %b : !b1, %selector = %select : !b1) -> () {
       gfir.guard %first : !b1
       gfir.guard %second : !b1
       gfir.if %selector : !b1 -> () {
+        gfir.call self["advance_twice"](%second) : (!b1) -> ()
+        gfir.yield
+      } else {
         %unused = gfir.call self["inspect"]() : () -> !b8
         gfir.yield
-      } else { gfir.yield }
-      %one = "ac.bits.constant4"() {pattern = "00000001"} : () -> !b8
-      %old = gfir.read @value : !b8
-      %next = "ac.bits.binary"(%old, %one) {opcode = "add"} : (!b8, !b8) -> !b8
-      gfir.write @value, %next : !b8
-      %candidate = gfir.call self["inspect"]() : () -> !b8
-      %twice = "ac.bits.binary"(%candidate, %one) {opcode = "add"} : (!b8, !b8) -> !b8
-      gfir.write @value, %twice : !b8
+      }
       gfir.yield
     }
     %value = gfir.read @value : !b8

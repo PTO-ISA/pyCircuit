@@ -1,8 +1,6 @@
-# The same independent oracle crosses two pure functions before the existing
-# clocked Relay/Sink boundaries; pure calls introduce no sampling domain.
-# Selected value availability crosses a clocked Relay and Sink. The Sink guard
-# precedes its first value use (state-write/return). Two-owner snapshots and exact
-# select X/Z masks expose absent/unselected arms, discard and failed-edge retries.
+# Two actual Pick instances forward through Identity, one with total inputs
+# supplied by an independent pure helper and one with a conditional arm.
+# The Relay/Sink trace checks reached writes, X/Z masks, discard and retry.
 # REQUIRES: rtl-four-state-parameter-types
 # RUN: %python %inputs/structured-gfir-selected-clocked-input-oracle.py > %t.rows
 # RUN: %pycircuit_opt %inputs/structured-gfir-selected-pure-input.mlir --gfir-verify -o %t.gfir

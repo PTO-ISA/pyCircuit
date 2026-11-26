@@ -791,6 +791,61 @@ class AvailabilityProof {
       std::swap(left, right);
     return node("eq", {left, right});
   }
+  // Summarize the actual yielded expression in terms of this definition's
+  // known-one inputs. Value keys retain lexical definition identity.
+  DenseMap<Value, SmallVector<unsigned>> companionInputs;
+  DenseSet<Value> companionActive;
+  bool collectOneInputs(Value value, ModuleOp owner,
+                        SmallVectorImpl<unsigned> &inputs, unsigned depth = 0) {
+    if (!charge(1, owner) || depth >= 128)
+      return false;
+    auto cached = companionInputs.find(value);
+    if (cached != companionInputs.end()) {
+      if (!charge(cached->second.size(), owner)) return false;
+      llvm::append_range(inputs, cached->second);
+      return true;
+    }
+    if (!companionActive.insert(value).second) return false;
+    llvm::scope_exit cleanup([&] { companionActive.erase(value); });
+    SmallVector<unsigned> required;
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      if (argument.getOwner() != &owner.getBody().front()) return false;
+      required.push_back(argument.getArgNumber());
+    } else if (auto instance = value.getDefiningOp<InstanceOp>()) {
+      auto target = dyn_cast_or_null<ModuleOp>(
+          analysis.lookupDefinition(instance.getCallee()));
+      if (!target || !target.getBody().hasOneBlock() ||
+          target.getBody().front().empty()) return false;
+      auto yield = dyn_cast<YieldOp>(target.getBody().front().back());
+      unsigned ordinal = cast<OpResult>(value).getResultNumber();
+      if (!yield || ordinal >= yield.getValues().size()) return false;
+      SmallVector<unsigned> nested;
+      if (!collectOneInputs(yield.getValues()[ordinal], target, nested, depth + 1))
+        return false;
+      for (unsigned input : nested) {
+        if (input >= instance.getInputs().size() ||
+            !collectOneInputs(instance.getInputs()[input], owner, required, depth + 1))
+          return false;
+      }
+    } else if (auto binary = value.getDefiningOp<BitsBinaryOp>();
+               binary && binary.getOpcode() == "and") {
+      for (Value operand : binary->getOperands())
+        if (!collectOneInputs(operand, owner, required, depth + 1)) return false;
+    } else if (auto select = value.getDefiningOp<BitsSelectOp>()) {
+      if (!collectOneInputs(select.getTrueValue(), owner, required, depth + 1) ||
+          !collectOneInputs(select.getFalseValue(), owner, required, depth + 1))
+        return false;
+    } else {
+      auto known = knownGuard(value);
+      if (failed(known) || !known->value_or(false)) return false;
+    }
+    llvm::sort(required);
+    required.erase(std::unique(required.begin(), required.end()), required.end());
+    if (!charge(1 + required.size(), owner)) return false;
+    companionInputs.try_emplace(value, required);
+    llvm::append_range(inputs, required);
+    return true;
+  }
   bool isConstantOneCompanion(Value value) {
     auto instance = value.getDefiningOp<InstanceOp>();
     if (!instance)
@@ -815,31 +870,13 @@ class AvailabilityProof {
     auto yield = dyn_cast<YieldOp>(body.back());
     if (!yield || ordinal >= yield.getValues().size())
       return false;
-    SmallVector<Value> pending{yield.getValues()[ordinal]};
-    DenseSet<Value> visited;
-    while (!pending.empty()) {
-      Value flag = pending.pop_back_val();
-      if (!charge(1, instance))
+    SmallVector<unsigned> required;
+    if (!collectOneInputs(yield.getValues()[ordinal], target, required))
+      return false;
+    for (unsigned input : required)
+      if (input >= instance.getInputs().size() ||
+          formula(instance.getInputs()[input]) != 1)
         return false;
-      if (!visited.insert(flag).second)
-        continue;
-      if (auto argument = dyn_cast<BlockArgument>(flag)) {
-        if (argument.getOwner() != &body ||
-            argument.getArgNumber() >= instance.getInputs().size() ||
-            formula(instance.getInputs()[argument.getArgNumber()]) != 1)
-          return false;
-      } else if (auto andOp = flag.getDefiningOp<BitsBinaryOp>();
-                 andOp && andOp.getOpcode() == "and") {
-        llvm::append_range(pending, andOp->getOperands());
-      } else if (auto choice = flag.getDefiningOp<BitsSelectOp>()) {
-        pending.push_back(choice.getTrueValue());
-        pending.push_back(choice.getFalseValue());
-      } else {
-        auto known = knownGuard(flag);
-        if (failed(known) || !known->value_or(false))
-          return false;
-      }
-    }
     return true;
   }
   Expr formula(Value value) {

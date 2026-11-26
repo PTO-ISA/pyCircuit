@@ -2242,7 +2242,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     return failure();
   SmallVector<std::string, 2> systemPins;
   auto rootKind = definition->getAttrOfType<StringAttr>("ac.root_kind");
-  if (ctx.sourceChecks().managedSampling && rootKind && rootKind.getValue() == "system") {
+  if (selectedRoot && ctx.sourceChecks().managedSampling && rootKind &&
+      rootKind.getValue() == "system") {
     auto domains = definition->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
     for (StringRef role : {"clock", "reset"}) {
       auto ordinal = domains ? domains.getAs<IntegerAttr>(role) : IntegerAttr{};

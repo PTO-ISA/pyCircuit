@@ -148,6 +148,7 @@ private:
                            std::optional<unsigned> rule);
   LogicalResult mergeUses(BodyUses &into, const BodyUses &from, Operation *site);
   LogicalResult resolveMethodEffects();
+  LogicalResult resolveBranchWrites();
   LogicalResult resolveRuleEffects(ArrayRef<StructuredChildState> childStates);
 
   ModuleOp module;
@@ -659,8 +660,6 @@ LogicalResult ClockedAnalyzer::verifyBody(Operation *owner, Block &block,
                                     uses.writes.end());
       if (failed(budget.debit(written.size(), branch)))
         return failure();
-      llvm::sort(written);
-      written.erase(std::unique(written.begin(), written.end()), written.end());
       plan.conditionalWrites.insert(written.begin(), written.end());
       plan.branchWrites.try_emplace(branch, std::move(written));
     } else if (auto step = dyn_cast<StepOp>(op)) {
@@ -766,6 +765,29 @@ LogicalResult ClockedAnalyzer::resolveMethodEffects() {
       plan.directMethodEffects.try_emplace(
           index, StructuredMethodEffects{uses.expandedWork, depth, uses.states,
                                          uses.writes, uses.formalWrites});
+  }
+  return success();
+}
+
+LogicalResult ClockedAnalyzer::resolveBranchWrites() {
+  // A local Method shares the selected arm's candidate, including writes
+  // made by other Methods it calls.
+  for (auto [call, callee] : plan.methodCalls) {
+    const auto &writes = methodUses[callee].writes;
+    if (writes.empty())
+      continue;
+    for (auto branch = call->getParentOfType<IfOp>(); branch;
+         branch = branch->getParentOfType<IfOp>()) {
+      if (failed(budget.debit(writes.size(), branch)))
+        return failure();
+      plan.branchWrites[branch].append(writes);
+    }
+  }
+  // Method-bearing arms are checked. Their sampled intents are selected by
+  // lowering and their behavioral candidates already track whether they wrote.
+  for (auto &[branch, writes] : plan.branchWrites) {
+    llvm::sort(writes);
+    writes.erase(std::unique(writes.begin(), writes.end()), writes.end());
   }
   return success();
 }
@@ -1107,7 +1129,7 @@ FailureOr<StructuredClocked> ClockedAnalyzer::run(ClockedCallBinder bindCalls) {
                           ruleUses[index], unsigned(index))))
       return failure();
   }
-  if (failed(resolveRuleEffects(*childStates)))
+  if (failed(resolveBranchWrites()) || failed(resolveRuleEffects(*childStates)))
     return failure();
   return std::move(plan);
 }

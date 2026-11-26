@@ -35,6 +35,10 @@ module attributes {gfir.contract = 1 : i64} {
       attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["value"], output_names = ["result"]} {
     gfir.yield %value : !b8
   }
+  gfir.module @Fallback(%value: !b8) -> (!b8)
+      attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["value"], output_names = ["result"]} {
+    gfir.yield %value : !b8
+  }
   gfir.module @Pick(%selector: !b1, %yes: !b8, %no: !b8) -> (!b8)
       attributes {source_owner = {package = "", path = "selected_input.py"}, input_names = ["selector", "yes", "no"], output_names = ["result"]} {
     %selected = "ac.bits.select"(%selector, %yes, %no) : (!b1, !b8, !b8) -> !b8
@@ -52,8 +56,13 @@ module attributes {gfir.contract = 1 : i64} {
       gfir.yield %value : !b8
     }
     %produced = gfir.result @produce[0] : !b8
+    %choose_fallback = "ac.bits.constant4"() {pattern = "0"} : () -> !b1
+    gfir.instance @fallback_source of @Fallback
+    %total_input = gfir.call @fallback_source(%fallback) : (!b8) -> !b8
+    gfir.instance @total of @Pick
+    %total = gfir.call @total(%choose_fallback, %zero, %total_input) : (!b1, !b8, !b8) -> !b8
     gfir.instance @pick of @Pick
-    %chosen = gfir.call @pick(%select, %produced, %fallback) : (!b1, !b8, !b8) -> !b8
+    %chosen = gfir.call @pick(%select, %produced, %total) : (!b1, !b8, !b8) -> !b8
     gfir.instance @relay of @Relay
     %result, %old = gfir.call @relay(%chosen, %run) : (!b8, !b1) -> (!b8, !b8)
     %producer_old = gfir.read @issued : !b8

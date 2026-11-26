@@ -60,28 +60,27 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
   SmallVector<Type> outputTypes(source.getFunctionType().getResults());
   SmallVector<Attribute> outputNames(source.getOutputNames().getValue());
   unsigned sourceInputs = inputTypes.size();
-  Type bit;
-  if (!facts.inputAvailability.empty() || !facts.outputAvailability.empty() ||
-      llvm::any_of(program.definitions, [](const auto &entry) { return !entry.inputAvailability.empty(); })) {
-    auto owner = source.getSourceOwner();
+  auto literal = [&](uint64_t value) {
     auto occurrence = builder.getDictionaryAttr({
         builder.getNamedAttr("site", builder.getDictionaryAttr({
             builder.getNamedAttr("definition", FlatSymbolRefAttr::get(source.getSymNameAttr())),
             builder.getNamedAttr("ast_path", builder.getArrayAttr({}))})),
         builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
     auto location = builder.getDictionaryAttr({
-        builder.getNamedAttr("path", owner.getAs<StringAttr>("path")),
+        builder.getNamedAttr("path", source.getSourceOwner().getAs<StringAttr>("path")),
         builder.getNamedAttr("line", builder.getI64IntegerAttr(1)),
         builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
         builder.getNamedAttr("end_line", builder.getI64IntegerAttr(1)),
         builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
-    auto width = ac::StaticExprAttr::get(builder.getContext(), builder.getDictionaryAttr({
+    return ac::StaticExprAttr::get(builder.getContext(), builder.getDictionaryAttr({
         builder.getNamedAttr("kind", builder.getStringAttr("literal")),
         builder.getNamedAttr("value", builder.getDictionaryAttr({
             builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-            builder.getNamedAttr("value", ac::MathIntAttr::get(builder.getContext(), llvm::APSInt(llvm::APInt(64, 1), true)))})),
+            builder.getNamedAttr("value", ac::MathIntAttr::get(builder.getContext(), llvm::APSInt::getUnsigned(value)))})),
         builder.getNamedAttr("origin", occurrence), builder.getNamedAttr("location", location)}));
-    bit = ac::BitsType::get(builder.getContext(), width);
+  };
+  Type bit = ac::BitsType::get(builder.getContext(), literal(1));
+  if (!facts.inputAvailability.empty() || !facts.outputAvailability.empty()) {
     SmallVector<Attribute> inputValidity(inputTypes.size(), builder.getI64IntegerAttr(-1));
     for (auto [ordinal, input] : llvm::enumerate(facts.inputAvailability)) {
       inputValidity[inputLayout.companionPayloads[ordinal]] = builder.getI64IntegerAttr(inputTypes.size());
@@ -128,17 +127,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     else fieldInputCompanions.try_emplace(ordinal, argument);
   }
   llvm::DenseMap<std::pair<Operation *, unsigned>, Value> childCompanions;
-  auto childFor = [&](gfir::CallOp call) -> const gfir::StructuredDefinition * {
-    auto receiver = call.getReceiverAttr().getRootReference().getValue();
-    for (auto instance : source.getBody().front().getOps<gfir::InstanceOp>()) {
-      if (instance.getSymName() != receiver) continue;
-      for (const auto &child : program.definitions) {
-        auto module = child.module;
-        if (module.getSymName() == instance.getCalleeAttr().getValue()) return &child;
-      }
-    }
-    return nullptr;
-  };
+  llvm::DenseMap<Operation *, const gfir::StructuredDefinition *> callees;
 
   struct Instance {
     gfir::InstanceOp declaration;
@@ -168,7 +157,7 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     else if (isa<gfir::YieldOp>(operation))
       name = ac::YieldOp::getOperationName();
     OperationState state(operation.getLoc(), name);
-    state.addTypes(operation.getResultTypes());
+    const gfir::StructuredDefinition *child = nullptr;
     if (auto call = dyn_cast<gfir::CallOp>(operation)) {
       auto found = instances.find(call.getReceiverAttr().getRootReference().getValue());
       // The shared analysis proves this binding; keep construction total if
@@ -176,6 +165,17 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
       if (found == instances.end())
         return call.emitOpError() << "missing verified instance declaration";
       auto instance = found->second.declaration;
+      auto callee = llvm::find_if(program.definitions, [&](const auto &entry) {
+        auto module = entry.module;
+        return module.getSymName() == instance.getCalleeAttr().getValue();
+      });
+      auto target = dyn_cast_or_null<ac::ModuleOp>(
+          SymbolTable::lookupSymbolIn(package, instance.getCalleeAttr()));
+      if (callee == program.definitions.end() || !target)
+        return call.emitOpError("missing verified callee definition");
+      child = &*callee;
+      callees.try_emplace(&operation, child);
+      state.addTypes(target.getFunctionType().getResults());
       state.addAttribute("instance_name", instance.getSymNameAttr());
       state.addAttribute("callee", instance.getCalleeAttr());
       state.addAttribute("parameters", builder.getArrayAttr({}));
@@ -183,22 +183,19 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
       state.addAttribute("occurrence",
                          instanceOccurrence(source, instance,
                                             found->second.ordinal, builder));
-      if (const auto *child = childFor(call)) {
-        auto target = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package, instance.getCalleeAttr()));
-        state.addTypes(target.getFunctionType().getResults().take_back(child->outputAvailability.size()));
-      }
-    } else if (!isa<gfir::YieldOp>(operation)) {
-      state.addAttributes(operation.getAttrs());
+    } else {
+      state.addTypes(operation.getResultTypes());
+      if (!isa<gfir::YieldOp>(operation))
+        state.addAttributes(operation.getAttrs());
     }
     for (unsigned index = 0; index < operation.getNumRegions(); ++index)
       state.addRegion();
     Operation *lowered = builder.create(state);
-    if (auto call = dyn_cast<gfir::CallOp>(operation))
-      if (const auto *child = childFor(call)) {
-        unsigned result = operation.getNumResults();
-        for (const auto &output : child->outputAvailability)
-          childCompanions.try_emplace(std::make_pair(&operation, output.port), lowered->getResult(result++));
-      }
+    if (child) {
+      unsigned result = operation.getNumResults();
+      for (const auto &output : child->outputAvailability)
+        childCompanions.try_emplace(std::make_pair(&operation, output.port), lowered->getResult(result++));
+    }
     operations.emplace_back(&operation, lowered);
     for (auto [original, result] :
          llvm::zip(operation.getResults(), lowered->getResults()))
@@ -276,10 +273,10 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
     }
     return result ? result : truth();
   };
+  Value noWrite;
   for (auto [sourceOp, targetOp] : operations) {
     SmallVector<Value> operands;
-    const gfir::StructuredDefinition *child = nullptr;
-    if (auto call = dyn_cast<gfir::CallOp>(sourceOp)) child = childFor(call);
+    const auto *child = callees.lookup(sourceOp);
     for (auto [port, operand] : llvm::enumerate(sourceOp->getOperands())) {
       Value mapped = mapping.lookupOrNull(operand);
       if (!mapped)
@@ -306,20 +303,31 @@ LogicalResult materializeDefinition(const gfir::StructuredDefinition &facts,
         operands.push_back(value);
       }
     }
-    if (auto call = dyn_cast<gfir::CallOp>(sourceOp))
-      if (child)
-        for (const auto &input : child->inputAvailability) {
-          const auto &leaves = facts.valueWires.find(call.getInputs()[input.port])->second;
-          auto leaf = llvm::find_if(leaves, [&](unsigned index) {
-            return facts.wires[index].endpoint.path == input.path;
-          });
-          if (leaf == leaves.end()) return failure();
-          const auto &sources = facts.wireAvailability.empty()
-              ? gfir::StructuredAvailability{} : facts.wireAvailability[*leaf];
-          auto available = availability(sources);
-          if (failed(available)) return failure();
-          operands.push_back(*available);
-        }
+    if (child) {
+      // The wrapper has no transaction proposals. Each writable route keeps
+      // the committed value from this actual instance as its candidate.
+      unsigned firstQ = targetOp->getNumResults() - child->incomingStates.size();
+      for (auto [ordinal, incoming] : llvm::enumerate(child->incomingStates)) {
+        if (!incoming.writable)
+          continue;
+        if (!noWrite)
+          noWrite = make(ac::BitsConstantOp::getOperationName(), {}, {bit}, {
+              builder.getNamedAttr("value", literal(0))})->getResult(0);
+        operands.append({targetOp->getResult(firstQ + ordinal), noWrite});
+      }
+      for (const auto &input : child->inputAvailability) {
+        const auto &leaves = facts.valueWires.find(sourceOp->getOperand(input.port))->second;
+        auto leaf = llvm::find_if(leaves, [&](unsigned index) {
+          return facts.wires[index].endpoint.path == input.path;
+        });
+        if (leaf == leaves.end()) return failure();
+        const auto &sources = facts.wireAvailability.empty()
+            ? gfir::StructuredAvailability{} : facts.wireAvailability[*leaf];
+        auto available = availability(sources);
+        if (failed(available)) return failure();
+        operands.push_back(*available);
+      }
+    }
     if (isa<gfir::YieldOp>(sourceOp))
       for (const auto &output : facts.outputAvailability) {
         auto available = availability(output.sources);
