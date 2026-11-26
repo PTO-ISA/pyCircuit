@@ -3,6 +3,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "EntryBoundary.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/ACIR/RegisterContracts.h"
 
 #include "pycircuit/Dialect/ACIR/ACIRDialect.cpp.inc"
 
@@ -13,6 +14,8 @@ namespace acir::ac {
 LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                                                     NamedAttribute attribute) {
   StringRef name = attribute.getName().getValue();
+  if (name == "ac.register_contract")
+    return success(succeeded(getRegisterContract(operation)));
   if (name == "ac.transactional") {
     auto package = dyn_cast<mlir::ModuleOp>(operation);
     if (!package) return operation->emitOpError("ac.transactional belongs only to a package");
@@ -64,9 +67,9 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
         package->hasAttr("ac.unit_kind") || !stage ||
         (stage.getValue() != "routed" && stage.getValue() != "final") ||
         !version || !version.getType().isSignlessInteger(64) ||
-        (version.getValue() != 4 && version.getValue() != 5))
+        (version.getValue() != 4 && version.getValue() != 5 && version.getValue() != 7))
       return operation->emitOpError()
-             << "ac.routed_contract requires version 4 or 5 : i64 on the top-level "
+             << "ac.routed_contract requires version 4, 5 or 7 : i64 on the top-level "
                 "routed or final package; regenerate unsupported artifacts";
     // Pair presence is a structural schema rule, including during ordinary
     // native verification. Do not bind entries or recurse into package
@@ -81,7 +84,8 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
             boundaries += child.hasAttr("ac.entry_boundary");
           }
     if ((version.getInt() == 5 && (selections != 1 || boundaries != 1)) ||
-        (version.getInt() == 4 && boundaries))
+        (version.getInt() == 4 && boundaries) ||
+        (version.getInt() == 7 && boundaries && (selections != 1 || boundaries != 1)))
       return operation->emitOpError()
              << "ac.routed_contract 5 requires ac.entry_boundary on the sole "
                 "System; contract 4 forbids ac.entry_boundary";

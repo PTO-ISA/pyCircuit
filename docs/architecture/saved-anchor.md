@@ -64,7 +64,9 @@ replace refinement or hardware verification.
 Ordinary anchors use `kind="pycircuit-anchor"`, `schema=3` and
 `routed_contract=4`. Anchors with a compiler-owned
 [selected entry boundary](entry-boundary.md) use `schema=4` and
-`routed_contract=5`. Only these two schema/contract pairs are admitted;
+`routed_contract=5`. The native-resource profile below adds schema 6 / contract 7;
+only these three schema/contract pairs are admitted. Superseded experimental
+schema 5 / contract 6 requires regeneration;
 the retired schema/contract pairs 1/2 and 2/3 and any unsupported or mismatched
 versions require regeneration from source units.
 Anchors containing compact Queue controls require a toolchain that verifies
@@ -119,6 +121,46 @@ payload allocation or MLIR parsing:
 
 Existing graph, proof and clone budgets still apply. The format does not expand
 compact Collections or claim lower peak memory without measurement.
+
+## Schema 6: domain/reset/CDC anchors
+
+The new `kind="pycircuit-anchor"`, `schema=6`, `routed_contract=7` pair
+stores [the domain/reset/CDC profile](routed-anchor.md#contract-7-domains-reset-policies-and-explicit-cdc).
+It retains logical domain attributes, full state policy/operand segments and
+canonical CDC native import/instance contracts in exact definition bodies. Its configuration
+additionally contains sorted `domain_bindings` records with `instance_path`,
+`formal` and `clock_input`. Native validation resolves each actual occurrence
+through its complete binding map and compares the reconstructed records exactly.
+These refer to logical root arguments, not emitted wire names or physical
+synchronizer topology. Reload does not choose a new default domain.
+
+When the selected logical root has `ac.port_domains`, schema 6 additionally
+contains `port_domain_bindings`. These canonical sorted records describe each
+domain-bearing source port after applying the default: `direction` (`input` or
+`output`), `source_ordinal`, `domain` and `clock_input`, with `companion` when the
+payload has a physical availability suffix port. Clock ordinals come from the
+authenticated implementation root's `ac.domain_clock_inputs`; clock-source
+inputs are described by the existing domain bindings. Native reload recomputes
+these records from the verified graph and compares the complete configuration.
+The Python transport checks only record shape, bounds and canonical ordering.
+Anchors without a port map omit this field and retain their existing manifest
+shape. Entry normalization preserves the exact map on both logical and
+implementation roots.
+
+A registered derived clock adds `clock_sources` to the saved configuration.
+The table records external input identities and registered identities in
+parent-before-child order. Each registered entry identifies its declaration
+owner, the storage occurrence, packed bit offset, parent source and known
+initial level. Domain and port rows use `clock_source` for these identities
+and `clock_input` for external inputs. Native reload reconstructs the source
+graph, domain bindings and startup levels from the anchored bodies and checks
+the complete configuration.
+
+Schema 6 permits an ordinary root or the canonical selected entry boundary.
+Only the latter adds `implementation_root` to the configuration, with separate
+logical and implementation root rows and the same native boundary validation.
+Reload preserves the complete contract before entering the shared hardware
+refinement chain; it does not upgrade a legacy anchor's policy.
 
 ## Publication and relocation
 

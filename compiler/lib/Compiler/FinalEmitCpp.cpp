@@ -106,12 +106,27 @@ bool isSystemRoot(ac::ModuleOp root) {
 }
 struct SystemControls {
   std::string clock, reset;
+  SmallVector<std::string> sampled;
 };
 FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   auto fail = [&] { return root.emitOpError(); };
   auto kind = root->getAttrOfType<StringAttr>("ac.root_kind");
   if (!kind || kind.getValue() != "system")
     return fail() << "generated simulation requires a verified system root";
+  auto sampled = ac::getSystemSampleInputs(root);
+  if (failed(sampled))
+    return failure();
+  if (!sampled->empty()) {
+    SystemControls result;
+    for (unsigned index : *sampled) {
+      auto name = legalizeIdentifier(
+          cast<StringAttr>(root.getInputNames()[index]).getValue(), fail);
+      if (failed(name))
+        return failure();
+      result.sampled.push_back(*name);
+    }
+    return result;
+  }
   auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
   auto clock = domain ? domain.getAs<IntegerAttr>("clock") : IntegerAttr();
   auto reset = domain ? domain.getAs<IntegerAttr>("reset") : IntegerAttr();
@@ -137,7 +152,7 @@ FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   auto clockName = legal(clockOrdinal), resetName = legal(resetOrdinal);
   if (failed(clockName) || failed(resetName))
     return failure();
-  return SystemControls{std::move(*clockName), std::move(*resetName)};
+  return SystemControls{std::move(*clockName), std::move(*resetName), {}};
 }
 std::string systemSimulationMain(const SystemControls &controls,
                                  StringRef config, ArrayAttr samples,
@@ -145,6 +160,9 @@ std::string systemSimulationMain(const SystemControls &controls,
   std::string text;
   llvm::raw_string_ostream out(text);
   std::string declarations, drive, cycleGuard;
+  auto names = controls.sampled.empty()
+                   ? SmallVector<std::string>{controls.clock, controls.reset}
+                   : controls.sampled;
   if (!samples.empty()) {
     declarations = "constexpr std::string_view pyc_samples[] = {";
     for (Attribute raw : samples)
@@ -158,12 +176,10 @@ std::string systemSimulationMain(const SystemControls &controls,
         "gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::FourState<1>::"
         "highImpedance());\n}\n";
     drive = "    if (epoch >= " + std::to_string(samples.size()) +
-            ") return false;\n"
-            "    self.inputs." +
-            controls.clock +
-            " = pyc_symbol(pyc_samples[epoch][0]);\n"
-            "    self.inputs." +
-            controls.reset + " = pyc_symbol(pyc_samples[epoch][1]);\n";
+            ") return false;\n";
+    for (auto [i, name] : llvm::enumerate(names))
+      drive += "    self.inputs." + name + " = pyc_symbol(pyc_samples[epoch][" +
+               std::to_string(i) + "]);\n";
     cycleGuard = "      std::cerr << \"pycircuit_system: explicit --cycles "
                  "conflicts with samples\\n\"; return 2;\n";
   } else {
@@ -193,14 +209,10 @@ std::string systemSimulationMain(const SystemControls &controls,
          "  pyc_dut &dut;\n  std::uint64_t cycles;\n"
          "  pyc_dut::Inputs inputs{};\n"
          "  static void initialize(void *opaque) {\n"
-         "    auto &self = *static_cast<pyc_run_context *>(opaque);\n"
-         "    self.inputs."
-      << controls.clock
-      << " = pyc_bit(false);\n"
-         "    self.inputs."
-      << controls.reset
-      << " = pyc_bit(false);\n"
-         "    self.dut.drive(self.inputs);\n  }\n"
+         "    auto &self = *static_cast<pyc_run_context *>(opaque);\n";
+  for (const auto &name : names)
+    out << "    self.inputs." << name << " = pyc_bit(false);\n";
+  out << "    self.dut.drive(self.inputs);\n  }\n"
          "  static bool drive(void *opaque, std::uint64_t epoch) {\n"
          "    auto &self = *static_cast<pyc_run_context *>(opaque);\n"
       << drive
@@ -271,12 +283,15 @@ LogicalResult emitDefinitionOnce(HardwareEmitContext &context,
 } // namespace
 
 void addCppSystemDriver(FinalCppSourceParts &parts, StringRef clock,
-                        StringRef reset, ArrayAttr samples, bool resetIfOne) {
+                        StringRef reset, ArrayAttr samples, bool resetIfOne,
+                        ArrayRef<std::string> sampledInputs) {
   parts.simulationConfig =
       "{\"deadlock_window\":null,\"max_domain_cycles\":{},"
       "\"max_ticks\":9223372036854775807,"
       "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}\n";
-  parts.simulationMain = systemSimulationMain({clock.str(), reset.str()},
+  SystemControls controls{clock.str(), reset.str(), {}};
+  controls.sampled.append(sampledInputs.begin(), sampledInputs.end());
+  parts.simulationMain = systemSimulationMain(controls,
       StringRef(parts.simulationConfig).trim(), samples, resetIfOne);
 }
 
@@ -548,7 +563,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
   if (failed(inputs) || failed(outputs))
     return failure();
   appendCppDutHeader(parts, *inputs, *outputs, *configure,
-                     context.sourceChecks().hasChecks(), observes);
+                     cppHasRootChecks(context, *root) || context.causalClocks(), observes);
   if (isSystemRoot(*root)) {
     auto controls = systemControls(*root);
     if (failed(controls))
@@ -557,7 +572,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
     if (failed(samples))
       return failure();
     addCppSystemDriver(parts, controls->clock, controls->reset, *samples,
-                       context.resetIfOne());
+                       context.resetIfOne(), controls->sampled);
   }
   return parts;
 }

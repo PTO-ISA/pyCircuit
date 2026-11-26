@@ -1,9 +1,23 @@
 // Included beside OrderedPrefixProof so queue proposals reuse the admission
 // grammar and its four-state knownness proof.
 static LogicalResult proveQueueProposalPrefixes(
-    const SampledAdmissionView &view, const PreparedSampledBoundaries &prepared,
-    const HardwareAnalysis &analysis, SourceCheckBudget &budget, OrderedPrefixProof &proof) {
+    const SampledAdmissionView &view, const HardwareAnalysis &analysis,
+    SourceCheckBudget &budget, OrderedPrefixProof &proof,
+    const Prefix &cdcAdmission, Value resetMask) {
   if (view.queueProposals.empty() && view.memoryProposals.empty()) return success();
+  auto unmasked = [&](Value path) -> FailureOr<HardwareIdentityEndpoint> {
+    auto enable = proof.normalize(path);
+    if (failed(enable) || !resetMask)
+      return enable;
+    auto gate = enable->value.getDefiningOp<BitsBinaryOp>();
+    if (!gate || gate.getOpcode() != "and")
+      return view.rule->emitOpError("resource proposal omits transaction reset mask");
+    auto expected = proof.normalize(resetMask);
+    auto actual = proof.normalize(gate.getRhs());
+    if (failed(expected) || failed(actual) || !sameEndpoint(*expected, *actual))
+      return view.rule->emitOpError("resource proposal omits transaction reset mask");
+    return proof.normalize(gate.getLhs());
+  };
   struct Factor { HardwareIdentityEndpoint value; bool positive; bool expandedSelector = false; bool literal = false; };
   struct Factors { SmallVector<Factor> atoms; bool alwaysFalse = false; };
   auto factors = [&](Value value) -> FailureOr<Factors> {
@@ -147,10 +161,11 @@ static LogicalResult proveQueueProposalPrefixes(
         compact = true;
       }
     }
-    Value admission = proposal.path;
+    auto enable = unmasked(proposal.path);
+    if (failed(enable))
+      return failure();
+    Value admission = enable->value;
     if (!compact) {
-      auto enable = proof.normalize(proposal.path);
-      if (failed(enable)) return failure();
       auto combine = enable->value.getDefiningOp<BitsBinaryOp>();
       if (!combine || combine.getOpcode() != "and")
         return view.rule->emitOpError() << "queue proposal requires admission AND raw path";
@@ -160,6 +175,12 @@ static LogicalResult proveQueueProposalPrefixes(
       admission = combine.getLhs();
     }
     auto prefix = proof.parse(admission);
+    if (!cdcAdmission.atoms.empty() || cdcAdmission.impossible) {
+      auto committing = proof.conjunction(expected, cdcAdmission, view.rule);
+      if (failed(committing))
+        return failure();
+      expected = std::move(*committing);
+    }
     if (failed(prefix) || failed(proof.equal(*prefix, expected, view.rule)))
       return view.rule->emitOpError() << "queue proposal differs from its retained admission";
 

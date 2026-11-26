@@ -5540,6 +5540,27 @@ TEST_F(SourceTransactionCaptureTest,
   EXPECT_EQ(direct<ac::InstanceOp>(adapter.getBody()).size(), 1u);
   EXPECT_TRUE(operations<ac::SourceStateOp>(*normalized).size() > 0u);
   EXPECT_TRUE(direct<ac::SourceStateOp>(adapter.getBody()).empty());
+
+  // Exercise the producer independently of its normalization proof: all source
+  // domain formals are inherited because source IR cannot own clock sources.
+  auto sourceRoot = cast<ac::ModuleOp>(
+      SymbolTable::lookupSymbolIn(*original, "retained_root.Counter"));
+  Builder b(&context);
+  sourceRoot->setAttr("ac.domain_params",
+                      b.getArrayAttr({b.getStringAttr("D"),
+                                      b.getStringAttr("Aux")}));
+  auto produced = compiler::normalizeEntryBoundary(*original);
+  ASSERT_TRUE(succeeded(produced)) << diagnostics;
+  ASSERT_TRUE(produced->get());
+  auto producedAdapter = cast<ac::ModuleOp>(SymbolTable::lookupSymbolIn(
+      **produced, "pycircuit.__link_entry__"));
+  auto producedChildren = direct<ac::InstanceOp>(producedAdapter.getBody());
+  ASSERT_EQ(producedChildren.size(), 1u);
+  auto expectedDomains = b.getDictionaryAttr(
+      {b.getNamedAttr("D", b.getStringAttr("D")),
+       b.getNamedAttr("Aux", b.getStringAttr("Aux"))});
+  EXPECT_EQ(producedChildren.front()->getAttr("ac.domain_bindings"),
+            expectedDomains);
 }
 
 TEST_F(SourceTransactionCaptureTest,

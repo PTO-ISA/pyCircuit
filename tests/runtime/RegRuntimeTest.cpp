@@ -50,6 +50,159 @@ TEST(RegRuntimeTest, DffeOldQHoldDiscardAndClockedReset) {
   reg.Reset(); reg.DiscardNext(); reg.Xfer();
   EXPECT_EQ(reg.q.value().value(), 3u);
 }
+TEST(RegRuntimeTest, SeparateResetValuePreservesHoldDiscardAndTypedPayload) {
+  gfsim::dffe<gfsim::Bits<9>, true> reg("separate");
+  reg.init = known<9>(5);
+  reg.reset_value = known<9>(0);
+  reg.clk = known<1>(0);
+  reg.rst = known<1>(0);
+  reg.en = known<1>(0);
+  reg.d = known<9>(257);
+  reg.Reset(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 5u);
+
+  // Synchronous reset does not consume the reset value at a held low clock.
+  reg.rst = known<1>(1);
+  reg.Work(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 5u);
+  reg.clk = known<1>(1);
+  reg.Work();
+  EXPECT_EQ(reg.q.value().value(), 5u);
+  reg.DiscardNext(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 5u);
+  // Discard also preserves clock history: the same high sample still resets.
+  reg.Work(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 0u);
+
+  reg.rst = known<1>(0);
+  fallingEdge(reg);
+  reg.clk = known<1>(1);
+  reg.Work(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 0u); // enable false holds
+  fallingEdge(reg);
+  reg.clk = known<1>(1); reg.en = known<1>(1);
+  reg.Work(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 257u);
+  fallingEdge(reg);
+  reg.clk = known<1>(1); reg.rst = known<1>(1);
+  reg.en = gfsim::wire<gfsim::Bits<1>>::unknown();
+  reg.Work(); reg.Xfer(); // reset overrides even an unknown enable
+  EXPECT_EQ(reg.q.value().value(), 0u);
+  reg.Reset(); reg.Xfer();
+  EXPECT_EQ(reg.q.value().value(), 5u);
+
+  // The unconditionally enabled adapter preserves a structured payload wider
+  // than 64 bits; reset must not erase its logical field layout or use init.
+  gfsim::dff<Payload, true> structured("structured");
+  const Payload initial{gfsim::Bits<5>{18},
+                        gfsim::shl(gfsim::Bits<70>{1}, 68)};
+  const Payload reset{gfsim::Bits<5>{7}, gfsim::Bits<70>{53}};
+  structured.init = gfsim::wire<Payload>::known(initial);
+  structured.reset_value = gfsim::wire<Payload>::known(reset);
+  structured.Reset(); structured.Xfer();
+  EXPECT_EQ(structured.q.value().tag, initial.tag);
+  EXPECT_EQ(structured.q.value().data, initial.data);
+  structured.clk = known<1>(1); structured.rst = known<1>(1);
+  structured.Work(); structured.Xfer();
+  EXPECT_EQ(structured.q.value().tag, reset.tag);
+  EXPECT_EQ(structured.q.value().data, reset.data);
+  structured.Reset(); structured.Xfer();
+  EXPECT_EQ(structured.q.value().tag, initial.tag);
+  EXPECT_EQ(structured.q.value().data, initial.data);
+}
+TEST(RegRuntimeTest, FullRegisterPoliciesFollowTheirDeclaredEvents) {
+  using Edge = gfsim::RegisterEdge;
+  using Kind = gfsim::RegisterResetKind;
+  using Polarity = gfsim::RegisterResetPolarity;
+  using Kernel = gfsim::dffe_kernel<gfsim::Bits<9>>;
+  struct Scenario {
+    Edge edge;
+    Kind reset;
+    unsigned expected[8];
+  };
+  // Literal event oracles: no result is computed with the DUT's evaluator.
+  const Scenario scenarios[] = {
+      {Edge::Posedge, Kind::Sync, {5, 0, 0, 0, 9, 9, 9, 0}},
+      {Edge::Negedge, Kind::Sync, {5, 5, 0, 0, 0, 17, 17, 17}},
+      {Edge::Posedge, Kind::Async, {0, 0, 0, 0, 9, 9, 0, 0}},
+      {Edge::Negedge, Kind::Async, {0, 0, 0, 0, 0, 17, 0, 0}},
+      {Edge::Posedge, Kind::None, {5, 5, 5, 5, 9, 9, 9, 9}},
+      {Edge::Negedge, Kind::None, {5, 5, 5, 5, 5, 17, 17, 17}},
+  };
+  const unsigned clocks[] = {0, 1, 0, 0, 1, 0, 0, 1};
+  const bool asserted[] = {true, true, true, false, false, false, true, true};
+  const unsigned enables[] = {0, 0, 0, 1, 1, 1, 0, 0};
+  const unsigned values[] = {31, 31, 31, 9, 9, 17, 31, 31};
+  for (const auto &scenario : scenarios) {
+    for (auto polarity : {Polarity::High, Polarity::Low}) {
+      if (scenario.reset == Kind::None && polarity == Polarity::Low)
+        continue; // no polarity contract exists for a reset-free state
+      Kernel::Current current;
+      Kernel::Pending pending;
+      auto clk = known<1>(0), rst = known<1>(0), en = known<1>(0);
+      auto data = known<9>(0), init = known<9>(5), reset = known<9>(0);
+      gfsim::wire<gfsim::Bits<9>> output;
+      Kernel::Inputs pins{clk, rst, en, data, init, &reset, scenario.edge,
+                          scenario.reset, polarity};
+      Kernel::reset(current, pins, pending);
+      Kernel::xfer(current, pending, {output});
+      for (unsigned row = 0; row != 8; ++row) {
+        SCOPED_TRACE(row);
+        clk = known<1>(clocks[row]);
+        rst = scenario.reset == Kind::None
+                  ? gfsim::wire<gfsim::Bits<1>>::unknown()
+                  : known<1>(asserted[row] == (polarity == Polarity::High));
+        en = known<1>(enables[row]);
+        data = known<9>(values[row]);
+        const auto before = output;
+        Kernel::work(current, pins, pending, {output});
+        EXPECT_EQ(output.value().value(), before.value().value());
+        Kernel::xfer(current, pending, {output});
+        EXPECT_TRUE(output.isFullyKnown());
+        EXPECT_EQ(output.value().value(), scenario.expected[row]);
+      }
+    }
+  }
+}
+
+TEST(RegRuntimeTest, AsyncUnknownResetAndUnspecifiedInitializationRemainDistinct) {
+  using Edge = gfsim::RegisterEdge;
+  using Kind = gfsim::RegisterResetKind;
+  using Polarity = gfsim::RegisterResetPolarity;
+  gfsim::dffe<gfsim::Bits<9>, true, Edge::Negedge, Kind::Async,
+              Polarity::Low, gfsim::ResetSemantics::Strict, false> strict("strict");
+  strict.init = known<9>(5); // the physical ABI's ignored pin is not init authority
+  strict.reset_value = known<9>(3);
+  strict.clk = known<1>(0); strict.rst = known<1>(1);
+  strict.en = known<1>(0); strict.d = known<9>(23);
+  strict.Reset(); strict.Xfer();
+  EXPECT_EQ(strict.q.packed().knownMask(), gfsim::Bits<9>{0});
+  EXPECT_EQ(strict.q.packed().zMask(), gfsim::Bits<9>{0});
+  strict.rst = known<1>(0);
+  strict.Work(); strict.DiscardNext(); strict.Xfer();
+  EXPECT_EQ(strict.q.packed().knownMask(), gfsim::Bits<9>{0});
+  strict.Work(); strict.Xfer(); // no edge, but async reset is effective
+  EXPECT_EQ(strict.q.value().value(), 3u);
+  strict.rst = gfsim::wire<gfsim::Bits<1>>::unknown();
+  EXPECT_THROW(strict.Work(), gfsim::FourStateViolation);
+  strict.DiscardNext(); strict.Xfer();
+  EXPECT_EQ(strict.q.value().value(), 3u);
+  strict.Reset(); strict.Xfer();
+  EXPECT_EQ(strict.q.packed().knownMask(), gfsim::Bits<9>{0});
+
+  gfsim::dffe<gfsim::Bits<9>, true, Edge::Negedge, Kind::Async,
+              Polarity::Low, gfsim::ResetSemantics::IfOne> ifOne("if-one");
+  ifOne.init = known<9>(5); ifOne.reset_value = known<9>(3);
+  ifOne.clk = known<1>(1);
+  ifOne.rst = gfsim::wire<gfsim::Bits<1>>::unknown();
+  ifOne.en = known<1>(1); ifOne.d = known<9>(23);
+  ifOne.Reset(); ifOne.Xfer();
+  ifOne.Work(); ifOne.Xfer();
+  EXPECT_EQ(ifOne.q.value().value(), 5u); // rising is not its update edge
+  ifOne.clk = known<1>(0);
+  ifOne.Work(); ifOne.Xfer();
+  EXPECT_EQ(ifOne.q.value().value(), 23u); // unknown reset is inactive
+}
 TEST(RegRuntimeTest, StructLayoutAndIndependentLeafInstancesAbove64Bits) {
   Payload initial{gfsim::Bits<5>{18}, gfsim::shl(gfsim::Bits<70>{1}, 68)};
   Payload update{gfsim::Bits<5>{7}, gfsim::Bits<70>{53}};

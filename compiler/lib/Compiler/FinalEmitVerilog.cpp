@@ -1,12 +1,14 @@
-#include "FinalEmitVerilog.h"
 #include "FinalCppNames.h"
+#include "FinalEmitVerilog.h"
 #include "HardwareEmitCommon.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 using namespace mlir;
 namespace acir::compiler {
 namespace {
@@ -116,6 +118,7 @@ FailureOr<ac::ModuleOp> rootModule(HardwareEmitContext &context) {
 }
 struct SystemControls {
   std::string clock, reset;
+  SmallVector<std::string> sampled;
 };
 FailureOr<std::string> managedReset(HardwareEmitContext &context,
                                     ac::ModuleOp root) {
@@ -140,6 +143,21 @@ FailureOr<std::string> managedReset(HardwareEmitContext &context,
   return context.rtlReset(*name);
 }
 FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
+  auto sampled = ac::getSystemSampleInputs(root);
+  if (failed(sampled))
+    return failure();
+  if (!sampled->empty()) {
+    SystemControls result;
+    for (unsigned index : *sampled) {
+      auto name = legalizeIdentifier(
+          cast<StringAttr>(root.getInputNames()[index]).getValue(),
+          [&] { return root.emitOpError(); });
+      if (failed(name))
+        return failure();
+      result.sampled.push_back(*name);
+    }
+    return result;
+  }
   auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
   auto clock = domain ? domain.getAs<IntegerAttr>("clock") : IntegerAttr();
   auto reset = domain ? domain.getAs<IntegerAttr>("reset") : IntegerAttr();
@@ -167,7 +185,7 @@ FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   auto clockName = legal(clockIndex), resetName = legal(resetIndex);
   if (failed(clockName) || failed(resetName))
     return failure();
-  return SystemControls{std::move(*clockName), std::move(*resetName)};
+  return SystemControls{std::move(*clockName), std::move(*resetName), {}};
 }
 struct ObservationAddress {
   std::string object;
@@ -215,8 +233,14 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
   auto samples = ac::getSystemSamples(root);
   if (failed(samples))
     return failure();
-  const bool sampleRootDomain = context.sourceChecks().managedSampling;
+  const bool sampleRootDomain =
+      controls->sampled.empty() && context.sourceChecks().managedSampling;
   std::string scheduleDeclaration, scheduleSteps, cycleGuard;
+  auto controlNames =
+      controls->sampled.empty()
+          ? SmallVector<std::string>{controls->clock, controls->reset}
+          : controls->sampled;
+  auto controlWidth = std::to_string(controlNames.size());
   if (!samples->empty()) {
     std::string pattern;
     for (Attribute row : *samples)
@@ -231,13 +255,13 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
     scheduleSteps =
         "    for (pyc_cycle=0; pyc_cycle<" + std::to_string(samples->size()) +
         "; pyc_cycle=pyc_cycle+1) begin\n      pyc_step(pyc_samples[(" +
-        std::to_string(samples->size()) + "-1-pyc_cycle)*2+1], pyc_samples[(" +
-        std::to_string(samples->size()) + "-1-pyc_cycle)*2]);\n    end\n";
+        std::to_string(samples->size()) + "-1-pyc_cycle)*" + controlWidth +
+        " +: " + controlWidth + "]);\n    end\n";
   } else {
     scheduleSteps =
         "    for (pyc_cycle=0; pyc_cycle<pyc_cycles; pyc_cycle=pyc_cycle+1) "
         "begin\n"
-        "      pyc_step(1'b0, 1'b0);\n      pyc_step(1'b1, 1'b0);\n    end\n";
+        "      pyc_step(2'b00);\n      pyc_step(2'b10);\n    end\n";
   }
   struct ReportOutput {
     uint64_t ordinal;
@@ -270,8 +294,9 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
   std::string text;
   llvm::raw_string_ostream out(text);
   out << "module pycircuit_sim;\n"
-         "  logic pyc_clk = 1'b0;\n"
-         "  logic pyc_rst = 1'b0;\n"
+         "  logic ["
+      << controlNames.size() - 1
+      << ":0] pyc_controls = '0;\n"
          "  logic [2:0] pyc_phase = 3'd0;\n"
          "  logic pyc_root_commit_ok = 1'b0;\n"
          "  wire pyc_check_complete;\n"
@@ -284,10 +309,11 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "  longint unsigned pyc_cycle;\n"
          "  string pyc_cycles_text;\n"
          "  bit pyc_cycles_valid;\n  "
-      << wrapper << " dut (\n    ." << controls->clock << "(pyc_clk),\n    ."
-      << controls->reset
-      << "(pyc_rst),\n"
-         "    .pyc_phase(pyc_phase),\n"
+      << wrapper << " dut (\n";
+  for (auto [index, name] : llvm::enumerate(controlNames))
+    out << "    ." << name << "(pyc_controls["
+        << controlNames.size() - 1 - index << "]),\n";
+  out << "    .pyc_phase(pyc_phase),\n"
          "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
          "    .pyc_check_complete(pyc_check_complete),\n"
          "    .pyc_sampling_error(pyc_sampling_error),\n"
@@ -500,11 +526,11 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
         << "      end\n";
   }
   out << "    end\n  endtask\n"
-      << scheduleDeclaration
-      << "  task automatic pyc_step(input logic level, input logic "
-         "reset_level);\n"
+      << scheduleDeclaration << "  task automatic pyc_step(input logic ["
+      << controlNames.size() - 1
+      << ":0] levels);\n"
          "    begin\n"
-         "      pyc_clk = level; pyc_rst = reset_level;\n"
+         "      pyc_controls = levels;\n"
          "      pyc_root_commit_ok = 1'b0;\n"
          "      #1; // Settle combinational pins before the shared PREPARE "
          "edge.\n"
@@ -516,10 +542,10 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "      end\n"
          "      if (pyc_sampling_error !== 1'b0";
   if (sampleRootDomain) {
-    out << " || (level !== 1'b0 && level !== 1'b1)";
+    out << " || (levels[1] !== 1'b0 && levels[1] !== 1'b1)";
     if (!context.resetIfOne())
-      out << " || (!pyc_previous_clock && level === 1'b1 && "
-             "reset_level !== 1'b0 && reset_level !== 1'b1)";
+      out << " || (!pyc_previous_clock && levels[1] === 1'b1 && "
+             "levels[0] !== 1'b0 && levels[0] !== 1'b1)";
   }
   out << ") begin\n"
          "        pyc_phase = 3'd3; #1;\n"
@@ -541,7 +567,7 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "      pyc_root_commit_ok = 1'b1;\n"
          "      pyc_phase = 3'd2; #1;\n";
   if (sampleRootDomain)
-    out << "      pyc_previous_clock = level;\n";
+    out << "      pyc_previous_clock = levels[1];\n";
   out << "      pyc_publish_observations();\n"
          "      pyc_phase = 3'd0;\n"
          "      pyc_root_commit_ok = 1'b0;\n"
@@ -558,7 +584,7 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "    end else if ($test$plusargs(\"cycles\"))\n"
          "      $fatal(1, \"pycircuit_sim: +cycles requires a positive decimal "
          "value no greater than 4611686018427387903\");\n"
-         "    pyc_clk = 1'b0; pyc_rst = 1'b0;\n"
+         "    pyc_controls = '0;\n"
          "    #1; // Reset initializers settle before RESET_PREPARE.\n"
          "    pyc_root_commit_ok = 1'b1; pyc_phase = 3'd4; #1;\n"
          "    pyc_phase = 3'd2; #1;\n"
@@ -598,6 +624,381 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "    $finish;\n  end\nendmodule\n";
   out.flush();
   return text;
+}
+// Simulation-only finite event batches. Each detector owns its NBA slot;
+// the coordinator never performs a shared detector read/modify/write.
+LogicalResult emitPhysicalBatchCoordinator(HardwareEmitContext &context,
+                                           ac::ModuleOp root,
+                                           raw_ostream &out) {
+  auto bindings = context.rootBindings();
+  if (failed(bindings))
+    return failure();
+  auto layout = ac::getModulePortLayout(root);
+  if (failed(layout))
+    return failure();
+  const auto &projection = context.physicalProjection();
+  SmallVector<unsigned> events(projection.clockInputs);
+  llvm::append_range(events, projection.resetInputs);
+  llvm::sort(events);
+  events.erase(std::unique(events.begin(), events.end()), events.end());
+  out << "  // Finite batches: payload settles first; each root clock/reset\n"
+         "  // changes at most once in one update region, then stays stable\n"
+         "  // through delta drain. Observe in the read-only region.\n"
+         "  // Initial root clocks must all be known zero.\n"
+         "  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;\n"
+         "`ifndef SYNTHESIS\n"
+         "  logic [2:0] pyc_phase = 3'd0;\n"
+         "  bit pyc_root_commit_ok = 1'b0;\n"
+         "  bit pyc_physical_fault = 1'b0;\n"
+         "  bit pyc_initial_batch = 1'b1;\n"
+         "  bit pyc_event_seal = 1'b0;\n"
+         "  bit pyc_batch_pending = 1'b0;\n"
+         "  initial begin\n"
+         "    pyc_batch_pending = 1'b1;\n"
+         "    pyc_event_seal <= 1'b1; // establish initial clock histories\n"
+         "  end\n";
+  for (unsigned index : events) {
+    auto name = legalizeIdentifier(
+        cast<StringAttr>(root.getInputNames()[index]).getValue(),
+        [&] { return root.emitOpError(); });
+    if (failed(name))
+      return failure();
+    out << "  bit pyc_event_slot_" << index << " = 1'b0;\n"
+        << "  always @(" << *name << ") pyc_event_slot_" << index
+        << " <= ~pyc_event_slot_" << index << ";\n";
+  }
+  for (unsigned index = 0; index < layout->sourceInputCount; ++index) {
+    auto type = context.analysis.resolveType(
+        root.getFunctionType().getInput(index), *bindings, root);
+    if (failed(type))
+      return failure();
+    auto rendered = context.rtlType(*type, root);
+    if (failed(rendered))
+      return failure();
+    out << "  " << *rendered << " pyc_frozen_input_" << index << ";\n";
+  }
+  out << "  wire pyc_physical_setup_error = pyc_initial_batch && (1'b0";
+  for (unsigned clock : projection.clockInputs)
+    out << " || (pyc_frozen_input_" << clock << " !== 1'b0)";
+  out << ");\n"
+         "  wire pyc_physical_error = pyc_physical_setup_error |\n"
+         "      (pyc_check_complete !== 1'b1) |\n"
+         "      (pyc_sampling_error !== 1'b0) | (pyc_local_error !== 1'b0)";
+  for (unsigned clock : projection.clockInputs)
+    out << " | $isunknown(pyc_frozen_input_" << clock << ")";
+  out << ";\n";
+  if (!events.empty()) {
+    out << "  always @(";
+    for (auto [index, event] : llvm::enumerate(events))
+      out << (index ? " or " : "") << "pyc_event_slot_" << event;
+    out << ") begin\n"
+           "    if (!pyc_physical_fault && !pyc_batch_pending) begin\n"
+           "      pyc_batch_pending = 1'b1;\n"
+           "      pyc_event_seal <= ~pyc_event_seal;\n"
+           "    end\n"
+           "  end\n";
+  }
+  out << "  always @(pyc_event_seal) begin\n"
+         "    if (pyc_batch_pending && !pyc_physical_fault) begin\n";
+  for (unsigned index = 0; index < layout->sourceInputCount; ++index) {
+    auto name = legalizeIdentifier(
+        cast<StringAttr>(root.getInputNames()[index]).getValue(),
+        [&] { return root.emitOpError(); });
+    if (failed(name))
+      return failure();
+    out << "      pyc_frozen_input_" << index << " = " << *name << ";\n";
+  }
+  out << "      pyc_root_commit_ok <= 1'b0;\n"
+         "      pyc_phase <= 3'd1;\n"
+         "    end\n"
+         "  end\n"
+         "  always @(pyc_phase) begin\n"
+         "    case (pyc_phase)\n"
+         "      3'd1: pyc_phase <= 3'd5; // preparation NBA barrier\n"
+         "      3'd5: pyc_phase <= 3'd6; // completion/error reduction "
+         "barrier\n"
+         "      3'd6: begin\n"
+         "        if (pyc_physical_error) begin\n"
+         "          pyc_physical_fault <= 1'b1;\n"
+         "          pyc_root_commit_ok <= 1'b0;\n"
+         "          pyc_phase <= 3'd3;\n"
+         "          $display(\"PYCIRCUIT_PHYSICAL_FAULT\");\n"
+         "          pyc_report_physical_fault($sformatf(\"%m\"));\n"
+         "        end else begin\n"
+         "          pyc_root_commit_ok <= 1'b1;\n"
+         "          pyc_phase <= 3'd2;\n"
+         "        end\n"
+         "      end\n"
+         "      3'd2: begin\n"
+         "        pyc_initial_batch <= 1'b0;\n"
+         "        pyc_phase <= 3'd7; // successful storage NBA drain\n"
+         "      end\n"
+         "      3'd3: pyc_phase <= 3'd7; // discard drain\n"
+         "      3'd7: begin\n"
+         "        pyc_root_commit_ok <= 1'b0;\n"
+         "        pyc_batch_pending <= 1'b0;\n"
+         "        pyc_phase <= 3'd0;\n"
+         "      end\n"
+         "      default: begin end\n"
+         "    endcase\n"
+         "  end\n"
+         "`else\n"
+         "  wire [2:0] pyc_phase = 3'd0;\n"
+         "  wire pyc_root_commit_ok = 1'b1;\n"
+         "`endif\n";
+  return success();
+}
+LogicalResult emitCausalBatchCoordinator(HardwareEmitContext &context,
+                                         ac::ModuleOp root, raw_ostream &out) {
+  auto bindings = context.rootBindings();
+  auto layout = ac::getModulePortLayout(root);
+  if (failed(bindings) || failed(layout))
+    return failure();
+  auto signature = root.getFunctionType();
+  auto type = [&](Type original) -> FailureOr<std::string> {
+    auto resolved = context.analysis.resolveType(original, *bindings, root);
+    if (failed(resolved))
+      return failure();
+    return context.rtlType(*resolved, root);
+  };
+  auto name = [&](Attribute attr) {
+    return legalizeIdentifier(cast<StringAttr>(attr).getValue(),
+                              [&] { return root.emitOpError(); });
+  };
+  const auto &clockPlan = *context.causalClocks();
+  SmallVector<std::string> derivedLevels;
+  for (const auto &source : clockPlan.sources) {
+    if (source.rootInput)
+      continue;
+    SmallVector<std::string> steps;
+    for (unsigned owner = source.ownerOccurrence;
+         clockPlan.occurrences[owner].parent;
+         owner = *clockPlan.occurrences[owner].parent) {
+      auto allocation = clockPlan.occurrences[owner].allocation;
+      auto id = name(allocation->getAttr("instance_name"));
+      if (failed(id))
+        return failure();
+      steps.push_back(*id);
+    }
+    auto wire = context.physicalLayout.nets.find(
+        source.declaration->getResult(0));
+    if (wire == context.physicalLayout.nets.end())
+      return root.emitOpError() << "derived clock has no emitted RTL net";
+    std::string path = "dut.";
+    for (const auto &step : llvm::reverse(steps))
+      path += "pyc_instance_" + step + ".";
+    derivedLevels.push_back(path + wire->second);
+  }
+  struct WaveOutput {
+    unsigned ordinal;
+    std::string name, type;
+  };
+  SmallVector<WaveOutput> outputs;
+  for (auto [i, result] : llvm::enumerate(signature.getResults())) {
+    if (i >= layout->sourceOutputCount &&
+        !llvm::is_contained(layout->outputValidity, static_cast<int64_t>(i)))
+      continue;
+    auto id = name(root.getOutputNames()[i]);
+    auto rendered = type(result);
+    if (failed(id) || failed(rendered))
+      return failure();
+    outputs.push_back({static_cast<unsigned>(i), *id, *rendered});
+    out << "  wire " << *rendered << " pyc_wave_output_" << i << ";\n";
+  }
+  out << "  wire pyc_wave_complete, pyc_wave_sampling_error, pyc_wave_error;\n"
+         "`ifndef SYNTHESIS\n"
+         "  localparam logic [3:0] pyc_idle = 0, pyc_prepare = 1, "
+         "pyc_discard = 3, pyc_reset = 4, pyc_begin = 5, pyc_advance = 6, "
+         "pyc_publish = 7, pyc_check = 8, pyc_drain = 9, pyc_finish = 10, "
+         "pyc_wait = 11, pyc_validate = 12, pyc_settled = 13;\n"
+         "  logic [3:0] pyc_wave_step = pyc_idle;\n"
+         "  wire [2:0] pyc_wave_phase = pyc_wave_step < 8 "
+         "? pyc_wave_step[2:0] : 3'd0;\n"
+         "  bit pyc_batch_pending = 1'b0;\n"
+         "  bit pyc_wave_failed = 1'b0;\n"
+         "  bit pyc_wave_failed_sampling = 1'b0;\n"
+         "  bit pyc_wave_resetting = 1'b0;\n"
+         "  int unsigned pyc_wave_number = 0;\n"
+         "  wire pyc_wave_permission = !pyc_wave_failed;\n";
+  out << "  wire [" << derivedLevels.size() - 1 << ":0] pyc_derived_levels = {"
+      << llvm::join(derivedLevels, ", ") << "};\n"
+      << "  logic [" << derivedLevels.size() - 1
+      << ":0] pyc_previous_derived_levels;\n"
+         "  wire pyc_derived_clock_error = $isunknown(pyc_derived_levels);\n";
+  if (context.isPhysical())
+    out << "  bit pyc_physical_fault = 1'b0;\n"
+           "  bit pyc_initial_batch = 1'b1;\n"
+           "  bit pyc_event_seal = 1'b0;\n";
+  for (unsigned i = 0; i < layout->sourceInputCount; ++i) {
+    auto rendered = type(signature.getInput(i));
+    if (failed(rendered))
+      return failure();
+    out << "  " << *rendered << " pyc_frozen_input_" << i << ";\n";
+  }
+  for (const auto &port : outputs)
+    out << "  " << port.type << " pyc_visible_output_" << port.ordinal << ";\n";
+  out << "  task automatic pyc_start_waves(input bit resetting);\n";
+  if (!context.isPhysical())
+    out << "    pyc_batch_pending = 1'b1;\n";
+  for (unsigned i = 0; i < layout->sourceInputCount; ++i) {
+    auto id = name(root.getInputNames()[i]);
+    if (failed(id))
+      return failure();
+    out << "    pyc_frozen_input_" << i << " = " << *id << ";\n";
+  }
+  out << "    pyc_wave_resetting = resetting;\n"
+         "    pyc_wave_number <= 0;\n"
+         "    pyc_previous_derived_levels <= pyc_derived_levels;\n"
+         "    pyc_wave_failed <= 1'b0;\n"
+         "    pyc_wave_failed_sampling <= 1'b0;\n"
+         "    pyc_wave_step <= resetting ? pyc_reset : pyc_begin;\n"
+         "  endtask\n"
+         "  wire pyc_input_clock_error = 1'b0";
+  for (const auto &source : clockPlan.sources) {
+    if (!source.rootInput)
+      continue;
+    auto i = *source.rootInput;
+    out << " | $isunknown(pyc_frozen_input_" << i << ")";
+    if (context.isPhysical())
+      out << " | (pyc_initial_batch && (pyc_frozen_input_" << i
+          << " !== 1'b0))";
+  }
+  out << ";\n";
+  if (context.isPhysical()) {
+    out << "  wire pyc_check_complete = pyc_wave_complete;\n"
+           "  wire pyc_sampling_error = pyc_wave_sampling_error || "
+           "pyc_derived_clock_error || pyc_input_clock_error;\n"
+           "  wire pyc_local_error = pyc_wave_error;\n"
+           "  wire pyc_physical_setup_error = pyc_initial_batch && "
+           "pyc_input_clock_error;\n";
+    const auto &projection = context.physicalProjection();
+    SmallVector<unsigned> events(projection.clockInputs);
+    llvm::append_range(events, projection.resetInputs);
+    llvm::sort(events);
+    events.erase(std::unique(events.begin(), events.end()), events.end());
+    for (unsigned i : events) {
+      auto id = name(root.getInputNames()[i]);
+      if (failed(id))
+        return failure();
+      out << "  bit pyc_event_slot_" << i << " = 1'b0;\n"
+          << "  always @(" << *id << ") pyc_event_slot_" << i
+          << " <= ~pyc_event_slot_" << i << ";\n";
+    }
+    // Reserve the batch before scheduling its NBA seal. The seal captures the
+    // settled inputs once, including the initial clock and reset levels.
+    out << "  initial begin\n"
+           "    pyc_batch_pending = 1'b1;\n"
+           "    pyc_event_seal <= 1'b1;\n"
+           "  end\n";
+    if (!events.empty()) {
+      out << "  always @(";
+      for (auto [i, event] : llvm::enumerate(events))
+        out << (i ? " or " : "") << "pyc_event_slot_" << event;
+      out << ") begin\n"
+             "    if (!pyc_batch_pending && !pyc_physical_fault) begin\n"
+             "      pyc_batch_pending = 1'b1;\n"
+             "      pyc_event_seal <= ~pyc_event_seal;\n"
+             "    end\n"
+             "  end\n";
+    }
+    out << "  always @(pyc_event_seal)\n"
+           "    if (pyc_batch_pending && !pyc_physical_fault) "
+           "pyc_start_waves(1'b0);\n";
+  } else {
+    out << "  assign pyc_check_complete = (pyc_wave_step == pyc_wait);\n"
+           "  assign pyc_sampling_error = pyc_wave_failed_sampling;\n"
+           "  assign pyc_local_error = pyc_wave_failed;\n"
+           "  always @(pyc_phase) begin\n"
+           "    case (pyc_phase)\n"
+           "      3'd1, 3'd4: if (!pyc_batch_pending) "
+           "pyc_start_waves(pyc_phase == 3'd4);\n"
+           "      3'd2: if (pyc_wave_step == pyc_wait)\n"
+           "        pyc_wave_step <= !pyc_wave_failed && "
+           "(pyc_root_commit_ok === 1'b1) ? pyc_publish : pyc_discard;\n"
+           "      3'd3: if (pyc_wave_step == pyc_wait) "
+           "pyc_wave_step <= pyc_discard;\n"
+           "      default: begin end\n"
+           "    endcase\n"
+           "  end\n";
+  }
+  out << "  task automatic pyc_fail_wave;\n"
+         "    pyc_wave_failed <= 1'b1;\n"
+         "    pyc_wave_failed_sampling <= pyc_input_clock_error || "
+         "pyc_derived_clock_error || (pyc_wave_sampling_error !== 1'b0);\n";
+  if (context.isPhysical())
+    out << "    pyc_physical_fault <= 1'b1;\n"
+           "    pyc_wave_step <= pyc_discard;\n"
+           "    $display(\"PYCIRCUIT_PHYSICAL_FAULT\");\n"
+           "    pyc_report_physical_fault($sformatf(\"%m\"));\n";
+  else
+    out << "    pyc_wave_step <= pyc_wait;\n";
+  out << "  endtask\n"
+         "  wire pyc_wave_invalid = (pyc_wave_complete !== 1'b1) || "
+         "(pyc_wave_sampling_error !== 1'b0) || "
+         "(pyc_wave_error !== 1'b0) || "
+         "(!pyc_wave_resetting && (pyc_input_clock_error || "
+         "pyc_derived_clock_error));\n"
+         "  always @(pyc_wave_step) begin\n"
+         "    case (pyc_wave_step)\n"
+         "      pyc_begin: pyc_wave_step <= pyc_prepare;\n"
+         "      pyc_prepare, pyc_reset: pyc_wave_step <= pyc_check;\n"
+         "      pyc_check: pyc_wave_step <= pyc_validate;\n"
+         "      pyc_validate: if (pyc_wave_invalid) pyc_fail_wave();\n"
+         "                    else pyc_wave_step <= pyc_advance;\n"
+         "      pyc_advance: pyc_wave_step <= pyc_drain;\n"
+         "      pyc_drain: pyc_wave_step <= pyc_settled;\n"
+         "      pyc_settled: begin\n"
+         "        if (pyc_wave_invalid || pyc_derived_clock_error) "
+         "pyc_fail_wave();\n"
+         "        else if (!pyc_wave_resetting && "
+         "pyc_derived_levels !== pyc_previous_derived_levels) begin\n"
+         "          if (pyc_wave_number == " << clockPlan.maxWaveDepth
+      << ") pyc_fail_wave();\n"
+         "          else begin\n"
+         "            pyc_wave_number <= pyc_wave_number + 1;\n"
+         "            pyc_previous_derived_levels <= pyc_derived_levels;\n"
+         "            pyc_wave_step <= pyc_prepare;\n"
+         "          end\n"
+         "        end else pyc_wave_step <= "
+      << (context.isPhysical() ? "pyc_publish" : "pyc_wait") << ";\n"
+         "      end\n"
+         "      pyc_publish: begin\n";
+  for (const auto &port : outputs)
+    out << "        pyc_visible_output_" << port.ordinal << " <= pyc_wave_output_"
+        << port.ordinal << ";\n";
+  out << "        pyc_wave_step <= pyc_finish;\n"
+         "      end\n"
+         "      pyc_discard: pyc_wave_step <= pyc_finish;\n"
+         "      pyc_finish: begin\n"
+         "        pyc_batch_pending = 1'b0;\n"
+         "        pyc_wave_step <= pyc_idle;\n";
+  if (context.isPhysical())
+    out << "        pyc_initial_batch <= 1'b0;\n";
+  out << "      end\n"
+         "      default: begin end\n"
+         "    endcase\n"
+         "  end\n"
+         "`else\n"
+         "  wire [2:0] pyc_wave_phase = 3'd0;\n"
+         "  wire pyc_wave_permission = 1'b1;\n";
+  if (!context.isPhysical())
+    out << "  assign pyc_check_complete = 1'b1;\n"
+           "  assign pyc_sampling_error = 1'b0;\n"
+           "  assign pyc_local_error = 1'b0;\n";
+  out << "`endif\n";
+  for (const auto &port : outputs) {
+    out << "`ifndef SYNTHESIS\n"
+        << "  assign " << port.name << " = ";
+    if (context.isPhysical())
+      out << "(pyc_batch_pending || pyc_physical_fault) ? ";
+    out << "pyc_visible_output_" << port.ordinal;
+    if (context.isPhysical())
+      out << " : pyc_wave_output_" << port.ordinal;
+    out << ";\n`else\n"
+        << "  assign " << port.name << " = pyc_wave_output_" << port.ordinal << ";\n"
+        << "`endif\n";
+  }
+  return success();
 }
 LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
                           StringRef wrapper, StringRef callee,
@@ -641,7 +1042,7 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
             "output", signature.getResult(companion),
             cast<StringAttr>(root.getOutputNames()[companion]).getValue())))
       return failure();
-  if (context.managesChecks()) {
+  if (context.managesChecks() && !context.batchesPhysicalEvents()) {
     out << (first ? "\n" : ",\n")
         << "  input wire [2:0] pyc_phase,\n"
            "  input wire pyc_root_commit_ok,\n"
@@ -656,7 +1057,17 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
                         : FailureOr<std::string>(std::string());
   if (failed(parameters))
     return failure();
-  if (context.isPhysical()) {
+  bool causal = context.causalClocks();
+  if (causal) {
+    if (failed(emitCausalBatchCoordinator(context, root, out)) ||
+        (context.isPhysical() &&
+         failed(emitPhysicalFaultReporter(context, "", "", out))))
+      return failure();
+  } else if (context.batchesPhysicalEvents()) {
+    if (failed(emitPhysicalBatchCoordinator(context, root, out)) ||
+        failed(emitPhysicalFaultReporter(context, "", "", out)))
+      return failure();
+  } else if (context.isPhysical()) {
     const auto &projection = context.physicalProjection();
     auto clock = legalizeIdentifier(
         cast<StringAttr>(root.getInputNames()[projection.clockInput])
@@ -716,6 +1127,21 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
       if (failed(id))
         return failure();
       expression = std::move(*id);
+      if (context.batchesPhysicalEvents() || causal) {
+        out << "\n`ifndef SYNTHESIS\n";
+        // Freeze input values for the active batch.
+        if (failed(connection(name, "pyc_batch_pending ? pyc_frozen_input_" +
+                                        std::to_string(index) + " : " +
+                                        expression)))
+          return failure();
+        out << "\n`else\n";
+        // Both preprocessor branches occupy the same connection slot.
+        first = index == 0;
+        if (failed(connection(name, expression)))
+          return failure();
+        out << "\n`endif\n";
+        continue;
+      }
     } else {
       auto width = context.analysis.getPackedWidth(signature.getInput(index),
                                                    *bindings, root);
@@ -738,26 +1164,32 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
       auto id = legalizeIdentifier(name, [&] { return root.emitOpError(); });
       if (failed(id))
         return failure();
-      expression = std::move(*id);
+      expression = causal ? "pyc_wave_output_" + std::to_string(index)
+                          : std::move(*id);
     }
     if (failed(connection(name, expression)))
       return failure();
   }
   if (context.managesChecks()) {
-    auto reset = managedReset(context, root);
+    auto reset = context.batchesPhysicalEvents()
+                     ? FailureOr<std::string>(std::string("1'b0"))
+                     : managedReset(context, root);
     if (failed(reset))
       return failure();
     out << (first ? "\n" : ",\n")
-        << "    .pyc_phase(pyc_phase),\n"
-           "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
-           "    .pyc_reset_active("
-        << *reset << "),\n"
-        << "    .pyc_check_complete(pyc_check_complete),\n"
-           "    .pyc_sampling_error(pyc_sampling_error),\n"
-        << "    .pyc_local_error(pyc_local_error)";
+        << "    .pyc_phase(" << (causal ? "pyc_wave_phase" : "pyc_phase")
+        << "),\n    .pyc_root_commit_ok("
+        << (causal ? "pyc_wave_permission" : "pyc_root_commit_ok")
+        << "),\n    .pyc_reset_active(" << *reset
+        << "),\n    .pyc_check_complete("
+        << (causal ? "pyc_wave_complete" : "pyc_check_complete")
+        << "),\n    .pyc_sampling_error("
+        << (causal ? "pyc_wave_sampling_error" : "pyc_sampling_error")
+        << "),\n    .pyc_local_error("
+        << (causal ? "pyc_wave_error" : "pyc_local_error") << ")";
     first = false;
   }
-  if (context.isPhysical()) {
+  if (context.isPhysical() && !context.batchesPhysicalEvents()) {
     auto reset = managedReset(context, root);
     if (failed(reset))
       return failure();

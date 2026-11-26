@@ -1,7 +1,8 @@
 // Physical refinement is a separate transformation of independently verified
 // routed IR. None of the source preparation's borrowed records enter this proof.
 struct HardwareStatePrimitives {
-  ac::ModuleImportOp dff, dffe;
+  ac::ModuleImportOp dff, dffe, dffPolicy, dffePolicy;
+  gfir::StateOp policyState;
 };
 
 FailureOr<HardwareStatePrimitives>
@@ -16,6 +17,17 @@ hardwareStatePrimitives(mlir::ModuleOp routed, SourceCheckBudget &budget) {
     if (kind.empty())
       return imported.emitOpError()
              << "hardware refinement requires an implementation for an ordinary external module";
+    unsigned version = 1;
+    if (kind == "dff" || kind == "dffe") {
+      auto contract = ac::getRegisterContract(imported);
+      if (failed(contract)) return failure();
+      version = *contract;
+    }
+    if (version == 3) {
+      if (kind == "dff") result.dffPolicy = imported;
+      else result.dffePolicy = imported;
+      continue;
+    }
     if (kind == "dff" && !result.dff)
       result.dff = imported;
     if (kind == "dffe") {
@@ -27,7 +39,9 @@ hardwareStatePrimitives(mlir::ModuleOp routed, SourceCheckBudget &budget) {
   for (auto module : routed.getOps<ac::ModuleOp>())
     for (auto state : module.getBody().front().getOps<gfir::StateOp>()) {
       if (!charge(budget, state)) return failure();
-      hasState = true;
+      auto contract = routed->getAttrOfType<IntegerAttr>("ac.routed_contract");
+      if (contract && contract.getInt() == 7) result.policyState = state;
+      else hasState = true;
     }
   if (hasState && (!result.dffe || dffeCount != 1))
     return routed.emitError()
@@ -35,13 +49,45 @@ hardwareStatePrimitives(mlir::ModuleOp routed, SourceCheckBudget &budget) {
   return result;
 }
 
-FailureOr<gfir::StateUpdateOp> logicalUpdate(gfir::StateOp state,
-                                             SourceCheckBudget &budget) {
-  // Shared admission pairing through the common interface; refinement
-  // consumes the routed GFIR classes concretely.
+// Canonical physical imports are a refinement product, never a logical
+// anchor requirement. Their types remain nominally owned by the new symbol.
+Operation *registerPolicyImport(gfir::StateOp state, bool dff) {
+  Builder b(state.getContext());
+  StringRef symbol = dff ? "pycircuit.__builtins__.dff_policy"
+                         : "pycircuit.__builtins__.dffe_policy";
+  auto payload = ac::TypeParamType::get(state.getContext(),
+      FlatSymbolRefAttr::get(state.getContext(), symbol), b.getStringAttr("T"));
+  auto bit = ac::BitsType::get(state.getContext(),
+      bitsLiteralAttribute(state.getClk().getType(), state.getOccurrence(), state.getContext(), true));
+  SmallVector<Type> types{bit, bit};
+  SmallVector<Attribute> names{b.getStringAttr("clk"), b.getStringAttr("rst")};
+  if (!dff) { types.push_back(bit); names.push_back(b.getStringAttr("en")); }
+  for (StringRef name : {"d", "init", "reset_value"}) {
+    types.push_back(payload); names.push_back(b.getStringAttr(name));
+  }
+  OperationState op(state.getLoc(), ac::ModuleImportOp::getOperationName());
+  op.addAttribute("sym_name", b.getStringAttr(symbol));
+  op.addAttribute("source_owner", b.getDictionaryAttr({
+      b.getNamedAttr("package", b.getStringAttr("pycircuit")),
+      b.getNamedAttr("path", b.getStringAttr("__builtins__.py"))}));
+  op.addAttribute("parameters", b.getArrayAttr({}));
+  op.addAttribute("type_parameters", b.getArrayAttr({b.getStringAttr("T")}));
+  op.addAttribute("function_type", TypeAttr::get(FunctionType::get(state.getContext(), types, {payload})));
+  op.addAttribute("input_names", b.getArrayAttr(names));
+  op.addAttribute("output_names", b.getArrayAttr({b.getStringAttr("q")}));
+  op.addAttribute("semantic_kind", b.getStringAttr("hardware"));
+  op.addAttribute("primitive_kind", b.getStringAttr(dff ? "dff" : "dffe"));
+  op.addAttribute("ac.register_contract", b.getI64IntegerAttr(3));
+  auto output = b.getDictionaryAttr({b.getNamedAttr("port", b.getI64IntegerAttr(0)),
+                                    b.getNamedAttr("path", b.getArrayAttr({}))});
+  op.addAttribute("dependency_summary", b.getArrayAttr({b.getDictionaryAttr({
+      b.getNamedAttr("output", output), b.getNamedAttr("inputs", b.getArrayAttr({}))})}));
+  return Operation::create(op);
+}
+
+FailureOr<gfir::StateUpdateOp> logicalUpdate(gfir::StateOp state, SourceCheckBudget &budget) {
   auto paired = ac::admissionPairLogicalStateUpdate(state, budget);
-  if (failed(paired))
-    return failure();
+  if (failed(paired)) return failure();
   return cast<gfir::StateUpdateOp>(paired->getOperation());
 }
 
@@ -80,6 +126,7 @@ private:
     gfir::StateOp source;
     Operation *target;
     SmallVector<ac::TableSplatOp, 3> splats;
+    ac::BitsConstantOp resetZero;
   };
   LogicalResult reject(StringRef message) {
     return routed.emitError() << "hardware state refinement proof: " << message;
@@ -108,11 +155,39 @@ private:
           mapping.map(a, b);
         }
         auto next = right.begin();
+        if (source == routed.getOperation() && primitives.policyState) {
+          for (bool dff : {true, false}) {
+            if (dff ? bool(primitives.dffPolicy) : bool(primitives.dffePolicy)) continue;
+            if (next == right.end()) return reject("missing generated register import");
+            auto *actual = &*next++;
+            if (!charge(budget, routed, 128)) return failure();
+            auto *expected = registerPolicyImport(primitives.policyState, dff);
+            bool matches = actual->getName() == expected->getName() &&
+                actual->getAttrs() == expected->getAttrs() &&
+                actual->getLoc() == expected->getLoc() &&
+                !actual->getNumOperands() && !actual->getNumResults() &&
+                !actual->getNumRegions() && !actual->getNumSuccessors() &&
+                actual->getPropertiesAsAttribute() == expected->getPropertiesAsAttribute();
+            expected->destroy();
+            if (!matches) return reject("generated register import differs");
+          }
+        }
         for (Operation &op : left) {
           if (!charge(budget, &op)) return failure();
-          if (isa<acir::LogicalStateUpdateOpInterface>(op)) continue;
+          if (isa<gfir::StateUpdateOp>(op)) continue;
           if (auto state = dyn_cast<gfir::StateOp>(op)) {
-            StatePair pair{state, nullptr, {}};
+            StatePair pair{state, nullptr, {}, {}};
+            auto layout = ac::getStateLayout(state);
+            if (failed(layout)) return failure();
+            if (!layout->reset) {
+              if (next == right.end()) return reject("missing reset-free physical tieoff");
+              pair.resetZero = dyn_cast<ac::BitsConstantOp>(&*next++);
+              if (!pair.resetZero || pair.resetZero->getResult(0).getType() != state.getClk().getType() ||
+                  pair.resetZero.getValue() != bitsLiteralAttribute(state.getClk().getType(), state.getOccurrence(), state.getContext(), false) ||
+                  pair.resetZero->getNumOperands() || pair.resetZero->getNumResults() != 1 ||
+                  pair.resetZero->getAttrs().size() != 1 || pair.resetZero.getLoc() != state.getLoc())
+                return reject("reset-free physical tieoff differs");
+            }
             if (isa<ac::TableType>(state.getQ().getType()))
               for (unsigned i = 0; i < 3; ++i) {
                 if (next == right.end()) return reject("missing Table control splat");
@@ -173,23 +248,32 @@ private:
     // Re-derive the restricted optimization from actual routed SSA. Neither a
     // producer flag nor the candidate primitive's missing enable is authority.
     bool dff = unconditionalScalarState(state, *update, analysis, budget);
-    auto primitive = dff ? primitives.dff : primitives.dffe;
-    if (!primitive) return reject("required physical primitive is absent");
+    bool policyState = bool(state->getAttr("operandSegmentSizes"));
+    auto primitive = policyState ? (dff ? primitives.dffPolicy : primitives.dffePolicy)
+                                 : (dff ? primitives.dff : primitives.dffe);
+    if (!primitive && !policyState) return reject("required physical primitive is absent");
     auto *target = pair.target;
     Builder b(routed.getContext());
     NamedAttrList attributes;
     attributes.append("instance_name", state.getInstanceNameAttr());
     attributes.append("occurrence", state.getOccurrence());
-    attributes.append("callee", FlatSymbolRefAttr::get(primitive.getSymNameAttr()));
+    auto symbol = primitive ? primitive.getSymNameAttr() : b.getStringAttr(
+        dff ? "pycircuit.__builtins__.dff_policy" : "pycircuit.__builtins__.dffe_policy");
+    attributes.append("callee", FlatSymbolRefAttr::get(symbol));
     attributes.append("parameters", b.getArrayAttr({}));
     attributes.append("type_arguments", b.getArrayAttr({TypeAttr::get(
         table ? table.getElementType() : state.getQ().getType())}));
     if (table) attributes.append("shape", table.getShape());
+    if (policyState)
+      for (StringRef name : {"edge", "reset_kind", "reset_polarity", "init_kind"})
+        if (auto attr = state->getAttr(name)) attributes.append(name, attr);
     SmallVector<Value> inputs{mapping.lookup(state.getClk()),
-                              mapping.lookup(state.getRst())};
+                              state.getRst() ? mapping.lookup(state.getRst()) : pair.resetZero->getResult(0)};
     if (!dff) inputs.push_back(mapping.lookup(update->getIntent()));
     inputs.push_back(mapping.lookup(update->getCandidate()));
-    inputs.push_back(mapping.lookup(state.getInitial()));
+    inputs.push_back(mapping.lookup(state.getInitial() ? state.getInitial() : state.getQ()));
+    if (policyState)
+      inputs.push_back(mapping.lookup(state.getResetValue() ? state.getResetValue() : state.getQ()));
     if (table) {
       if (pair.splats.size() != 3) return reject("Table splat inventory differs");
       for (unsigned i = 0; i < 3; ++i) {

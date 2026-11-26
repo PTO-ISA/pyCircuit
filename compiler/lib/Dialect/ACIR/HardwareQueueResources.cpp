@@ -969,9 +969,47 @@ private:
     return success();
   }
 #include "HardwareQueueProspectivePredicateProof.inc"
+  LogicalResult verifyResourceEvent(const SampledAdmissionView &sampled,
+                                    const HardwareIdentityScope &at,
+                                    InstanceOp allocation,
+                                    const HardwareIdentityScope &allocatedAt,
+                                    bool commits) {
+    auto clock = normal(sampled.clock, at);
+    auto actualClock = normal(allocation.getInputs()[0], allocatedAt);
+    if (failed(clock) || failed(actualClock))
+      return failure();
+    if (!same(*clock, *actualClock) || sampled.edge != RegisterEdge::Posedge)
+      return sampled.rule->emitOpError("sampled event differs from the resource clock or edge");
+    if (!commits && !sampled.legacyReset)
+      return success();
+    auto actualReset = normal(allocation.getInputs()[1], allocatedAt);
+    if (failed(actualReset))
+      return failure();
+    for (const auto &binding : sampled.resets) {
+      if (failed(budget.debit(1, allocation)))
+        return failure();
+      if (binding.kind != RegisterResetKind::Sync ||
+          binding.polarity != RegisterResetPolarity::High)
+        continue;
+      auto reset = normal(binding.value, at);
+      if (failed(reset))
+        return failure();
+      if (same(*reset, *actualReset))
+        return success();
+    }
+    return sampled.rule->emitOpError("sampled reset set lacks the actual resource reset");
+  }
   LogicalResult resources(const SampledAdmissionView &sampled) {
     mlir::Builder b(module.getContext());
     llvm::DenseSet<Value> compactReadiness;
+    llvm::SmallDenseSet<uint64_t, 4> committingControls;
+    if (!sampled.legacyReset)
+      for (const auto &proposal : sampled.queueProposals) {
+        if (failed(pay(sizeof(uint64_t))))
+          return failure();
+        if (proposal.resourceControl)
+          committingControls.insert(*proposal.resourceControl);
+      }
     for (const auto &resource : sampled.resources) {
       if (resource.kind.getValue() == "memory_live") continue;
       auto id = b.getDictionaryAttr({b.getNamedAttr("owner", resource.owner),
@@ -1009,13 +1047,12 @@ private:
           return failure();
         compactReadiness.insert(control.raw);
       }
-      auto clock = normal(sampled.clock, scope), reset = normal(sampled.reset, scope);
-      auto queueClock = normal(target->queue.getInputs()[0], target->scope),
-           queueReset = normal(target->queue.getInputs()[1], target->scope);
       if (failed(predicate) || failed(expected) ||
-          (resource.kind.getValue() == "queue_valid" && !same(*predicate, *expected)) || failed(clock) || failed(reset) ||
-          failed(queueClock) || failed(queueReset) || !same(*clock, *queueClock) || !same(*reset, *queueReset))
-        return module->emitOpError() << "queue resource predicate or domain differs from actual allocation";
+          (resource.kind.getValue() == "queue_valid" && !same(*predicate, *expected)))
+        return module->emitOpError() << "queue resource predicate differs from actual allocation";
+      if (failed(verifyResourceEvent(sampled, scope, target->queue, target->scope,
+                                     committingControls.contains(resource.control))))
+        return failure();
     }
     if (failed(compactReadinessUses(sampled, compactReadiness)))
       return failure();

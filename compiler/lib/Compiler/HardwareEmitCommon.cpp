@@ -1,9 +1,12 @@
-#include "HardwareEmitCommon.h"
 #include "../Dialect/ACIR/ACIRSourceContracts.h"
 #include "../Dialect/ACIR/HardwareSourceChecks.h"
 #include "FinalCppNames.h"
+#include "HardwareEmitCommon.h"
 #include "mlir/IR/Builders.h"
+#include "pycircuit/Dialect/ACIR/HardwareDomains.h"
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSet.h"
@@ -657,9 +660,14 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
   return *sourceChecks_;
 }
 bool HardwareEmitContext::managesChecks() {
-  return !physical_ &&
-         (isSystem() || (sourceChecks_ && (sourceChecks_->hasChecks() ||
-                                         sourceChecks_->managedSampling)));
+  return causalClocks() || batchesPhysicalEvents() ||
+         (!physical_ &&
+          (isSystem() || (sourceChecks_ && (sourceChecks_->hasChecks() ||
+                                          sourceChecks_->managedSampling))));
+}
+bool HardwareEmitContext::batchesPhysicalEvents() const {
+  auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  return physical_ && contract && contract.getInt() == 7;
 }
 bool HardwareEmitContext::resetIfOne() const {
   return sourceChecks().resetSemantics == ac::HardwareResetSemantics::IfOne;
@@ -669,12 +677,34 @@ std::string HardwareEmitContext::cppReset(StringRef expression) const {
                             ", gfsim::ResetSemantics::IfOne)"
                       : expression.str();
 }
+FailureOr<SmallVector<std::string>>
+HardwareEmitContext::cppRegisterPolicy(Operation *occurrence) const {
+  auto policy = ac::getRegisterPolicy(occurrence);
+  if (failed(policy))
+    return failure();
+  return SmallVector<std::string>{
+      policy->edge == ac::RegisterEdge::Posedge
+          ? "gfsim::RegisterEdge::Posedge"
+          : "gfsim::RegisterEdge::Negedge",
+      policy->resetKind == ac::RegisterResetKind::None
+          ? "gfsim::RegisterResetKind::None"
+      : policy->resetKind == ac::RegisterResetKind::Async
+          ? "gfsim::RegisterResetKind::Async"
+          : "gfsim::RegisterResetKind::Sync",
+      policy->resetPolarity == ac::RegisterResetPolarity::Low
+          ? "gfsim::RegisterResetPolarity::Low"
+          : "gfsim::RegisterResetPolarity::High",
+      resetIfOne() ? "gfsim::ResetSemantics::IfOne"
+                   : "gfsim::ResetSemantics::Strict",
+      policy->hasInitial ? "true" : "false"};
+}
 std::string HardwareEmitContext::rtlReset(StringRef expression) const {
   return resetIfOne() ? "((" + expression.str() + ") === 1'b1)"
                       : expression.str();
 }
 LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   sourceChecks_.reset();
+  clockSources_.reset();
   names_.clear();
   if (!package)
     return failure();
@@ -683,6 +713,14 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   auto checks = analysis.getSourceCheckPlan();
   if (failed(checks))
     return failure();
+  if (package.walk([](ac::ClockSourceOp) { return WalkResult::interrupt(); })
+          .wasInterrupted()) {
+    auto sources = ac::getHardwareClockSourcePlan(package);
+    if (failed(sources))
+      return failure();
+    if (sources->maxWaveDepth != 0)
+      clockSources_ = std::move(*sources);
+  }
   // The C++ native observation plan prepares through `prepareNativeChecks()`
   // and then re-closes the one instrumentation op it still cannot emit. This
   // shared gate stays closed for `ac.observe` because the Verilog target has no
@@ -1380,6 +1418,282 @@ namespace acir::compiler {
 FailureOr<ac::HardwareBindings> HardwareEmitContext::rootBindings() const {
   return ac::detail::resolveHardwareRootBindings(analysis);
 }
+namespace {
+struct RootControlSource {
+  llvm::DenseSet<unsigned> inputs;
+  std::optional<unsigned> direct;
+};
+using RootControlKey = std::pair<Value, uint64_t>;
+// This is a description of verified SSA, not another domain-admission path.
+// Storage is a cut: a state-derived reset is an internal expression, never
+// misreported as the data input of that storage or as a guessed reset port.
+FailureOr<RootControlSource>
+rootControlSource(HardwareEmitContext &context, Value value, uint64_t owner,
+                  llvm::DenseSet<RootControlKey> &visiting,
+                  llvm::DenseMap<RootControlKey, RootControlSource> &memo,
+                  uint64_t &remaining, unsigned depth = 0) {
+  auto key = std::make_pair(value, owner);
+  if (auto found = memo.find(key); found != memo.end())
+    return found->second;
+  if (!remaining)
+    return context.package.emitOpError("control metadata exceeds bounded work");
+  --remaining;
+  auto computed = [&]() -> FailureOr<RootControlSource> {
+    const auto &plan = context.sourceChecks();
+    if (depth > 256 || owner >= plan.owners.size())
+      return context.package.emitOpError(
+          "control metadata exceeds bounded hierarchy");
+    if (!visiting.insert(key).second)
+      return RootControlSource{};
+    auto cleanup = llvm::make_scope_exit([&] { visiting.erase(key); });
+    const auto &scope = plan.owners[owner];
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      auto *parent = argument.getOwner()->getParentOp();
+      if (auto rule = dyn_cast<ac::RuleOp>(parent))
+        return rootControlSource(context,
+                                 rule.getCaptures()[argument.getArgNumber()],
+                                 owner, visiting, memo, remaining, depth + 1);
+      if (parent == scope.definition) {
+        if (scope.parent)
+          return rootControlSource(
+              context,
+              scope.path.back().allocation->getOperand(argument.getArgNumber()),
+              *scope.parent, visiting, memo, remaining, depth + 1);
+        auto layout = ac::getModulePortLayout(scope.definition);
+        if (failed(layout))
+          return failure();
+        if (argument.getArgNumber() >= layout->sourceInputCount)
+          return RootControlSource{};
+        RootControlSource result;
+        result.direct = argument.getArgNumber();
+        result.inputs.insert(*result.direct);
+        return result;
+      }
+      return RootControlSource{};
+    }
+    auto result = cast<OpResult>(value);
+    auto *op = result.getOwner();
+    if (auto rule = dyn_cast<ac::RuleOp>(op))
+      return rootControlSource(context,
+                               cast<ac::YieldOp>(rule.getBody().front().back())
+                                   .getOperand(result.getResultNumber()),
+                               owner, visiting, memo, remaining, depth + 1);
+    if (isa<ac::SourceStateOp>(op))
+      return RootControlSource{};
+    SmallVector<std::pair<Value, uint64_t>> operands;
+    bool forwarding =
+        isa<ac::TableSplatOp, ac::TableCreateOp, ac::TableViewOp>(op);
+    if (isa<ac::InstanceOp, ac::CollectionOp>(op)) {
+      auto *callee =
+          isa<ac::InstanceOp>(op)
+              ? context.analysis.resolveCallee(cast<ac::InstanceOp>(op))
+              : context.analysis.resolveCallee(cast<ac::CollectionOp>(op));
+      if (!context.analysis.getPrimitiveKind(callee).empty())
+        return RootControlSource{};
+      forwarding = true;
+      for (auto [index, child] : llvm::enumerate(plan.owners))
+        if (child.parent == owner && !child.path.empty() &&
+            child.path.back().allocation == op)
+          operands.push_back(
+              {cast<ac::YieldOp>(child.definition->getRegion(0).front().back())
+                   .getOperand(result.getResultNumber()),
+               index});
+    } else if (isa<ac::TableReadOp>(op) ||
+               (isa<ac::TableGetOp>(op) && result.getResultNumber() == 0)) {
+      auto payload = rootControlSource(context, op->getOperand(0), owner,
+                                       visiting, memo, remaining, depth + 1);
+      auto selector = rootControlSource(context, op->getOperand(1), owner,
+                                        visiting, memo, remaining, depth + 1);
+      if (failed(payload) || failed(selector))
+        return failure();
+      payload->inputs.insert(selector->inputs.begin(), selector->inputs.end());
+      // A dynamic or unknown index changes the selected payload, even when
+      // the Table happens to have a uniform root-input origin. Retain direct
+      // wiring only for a known, in-range constant selection.
+      auto selected = ac::isKnownInRangeTableSelection(
+          op->getOperand(0), op->getOperand(1), context.analysis,
+          scope.bindings, op);
+      if (failed(selected))
+        return failure();
+      if (!*selected)
+        payload->direct.reset();
+      return *payload;
+    } else {
+      if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
+        auto inWidth = context.analysis.getPackedWidth(
+            extract.getInput().getType(), scope.bindings, op);
+        auto outWidth = context.analysis.getPackedWidth(value.getType(),
+                                                        scope.bindings, op);
+        auto low = context.analysis.evaluateStatic(extract.getLow(),
+                                                   scope.bindings, op);
+        if (failed(inWidth) || failed(outWidth) || failed(low))
+          return failure();
+        auto integer = dyn_cast<ac::MathIntAttr>(*low);
+        forwarding = integer && integer.getCanonicalValue() == "0" &&
+                     *inWidth == *outWidth;
+      }
+      for (Value input : op->getOperands())
+        operands.push_back({input, owner});
+    }
+    RootControlSource source;
+    bool first = true;
+    for (auto [input, occurrence] : operands) {
+      auto part = rootControlSource(context, input, occurrence, visiting, memo,
+                                    remaining, depth + 1);
+      if (failed(part))
+        return failure();
+      source.inputs.insert(part->inputs.begin(), part->inputs.end());
+      if (first)
+        source.direct = part->direct;
+      else if (source.direct != part->direct)
+        source.direct.reset();
+      first = false;
+    }
+    if (!forwarding)
+      source.direct.reset();
+    return source;
+  }();
+  if (succeeded(computed))
+    memo.try_emplace(key, *computed);
+  return computed;
+}
+FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site);
+
+FailureOr<llvm::json::Array>
+domainEndpointMetadata(HardwareEmitContext &context,
+                       llvm::DenseSet<unsigned> &resetInputs) {
+  llvm::json::Array endpoints;
+  const auto &plan = context.sourceChecks();
+  const auto *clocks = context.causalClocks();
+  SmallVector<unsigned> clockOwners;
+  if (clocks) {
+    for (const auto &entry : plan.owners) {
+      unsigned owner = 0;
+      for (const auto &step : entry.path) {
+        auto child = clocks->occurrences[owner].children.find(step.allocation);
+        if (child == clocks->occurrences[owner].children.end() ||
+            !step.coordinates.empty())
+          return context.package.emitOpError()
+                 << "clock metadata owner is absent from the source graph";
+        owner = child->second;
+      }
+      clockOwners.push_back(owner);
+    }
+  }
+  llvm::DenseMap<RootControlKey, RootControlSource> memo;
+  uint64_t remaining = ac::HardwareSourceCheckLimits{}.maxWorkUnits;
+  auto source = [&](Value value, uint64_t owner) {
+    llvm::DenseSet<RootControlKey> visiting;
+    return rootControlSource(context, value, owner, visiting, memo, remaining);
+  };
+  auto describe = [&](uint64_t owner, Value clock, ac::RegisterEdge edge,
+                      ArrayRef<ac::HardwareSamplingReset> resets,
+                      StringRef kind, Operation *allocation,
+                      ArrayRef<uint64_t> coordinates) -> LogicalResult {
+    std::optional<unsigned> clockInput;
+    DictionaryAttr clockIdentity;
+    if (clocks) {
+      auto id = ac::resolveHardwareClockSource(*clocks, clock, clockOwners[owner]);
+      if (failed(id))
+        return failure();
+      clockInput = clocks->sources[*id].rootInput;
+      if (!clockInput)
+        clockIdentity = ac::getHardwareClockSourceIdentity(*clocks, *id);
+    } else {
+      auto clockSource = source(clock, owner);
+      if (failed(clockSource) || !clockSource->direct)
+        return context.package.emitOpError(
+            "verified clock metadata has no root identity");
+      clockInput = *clockSource->direct;
+    }
+    llvm::json::Array path, positions, resetRows;
+    for (const auto &step : plan.owners[owner].path) {
+      llvm::json::Array coordinates;
+      for (uint64_t coordinate : step.coordinates)
+        coordinates.emplace_back(coordinate);
+      path.emplace_back(llvm::json::Object{
+          {"instance",
+           step.allocation->getAttrOfType<StringAttr>("instance_name")
+               .getValue()},
+          {"coordinates", std::move(coordinates)}});
+    }
+    for (uint64_t coordinate : coordinates)
+      positions.emplace_back(coordinate);
+    for (const auto &reset : resets) {
+      auto origin = source(reset.value, owner);
+      if (failed(origin))
+        return failure();
+      SmallVector<unsigned> dependencies(origin->inputs.begin(),
+                                         origin->inputs.end());
+      llvm::sort(dependencies);
+      llvm::json::Array inputs;
+      for (unsigned input : dependencies) {
+        resetInputs.insert(input);
+        inputs.emplace_back(input);
+      }
+      llvm::json::Object row{
+          {"kind",
+           reset.kind == ac::RegisterResetKind::Async ? "async" : "sync"},
+          {"polarity",
+           reset.polarity == ac::RegisterResetPolarity::Low ? "low" : "high"},
+          {"input_dependencies", std::move(inputs)}};
+      row["input_ordinal"] = origin->direct ? llvm::json::Value(*origin->direct)
+                                            : llvm::json::Value(nullptr);
+      resetRows.emplace_back(std::move(row));
+    }
+    llvm::json::Object row{
+        {"kind", kind},
+        {"owner", std::move(path)},
+        {"coordinates", std::move(positions)},
+        {"edge", edge == ac::RegisterEdge::Negedge ? "negedge" : "posedge"},
+        {"resets", std::move(resetRows)}};
+    if (clockInput) {
+      row["clock_input"] = *clockInput;
+    } else {
+      auto identity = metadataValue(clockIdentity, context.package);
+      if (failed(identity))
+        return failure();
+      row["clock_source"] = std::move(*identity);
+    }
+    row["instance"] =
+        allocation ? llvm::json::Value(
+                         allocation->getAttrOfType<StringAttr>("instance_name")
+                             .getValue())
+                   : llvm::json::Value(nullptr);
+    if (allocation)
+      if (auto cdc =
+              allocation->getAttrOfType<DictionaryAttr>("ac.cdc_component"))
+        row["cdc_role"] = cdc.getAs<StringAttr>("role").getValue();
+    endpoints.emplace_back(std::move(row));
+    return success();
+  };
+  for (const auto &sampling : plan.samplingOccurrences) {
+    const auto &binding = plan.samplingBindings[sampling.bindingIndex];
+    if (failed(describe(sampling.ownerOccurrence, binding.clock, binding.edge,
+                        binding.resets, "transaction", nullptr, {})))
+      return failure();
+  }
+  for (const auto &commit : plan.commits) {
+    auto kind = commit.primitiveKind.getValue();
+    auto *op = commit.allocation;
+    ac::RegisterPolicy policy;
+    if (kind == "dff" || kind == "dffe") {
+      auto parsed = ac::getRegisterPolicy(op);
+      if (failed(parsed))
+        return failure();
+      policy = *parsed;
+    }
+    SmallVector<ac::HardwareSamplingReset> resets;
+    if (policy.resetKind != ac::RegisterResetKind::None)
+      resets.push_back(
+          {op->getOperand(1), policy.resetKind, policy.resetPolarity});
+    if (failed(describe(commit.ownerOccurrence, op->getOperand(0), policy.edge,
+                        resets, kind, op, commit.coordinates)))
+      return failure();
+  }
+  return endpoints;
+}
+} // namespace
 FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
   auto system = *package.getOps<ac::SystemOp>().begin();
   auto root = cast<ac::ModuleOp>(analysis.lookupDefinition(
@@ -1390,6 +1704,37 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
     return failure();
   auto signature = root.getFunctionType();
   llvm::json::Array inputs, outputs, controls;
+  std::optional<ac::HardwarePortDomains> portDomains;
+  if (root->hasAttr("ac.port_domains")) {
+    auto effective = ac::getHardwarePortDomains(root);
+    if (failed(effective))
+      return failure();
+    portDomains = std::move(*effective);
+  }
+  auto clocks = root->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+  auto addDomain = [&](llvm::json::Object &row,
+                       StringAttr domain) -> LogicalResult {
+    auto clock = domain && clocks
+                     ? clocks.getAs<IntegerAttr>(domain.getValue())
+                     : IntegerAttr();
+    row["domain"] =
+        domain ? llvm::json::Value(domain.getValue()) : llvm::json::Value(nullptr);
+    row["clock_input"] =
+        clock ? llvm::json::Value(clock.getInt()) : llvm::json::Value(nullptr);
+    if (domain && !clock && causalClocks()) {
+      const auto &rootSources = causalClocks()->occurrences.front().domains;
+      auto found = rootSources.find(domain.getValue());
+      if (found == rootSources.end())
+        return root.emitOpError() << "port domain has no verified clock source";
+      auto source = metadataValue(
+          ac::getHardwareClockSourceIdentity(*causalClocks(), found->second),
+          root);
+      if (failed(source))
+        return failure();
+      row["clock_source"] = std::move(*source);
+    }
+    return success();
+  };
   auto describe = [&](Type type, StringRef name,
                       unsigned ordinal) -> FailureOr<llvm::json::Object> {
     auto wire = legalizeIdentifier(name, [&] { return root.emitOpError(); });
@@ -1435,11 +1780,16 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
       if (failed(wire))
         return failure();
       (*row)["availability"] = *wire;
-      if (companions.insert(companion).second)
-        controls.emplace_back(llvm::json::Object{{"direction", "output"},
-                                                 {"role", "availability"},
-                                                 {"wire", *wire},
-                                                 {"width", 1}});
+      if (companions.insert(companion).second) {
+        llvm::json::Object availability{{"direction", "output"},
+                                        {"role", "availability"},
+                                        {"wire", *wire},
+                                        {"width", 1}};
+        if (portDomains &&
+            failed(addDomain(availability, portDomains->outputs[companion])))
+          return failure();
+        controls.emplace_back(std::move(availability));
+      }
     }
     outputs.emplace_back(std::move(*row));
   }
@@ -1448,7 +1798,76 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
     for (StringRef role : {StringRef("clock"), StringRef("reset")})
       if (auto ordinal = domain.getAs<IntegerAttr>(role))
         domains[role] = ordinal.getValue().getZExtValue();
-  if (rtl && managesChecks()) {
+  auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  bool multipleDomains = contract && contract.getInt() == 7;
+  if (multipleDomains) {
+    llvm::DenseSet<unsigned> resetInputs, clockInputs;
+    auto endpointMetadata = domainEndpointMetadata(*this, resetInputs);
+    if (failed(endpointMetadata))
+      return failure();
+    domains["endpoints"] = std::move(*endpointMetadata);
+    llvm::json::Array sources;
+    if (auto clocks =
+            root->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs"))
+      for (auto row : clocks) {
+        unsigned ordinal = cast<IntegerAttr>(row.getValue()).getInt();
+        clockInputs.insert(ordinal);
+        auto name = legalizeIdentifier(
+            cast<StringAttr>(root.getInputNames()[ordinal]).getValue(),
+            [&] { return root.emitOpError(); });
+        if (failed(name))
+          return failure();
+        sources.emplace_back(
+            llvm::json::Object{{"domain", row.getName().getValue()},
+                               {"input_ordinal", ordinal},
+                               {"wire", *name}});
+      }
+    domains["clock_sources"] = std::move(sources);
+    if (auto *clocks = causalClocks()) {
+      auto metadata = metadataValue(ac::serializeHardwareClockSources(*clocks), root);
+      if (failed(metadata))
+        return failure();
+      domains["clock_source_plan"] = std::move(*metadata);
+    }
+    if (auto name = root->getAttrOfType<StringAttr>("ac.default_domain"))
+      domains["default"] = name.getValue();
+    else
+      domains["default"] = nullptr;
+    auto sampled = ac::getSystemSampleInputs(root);
+    if (failed(sampled))
+      return failure();
+    llvm::json::Array sampledInputs;
+    for (unsigned ordinal : *sampled)
+      sampledInputs.emplace_back(ordinal);
+    domains["sample_inputs"] = std::move(sampledInputs);
+    auto defaultDomain = root->getAttrOfType<StringAttr>("ac.default_domain");
+    auto annotate = [&](llvm::json::Value &value, bool input) -> LogicalResult {
+      auto &row = *value.getAsObject();
+      unsigned ordinal = *row.getInteger("ordinal");
+      llvm::json::Array roles;
+      if (input && clockInputs.contains(ordinal))
+        roles.emplace_back("clock");
+      if (input && resetInputs.contains(ordinal))
+        roles.emplace_back("reset");
+      if (roles.empty())
+        roles.emplace_back("data");
+      row["roles"] = std::move(roles);
+      auto domain = defaultDomain;
+      if (portDomains)
+        domain = input ? portDomains->inputs[ordinal]
+                       : portDomains->outputs[ordinal];
+      if (input && clockInputs.contains(ordinal))
+        domain = StringAttr();
+      return addDomain(row, domain);
+    };
+    for (auto &row : inputs)
+      if (failed(annotate(row, true)))
+        return failure();
+    for (auto &row : outputs)
+      if (failed(annotate(row, false)))
+        return failure();
+  }
+  if (rtl && managesChecks() && !batchesPhysicalEvents()) {
     auto control = [&](StringRef direction, StringRef role, StringRef wire,
                        unsigned width) {
       controls.emplace_back(llvm::json::Object{{"direction", direction},
@@ -1462,12 +1881,13 @@ FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
     control("output", "sampling_error", "pyc_sampling_error", 1);
     control("output", "local_error", "pyc_local_error", 1);
   }
-  llvm::json::Value map(llvm::json::Object{{"schema_version", 1},
-                                           {"target", rtl ? "verilog" : "cpp"},
-                                           {"inputs", std::move(inputs)},
-                                           {"outputs", std::move(outputs)},
-                                           {"domains", std::move(domains)},
-                                           {"controls", std::move(controls)}});
+  llvm::json::Value map(
+      llvm::json::Object{{"schema_version", multipleDomains ? 2 : 1},
+                         {"target", rtl ? "verilog" : "cpp"},
+                         {"inputs", std::move(inputs)},
+                         {"outputs", std::move(outputs)},
+                         {"domains", std::move(domains)},
+                         {"controls", std::move(controls)}});
   std::string text;
   llvm::raw_string_ostream stream(text);
   stream << map;
@@ -1614,6 +2034,18 @@ HardwareEmitContext::cppBoundModuleType(Operation *definition,
   }
   if (kind.empty() && failed(types()))
     return failure();
+  if (!kernel && (kind == "dff" || kind == "dffe")) {
+    auto contract = ac::getRegisterContract(definition);
+    if (failed(contract))
+      return failure();
+    if (*contract == 3) {
+      actuals.push_back("true");
+      auto policy = cppRegisterPolicy(site);
+      if (failed(policy))
+        return failure();
+      actuals.append(*policy);
+    }
+  }
   if (kernel && kind == "sync_mem_dp")
     actuals.push_back("2");
   return actuals.empty() ? name : name + "<" + join(actuals, ", ") + ">";

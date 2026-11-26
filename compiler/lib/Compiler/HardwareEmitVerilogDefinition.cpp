@@ -94,7 +94,7 @@ public:
     return name;
   }
   LogicalResult emitSourceChecks() {
-    if (context.isPhysical()) {
+    if (context.isPhysical() && !context.batchesPhysicalEvents()) {
       for (const auto &binding : context.sourceChecks().bindings) {
         if (binding.definition != definition)
           continue;
@@ -115,22 +115,35 @@ public:
     }
     if (!context.managesChecks())
       return success();
+    if (context.causalClocks())
+      for (auto source : definition.getBody().front().getOps<ac::ClockSourceOp>()) {
+        if (failed(net(source.getResult())))
+          return failure();
+      }
     for (auto [index, binding] :
          llvm::enumerate(context.sourceChecks().samplingBindings)) {
       if (binding.definition != definition)
         continue;
       auto clock = net(binding.clock);
-      auto reset = net(binding.reset);
-      if (failed(clock) || failed(reset))
+      if (failed(clock))
+        return failure();
+      bool causal = context.causalClocks();
+      auto seed = causal ? clockSeed(binding.clock)
+                         : FailureOr<std::string>(std::string("1'b0"));
+      if (failed(seed))
         return failure();
       auto name = "pyc_sampling_" + std::to_string(binding.localOrdinal);
+      auto history = name + (causal ? "_wave_clock" : "_clock");
       samplingNames.try_emplace(index, name);
       localCompletions.push_back(name + "_complete");
       localSamplingErrors.push_back("(" + name + "_fault != 2'd0)");
       // These records observe the existing managed storage transaction; they
       // are verification instrumentation, not additional hardware state.
       out << "`ifndef SYNTHESIS\n"
-          << "  logic " << name << "_clock = 1'b0;\n"
+          << "  logic " << name << "_clock = " << *seed << ";\n";
+      if (causal)
+        out << "  logic " << history << " = " << *seed << ";\n";
+      out
           << "  logic " << name << "_pending_clock = 1'b0;\n"
           << "  logic " << name << "_pending_valid = 1'b0;\n"
           << "  logic " << name << "_complete = 1'b0;\n"
@@ -148,43 +161,64 @@ public:
           << "        " << name << "_rising = 1'b0;\n"
           << "        " << name << "_reset_active = 1'b0;\n"
           << "        " << name << "_sampled_clock = " << *clock << ";\n"
-          << "        " << name
-          << "_sampled_reset = " << context.rtlReset(*reset) << ";\n"
           << "        if ($isunknown(" << name << "_sampled_clock))\n"
           << "          " << name << "_fault = 2'd1;\n"
           << "        else begin\n"
-          << "          " << name << "_rising = (" << name
-          << "_clock === 1'b0) && (" << name << "_sampled_clock === 1'b1);\n"
-          << "          if (" << name << "_rising && $isunknown(" << name
-          << "_sampled_reset))\n"
-          << "            " << name << "_fault = 2'd2;\n"
-          << "          else begin\n"
-          << "            " << name << "_reset_active = " << name
-          << "_rising && (" << name << "_sampled_reset === 1'b1);\n"
+          << "          " << name << "_rising = (" << history << " === "
+          << (binding.edge == ac::RegisterEdge::Negedge ? "1'b1" : "1'b0")
+          << ") && (" << name << "_sampled_clock === "
+          << (binding.edge == ac::RegisterEdge::Negedge ? "1'b0" : "1'b1")
+          << ");\n";
+      for (const auto &reset : binding.resets) {
+        auto raw = net(reset.value);
+        if (failed(raw))
+          return failure();
+        std::string normalized =
+            reset.polarity == ac::RegisterResetPolarity::Low ? "~(" + *raw + ")"
+                                                             : *raw;
+        std::string due = reset.kind == ac::RegisterResetKind::Async
+                              ? "1'b1"
+                              : name + "_rising";
+        out << "          " << name
+            << "_sampled_reset = " << context.rtlReset(normalized) << ";\n"
+            << "          if (" << due << ") begin\n"
+            << "            if ($isunknown(" << name << "_sampled_reset)) "
+            << name << "_fault = 2'd2;\n"
+            << "            else if (" << name << "_sampled_reset === 1'b1) "
+            << name << "_reset_active = 1'b1;\n"
+            << "          end\n";
+      }
+      out << "          if (" << name << "_fault == 2'd0) begin\n"
           << "            " << name << "_pending_clock = " << name
           << "_sampled_clock;\n"
           << "            " << name << "_pending_valid = 1'b1;\n"
           << "          end\n"
           << "        end\n"
           << "        " << name << "_complete = 1'b1;\n"
-          << "      end\n"
-          << "      3'd2: begin\n"
+          << "      end\n";
+      if (causal)
+        out << "      3'd5: " << history << " = " << name << "_clock;\n"
+            << "      3'd7: if (pyc_root_commit_ok === 1'b1) " << name
+            << "_clock = " << history << ";\n";
+      out << "      " << (causal ? "3'd6" : "3'd2") << ": begin\n"
           << "        if ((pyc_root_commit_ok === 1'b1) && (" << name
           << "_pending_valid === 1'b1)) begin\n"
-          << "          " << name << "_clock = " << name << "_pending_clock;\n"
+          << "          " << history << " = " << name << "_pending_clock;\n"
           << "          " << name << "_pending_valid = 1'b0;\n"
-          << "        end\n"
-          << "        if (pyc_root_commit_ok === 1'b1)\n"
-          << "          " << name << "_complete = 1'b0;\n"
-          << "      end\n"
+          << "        end\n";
+      if (!causal)
+        out << "        if (pyc_root_commit_ok === 1'b1)\n"
+            << "          " << name << "_complete = 1'b0;\n";
+      out << "      end\n"
           << "      3'd3, 3'd4: begin\n"
-          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_complete = "
+          << (causal ? "(pyc_phase == 3'd4)" : "1'b0") << ";\n"
           << "        " << name << "_sampled_clock = 1'b0;\n"
           << "        " << name << "_sampled_reset = 1'b0;\n"
           << "        " << name << "_rising = 1'b0;\n"
           << "        " << name << "_reset_active = 1'b0;\n"
           << "        " << name << "_fault = 2'd0;\n"
-          << "        " << name << "_pending_clock = 1'b0;\n"
+          << "        " << name << "_pending_clock = " << *seed << ";\n"
           << "        " << name << "_pending_valid = (pyc_phase == 3'd4);\n"
           << "      end\n"
           << "      default: begin end\n"
@@ -243,17 +277,26 @@ public:
             << "          " << name << "_complete = 1'b0;\n"
             << "      end\n"
             << "      3'd3, 3'd4: begin\n"
-            << "        " << name << "_complete = 1'b0;\n"
+            << "        " << name << "_complete = "
+            << (context.causalClocks() ? "(pyc_phase == 3'd4)" : "1'b0")
+            << ";\n"
             << "        " << name << "_condition = 1'b0;\n"
             << "        " << name << "_path = 1'b0;\n"
             << "      end\n"
             << "      default: begin end\n"
             << "    endcase\n"
             << "  end\n"
-            << "  wire " << name << " = $isunknown(" << name << "_path) || ("
+            << "  wire " << name << " = ";
+        auto contract = context.package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+        if (contract && contract.getInt() == 7)
+          out << sampling << "_rising && !" << sampling << "_reset_active && (";
+        out << "$isunknown(" << name << "_path) || ("
             << sampling << "_rising && !" << sampling << "_reset_active && ("
             << name << "_path === 1'b1) && "
-            << "$isunknown(" << name << "_condition));\n"
+            << "$isunknown(" << name << "_condition))";
+        if (contract && contract.getInt() == 7)
+          out << ")";
+        out << ";\n"
             << "`else\n"
             << "  wire " << name << "_complete = 1'b1;\n"
             << "  wire " << name << " = 1'b0;\n"
@@ -284,7 +327,9 @@ public:
           << "          " << name << "_complete = 1'b0;\n"
           << "      end\n"
           << "      3'd3, 3'd4: begin\n"
-          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_complete = "
+          << (context.causalClocks() ? "(pyc_phase == 3'd4)" : "1'b0")
+          << ";\n"
           << "        " << name << "_condition = 1'b0;\n"
           << "        " << name << "_path = 1'b0;\n"
           << "        " << name << "_reset = 1'b0;\n"
@@ -368,6 +413,12 @@ public:
     auto *op = value.getDefiningOp();
     if (!op)
       return definition.emitOpError() << "RTL wire has no producer";
+    if (auto source = dyn_cast<ac::ClockSourceOp>(op)) {
+      auto name = net(source.getInput());
+      if (succeeded(name))
+        names.try_emplace(value, *name);
+      return name;
+    }
     if (isa<ac::InstanceOp, ac::CollectionOp>(op)) {
       auto name = "pyc_net_" + std::to_string(next++);
       auto type = context.rtlType(value.getType(), op);
@@ -418,7 +469,9 @@ public:
       operands.push_back(*item);
     }
     std::string expression;
-    if (isa<ac::ValueRequireOp>(op))
+    if (isa<ac::ValueZeroOp>(op))
+      expression = "'0";
+    else if (isa<ac::ValueRequireOp>(op))
       expression = "(" + operands[1] + " ? " + operands[0] + " : 1'b1)";
     else if (auto create = dyn_cast<ac::EnumCreateOp>(op)) {
       auto definition =
@@ -1032,17 +1085,71 @@ public:
         return failure();
       if (managedPrimitive) {
         if (parameters->empty())
-          *parameters = (context.isPhysical() ? " #( .pyc_physical(1'b1) )"
-                                              : " #( .pyc_managed(1'b1) )");
+          *parameters = (context.batchesPhysicalEvents()
+                             ? " #( .pyc_managed(1'b1), .pyc_physical(1'b1) )"
+                         : context.isPhysical() ? " #( .pyc_physical(1'b1) )"
+                                                : " #( .pyc_managed(1'b1) )");
         else {
           auto close = parameters->rfind(')');
           if (close == std::string::npos)
             return occurrence->emitOpError()
                    << "malformed RTL primitive parameter list";
-          parameters->insert(close, context.isPhysical()
-                                        ? ", .pyc_physical(1'b1) "
-                                        : ", .pyc_managed(1'b1) ");
+          parameters->insert(close,
+                             context.batchesPhysicalEvents()
+                                 ? ", .pyc_managed(1'b1), .pyc_physical(1'b1) "
+                             : context.isPhysical() ? ", .pyc_physical(1'b1) "
+                                                    : ", .pyc_managed(1'b1) ");
         }
+      }
+      if (kind == "dff" || kind == "dffe") {
+        auto contract = ac::getRegisterContract(callee);
+        if (failed(contract))
+          return failure();
+        if (*contract == 3) {
+          auto close = parameters->rfind(')');
+          if (close == std::string::npos)
+            return occurrence->emitOpError()
+                   << "register requires typed RTL parameters";
+          parameters->insert(close, ", .pyc_separate_reset_value(1'b1) ");
+          auto policy = ac::getRegisterPolicy(occurrence);
+          if (failed(policy))
+            return failure();
+          auto bit = [](bool value) { return value ? "1'b1" : "1'b0"; };
+          std::string options = ", .pyc_negative_edge(";
+          options += bit(policy->edge == ac::RegisterEdge::Negedge);
+          options += "), .pyc_reset_kind(";
+          options += policy->resetKind == ac::RegisterResetKind::None    ? "0"
+                     : policy->resetKind == ac::RegisterResetKind::Async ? "2"
+                                                                         : "1";
+          options += "), .pyc_reset_low(";
+          options +=
+              bit(policy->resetPolarity == ac::RegisterResetPolarity::Low);
+          options += "), .pyc_reset_if_one(";
+          options += bit(context.resetIfOne());
+          options += "), .pyc_has_initial(";
+          options += bit(policy->hasInitial);
+          options += ") ";
+          parameters->insert(parameters->rfind(')'), options);
+        }
+        if (context.causalClocks() && managedPrimitive) {
+          auto pins = ac::getRegisterPrimitiveLayout(callee);
+          if (failed(pins))
+            return failure();
+          auto seed = clockSeed(occurrence->getOperand(pins->clock));
+          if (failed(seed))
+            return failure();
+          parameters->insert(parameters->rfind(')'),
+                             ", .pyc_causal(1'b1), .pyc_initial_clock(" +
+                                 *seed + ") ");
+        }
+      }
+      if (kind.empty() && context.causalClocks()) {
+        auto parameter = ".pyc_clock_occurrence(" +
+                         childOccurrenceParameter(occurrence) + ")";
+        if (parameters->empty())
+          *parameters = " #(" + parameter + ")";
+        else
+          parameters->insert(parameters->rfind(')'), ", " + parameter + " ");
       }
       std::string i, count;
       if (collection) {
@@ -1056,12 +1163,17 @@ public:
       if (context.isPhysical() && managedPrimitive &&
           (kind == "dff" || kind == "dffe")) {
         unsigned initialIndex = kind == "dff" ? 3 : 4;
+        auto policy = ac::getRegisterPolicy(occurrence);
+        if (failed(policy))
+          return failure();
         auto initial =
-            physicalInitializer(occurrence->getOperand(initialIndex));
+            policy->hasInitial
+                ? physicalInitializer(occurrence->getOperand(initialIndex))
+                : FailureOr<std::string>(std::string("'x"));
         if (failed(initial))
           return failure();
         std::string selected = *initial;
-        if (collection) {
+        if (collection && policy->hasInitial) {
           auto signature = cast<FunctionType>(
               callee->getAttrOfType<TypeAttr>("function_type").getValue());
           auto width = context.payloadWidth(signature.getInput(initialIndex),
@@ -1086,7 +1198,8 @@ public:
           out << "  wire " << childError << ";\n";
         localErrors.push_back(collection ? "(|" + childError + ")"
                                          : childError);
-        if (kind.empty() && !context.isPhysical()) {
+        if (kind.empty() &&
+            (!context.isPhysical() || context.batchesPhysicalEvents())) {
           childComplete = childError + "_complete";
           childSamplingError = childError + "_sampling";
           auto type = collection ? "[(" + count + ")-1:0] " : "";
@@ -1103,6 +1216,18 @@ public:
         out << "  for (genvar " << i << "=0; " << i << " < (" << count
             << "); ++" << i << ") begin : " << "pyc_instances_" << *name
             << "\n";
+      if (auto component =
+              occurrence->getAttrOfType<DictionaryAttr>("ac.cdc_component")) {
+        auto role = component.getAs<StringAttr>("role");
+        if (role) {
+          out << "  // CDC " << role.getValue()
+              << "; retain synchronizer stages and constrain Gray crossings.\n";
+          if (role.getValue().contains("stage") ||
+              role.getValue().contains("release"))
+            out << "  (* async_reg = \"true\", keep_hierarchy = \"yes\", "
+                   "dont_touch = \"true\" *)\n";
+        }
+      }
       out << "  " << (kind.empty() ? context.names(callee).rtl : kind.str())
           << *parameters << " pyc_instance_" << *name << " (";
       bool first = true;
@@ -1120,8 +1245,17 @@ public:
           net += "[((" + count + ")-1-" + i + ")*(" + *width + ") +: (" +
                  *width + ")]";
         }
-        if (!kind.empty() && port == "rst")
-          net = context.rtlReset(net);
+        if (!kind.empty() && port == "rst") {
+          bool policyRegister = false;
+          if (kind == "dff" || kind == "dffe") {
+            auto contract = ac::getRegisterContract(callee);
+            if (failed(contract))
+              return failure();
+            policyRegister = *contract == 3;
+          }
+          if (!policyRegister)
+            net = context.rtlReset(net);
+        }
         out << (first ? "\n" : ",\n") << "    ." << *id << "(" << net << ")";
         first = false;
         return success();
@@ -1144,16 +1278,16 @@ public:
               << ")";
           first = false;
         };
-        if (!context.isPhysical())
+        if (!context.isPhysical() || context.batchesPhysicalEvents())
           managedConnection("pyc_phase", "pyc_phase");
         managedConnection("pyc_root_commit_ok", "pyc_root_commit_ok");
         if (kind.empty()) {
           managedConnection("pyc_reset_active", "pyc_reset_active");
-          if (!context.isPhysical())
+          if (!context.isPhysical() || context.batchesPhysicalEvents())
             managedConnection("pyc_check_complete",
                               collection ? childComplete + "[" + i + "]"
                                          : childComplete);
-          if (!context.isPhysical())
+          if (!context.isPhysical() || context.batchesPhysicalEvents())
             managedConnection("pyc_sampling_error",
                               collection ? childSamplingError + "[" + i + "]"
                                          : childSamplingError);
@@ -1169,13 +1303,13 @@ public:
   }
 
   void recordPhysicalLayout() {
-    if (context.isPhysical())
+    if (context.isPhysical() || context.causalClocks())
       for (const auto &entry : names)
         context.physicalLayout.nets.try_emplace(entry.first, entry.second);
   }
 
   void emitAggregateError() {
-    if (context.isPhysical()) {
+    if (context.isPhysical() && !context.batchesPhysicalEvents()) {
       out << "  assign pyc_local_error = "
           << (localErrors.empty() ? "1'b0" : join(localErrors, " | ")) << ";\n";
       return;
@@ -1197,6 +1331,33 @@ public:
   }
 
 private:
+  FailureOr<std::string> clockSeed(Value clock) const {
+    const auto &plan = *context.causalClocks();
+    std::string expression;
+    for (auto [id, owner] : llvm::enumerate(plan.occurrences)) {
+      if (owner.definition != definition)
+        continue;
+      auto source = ac::resolveHardwareClockSource(plan, clock, id);
+      if (failed(source))
+        return failure();
+      if (plan.sources[*source].initialLevel)
+        expression += "(pyc_clock_occurrence == " + std::to_string(id) + ") || ";
+    }
+    return expression + "1'b0";
+  }
+
+  std::string childOccurrenceParameter(Operation *allocation) const {
+    const auto &plan = *context.causalClocks();
+    std::string expression;
+    for (auto [id, owner] : llvm::enumerate(plan.occurrences)) {
+      auto child = owner.children.find(allocation);
+      if (child != owner.children.end())
+        expression += "(pyc_clock_occurrence == " + std::to_string(id) +
+                      ") ? " + std::to_string(child->second) + " : ";
+    }
+    return expression + "-1";
+  }
+
   HardwareEmitContext &context;
   ac::ModuleOp definition;
   raw_ostream &out;
@@ -1216,6 +1377,8 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
   auto &names = context.names(definition);
   out << "module " << names.rtl;
   SmallVector<std::string> parameters;
+  if (context.causalClocks())
+    parameters.push_back("parameter int pyc_clock_occurrence = 0");
   for (auto raw : definition.getParameters()) {
     auto formal = cast<DictionaryAttr>(raw);
     auto name = formal.getAs<StringAttr>("name");
@@ -1278,7 +1441,7 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
            "  output wire pyc_local_error";
     first = false;
   }
-  if (context.isPhysical()) {
+  if (context.isPhysical() && !context.batchesPhysicalEvents()) {
     out << (first ? "\n" : ",\n")
         << "  input wire pyc_root_commit_ok,\n"
            "  input wire pyc_reset_active,\n"

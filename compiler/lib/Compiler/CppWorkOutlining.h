@@ -35,13 +35,10 @@ public:
     stream.flush();
     if (pending.empty())
       return;
-    maxStatementBytes = std::max(maxStatementBytes, pending.size());
-    if (parts.empty() || (!parts.back().empty() &&
-                          parts.back().size() + pending.size() > partBytes))
-      parts.emplace_back();
-    parts.back() += pending;
+    append(parts, pending);
     pending.clear();
   }
+  void initialize(llvm::StringRef statement) { append(initializers, statement); }
   void emit(llvm::raw_ostream &out, bool known = false,
             llvm::StringRef guard = {}) {
     std::string prefix = known ? "pyc_known_work" : "pyc_work";
@@ -69,32 +66,20 @@ public:
       auto page = start / pageFields;
       out << "    " << prefix << "_page_" << page << " page_" << page << ";\n";
     }
-    out << "  };\n";
-    std::vector<std::string> calls;
-    for (std::size_t i = 0; i < parts.size(); ++i) {
-      auto name = prefix + "_part_" + std::to_string(i);
-      out << "  pyc_work_noinline void " << name << "(" << frame
-          << " &pyc_values) {\n"
-          << parts[i] << "  }\n";
-      calls.push_back(name);
-    }
-    // Preserve order, while also bounding call-only dispatch functions.
-    for (std::size_t level = 0; calls.size() > dispatchFanout; ++level) {
-      std::vector<std::string> next;
-      for (std::size_t start = 0; start < calls.size();
-           start += dispatchFanout) {
-        auto name = prefix + "_dispatch_" + std::to_string(level) + "_" +
-                    std::to_string(start / dispatchFanout);
-        out << "  pyc_work_noinline void " << name << "(" << frame
-            << " &pyc_values) {\n";
-        for (std::size_t i = start;
-             i < std::min(start + dispatchFanout, calls.size()); ++i)
-          out << "    " << calls[i] << "(pyc_values);\n";
-        out << "  }\n";
-        next.push_back(name);
-      }
-      calls = std::move(next);
-    }
+    // Dynamic fields are overwritten on each Work. Fields proved independent
+    // of ports and state are filled once, before publishing the new frame.
+    out << "  };\n  std::unique_ptr<" << frame << "> " << frame
+        << "_storage;\n";
+    auto initCalls = emitParts(out, frame, initializers, frame + "_init_",
+                               frame + "_init_dispatch_", "static ");
+    auto calls = emitParts(out, frame, parts, prefix + "_part_",
+                           prefix + "_dispatch_", "");
+    out << "  static auto " << frame << "_create() {\n"
+        << "    auto storage = std::make_unique_for_overwrite<" << frame
+        << ">();\n";
+    for (const auto &call : initCalls)
+      out << "    " << call << "(*storage);\n";
+    out << "    return storage;\n  }\n";
     if (known) {
       out << "  void pyc_run_known_work() {\n";
     } else {
@@ -103,10 +88,11 @@ public:
       if (!guard.empty())
         out << "      if (" << guard << ") return pyc_run_known_work();\n";
     }
-    out << "      auto pyc_values = std::make_unique_for_overwrite<" << frame
-        << ">();\n";
+    out << "      if (!" << frame << "_storage) " << frame << "_storage = "
+        << frame << "_create();\n"
+        << "      auto &pyc_values = *" << frame << "_storage;\n";
     for (auto &name : calls)
-      out << "      " << name << "(*pyc_values);\n";
+      out << "      " << name << "(pyc_values);\n";
     if (!known)
       out << "    } catch (...) { DiscardNext(); throw; }\n";
     out << "  }\n";
@@ -123,7 +109,45 @@ private:
     std::string type, name;
     bool constant;
   };
-  std::vector<std::string> parts;
+  static std::vector<std::string>
+  emitParts(llvm::raw_ostream &out, llvm::StringRef frame,
+            const std::vector<std::string> &groups, const std::string &partPrefix,
+            const std::string &dispatchPrefix, llvm::StringRef qualifier) {
+    std::vector<std::string> calls;
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+      auto name = partPrefix + std::to_string(i);
+      out << "  " << qualifier << "pyc_work_noinline void " << name << "(" << frame
+          << " &pyc_values) {\n"
+          << groups[i] << "  }\n";
+      calls.push_back(name);
+    }
+    // Preserve order, while also bounding call-only dispatch functions.
+    for (std::size_t level = 0; calls.size() > dispatchFanout; ++level) {
+      std::vector<std::string> next;
+      for (std::size_t start = 0; start < calls.size();
+           start += dispatchFanout) {
+        auto name = dispatchPrefix + std::to_string(level) + "_" +
+                    std::to_string(start / dispatchFanout);
+        out << "  " << qualifier << "pyc_work_noinline void " << name << "(" << frame
+            << " &pyc_values) {\n";
+        for (std::size_t i = start;
+             i < std::min(start + dispatchFanout, calls.size()); ++i)
+          out << "    " << calls[i] << "(pyc_values);\n";
+        out << "  }\n";
+        next.push_back(name);
+      }
+      calls = std::move(next);
+    }
+    return calls;
+  }
+  void append(std::vector<std::string> &groups, llvm::StringRef statement) {
+    maxStatementBytes = std::max(maxStatementBytes, statement.size());
+    if (groups.empty() || (!groups.back().empty() &&
+                           groups.back().size() + statement.size() > partBytes))
+      groups.emplace_back();
+    groups.back().append(statement);
+  }
+  std::vector<std::string> parts, initializers;
   std::vector<Plane> planes;
   std::size_t maxStatementBytes = 0;
 };
@@ -135,6 +159,11 @@ inline llvm::StringRef cppWorkRuntimeSupport() {
 #else
 #define pyc_work_noinline __attribute__((noinline))
 #endif
+
+template <class Word, bool Value> const Word &pyc_work_bit() noexcept {
+  static const Word bit = Word::known(gfsim::Bits<1>{Value});
+  return bit;
+}
 
 template <std::size_t OutputLanes, std::size_t InputLanes, class Plane>
 struct pyc_work_broadcast_view {

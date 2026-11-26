@@ -139,6 +139,20 @@ def ACIR_BitsConstantOp : ACIR_Op<"bits.constant", [Pure]> {
   let hasVerifier = 1;
 }
 
+def ACIR_ValueZeroOp : ACIR_Op<"value.zero", [Pure]> {
+  let summary = "Carry known packed zero through a shared generic definition";
+  let description = [{
+    The result has all storage bits known zero, without enum membership or
+    nominal constructor semantics. It does not initialize storage or request
+    reset. CDC graph construction uses this carrier only at opaque type
+    parameter leaves, preserving one shared definition for distinct actual
+    payload types. Concrete Bits, Enum, Struct and Table zeros compose existing
+    constant, enum.from_bits, struct.create and table.splat operations.
+  }];
+  let results = (outs ACIR_HardwareType:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_BitsConstant4Op : ACIR_Op<"bits.constant4", [Pure]> {
   let summary = "Create an exact fixed-width four-state hardware bit vector";
   let arguments = (ins StrAttr:$pattern);
@@ -385,6 +399,41 @@ def ACIR_SourceStateOp : ACIR_Op<"state", [
       return (*this)->getAttrOfType<::mlir::DictionaryAttr>("ac.payload_constraint");
     }
   }];
+}
+
+def ACIR_ClockSourceOp : ACIR_Op<"clock.source"> {
+  let summary = "Declare a registered derived clock and retain its identity";
+  let description = [{
+    An identity wire with an occurrence-owned event identity, shared by routed
+    and final hardware. contract=1 requires input to resolve to one registered
+    bit in source_domain. domain names the distinct local derived source.
+    Native verification checks syntax and placement; the common clock-source
+    planner proves actual producer provenance, hierarchy bindings and the
+    acyclic source graph. This witness is deliberately not Pure. It cannot
+    authorize execution without the causal-wave execution profile.
+  }];
+  let arguments = (ins ACIR_BitsType:$input, StrAttr:$domain,
+      StrAttr:$source_domain, DictionaryAttr:$occurrence, I64Attr:$contract);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_CDCRefinementOp : ACIR_Op<"cdc.refinement", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Bind a native CDC allocation to its ordinary physical graph";
+  let description = [{
+    A contract-7 component witness retains the logical resource identity,
+    endpoint policies, external pins and selected recipe. ac.cdc_source records
+    exact source instance and declaration attribute assembly as inert strings;
+    it never keeps live references to the removed native resource import.
+    Standalone verification reconstructs the physical equations and ownership;
+    logical-to-final correspondence separately authenticates source provenance.
+    This operation neither allocates a resource nor authorizes a crossing.
+  }];
+  let arguments = (ins Variadic<ACIR_HardwareType>:$values,
+      StrAttr:$logical_kind, I64Attr:$implementation,
+      OptionalAttr<ACIR_StaticExprAttr>:$depth);
+  let hasVerifier = 1;
 }
 
 def ACIR_SourceStateReadOp : ACIR_Op<"state.read", [

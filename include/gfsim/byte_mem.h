@@ -3,6 +3,7 @@
 
 #include "gfsim/SimModule.h"
 #include "gfsim/memory_detail.h"
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -64,11 +65,16 @@ struct byte_mem_kernel {
     }
     auto readBase = detail::memory_index(address.value());
     Bits<DATA_BITS> readValue{};
-    for (unsigned lane = 0; lane < STRB_WIDTH; ++lane)
-      readValue =
-          readValue |
-          shl(zext<DATA_BITS>(Bits<8>{peekByteAt(current, readBase, lane)}),
-              8u * lane);
+    // Lane zero is the low byte, independent of host endianness or alignment.
+    constexpr unsigned bytesPerWord = Bits<DATA_BITS>::kWordBits / 8;
+    for (unsigned first = 0; first < STRB_WIDTH; first += bytesPerWord) {
+      std::uint64_t word = 0;
+      const unsigned count = std::min(bytesPerWord, STRB_WIDTH - first);
+      for (unsigned i = 0; i < count; ++i)
+        word |= std::uint64_t{peekByteAt(current, readBase, first + i)}
+                << (8u * i);
+      readValue.setWord(first / bytesPerWord, word);
+    }
     outputs.rdata = wire<T>::fromPacked(FourState<DATA_BITS>::known(readValue));
   }
   static void work(const Current &current, Inputs inputs, Pending &pending,

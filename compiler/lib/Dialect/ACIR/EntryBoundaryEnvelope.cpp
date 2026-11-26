@@ -77,6 +77,37 @@ FailureOr<bool> needsEntryBoundary(const HardwareAnalysis &analysis,
   return false;
 }
 
+FailureOr<DictionaryAttr> getEntryBoundaryDomainBindings(
+    ModuleOp logical,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  auto declared = logical->getAttr("ac.domain_params");
+  if (!declared)
+    return DictionaryAttr();
+  auto formals = dyn_cast<ArrayAttr>(declared);
+  if (!formals)
+    return logical.emitOpError("entry domain formals require an array");
+
+  // Registered sources stay local while the adapter exposes their domains.
+  llvm::DenseSet<StringRef> localDomains;
+  if (!logical.getBody().empty())
+    for (auto source : logical.getBody().front().getOps<ClockSourceOp>()) {
+      if (failed(debit(8, source)))
+        return failure();
+      localDomains.insert(source.getDomain());
+    }
+  NamedAttrList bindings;
+  for (auto raw : formals) {
+    if (failed(debit(8, logical)))
+      return failure();
+    auto formal = dyn_cast<StringAttr>(raw);
+    if (!formal)
+      return logical.emitOpError("entry boundary domain formals require strings");
+    if (!localDomains.contains(formal.getValue()))
+      bindings.append(formal.getValue(), formal);
+  }
+  return bindings.getDictionary(logical.getContext());
+}
+
 LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normalizedInput,
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   auto package = analysis.getPackage();
@@ -173,10 +204,13 @@ LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normali
       !adapter.getParameters().empty() || !adapter.getTypeParameters().empty() ||
       adapter->getAttr("ac.domain_inputs") != logical->getAttr("ac.domain_inputs"))
     return error() << "entry boundary owner, location, formals or domain mismatch";
+  for (StringRef name : {"ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs", "ac.port_domains"})
+    if (adapter->getAttr(name) != logical->getAttr(name))
+      return error() << "entry boundary domain contract mismatch";
   // The adapter has no source-call or source-state declaration authority.
   for (NamedAttribute attr : adapter->getAttrs()) {
     StringRef name = attr.getName().getValue();
-    if (llvm::is_contained(ArrayRef<StringRef>{"sym_name", "source_owner", "parameters", "type_parameters", "function_type", "input_names", "output_names", "ac.domain_inputs"}, name)) continue;
+    if (llvm::is_contained(ArrayRef<StringRef>{"sym_name", "source_owner", "parameters", "type_parameters", "function_type", "input_names", "output_names", "ac.domain_inputs", "ac.domain_params", "ac.default_domain", "ac.domain_clock_inputs", "ac.port_domains"}, name)) continue;
     if (!normalizedInput && llvm::is_contained(ArrayRef<StringRef>{"ac.internal_ports", "ac.input_validity", "ac.output_validity", "ac.routed_output_validity", "ac.transaction_wiring", "ac.queue_wiring", "ac.transaction_returns"}, name)) continue;
     return error() << "unexpected entry boundary declaration metadata: " << name;
   }
@@ -222,9 +256,14 @@ LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normali
   if (!body.back().getAttrs().empty())
     return error() << "entry boundary yield cannot carry metadata";
   for (NamedAttribute attr : child->getAttrs())
-    if (!llvm::is_contained(ArrayRef<StringRef>{"instance_name", "callee", "parameters", "type_arguments", "occurrence"},
+    if (!llvm::is_contained(ArrayRef<StringRef>{"instance_name", "callee", "parameters", "type_arguments", "occurrence", "ac.domain_bindings"},
                             attr.getName().getValue()))
       return error() << "entry boundary child cannot carry additional metadata";
+  auto expectedDomains = getEntryBoundaryDomainBindings(logical, debit);
+  if (failed(expectedDomains))
+    return failure();
+  if (child->getAttr("ac.domain_bindings") != *expectedDomains)
+    return error() << "entry boundary domain forwarding mismatch";
   NamedAttrList site(origin.getAs<DictionaryAttr>("site"));
   site.set("definition", FlatSymbolRefAttr::get(package.getContext(), entryBoundarySymbol));
   NamedAttrList occurrence(origin);

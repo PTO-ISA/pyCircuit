@@ -25,7 +25,8 @@ void appendCppDutHeader(FinalCppSourceParts &parts,
                         llvm::StringRef configure, bool hasChecks, bool observes);
 void addCppSystemDriver(FinalCppSourceParts &parts, llvm::StringRef clock,
                         llvm::StringRef reset, mlir::ArrayAttr samples,
-                        bool resetIfOne);
+                        bool resetIfOne,
+                        llvm::ArrayRef<std::string> sampledInputs = {});
 mlir::FailureOr<FinalCppSourceParts> emitCppSourceParts(
     mlir::ModuleOp package, ac::HardwareAnalysis &analysis);
 mlir::LogicalResult emitCpp(mlir::ModuleOp package,

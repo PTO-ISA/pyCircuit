@@ -572,8 +572,8 @@ C++ Work emission can materialize a proven constant Table field plane once in
 a capture-free, function-local `static const` initializer. The existing emitter
 constructs its exact type and layout; it does not introduce another constant
 interpreter or change the final IR. Eligibility follows individual fields through
-literal construction, projection and supported fixed conversions. Inputs, state,
-region arguments and other computations retain ordinary emission. A dynamic row
+literal construction, projection and supported fixed conversions. A pure scalar computation whose inputs are all proven constant can also be
+initialized once. Inputs and state remain dynamic. A dynamic row
 keeps the entire selected field plane dynamic. Reset and Verilog use their
 existing paths, and unknown indices retain their four-state behavior.
 
@@ -592,9 +592,19 @@ evaluated through an ancestor. Parallel task eligibility does not decide whether
 the remaining ordered computation can be split into functions.
 
 `Work()` bodies up to 256 KiB of generated C++ remain a single function with
-local temporaries. Larger bodies use typed, per-call temporary pages with normal
-four-state initialization. Page construction and helper dispatch are grouped to
-bound the work performed by each constructor and caller.
+local temporaries and function-local immutable scalar constants. Larger bodies
+use a typed work frame per module instance and evaluation path. The first call
+allocates the frame and initializes its constant planes. Later calls reuse the
+storage and compute fresh dynamic values. An instance that executes both the
+known-value and four-state paths retains both frames until destruction.
+Initialization and evaluation use grouped helpers with bounded fanout.
+
+When emitting an outlined body, the compiler identifies shared scalar producers
+after forwarding ports and fields. It materializes shared results and can inline
+small single-use expressions into their consumers. An extract consuming a
+logical right shift can read its requested bit window directly, preserving the
+shift's zero fill and the unknown or high-impedance states of selected bits.
+
 Immutable constant planes retain their static lifetime. The original check,
 observation, exception/discard and whole-System commit boundaries are unchanged;
 helper calls do not advance time or transfer state.

@@ -1,13 +1,71 @@
 #include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/HardwareCDC.h"
 using namespace mlir;
 namespace acir::ac {
+mlir::FailureOr<Value> getVerifiedTransactionResetMask(RuleOp rule) {
+  auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  if (!row || !row.get("reset_masked")) return Value();
+  auto reject = [&]() { return rule.emitOpError("invalid common transaction reset mask"); };
+  auto masked = row.getAs<BoolAttr>("reset_masked");
+  auto resets = row.getAs<ArrayAttr>("resets");
+  auto fire = row.getAs<IntegerAttr>("fire_result");
+  if (!masked || !masked.getValue() || !resets || resets.empty() || !fire ||
+      !fire.getType().isSignlessInteger(64) || fire.getInt() < 0 ||
+      !rule.getBody().hasOneBlock() || rule.getBody().front().empty()) return reject();
+  auto &block = rule.getBody().front();
+  auto yield = dyn_cast<YieldOp>(block.back());
+  if (!yield || uint64_t(fire.getInt()) >= yield->getNumOperands()) return reject();
+  auto gate = yield->getOperand(fire.getInt()).getDefiningOp<BitsBinaryOp>();
+  if (!gate || gate->getBlock() != &block || gate.getOpcode() != "and") return reject();
+  Value mask = gate.getRhs(), cursor = mask;
+  SmallVector<Value> leaves(resets.size());
+  for (unsigned i = resets.size(); i > 1; --i) {
+    auto join = cursor.getDefiningOp<BitsBinaryOp>();
+    if (!join || join->getBlock() != &block || join.getOpcode() != "and") return reject();
+    leaves[i - 1] = join.getRhs(); cursor = join.getLhs();
+  }
+  leaves[0] = cursor;
+  for (auto [raw, leaf] : llvm::zip(resets, leaves)) {
+    auto reset = dyn_cast<DictionaryAttr>(raw);
+    auto capture = reset ? reset.getAs<IntegerAttr>("capture") : IntegerAttr();
+    auto polarity = reset ? reset.getAs<StringAttr>("polarity") : StringAttr();
+    auto kind = reset ? reset.getAs<StringAttr>("kind") : StringAttr();
+    if (!reset || reset.size() != 3 || !capture || !capture.getType().isSignlessInteger(64) ||
+        capture.getInt() < 0 || uint64_t(capture.getInt()) >= block.getNumArguments() ||
+        !polarity || (polarity.getValue() != "high" && polarity.getValue() != "low") ||
+        !kind || (kind.getValue() != "sync" && kind.getValue() != "async")) return reject();
+    auto invert = leaf.getDefiningOp<BitsUnaryOp>();
+    auto active = invert ? invert.getInput().getDefiningOp<BitsCompareOp>() : BitsCompareOp();
+    if (!invert || invert->getBlock() != &block || invert.getOpcode() != "not" || !active || active->getBlock() != &block || active.getPredicate() != "case_eq" ||
+        active.getLhs() != block.getArgument(capture.getInt())) return reject();
+    auto constant = active.getRhs().getDefiningOp<BitsConstantOp>();
+    auto tree = constant ? constant.getValue().getTree() : DictionaryAttr();
+    auto value = tree ? tree.getAs<DictionaryAttr>("value") : DictionaryAttr();
+    auto number = value ? value.getAs<MathIntAttr>("value") : MathIntAttr();
+    if (!constant || constant->getBlock() != &block || !tree || !tree.getAs<StringAttr>("kind") || tree.getAs<StringAttr>("kind").getValue() != "literal" ||
+        !value || !value.getAs<StringAttr>("kind") || value.getAs<StringAttr>("kind").getValue() != "integer" ||
+        !number || number.getCanonicalValue() != (polarity.getValue() == "high" ? "1" : "0")) return reject();
+  }
+  return mask;
+}
 namespace {
 LogicalResult primitiveSchema(const HardwareAnalysis &analysis,
                               ModuleImportOp op) {
   StringRef kind = analysis.getPrimitiveKind(op);
+  bool reg = kind == "dff" || kind == "dffe";
+  if (op->hasAttr("ac.register_contract") && !reg)
+    return op.emitOpError("register contract requires a DFF/DFFE import");
   if (kind.empty())
     return success();
+  if (isCDCPrimitive(op))
+    return verifyCDCPrimitiveDeclaration(analysis, op);
+  unsigned registerVersion = 1;
+  if (reg) {
+    auto version = getRegisterContract(op);
+    if (failed(version)) return failure();
+    registerVersion = *version;
+  }
   bool fifo = kind == "fifo_local" || kind == "fifo_downstream_pop";
   if (fifo && op.getSymName() != (Twine("pycircuit.__builtins__.") + kind).str())
     return op.emitOpError() << "trusted FIFO requires its canonical builtin symbol";
@@ -34,6 +92,7 @@ LogicalResult primitiveSchema(const HardwareAnalysis &analysis,
     outputs = {"ready", "valid", "data", "local_capacity"};
   } else
     return op.emitOpError() << "unknown trusted primitive kind";
+  if (reg && registerVersion == 3) inputs.push_back("reset_value");
   if (op.getInputNames().size() != inputs.size() ||
       op.getOutputNames().size() != outputs.size())
     return op.emitOpError() << "trusted primitive pin count mismatch";
@@ -70,7 +129,7 @@ LogicalResult primitiveSchema(const HardwareAnalysis &analysis,
       StringAttr::get(op.getContext(), "T"));
   for (auto [index, name] : llvm::enumerate(inputs)) {
     Type type = sig.getInput(index);
-    if (name == "d" || name == "init" || name == "wdata" || name == "in_data") {
+    if (name == "d" || name == "init" || name == "reset_value" || name == "wdata" || name == "in_data") {
       if (type != payload)
         return op.emitOpError()
                << "trusted primitive data pins require payload T";

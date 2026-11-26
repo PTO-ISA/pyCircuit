@@ -131,6 +131,7 @@ nav:
           - Boolean Record Fields: rfcs/boolean-record-fields.md
           - Literal Provider Constants: rfcs/literal-provider-constants.md
           - Four-state Values and System: rfcs/four-state-system.md
+          - Clock, Reset and CDC Backend Proposal: rfcs/clock-reset-cdc-backend.md
           - Serial Rule and Method: rfcs/serial-rule-method/README.md
           - Source Semantics: rfcs/serial-rule-method/source-semantics.md
           - Pure Helpers: rfcs/serial-rule-method/pure-helpers.md

@@ -8,6 +8,7 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
+#include "SystemSampling.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -17,6 +18,30 @@
 using namespace mlir;
 
 namespace acir::ac {
+
+FailureOr<llvm::SmallVector<unsigned>>
+getSystemSampleInputs(Operation *declaration) {
+  auto inputs = readSystemSampleInputs(declaration);
+  if (failed(inputs) || inputs->empty()) return inputs;
+  auto layout = getModulePortLayout(declaration);
+  auto rawType = declaration->getAttrOfType<TypeAttr>("function_type");
+  auto type = rawType ? dyn_cast<FunctionType>(rawType.getValue()) : FunctionType();
+  if (failed(layout) || !type || inputs->size() != layout->sourceInputCount ||
+      layout->sourceOutputCount || llvm::any_of(*inputs, [&](unsigned index) {
+        return index >= layout->sourceInputCount;
+      }))
+    return declaration->emitOpError("explicit System samples must cover its closed logical input boundary");
+  HardwareAnalysis analysis(declaration->getParentOfType<mlir::ModuleOp>());
+  HardwareBindings bindings;
+  bindings.owner = declaration;
+  for (unsigned index : *inputs) {
+    auto width = analysis.getPackedWidth(type.getInput(index), bindings, declaration);
+    if (failed(width) || *width != 1)
+      return declaration->emitOpError("System sample controls require one-bit logical inputs");
+  }
+  return *inputs;
+}
+
 
 FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
   auto error = [&] { return declaration->emitOpError(); };
@@ -110,6 +135,25 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
           if (auto port = domain.getAs<IntegerAttr>(pin);
               port && port.getInt() == static_cast<int64_t>(source))
             return error() << "clock/reset ports cannot acquire availability companions";
+      if (input) {
+        if (auto clocks = declaration->getAttrOfType<DictionaryAttr>(
+                "ac.domain_clock_inputs"))
+          for (auto field : clocks)
+            if (auto port = dyn_cast<IntegerAttr>(field.getValue());
+                port && port.getInt() == static_cast<int64_t>(source))
+              return error()
+                     << "logical clock sources require total availability";
+        auto samples =
+            declaration->getAttrOfType<DictionaryAttr>("ac.system_samples");
+        auto controls =
+            samples ? samples.getAs<ArrayAttr>("inputs") : ArrayAttr();
+        if (controls)
+          for (auto field : controls)
+            if (auto port = dyn_cast<IntegerAttr>(field);
+                port && port.getInt() == static_cast<int64_t>(source))
+              return error() << "System clock/reset controls require total "
+                                "availability";
+      }
       if (input && incoming)
         for (Attribute item : incoming) {
           auto route = dyn_cast<DictionaryAttr>(item);
@@ -400,6 +444,31 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
   HardwareAnalysis analysis(package);
   HardwareBindings bindings;
   bindings.owner = owner;
+  auto sampleInputs = getSystemSampleInputs(owner);
+  if (failed(sampleInputs))
+    return failure();
+  if (system &&
+      (owner->hasAttr("ac.domain_clock_inputs") || !sampleInputs->empty())) {
+    if (present != 1 || !integers.empty() || !types.empty() ||
+        layout->sourceOutputCount || domain.size() != 2)
+      return error()
+             << "multi-control System requires a closed control-only interface";
+    auto clock = domain.getAs<IntegerAttr>("clock");
+    auto reset = domain.getAs<IntegerAttr>("reset");
+    if (!clock || !reset || clock == reset || clock.getInt() < 0 ||
+        reset.getInt() < 0 ||
+        uint64_t(clock.getInt()) >= layout->sourceInputCount ||
+        uint64_t(reset.getInt()) >= layout->sourceInputCount)
+      return error()
+             << "System legacy domain view must reference actual controls";
+    for (auto type :
+         signature.getInputs().take_front(layout->sourceInputCount)) {
+      auto width = analysis.getPackedWidth(type, bindings, owner);
+      if (failed(width) || *width != 1)
+        return error() << "System control inputs must be one bit";
+    }
+    return success();
+  }
   auto verifyDomain = [&](size_t count) -> LogicalResult {
     auto clock = domain.getAs<IntegerAttr>("clock");
     auto reset = domain.getAs<IntegerAttr>("reset");
@@ -492,17 +561,36 @@ LogicalResult HardwareAnalysis::verifyModuleDeclaration(
     Operation *operation, const HardwareBindings &bindings,
     bool requireResolved) const {
   if (auto module = dyn_cast<ModuleOp>(operation)) {
+    if (failed(getSystemSamples(module))) return failure();
     auto layout = getModulePortLayout(module);
     if (failed(layout))
       return failure();
     auto rootKind = module->getAttrOfType<StringAttr>("ac.root_kind");
-    if (rootKind &&
-        (!rootKind || rootKind.getValue() != "system" ||
-         layout->sourceInputCount != 2 || layout->sourceOutputCount != 0 ||
-         !module->getAttrOfType<DictionaryAttr>("ac.domain_inputs")))
-      return module.emitOpError()
-             << "source system must be a closed zero-result definition "
-                "with one inferred clock/reset domain";
+    if (rootKind) {
+      auto parameters = module.getParameters(), types = module.getTypeParameters();
+      auto clocks = module->getAttrOfType<DictionaryAttr>("ac.domain_clock_inputs");
+      auto samples = getSystemSampleInputs(module);
+      if (failed(samples))
+        return failure();
+      bool multipleDomains = (clocks && !clocks.empty()) || !samples->empty();
+      if (!parameters.empty() || !types.empty() || layout->sourceOutputCount ||
+          (!multipleDomains &&
+           (layout->sourceInputCount != 2 ||
+            !module->getAttrOfType<DictionaryAttr>("ac.domain_inputs"))))
+        return module.emitOpError()
+               << "source system requires a closed zero-result definition "
+                  "with resolved logical clock controls";
+      if (multipleDomains) {
+        HardwareAnalysis analysis(module->getParentOfType<mlir::ModuleOp>());
+        HardwareBindings bindings;
+        bindings.owner = module;
+        for (auto type : module.getFunctionType().getInputs().take_front(layout->sourceInputCount)) {
+          auto width = analysis.getPackedWidth(type, bindings, module);
+          if (failed(width) || *width != 1)
+            return module.emitOpError() << "System control inputs require one-bit storage";
+        }
+      }
+    }
     if (failed(detail::verifyModuleSourceCallContract(module)))
       return failure();
     return verifyDefinitionSourceChecks(module);

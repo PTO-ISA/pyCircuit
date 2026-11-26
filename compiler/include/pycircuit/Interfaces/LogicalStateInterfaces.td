@@ -4,15 +4,10 @@
 include "mlir/IR/OpBase.td"
 
 // Common routed-logical-state contracts shared by staged analysis. These
-// expose actual SSA operands, results and declaration attributes of the
-// implementing operation; no method performs lookup, caching, allocation,
-// stage queries or verification. Implementations must keep the fixed
-// operand/result ordinals verified by verifyLogicalStateStructure and
-// verifyLogicalStateUpdateStructure: state clock/reset/initial = operands
-// 0/1/2 with Q = result 0, update Q/candidate/intent = operands 0/1/2 with
-// no results. The interface is an access contract, never an admission
-// decision: presence does not authorize publication, refinement or
-// execution (see B1-boundary.md).
+// Accessors expose actual SSA operands, results and declaration attributes.
+// Contract 4/5 uses clock/reset/initial at 0/1/2; contract 7 uses the exact
+// four clock/reset/initial/reset-value segments, with optional reset and init.
+// Structural decoding validates each getter before staged admission.
 
 def LogicalStateOpInterface : OpInterface<"LogicalStateOpInterface"> {
   let description = [{
@@ -23,9 +18,9 @@ def LogicalStateOpInterface : OpInterface<"LogicalStateOpInterface"> {
   let methods = [
     InterfaceMethod<"Clock operand at fixed slot 0.", "mlir::Value",
                     "getStateClock">,
-    InterfaceMethod<"Reset operand at fixed slot 1.", "mlir::Value",
+    InterfaceMethod<"Optional reset operand.", "mlir::Value",
                     "getStateReset">,
-    InterfaceMethod<"Initial value operand at fixed slot 2.", "mlir::Value",
+    InterfaceMethod<"Optional initial value operand.", "mlir::Value",
                     "getStateInitial">,
     InterfaceMethod<"Committed old-Q result at fixed slot 0.",
                     "mlir::Value", "getStateQ">,

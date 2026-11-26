@@ -18,7 +18,8 @@ general extern implementation bindings remain separate work.
 A routed top-level package has `ac.stage = "routed"` and
 `ac.routed_contract = 4 : i64`, or contract 5 when it has a verified
 [selected Module entry boundary](entry-boundary.md). Contract 5 requires that
-boundary; contract 4 forbids it. Versions 2 and 3, version 1 and unknown or
+boundary; contract 4 forbids it. Contract 7 adds the native-resource domain/reset/CDC profile below. Superseded
+experimental contract 6, versions 1–3 and unknown or
 malformed markers require rebuilding from source. The marker cannot appear in a
 source unit or on a nested operation.
 Hardware refinement preserves the marker while changing the stage to `final`.
@@ -143,6 +144,193 @@ inherit transaction preparation limits merely by passing through the new stages.
 Logical-state preparation/refinement retains its bounded work and allocation
 checks. Missing physical storage declarations can leave a valid logical anchor,
 but must reject requested hardware refinement without changing that anchor.
+
+## Contract 7: domains, reset policies and explicit CDC
+
+The new `ac.routed_contract = 7 : i64` profile adds the domain/reset/CDC backend.
+It permits an ordinary root or a verified [selected Module entry boundary](entry-boundary.md).
+Its logical state is `gfir.state`, paired with `gfir.state.update(Q, candidate, intent)`;
+module hierarchy and shared operations remain in ACIR. This profile is independently
+constructible in IR and adds no Python capture or authoring syntax.
+
+Contract 7 keeps logical clock/reset SSA references and authenticates `domain`
+against `ac.domain_params`, actual `ac.domain_bindings` and root
+`ac.domain_clock_inputs`. An ordinary selected root can declare
+`ac.port_domains = {inputs = {adata = "W"}, outputs = {aq2_data = "W", bq2_data = "R"}}`.
+The sparse maps use public source port names; omitted data ports retain the
+default domain. Each mapped port belongs to one declared domain, including an
+aggregate port as a whole. Availability companions inherit their payload's
+domain. This contract is preserved and authenticated through a generated entry
+boundary; it does not waive ordinary cross-domain connection checks or change
+nested Module interfaces. Dedicated root clock inputs retain their actual clock
+identity rather than a data-port override.
+
+State requires explicit edge, reset kind and initialization
+kind; reset polarity exists only for resettable state. `operandSegmentSizes` is
+the dense i32 array `[1,R,I,V]` for clock/reset/init/reset-value. R=V=1 for
+sync/async and 0 for none; I=1 for explicit initialization and 0 for unspecified.
+Init and reset value have the exact payload type and use the existing static
+initializer admission. Unspecified storage is available typed all-X payload
+(known=0, z=0). Host Reset restores init; hardware reset uses reset value.
+Neither unknown nor raw-zero storage proves nominal membership or range validity.
+
+Contracts 4/5 retain their three operands, fixed positive-edge synchronous
+active-high policy and `reset_value = initial`. Source compilation/routing
+continue producing these profiles. Contract 7 can be independently constructed,
+saved, reloaded and refined without Python capture; it adds no frontend syntax.
+
+Refinement uses register-contract-3 DFF/DFFE instances for contract 7, with a
+shared policy/layout decoder and separate typed reset-value pin. The logical
+anchor does not choose those circuits. Independent refinement verifies the
+complete payload/control relation. Ignored initialization/reset pins have no
+semantic authority; policy determines unspecified-init and no-reset behavior.
+The existing unmarked register-v1 pin schema remains unchanged.
+
+The shared `refineRoutedHardware` chain normalizes transaction reset masks,
+expands explicit CDC resources and refines logical storage. Physical construction
+and logical-to-expanded correspondence belong to `GFIRToHWIR`; `ACIRAnalysis`
+shares read-only circuit equations and standalone final-component checks. Each
+step has an independent source-to-candidate correspondence check. Saved-anchor
+reload and the lowering pass use this same chain. A transaction's static
+transitive effect reset set masks all normal effects and result availability.
+State writes, Queue push/pop, Memory writes and synchronous read requests, and
+AsyncFIFO transfers contribute their actual resets. Queue peek, Memory result
+and asynchronous reads of committed storage keep their own admission or demand.
+Individual reset transitions and independently required reset-known checks
+remain separate.
+
+CDC resources use canonical `ac.module.import` declarations and ordinary
+`ac.instance` allocations. Their complete native primitive contracts authenticate
+symbol, kind, formals, pin types and temporal dependency summaries together:
+
+| Canonical builtin | Formals | Inputs | Outputs |
+| --- | --- | --- | --- |
+| `pycircuit.__builtins__.async_reg` / `async_reg` | none | source_clock, target_clock, whole_reset, input: all Bits1 | output: Bits1 |
+| `pycircuit.__builtins__.async_fifo` / `async_fifo` | T and required Integer DEPTH | write_clock, read_clock, whole_reset, push_payload:T, push_intent, pop_intent | head:T, write_available:Bits1, read_available:Bits1 |
+| `pycircuit.__builtins__.async_fifo_independent_reset` / `async_fifo` | T and required Integer DEPTH | write_clock, read_clock, write_reset, read_reset, push_payload:T, push_intent, pop_intent | head:T, write_available:Bits1, read_available:Bits1 |
+
+FIFO DEPTH is a required StaticExpr parameter. Whole-reset instance policy
+attributes use `resource_contract=1`, occurrence, endpoint domains and edges,
+and reset polarity. Actual clock SSA and
+instance bindings authenticate each endpoint. A nonzero FIFO intent must be its
+local sampled Rule final fire, admitted by that endpoint's availability and
+static transaction reset set; known-zero intent is dormant. Remote pop never
+grants immediate write capacity, and endpoint connections do not form a
+cross-domain atomic transaction.
+In the same local Rule, Queue proposals and Memory writes and synchronous read
+requests include the AsyncFIFO availability in their commit conditions.
+
+Independent-reset FIFO uses `resource_contract=2`, `reset_policy="flush_on_either"`,
+and explicit `write_reset_polarity` and `read_reset_polarity`. Either asynchronous
+reset discards the queue and suppresses both admissions. After both pins
+deassert, local release and peer release synchronization advance on the
+respective clocks. A stopped endpoint prevents recovery of normal transfers.
+The head and both availability results have combinational dependencies on
+both reset inputs. Under strict reset semantics, an X or Z on either input
+faults the event batch, including when its peer is asserted.
+The payload bank can retain unreachable bits. Both raw reset pins contribute to
+each endpoint Rule's reset footprint. Strict reset interpretation rejects an
+unknown pin even while the other pin is asserted. Refinement implementation 3
+retains the two original reset pins and verifies the complete flush and release
+circuit. The whole-reset import continues to use contract 1 and implementation 2.
+
+Public expansion removes all logical CDC imports/instances and generates
+synchronizers, release state, pointers and typed banks using common IR. The
+self-contained `ac.cdc.refinement` witness authenticates the exact original pins,
+policies and occurrence independently of physical component verification. Source
+correspondence also authenticates AsyncReg's physically unused source clock.
+A CDC label alone never permits an otherwise illegal crossing. The first FIFO
+recipe supports power-of-two depths of at least two; other positive capacities
+reject at refinement without changing the logical request or existing outputs.
+DEPTH remains a lexical StaticExpr through refinement. A symbolic-shape
+Collection holds the payload banks, TableMap generates per-lane write enables,
+and TableGet selects the head. Address and pointer widths use the same static
+expression machinery as ordinary parameterized hardware. Each actual binding
+checks the recipe geometry, including when reloading final hardware; shared
+definitions keep their integer and payload type parameters. Refinement does not
+specialize a definition using its first actual or remove unused generic bodies.
+
+Component implementation 2 uses this recipe for both literal and symbolic
+depths, with a typed StaticExpr depth in the final witness. Obsolete experimental
+implementation-1 components reject explicitly. Logical routed contract 7 and
+saved schema 6 are unchanged. Source correspondence and standalone component
+verification reconstruct TableMap regions, argument types, captures and yields
+as well as surrounding nodes and pins. Pointer state initializes and resets to
+known zero and only advances on admitted known controls; successful reads thus
+have known addresses while preserving arbitrary X/Z payload bits.
+
+Concrete packed-zero carriers use existing Bits constants, `enum.from_bits`,
+recursive Struct construction and Table splats. Enum membership or a nominal
+default is not packed zero. `ac.value.zero` remains only for opaque type-parametric
+leaves in reusable definitions; one actual binding must not freeze another
+instance's payload type. Payload banks retain unspecified initialization and
+empty reads return known packed zero.
+
+Contract-7 emission uses `ports.json` schema 2. Ordinary port rows include their
+declared domain and actual root clock input; control roles come from verified
+connections. Domain metadata lists each actual transaction/storage endpoint,
+owner path and coordinates, clock ordinal, edge and reset policies. A forwarded
+reset identifies its root input ordinal. A derived or internal reset is marked
+by a null direct ordinal and its actual root input dependencies, rather than
+guessing one reset pin. CDC stages retain their verified resource role. Legacy
+port-map schema 1 remains unchanged.
+
+Contract-7 physical simulation seals clock and reset changes from one simulator
+update region into a batch. Root inputs stay stable through delta drain.
+Startup root clocks must all be known zero,
+matching managed false history; an invalid startup discards the entire batch,
+including asynchronous reset candidates. Later positive and negative events
+use the common policies. This restriction is versioned to the new adapter;
+legacy physical startup behavior is unchanged. Synthesis uses the same final
+graph with standard functional event controls.
+
+### Registered derived clocks
+
+`ac.clock.source` declares a new logical domain driven by one initialized
+registered bit. The `source_domain` names the producer register's sampling
+clock. The `domain` names its output clock and belongs to the declaring
+Module's domain formals. The input may be a static one-bit projection of a
+packed Q. An occurrence identifies the declaration within the Module instance
+path. For example, a divider registered on `D` can drive a child on `S`.
+
+```mlir
+%s = "ac.clock.source"(%divider_phase) {
+  contract = 1 : i64, domain = "S", source_domain = "D", occurrence = #clock
+} : (!b1) -> !b1
+```
+
+Bind the child's clock input to `%s` and its clock formal to `S`. A child can
+forward that pin and formal to its own children. Verification follows the
+actual SSA and occurrence paths, checks the initialized bit and rejects cycles
+among clock sources. The dedicated alias carries the derived identity. Ordinary
+data paths continue to use their verified domain assignments.
+
+```mermaid
+flowchart LR
+  Root["Root clock D"] --> Divider["Divider register"]
+  Divider --> Alias["Registered clock S"]
+  Alias --> Forward["Forwarding Module"]
+  Forward --> Child["Child register"]
+```
+
+C++ and managed or physical Verilog simulation freeze root inputs for each
+batch. A change to a registered clock starts a new sampling wave using the
+previous wave's tentative state. State, histories and public outputs commit
+once every wave has passed. Failure in a downstream wave discards the entire
+batch. The managed interface can retry the same edge after discard. The
+physical simulation wrapper latches its fault. Synthesis connects the actual
+registered clock net to the child clock pin.
+
+Between batches, physical simulation exposes combinational results from
+committed storage and live inputs. During a batch it holds the previous event
+snapshot until publication. A physical fault holds the last published event
+snapshot.
+
+This profile admits scalar Module hierarchies with registers and sampled checks.
+Logical Table storage, Queue, Memory, CDC resources and source observations
+require separate wave contracts when combined with registered clock sources.
+The initializer must prove the selected clock bit known before the first
+batch, including an initial high level.
 
 ## Constrained ordinary extern declarations
 
