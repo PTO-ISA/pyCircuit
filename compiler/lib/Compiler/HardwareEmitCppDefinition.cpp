@@ -2465,13 +2465,14 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
       if (!source.rootInput)
         derivedSources.push_back(index);
   out << "  void Work() override {\n";
+  if (causal && selectedRoot)
+    out << "    if (pyc_macrostep_complete_) DiscardNext();\n"
+           "    pyc_macrostep_failure_ = {};\n";
   if (failed(bridge(true)))
     return failure();
   if (bindRootInputs)
     out << "    pyc_bind_root_inputs();\n";
   if (causal && selectedRoot) {
-    out << "    pyc_macrostep_failure_ = {};\n"
-           "    pyc_macrostep_complete_ = false;\n";
     for (const auto &source : clockPlan->sources) {
       if (!source.rootInput)
         continue;

@@ -1141,10 +1141,12 @@ TEST_F(StateResetValueTest, PublishIndependentResetFIFOForConsumers) {
 
 // The divider is specified directly in logical IR. Its packed high bit owns
 // the derived event; the two low-level consumers never supply expected values.
-std::string derivedClockDividerIR(bool routed, bool initialHigh = false) {
+std::string derivedClockDividerIR(bool routed, bool initialHigh = false,
+                                  bool boundary = false) {
   const auto original = stateIR(false);
   std::string text = original.substr(0, original.find("module attributes"));
   text += R"ir(
+#entry_occ = {site = {definition = @"pycircuit.__link_entry__", ast_path = []}, expansion = []}
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = #occ, location = #span}>
 #w256 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<256>}, origin = #occ, location = #span}>
 !b8 = !ac.bits<#w8>
@@ -1195,7 +1197,13 @@ std::string derivedClockDividerIR(bool routed, bool initialHigh = false) {
   "ac.module"() ({
   ^bb0(%limit: !b8, %clk: !b1, %rst: !b1, %guard: !b1):
 )ir";
-  text += "    %initial = \"ac.bits.constant\"() {value = #w" + std::string(initialHigh ? "256" : "0") + "} : () -> !b9\n";
+  if (initialHigh)
+    text += "    %initial = \"ac.bits.constant\"() {value = #w256} : () -> !b9\n";
+  else
+    text += R"ir(
+    %initial_byte = "ac.bits.constant"() {value = #w0} : () -> !b8
+    %initial = "ac.bits.resize"(%initial_byte) {mode = "zext"} : (!b8) -> !b9
+)ir";
   if (routed) text += R"ir(
     %zero = "ac.bits.constant"() {value = #w0} : () -> !b9
     %q = "gfir.state"(%clk, %rst, %initial, %zero) {instance_name = "divider", occurrence = #occ, domain = "D", operandSegmentSizes = array<i32: 1, 1, 1, 1>, init_kind = "explicit", edge = "posedge", reset_kind = "async", reset_polarity = "high"} : (!b1, !b1, !b9, !b9) -> !b9
@@ -1230,8 +1238,19 @@ std::string derivedClockDividerIR(bool routed, bool initialHigh = false) {
   }) {sym_name = "reset_value.fixture.Held", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1, !b1) -> (!b9, !b9, !b8), input_names = ["limit", "clock", "reset", "guard"], output_names = ["divider", "child_q", "echo"], ac.origin = #occ, ac.declaration_role = "definition"
 )ir";
   if (routed) text += R"ir(, ac.domain_params = ["D", "S"], ac.default_domain = "D", ac.domain_clock_inputs = {D = 1 : i32}, ac.port_domains = {inputs = {guard = "S"}, outputs = {child_q = "S"}}, ac.transaction_wiring = {states = [#occ], incoming = [], writers = [{registration = #writer, ordinary_results = 0 : i64, candidates = [{state = #state_id, data = 0 : i64, enable = 1 : i64}]}]})ir";
-  text += "} : () -> ()\n";
-  if (routed) text += R"ir(
+  text += "} : () -> () loc(\"fixture.py\":1:1)\n";
+  if (routed && boundary) text += R"ir(
+  "ac.module"() ({
+  ^bb0(%limit: !b8, %clk: !b1, %rst: !b1, %guard: !b1):
+    %divider, %child, %echo = "ac.instance"(%limit, %clk, %rst, %guard) {instance_name = "entry", callee = @"reset_value.fixture.Held", parameters = [], type_arguments = [], occurrence = #entry_occ, ac.domain_bindings = {D = "D"}} : (!b8, !b1, !b1, !b1) -> (!b9, !b9, !b8) loc("fixture.py":1:1)
+    "ac.yield"(%divider, %child, %echo) : (!b9, !b9, !b8) -> () loc("fixture.py":1:1)
+  }) {sym_name = "pycircuit.__link_entry__", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1, !b1) -> (!b9, !b9, !b8), input_names = ["limit", "clock", "reset", "guard"], output_names = ["divider", "child_q", "echo"], ac.domain_params = ["D", "S"], ac.default_domain = "D", ac.domain_clock_inputs = {D = 1 : i32}, ac.port_domains = {inputs = {guard = "S"}, outputs = {child_q = "S"}}} : () -> () loc("fixture.py":1:1)
+)ir";
+  if (routed) text += boundary
+      ? R"ir(
+  "ac.system"() {entry = {callee = @"pycircuit.__link_entry__", parameters = [], type_arguments = []}, domain = "default", ac.entry_boundary = {version = 1 : i64, logical_entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}}} : () -> ()
+)ir"
+      : R"ir(
   "ac.system"() {entry = {callee = @"reset_value.fixture.Held", parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 )ir";
   return text + "}\n";
@@ -1243,6 +1262,6 @@ TEST_F(StateResetValueTest, PublishDerivedClockDividerForConsumers) {
 }
 
 TEST_F(StateResetValueTest, PublishInitiallyHighDerivedClockForConsumers) {
-  publishSaved(derivedClockDividerIR(false, true), derivedClockDividerIR(true, true),
+  publishSaved(derivedClockDividerIR(false, true), derivedClockDividerIR(true, true, true),
                "PYCIRCUIT_TEST_DERIVED_CLOCK_ANCHOR");
 }

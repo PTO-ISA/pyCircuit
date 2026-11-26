@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/HardwareClockSources.h"
 #include "ACIRSourceContracts.h"
+#include "EntryBoundary.h"
 #include "HardwareSourceChecks.h"
 #include "SourceCheckBudget.h"
 #include "mlir/IR/Builders.h"
@@ -97,6 +98,8 @@ public:
                   "and combinational gates are not clocks");
   }
 
+  // Producer admission has already verified the closed initializer DAG.
+  // Follow only the selected packed bit, since its neighbors may be X or Z.
   FailureOr<bool> initialBit(Value value, unsigned owner, uint64_t bit,
                              unsigned depth = 0) {
     if (failed(step(value, owner, depth)))
@@ -134,8 +137,6 @@ public:
       return level == '1';
     }
     auto *op = value.getDefiningOp();
-    if (isa_and_nonnull<ValueZeroOp>(op))
-      return false;
     if (auto member = dyn_cast_or_null<EnumCreateOp>(op)) {
       auto resolved =
           analysis.resolveType(value.getType(), scope.bindings, member);
@@ -161,7 +162,7 @@ public:
     }
     if (auto cast = dyn_cast_or_null<EnumToBitsOp>(op))
       return initialBit(cast->getOperand(0), owner, bit, depth + 1);
-    if (isa_and_nonnull<BitsConcatOp, StructCreateOp>(op)) {
+    if (isa_and_nonnull<StructCreateOp, TableCreateOp>(op)) {
       for (Value input : llvm::reverse(op->getOperands())) {
         auto inputWidth =
             analysis.getPackedWidth(input.getType(), scope.bindings, op);
@@ -172,15 +173,40 @@ public:
         bit -= *inputWidth;
       }
     }
+    if (auto splat = dyn_cast_or_null<TableSplatOp>(op)) {
+      Value element = splat->getOperand(0);
+      auto elementWidth =
+          analysis.getPackedWidth(element.getType(), scope.bindings, splat);
+      if (failed(elementWidth) || *elementWidth == 0)
+        return failure();
+      return initialBit(element, owner, bit % *elementWidth, depth + 1);
+    }
+    if (auto get = dyn_cast_or_null<StructGetOp>(op)) {
+      auto offset = structFieldOffset(get, owner);
+      if (failed(offset) || *offset > std::numeric_limits<uint64_t>::max() - bit)
+        return failure();
+      return initialBit(get.getValue(), owner, *offset + bit, depth + 1);
+    }
     if (auto extract = dyn_cast_or_null<BitsExtractOp>(op)) {
       auto low = natural(extract.getLow(), owner, extract);
       if (failed(low) || *low > std::numeric_limits<uint64_t>::max() - bit)
         return failure();
       return initialBit(extract.getInput(), owner, *low + bit, depth + 1);
     }
+    if (auto resize = dyn_cast_or_null<BitsResizeOp>(op)) {
+      Value input = resize.getInput();
+      auto inputWidth =
+          analysis.getPackedWidth(input.getType(), scope.bindings, resize);
+      if (failed(inputWidth) || *inputWidth == 0)
+        return failure();
+      if (bit < *inputWidth)
+        return initialBit(input, owner, bit, depth + 1);
+      if (resize.getMode() == "zext")
+        return false;
+      return initialBit(input, owner, *inputWidth - 1, depth + 1);
+    }
     return reject(op ? op : scope.definition.operator->(),
-                  "registered clock initializer requires constant bits, "
-                  "concatenation, Struct construction or static extraction");
+                  "cannot prove the selected bit of the static initializer");
   }
 
   LogicalResult producer(Value value, unsigned owner,
@@ -222,31 +248,12 @@ public:
       return producer(extract.getInput(), owner, source, *low + bit, depth + 1);
     }
     if (auto get = dyn_cast_or_null<StructGetOp>(op)) {
-      auto resolved =
-          analysis.resolveType(get.getValue().getType(), scope.bindings, get);
-      auto record =
-          succeeded(resolved) ? dyn_cast<StructType>(*resolved) : StructType();
-      auto declaration = record ? analysis.lookupStruct(record) : StructOp();
-      if (!declaration)
-        return reject(get, "clock projection needs a resolved Struct");
-      uint64_t offset = 0;
-      bool found = false;
-      for (auto raw : llvm::reverse(declaration.getFields())) {
-        auto field = cast<DictionaryAttr>(raw);
-        if (field.getAs<StringAttr>("name") == get.getFieldAttr()) {
-          found = true;
-          break;
-        }
-        auto fieldWidth = analysis.getPackedWidth(
-            field.getAs<TypeAttr>("type").getValue(), scope.bindings, get);
-        if (failed(fieldWidth) ||
-            *fieldWidth > std::numeric_limits<uint64_t>::max() - offset)
-          return failure();
-        offset += *fieldWidth;
-      }
-      if (!found || offset > std::numeric_limits<uint64_t>::max() - bit)
+      auto offset = structFieldOffset(get, owner);
+      if (failed(offset))
+        return failure();
+      if (*offset > std::numeric_limits<uint64_t>::max() - bit)
         return reject(get, "invalid registered clock field projection");
-      return producer(get.getValue(), owner, source, offset + bit, depth + 1);
+      return producer(get.getValue(), owner, source, *offset + bit, depth + 1);
     }
     if (auto cast = dyn_cast_or_null<EnumToBitsOp>(op))
       return producer(cast->getOperand(0), owner, source, bit, depth + 1);
@@ -332,6 +339,29 @@ private:
       return reject(plan.occurrences[owner].definition,
                     "cyclic or excessive clock forwarding");
     return budget.debit(16, plan.occurrences[owner].definition);
+  }
+  FailureOr<uint64_t> structFieldOffset(StructGetOp get, unsigned owner) {
+    auto &bindings = plan.occurrences[owner].bindings;
+    auto resolved = analysis.resolveType(get.getValue().getType(), bindings, get);
+    auto record =
+        succeeded(resolved) ? dyn_cast<StructType>(*resolved) : StructType();
+    auto declaration = record ? analysis.lookupStruct(record) : StructOp();
+    if (!declaration)
+      return reject(get, "clock projection needs a resolved Struct");
+    uint64_t offset = 0;
+    for (auto raw : llvm::reverse(declaration.getFields())) {
+      if (failed(budget.debit(8, get)))
+        return failure();
+      auto field = cast<DictionaryAttr>(raw);
+      if (field.getAs<StringAttr>("name") == get.getFieldAttr())
+        return offset;
+      auto width = analysis.getPackedWidth(
+          field.getAs<TypeAttr>("type").getValue(), bindings, get);
+      if (failed(width) || *width > std::numeric_limits<uint64_t>::max() - offset)
+        return failure();
+      offset += *width;
+    }
+    return reject(get, "invalid registered clock field projection");
   }
   FailureOr<uint64_t> natural(StaticExprAttr expression, unsigned owner,
                               Operation *site) {
@@ -424,6 +454,22 @@ public:
         row.declaration = source;
         plan.sources.push_back(row);
       }
+    }
+    if (plan.root.getSymName() == detail::entryBoundarySymbol) {
+      auto &adapter = plan.occurrences.front();
+      if (!llvm::hasSingleElement(adapter.children) ||
+          cast<InstanceOp>(adapter.children.begin()->first).getInstanceName() !=
+              "entry")
+        return reject(plan.root,
+                      "entry boundary requires one logical entry occurrence");
+      const auto &entry = plan.occurrences[adapter.children.begin()->second];
+      // Mirror the registered identity without changing its owner or its SSA.
+      for (const auto &binding : entry.domains)
+        if (!adapter.domains.try_emplace(binding.getKey(), binding.getValue())
+                 .second)
+          return reject(
+              entry.definition,
+              "registered entry domain conflicts with a root clock input");
     }
     if (failed(bindDomains()))
       return failure();

@@ -1921,17 +1921,25 @@ int main(){for(unsigned workers:{1u,2u}){
     dut.guard=bit(r.guard);dut.limit=gfsim::wire<gfsim::Bits<8>>::known(gfsim::Bits<8>{r.limit});};
   pins(rows[0]);dut.Reset();dut.Xfer();
   for(unsigned i=0;i<sizeof(rows)/sizeof(rows[0]);++i){
-    const auto &r=rows[i];pins(r);bool accepted=false;
+    const auto &r=rows[i];
+    auto require=[&](bool ok){if(!ok)throw std::runtime_error(
+      "derived clock oracle at row "+std::to_string(i));};
+    auto expect=[&](const Row &snapshot){
+      require(dut.divider.isFullyKnown() && dut.divider.value().value()==snapshot.divider);
+      require(dut.child_q.isFullyKnown() && dut.child_q.value().value()==snapshot.child);
+      require(dut.echo.isFullyKnown() && dut.echo.value().value()==snapshot.echo);
+    };
+    // At the first rising edge, prepare a different limit before the real Work.
+    if(i==1){auto preview=r;preview.limit=2;pins(preview);dut.Work();
+      require(dut.CanXfer());expect(rows[0]);}
+    pins(r);bool accepted=false;
     try{dut.Work();gfsim::SimFailureInfo failure{};
       accepted=dut.pyc_validate_checks(failure) && dut.CanXfer();
     }catch(const gfsim::FourStateViolation &){}
-    auto require=[&](bool ok){if(!ok)throw std::runtime_error(
-      "derived clock oracle at row "+std::to_string(i));};
     require(accepted!=r.failed);
+    if(i==1)expect(rows[0]);
     if(r.failed)dut.DiscardNext();else dut.Xfer();
-    require(dut.divider.isFullyKnown() && dut.divider.value().value()==r.divider);
-    require(dut.child_q.isFullyKnown() && dut.child_q.value().value()==r.child);
-    require(dut.echo.isFullyKnown() && dut.echo.value().value()==r.echo);
+    expect(r);
   }
 }}
 """
@@ -2035,7 +2043,9 @@ def test_programmable_derived_clock_cascades_and_rolls_back(
         len(row["instance_path"])
         for row in configuration["domain_bindings"]
         if row.get("clock_source") == derived["identity"]
-    } == {0, 1, 2}
+    } == ({0, 1, 2, 3} if initial_high else {0, 1, 2})
+    if initial_high:
+        assert len(derived["identity"]["owner_path"]) == 1
     _ok(_cli("link", "--from-anchor", str(anchor), "--verify-only"))
     final = tmp_path / "divider.ac"
     _ok(

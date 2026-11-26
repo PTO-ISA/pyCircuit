@@ -229,12 +229,22 @@ LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normali
                             attr.getName().getValue()))
       return error() << "entry boundary child cannot carry additional metadata";
   NamedAttrList expectedDomains;
-  if (auto formals = logical->getAttrOfType<ArrayAttr>("ac.domain_params"))
+  if (auto formals = logical->getAttrOfType<ArrayAttr>("ac.domain_params")) {
+    // The adapter exposes the entry's public domains. Its child instance
+    // receives only inherited bindings; registered sources stay local.
+    llvm::DenseSet<StringRef> localDomains;
+    if (!logical.getBody().empty())
+      for (auto source : logical.getBody().front().getOps<ClockSourceOp>()) {
+        if (failed(debit(8, source))) return failure();
+        localDomains.insert(source.getDomain());
+      }
     for (Attribute raw : formals) {
       auto formal = dyn_cast<StringAttr>(raw);
       if (!formal) return error() << "entry boundary domain formals require strings";
-      expectedDomains.append(formal.getValue(), formal);
+      if (!localDomains.contains(formal.getValue()))
+        expectedDomains.append(formal.getValue(), formal);
     }
+  }
   if (logical->hasAttr("ac.domain_params") ?
       child->getAttr("ac.domain_bindings") != expectedDomains.getDictionary(package.getContext()) :
       child->hasAttr("ac.domain_bindings"))
