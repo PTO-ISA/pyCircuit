@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2100" height="1010" viewBox="0 0 2100 1010">
+<rect width="100%" height="100%" fill="#fbfdff"/>
+<text x="45" y="46" font-family="sans-serif" font-size="30" font-weight="700" fill="#172033">SparseFA · 128 Index · 全程泳道图</text>
+<text x="46" y="78" font-family="sans-serif" font-size="17" fill="#46556b">独立 C++ 时序模型实际执行 trace；64 Index/批，两个 Index slot，两个 KV slot；H=64，D=64</text>
+<text x="46" y="110" font-family="sans-serif" font-size="18" fill="#854d0e">双 KV slot 2,402 周期；单 KV slot 2,674 周期；节省 272 周期（10.2%）</text>
+<text x="46" y="141" font-family="sans-serif" font-size="15" fill="#a11b1b">模型时延，不是已生成硬件 DUT 或 RTL 的实测数据；Index 值假定有效且互异。</text>
+<text x="220" y="185" font-family="sans-serif" font-size="15" fill="#475569">模型周期 0–2,402</text>
+<line x1="220.0" y1="204" x2="220.0" y2="859" stroke="#e2e8f0"/>
+<text x="220.0" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">0</text>
+<line x1="409.9" y1="204" x2="409.9" y2="859" stroke="#e2e8f0"/>
+<text x="409.9" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">250</text>
+<line x1="599.9" y1="204" x2="599.9" y2="859" stroke="#e2e8f0"/>
+<text x="599.9" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">500</text>
+<line x1="789.8" y1="204" x2="789.8" y2="859" stroke="#e2e8f0"/>
+<text x="789.8" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">750</text>
+<line x1="979.8" y1="204" x2="979.8" y2="859" stroke="#e2e8f0"/>
+<text x="979.8" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,000</text>
+<line x1="1169.7" y1="204" x2="1169.7" y2="859" stroke="#e2e8f0"/>
+<text x="1169.7" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,250</text>
+<line x1="1359.7" y1="204" x2="1359.7" y2="859" stroke="#e2e8f0"/>
+<text x="1359.7" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,500</text>
+<line x1="1549.6" y1="204" x2="1549.6" y2="859" stroke="#e2e8f0"/>
+<text x="1549.6" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">1,750</text>
+<line x1="1739.6" y1="204" x2="1739.6" y2="859" stroke="#e2e8f0"/>
+<text x="1739.6" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">2,000</text>
+<line x1="1929.5" y1="204" x2="1929.5" y2="859" stroke="#e2e8f0"/>
+<text x="1929.5" y="220" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#64748b">2,250</text>
+<text x="205" y="250" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Count / Q 预载</text>
+<line x1="220" y1="269" x2="2045" y2="269" stroke="#64748b" stroke-opacity=".22"/>
+<text x="205" y="312" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Index slot 0</text>
+<line x1="220" y1="331" x2="2045" y2="331" stroke="#2563eb" stroke-opacity=".22"/>
+<text x="205" y="374" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Index slot 1</text>
+<line x1="220" y1="393" x2="2045" y2="393" stroke="#3b82f6" stroke-opacity=".22"/>
+<text x="205" y="436" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">KV slot 0</text>
+<line x1="220" y1="455" x2="2045" y2="455" stroke="#ea580c" stroke-opacity=".22"/>
+<text x="205" y="498" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">KV slot 1</text>
+<line x1="220" y1="517" x2="2045" y2="517" stroke="#ef4444" stroke-opacity=".22"/>
+<text x="205" y="560" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">QK 阵列</text>
+<line x1="220" y1="579" x2="2045" y2="579" stroke="#7c3aed" stroke-opacity=".22"/>
+<text x="205" y="622" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">Softmax</text>
+<line x1="220" y1="641" x2="2045" y2="641" stroke="#db2777" stroke-opacity=".22"/>
+<text x="205" y="684" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">PV 阵列</text>
+<line x1="220" y1="703" x2="2045" y2="703" stroke="#0d9488" stroke-opacity=".22"/>
+<text x="205" y="746" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">状态提交</text>
+<line x1="220" y1="765" x2="2045" y2="765" stroke="#a16207" stroke-opacity=".22"/>
+<text x="205" y="808" text-anchor="end" font-family="sans-serif" font-size="17" fill="#26364a">O 写回</text>
+<line x1="220" y1="827" x2="2045" y2="827" stroke="#475569" stroke-opacity=".22"/>
+<rect x="220.0" y="228" width="9.9" height="34" rx="4" fill="#64748b"><title>Count: 0–13</title></rect>
+<rect x="229.9" y="228" width="206.7" height="34" rx="4" fill="#64748b"><title>Q 8192 B: 13–285</title></rect>
+<text x="333.2" y="250" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">Q 8192 B</text>
+<rect x="436.5" y="290" width="15.2" height="34" rx="4" fill="#2563eb"><title>B0 DMA: 285–305</title></rect>
+<rect x="451.7" y="290" width="48.6" height="34" rx="4" fill="#16a34a"><title>B0 check: 305–369</title></rect>
+<rect x="500.4" y="290" width="185.4" height="34" rx="4" fill="#0891b2"><title>B0 issue: 369–613</title></rect>
+<text x="593.1" y="312" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0 issue</text>
+<rect x="500.4" y="414" width="209.7" height="34" rx="4" fill="#ea580c"><title>B0 gather: 369–645</title></rect>
+<text x="605.2" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0 gather</text>
+<rect x="710.1" y="414" width="565.3" height="34" rx="4" fill="#c2410c"><title>B0 compute: 645–1,389</title></rect>
+<text x="992.7" y="436" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0 compute</text>
+<rect x="710.1" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B0 W0: 645–689</title></rect>
+<rect x="743.5" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B0 W0: 689–786</title></rect>
+<text x="780.3" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="817.2" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B0 W0: 786–830</title></rect>
+<rect x="850.6" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W0: 830–831</title></rect>
+<rect x="851.4" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B0 W1: 831–875</title></rect>
+<rect x="884.8" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B0 W1: 875–972</title></rect>
+<text x="921.7" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="958.5" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B0 W1: 972–1,016</title></rect>
+<rect x="991.9" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W1: 1,016–1,017</title></rect>
+<rect x="992.7" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B0 W2: 1,017–1,061</title></rect>
+<rect x="1026.1" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B0 W2: 1,061–1,158</title></rect>
+<text x="1063.0" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="1099.8" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B0 W2: 1,158–1,202</title></rect>
+<rect x="1133.3" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W2: 1,202–1,203</title></rect>
+<rect x="1134.0" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B0 W3: 1,203–1,247</title></rect>
+<rect x="1167.5" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B0 W3: 1,247–1,344</title></rect>
+<text x="1204.3" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B0</text>
+<rect x="1241.1" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B0 W3: 1,344–1,388</title></rect>
+<rect x="1274.6" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B0 W3: 1,388–1,389</title></rect>
+<rect x="500.4" y="352" width="15.2" height="34" rx="4" fill="#3b82f6"><title>B1 DMA: 369–389</title></rect>
+<rect x="515.6" y="352" width="48.6" height="34" rx="4" fill="#16a34a"><title>B1 check: 389–453</title></rect>
+<rect x="564.2" y="352" width="316.1" height="34" rx="4" fill="#0891b2"><title>B1 issue: 453–869</title></rect>
+<text x="722.2" y="374" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 issue</text>
+<rect x="564.2" y="476" width="340.4" height="34" rx="4" fill="#ef4444"><title>B1 gather: 453–901</title></rect>
+<text x="734.4" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 gather</text>
+<rect x="904.6" y="476" width="370.8" height="34" rx="4" fill="#94a3b8"><title>B1 ready: 901–1,389</title></rect>
+<text x="1090.0" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 ready</text>
+<rect x="1275.3" y="476" width="565.3" height="34" rx="4" fill="#be123c"><title>B1 compute: 1,389–2,133</title></rect>
+<text x="1558.0" y="498" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1 compute</text>
+<rect x="1275.3" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B1 W0: 1,389–1,433</title></rect>
+<rect x="1308.8" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B1 W0: 1,433–1,530</title></rect>
+<text x="1345.6" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1382.5" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B1 W0: 1,530–1,574</title></rect>
+<rect x="1415.9" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W0: 1,574–1,575</title></rect>
+<rect x="1416.7" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B1 W1: 1,575–1,619</title></rect>
+<rect x="1450.1" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B1 W1: 1,619–1,716</title></rect>
+<text x="1486.9" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1523.8" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B1 W1: 1,716–1,760</title></rect>
+<rect x="1557.2" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W1: 1,760–1,761</title></rect>
+<rect x="1558.0" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B1 W2: 1,761–1,805</title></rect>
+<rect x="1591.4" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B1 W2: 1,805–1,902</title></rect>
+<text x="1628.3" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1665.1" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B1 W2: 1,902–1,946</title></rect>
+<rect x="1698.5" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W2: 1,946–1,947</title></rect>
+<rect x="1699.3" y="538" width="33.4" height="34" rx="4" fill="#7c3aed"><title>B1 W3: 1,947–1,991</title></rect>
+<rect x="1732.7" y="600" width="73.7" height="34" rx="4" fill="#db2777"><title>B1 W3: 1,991–2,088</title></rect>
+<text x="1769.6" y="622" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">B1</text>
+<rect x="1806.4" y="662" width="33.4" height="34" rx="4" fill="#0d9488"><title>B1 W3: 2,088–2,132</title></rect>
+<rect x="1839.9" y="724" width="1.0" height="34" rx="4" fill="#a16207"><title>B1 W3: 2,132–2,133</title></rect>
+<rect x="1841.4" y="786" width="203.6" height="34" rx="4" fill="#475569"><title>O 8192 B + ack: 2,134–2,402</title></rect>
+<text x="1943.2" y="808" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="600" fill="white">O 8192 B + ack</text>
+<line x1="500.4" y1="225" x2="500.4" y2="849" stroke="#334155" stroke-dasharray="4 5" opacity=".5"/>
+<line x1="500.4" y1="225" x2="500.4" y2="849" stroke="#334155" stroke-dasharray="4 5" opacity=".5"/>
+<line x1="2045.0" y1="225" x2="2045.0" y2="849" stroke="#334155" stroke-dasharray="4 5" opacity=".5"/>
+<text x="2041.0" y="883" text-anchor="end" font-family="sans-serif" font-size="13" fill="#334155">2,402: 完成</text>
+<text x="46" y="925" font-family="sans-serif" font-size="15" fill="#475569">trace 含 128 笔 KV 请求和完成；蓝色 Index DMA、绿色校验预算、青色请求发射与 KV gather 交叠。</text>
+<text x="46" y="951" font-family="sans-serif" font-size="15" fill="#475569">softmax 每 wave 97 周期：普通 FP32 64 元素/周期 × 4 遍，exp 32 元素/周期；QK/PV 各 44 周期。</text>
+<text x="46" y="977" font-family="sans-serif" font-size="15" fill="#475569">Index 的 64 周期仅为校验调度预算；模型没有读取真实 ID、执行 Patricia 校验或计算 Attention 数值。</text>
+</svg>

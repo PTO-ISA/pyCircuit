@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3600" height="2200" viewBox="0 0 3600 2200" role="img" aria-label="SparseFA Shared-KV 硬件模块架构图">
+<defs><marker id="arrow-4f46e5" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#4f46e5"/></marker><marker id="arrow-475569" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#475569"/></marker><marker id="arrow-1d4ed8" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#1d4ed8"/></marker><marker id="arrow-c2410c" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#c2410c"/></marker><marker id="arrow-0f766e" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#0f766e"/></marker><marker id="arrow-b91c1c" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#b91c1c"/></marker></defs>
+<rect width="3600" height="2200" fill="#ffffff"/>
+<text x="90" y="70" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="48" font-weight="700" fill="#0f172a">SparseFA Shared-KV / 硬件模块架构</text>
+<text x="92" y="115" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="400" fill="#475569">顶层模块边界、片外互联、片上存储和计算资源；蓝色 Index、橙色共享 KV、青色计算、紫色控制。</text>
+<rect x="90" y="165" width="3420" height="220" rx="22" fill="#ffffff" stroke="#94a3b8" stroke-width="3" stroke-dasharray="13 10"/><rect x="90" y="415" width="3420" height="1670" rx="28" fill="#ffffff" stroke="#1e3a8a" stroke-width="4"/>
+<rect x="130" y="495" width="3340" height="235" rx="22" fill="#eef2ff" stroke="#4f46e5" stroke-width="3"/><rect x="130" y="495" width="3340" height="62" rx="22" fill="#4f46e5"/><rect x="130" y="535" width="3340" height="22" fill="#4f46e5"/>
+<rect x="130" y="770" width="3340" height="285" rx="22" fill="#f1f5f9" stroke="#475569" stroke-width="3"/><rect x="130" y="770" width="3340" height="62" rx="22" fill="#475569"/><rect x="130" y="810" width="3340" height="22" fill="#475569"/>
+<rect x="170" y="830" width="3260" height="64" rx="12" fill="#334155"/>
+<rect x="130" y="1135" width="995" height="855" rx="22" fill="#eff6ff" stroke="#1d4ed8" stroke-width="3"/><rect x="130" y="1135" width="995" height="62" rx="22" fill="#1d4ed8"/><rect x="130" y="1175" width="995" height="22" fill="#1d4ed8"/>
+<rect x="1165" y="1135" width="1040" height="855" rx="22" fill="#fff7ed" stroke="#c2410c" stroke-width="3"/><rect x="1165" y="1135" width="1040" height="62" rx="22" fill="#c2410c"/><rect x="1165" y="1175" width="1040" height="22" fill="#c2410c"/>
+<rect x="2245" y="1135" width="1225" height="855" rx="22" fill="#f0fdfa" stroke="#0f766e" stroke-width="3"/><rect x="2245" y="1135" width="1225" height="62" rx="22" fill="#0f766e"/><rect x="2245" y="1175" width="1225" height="22" fill="#0f766e"/>
+<rect x="165" y="1460" width="925" height="50" rx="10" fill="#1d4ed8"/>
+<rect x="1200" y="1460" width="975" height="50" rx="10" fill="#c2410c"/>
+<rect x="2280" y="1460" width="1155" height="50" rx="10" fill="#0f766e"/>
+<path d="M 440 345 L 440 555" fill="none" stroke="#4f46e5" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-4f46e5)"/>
+<path d="M 3420 345 L 3480 345 L 3480 845 L 3430 845" fill="none" stroke="#475569" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-475569)"/>
+<path d="M 3430 875 L 3500 875 L 3500 305 L 3450 305" fill="none" stroke="#475569" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-475569)"/>
+<path d="M 520 1025 L 520 1090 L 380 1090 L 380 1225" fill="none" stroke="#1d4ed8" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-1d4ed8)"/>
+<path d="M 1330 1025 L 1330 1225" fill="none" stroke="#c2410c" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-c2410c)"/>
+<path d="M 2110 1025 L 2110 1095 L 2840 1095 L 2840 1225" fill="none" stroke="#0f766e" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-0f766e)"/>
+<path d="M 3020 1820 L 3020 1795 L 3500 1795 L 3500 1080 L 3000 1080 L 3000 1025" fill="none" stroke="#475569" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-475569)"/>
+<path d="M 380 1440 L 380 1460" fill="none" stroke="#1d4ed8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 855 1440 L 855 1460" fill="none" stroke="#1d4ed8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 355 1510 L 355 1540" fill="none" stroke="#1d4ed8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 840 1510 L 840 1540" fill="none" stroke="#1d4ed8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 1415 1440 L 1415 1460" fill="none" stroke="#c2410c" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 1790 1440 L 1790 1460" fill="none" stroke="#c2410c" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 2050 1440 L 2050 1460" fill="none" stroke="#c2410c" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 1415 1510 L 1415 1540" fill="none" stroke="#c2410c" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 1920 1510 L 1920 1540" fill="none" stroke="#c2410c" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 2450 1440 L 2450 1460" fill="none" stroke="#0f766e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 2840 1440 L 2840 1460" fill="none" stroke="#0f766e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 3240 1440 L 3240 1460" fill="none" stroke="#0f766e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 2450 1510 L 2450 1540" fill="none" stroke="#0f766e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 2840 1510 L 2840 1540" fill="none" stroke="#0f766e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 3240 1510 L 3240 1540" fill="none" stroke="#0f766e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 1090 1630 L 1200 1630" fill="none" stroke="#1d4ed8" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-1d4ed8)"/>
+<path d="M 2175 1650 L 2225 1650 L 2225 1485 L 2280 1485" fill="none" stroke="#c2410c" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-c2410c)"/>
+<path d="M 2840 1770 L 2840 1820" fill="none" stroke="#0f766e" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-0f766e)"/>
+<path d="M 3240 1770 L 3240 1820" fill="none" stroke="#0f766e" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-0f766e)"/>
+<path d="M 133 700 L 112 700 L 112 1080 L 3330 1080" fill="none" stroke="#4f46e5" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 9"/>
+<path d="M 710 1080 L 710 1135" fill="none" stroke="#4f46e5" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-4f46e5)" stroke-dasharray="12 9"/>
+<path d="M 1700 1080 L 1700 1135" fill="none" stroke="#4f46e5" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-4f46e5)" stroke-dasharray="12 9"/>
+<path d="M 2930 1080 L 2930 1135" fill="none" stroke="#4f46e5" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-4f46e5)" stroke-dasharray="12 9"/>
+<path d="M 3020 700 L 3475 700 L 3475 1840 L 3435 1840" fill="none" stroke="#b91c1c" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-b91c1c)" stroke-dasharray="12 9"/>
+<rect x="145" y="220" width="620" height="125" rx="14" fill="#ffffff" stroke="#334155" stroke-width="2.3"/><rect x="145" y="220" width="620" height="52" rx="14" fill="#334155"/><rect x="145" y="257" width="620" height="15" fill="#334155"/>
+<rect x="835" y="220" width="2615" height="125" rx="14" fill="#ffffff" stroke="#334155" stroke-width="2.3"/><rect x="835" y="220" width="2615" height="52" rx="14" fill="#334155"/><rect x="835" y="257" width="2615" height="15" fill="#334155"/>
+<rect x="165" y="555" width="750" height="145" rx="14" fill="#ffffff" stroke="#4f46e5" stroke-width="2.3"/><rect x="165" y="555" width="750" height="52" rx="14" fill="#4f46e5"/><rect x="165" y="592" width="750" height="15" fill="#4f46e5"/>
+<rect x="950" y="555" width="770" height="145" rx="14" fill="#ffffff" stroke="#4f46e5" stroke-width="2.3"/><rect x="950" y="555" width="770" height="52" rx="14" fill="#4f46e5"/><rect x="950" y="592" width="770" height="15" fill="#4f46e5"/>
+<rect x="1755" y="555" width="770" height="145" rx="14" fill="#ffffff" stroke="#4f46e5" stroke-width="2.3"/><rect x="1755" y="555" width="770" height="52" rx="14" fill="#4f46e5"/><rect x="1755" y="592" width="770" height="15" fill="#4f46e5"/>
+<rect x="2560" y="555" width="875" height="145" rx="14" fill="#ffffff" stroke="#b91c1c" stroke-width="2.3"/><rect x="2560" y="555" width="875" height="52" rx="14" fill="#b91c1c"/><rect x="2560" y="592" width="875" height="15" fill="#b91c1c"/>
+<rect x="180" y="930" width="705" height="95" rx="14" fill="#ffffff" stroke="#1d4ed8" stroke-width="2.3"/><rect x="180" y="930" width="705" height="52" rx="14" fill="#1d4ed8"/><rect x="180" y="967" width="705" height="15" fill="#1d4ed8"/>
+<rect x="930" y="930" width="760" height="95" rx="14" fill="#ffffff" stroke="#c2410c" stroke-width="2.3"/><rect x="930" y="930" width="760" height="52" rx="14" fill="#c2410c"/><rect x="930" y="967" width="760" height="15" fill="#c2410c"/>
+<rect x="1735" y="930" width="760" height="95" rx="14" fill="#ffffff" stroke="#0f766e" stroke-width="2.3"/><rect x="1735" y="930" width="760" height="52" rx="14" fill="#0f766e"/><rect x="1735" y="967" width="760" height="15" fill="#0f766e"/>
+<rect x="2540" y="930" width="890" height="95" rx="14" fill="#ffffff" stroke="#334155" stroke-width="2.3"/><rect x="2540" y="930" width="890" height="52" rx="14" fill="#334155"/><rect x="2540" y="967" width="890" height="15" fill="#334155"/>
+<rect x="165" y="1225" width="430" height="215" rx="14" fill="#ffffff" stroke="#1d4ed8" stroke-width="2.3"/><rect x="165" y="1225" width="430" height="52" rx="14" fill="#1d4ed8"/><rect x="165" y="1262" width="430" height="15" fill="#1d4ed8"/>
+<rect x="625" y="1225" width="465" height="215" rx="14" fill="#ffffff" stroke="#1d4ed8" stroke-width="2.3"/><rect x="625" y="1225" width="465" height="52" rx="14" fill="#1d4ed8"/><rect x="625" y="1262" width="465" height="15" fill="#1d4ed8"/>
+<rect x="165" y="1540" width="385" height="230" rx="14" fill="#ffffff" stroke="#1d4ed8" stroke-width="2.3"/><rect x="165" y="1540" width="385" height="52" rx="14" fill="#1d4ed8"/><rect x="165" y="1577" width="385" height="15" fill="#1d4ed8"/>
+<rect x="590" y="1540" width="500" height="230" rx="14" fill="#ffffff" stroke="#1d4ed8" stroke-width="2.3"/><rect x="590" y="1540" width="500" height="52" rx="14" fill="#1d4ed8"/><rect x="590" y="1577" width="500" height="15" fill="#1d4ed8"/>
+<rect x="1200" y="1225" width="430" height="215" rx="14" fill="#ffffff" stroke="#c2410c" stroke-width="2.3"/><rect x="1200" y="1225" width="430" height="52" rx="14" fill="#c2410c"/><rect x="1200" y="1262" width="430" height="15" fill="#c2410c"/>
+<rect x="1665" y="1225" width="245" height="215" rx="14" fill="#ffffff" stroke="#c2410c" stroke-width="2.3"/><rect x="1665" y="1225" width="245" height="52" rx="14" fill="#c2410c"/><rect x="1665" y="1262" width="245" height="15" fill="#c2410c"/>
+<rect x="1930" y="1225" width="245" height="215" rx="14" fill="#ffffff" stroke="#c2410c" stroke-width="2.3"/><rect x="1930" y="1225" width="245" height="52" rx="14" fill="#c2410c"/><rect x="1930" y="1262" width="245" height="15" fill="#c2410c"/>
+<rect x="1200" y="1540" width="430" height="230" rx="14" fill="#ffffff" stroke="#c2410c" stroke-width="2.3"/><rect x="1200" y="1540" width="430" height="52" rx="14" fill="#c2410c"/><rect x="1200" y="1577" width="430" height="15" fill="#c2410c"/>
+<rect x="1665" y="1540" width="510" height="230" rx="14" fill="#ffffff" stroke="#c2410c" stroke-width="2.3"/><rect x="1665" y="1540" width="510" height="52" rx="14" fill="#c2410c"/><rect x="1665" y="1577" width="510" height="15" fill="#c2410c"/>
+<rect x="2280" y="1225" width="355" height="215" rx="14" fill="#ffffff" stroke="#0f766e" stroke-width="2.3"/><rect x="2280" y="1225" width="355" height="52" rx="14" fill="#0f766e"/><rect x="2280" y="1262" width="355" height="15" fill="#0f766e"/>
+<rect x="2665" y="1225" width="355" height="215" rx="14" fill="#ffffff" stroke="#0f766e" stroke-width="2.3"/><rect x="2665" y="1225" width="355" height="52" rx="14" fill="#0f766e"/><rect x="2665" y="1262" width="355" height="15" fill="#0f766e"/>
+<rect x="3050" y="1225" width="385" height="215" rx="14" fill="#ffffff" stroke="#0f766e" stroke-width="2.3"/><rect x="3050" y="1225" width="385" height="52" rx="14" fill="#0f766e"/><rect x="3050" y="1262" width="385" height="15" fill="#0f766e"/>
+<rect x="2280" y="1540" width="355" height="230" rx="14" fill="#ffffff" stroke="#be185d" stroke-width="2.3"/><rect x="2280" y="1540" width="355" height="52" rx="14" fill="#be185d"/><rect x="2280" y="1577" width="355" height="15" fill="#be185d"/>
+<rect x="2665" y="1540" width="355" height="230" rx="14" fill="#ffffff" stroke="#be185d" stroke-width="2.3"/><rect x="2665" y="1540" width="355" height="52" rx="14" fill="#be185d"/><rect x="2665" y="1577" width="355" height="15" fill="#be185d"/>
+<rect x="3050" y="1540" width="385" height="230" rx="14" fill="#ffffff" stroke="#0f766e" stroke-width="2.3"/><rect x="3050" y="1540" width="385" height="52" rx="14" fill="#0f766e"/><rect x="3050" y="1577" width="385" height="15" fill="#0f766e"/>
+<rect x="2280" y="1820" width="1155" height="125" rx="14" fill="#ffffff" stroke="#0f766e" stroke-width="2.3"/><rect x="2280" y="1820" width="1155" height="52" rx="14" fill="#0f766e"/><rect x="2280" y="1857" width="1155" height="15" fill="#0f766e"/>
+<text x="125" y="198" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#64748b">SoC / 主机边界</text>
+<text x="162" y="255" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">命令 / 完成</text>
+<text x="162" y="305" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">SharedKVCommand、cancel、completion</text>
+<text x="852" y="255" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">片外 HBM / DDR</text>
+<text x="852" y="305" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">Count + 预生成 Index     |     Q[B,H,Sq,D]     |     单份共享 KV[B,Sk,D]     |     O[B,H,Sq,D]</text>
+<text x="130" y="465" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="31" font-weight="700" fill="#1e3a8a">SparseFA Accelerator / Shared-KV 目标架构</text>
+<text x="153" y="537" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="28" font-weight="700" fill="#ffffff">控制平面 / Control Plane</text>
+<text x="3448" y="536" text-anchor="end" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="500" fill="#ffffff">单 active operation；H,D 在接受时固定（各 1..64）</text>
+<text x="182" y="590" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">命令与描述符检查</text>
+<text x="182" y="640" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">形状 / stride / 地址范围 / dtype / scale</text>
+<text x="182" y="674" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">错误描述符禁止产生访存</text>
+<text x="967" y="590" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Operation / Batch 调度器</text>
+<text x="967" y="640" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">(b,i,list_owner,batch)、16 head/wave</text>
+<text x="967" y="674" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">Index、KV、计算按 batch 顺序协调</text>
+<text x="1772" y="590" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">资源与身份管理</text>
+<text x="1772" y="640" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">Index/KV slot 分配；generation / tag</text>
+<text x="1772" y="674" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">credit、ready/valid、反压、slot 复用</text>
+<text x="2577" y="590" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">故障、取消与提交控制</text>
+<text x="2577" y="640" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">跨批首错 / drain / 候选状态失效</text>
+<text x="2577" y="674" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">完整列表通过后才开放 O 写回</text>
+<text x="153" y="812" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="28" font-weight="700" fill="#ffffff">片外传输子系统 / Memory &amp; DMA Fabric</text>
+<text x="3448" y="811" text-anchor="end" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="500" fill="#ffffff">请求与响应可并行在途；同一物理链路按仲裁共享</text>
+<text x="1800" y="871" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="25" font-weight="700" fill="#ffffff">Tagged Request / Response Fabric   •   请求仲裁   •   响应分发   •   有界队列</text>
+<text x="197" y="965" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Count / Index DMA</text>
+<text x="197" y="1015" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">连续 64 项装载 + 响应装配</text>
+<text x="947" y="965" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">KV Gather DMA</text>
+<text x="947" y="1015" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">scatter 行请求 / ≤8 credit</text>
+<text x="1752" y="965" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Q DMA</text>
+<text x="1752" y="1015" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">Q head tile 载入</text>
+<text x="2557" y="965" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">O Writeback DMA</text>
+<text x="2557" y="1015" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">输出写确认后 completion</text>
+<text x="153" y="1177" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="28" font-weight="700" fill="#ffffff">Index / 地址生成子系统</text>
+<text x="1103" y="1176" text-anchor="end" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="500" fill="#ffffff">本模块不计算 Index</text>
+<text x="1188" y="1177" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="28" font-weight="700" fill="#ffffff">共享 KV / Buffer 子系统</text>
+<text x="2183" y="1176" text-anchor="end" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="500" fill="#ffffff">K=V，仅一份 KV tile</text>
+<text x="2268" y="1177" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="28" font-weight="700" fill="#ffffff">计算与输出子系统</text>
+<text x="3448" y="1176" text-anchor="end" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="500" fill="#ffffff">QK 与 PV 复用阵列</text>
+<text x="182" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">IndexSlotManager</text>
+<text x="182" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">2 × 64×uint32；每 slot 256 B</text>
+<text x="182" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">byte 到达 / 错误位图</text>
+<text x="182" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="21" font-weight="400" fill="#334155">装载、VALID、释放 owner</text>
+<text x="642" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">IndexValidator + Patricia</text>
+<text x="642" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">按原位置校验 memory / range / duplicate</text>
+<text x="642" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">跨批精确集合：4096×64 bit</text>
+<text x="642" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">发布 BATCH_VALID(t)</text>
+<text x="182" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Count / Index Loader</text>
+<text x="182" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">Count: 0..min(2048,Sk)</text>
+<text x="182" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">64 项连续 burst；尾批不读 padding</text>
+<text x="182" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">乱序 beat 按位置装配</text>
+<text x="607" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">GatherAGU + mask</text>
+<text x="607" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">仅使用已校验 token ID</text>
+<text x="607" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">kv_base + b·stride + token·row_stride</text>
+<text x="607" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">causal mask；复制原位置 / ID 到 KV</text>
+<text x="1217" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Response Assembly</text>
+<text x="1217" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">tag → slot / position / word</text>
+<text x="1217" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">8 行 × 4 字 × 32 B 有界暂存</text>
+<text x="1217" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">完整字才写 SRAM bank</text>
+<text x="1682" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">KV slot 0</text>
+<text x="1682" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">16 bank 1R1W</text>
+<text x="1682" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">≤8192 B KV</text>
+<text x="1682" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">token / valid / tag</text>
+<text x="1947" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">KV slot 1</text>
+<text x="1947" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">16 bank 1R1W</text>
+<text x="1947" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">≤8192 B KV</text>
+<text x="1947" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">token / valid / tag</text>
+<text x="1217" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">KVSlotManager</text>
+<text x="1217" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">FREE / FILLING / READY / IN_USE</text>
+<text x="1217" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">两个 slot 独立仲裁与 generation</text>
+<text x="1217" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">所有 head wave 用完才释放</text>
+<text x="1682" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Bank Read / Decode / Transpose</text>
+<text x="1682" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">16 bank 同读：512 B 原始 KV</text>
+<text x="1682" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">扩展为 1024 B FP32 操作数</text>
+<text x="1682" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">QK[token,dim] / PV[dim,token]</text>
+<text x="2297" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Operand Feeder</text>
+<text x="2297" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">Q、KV、w_p 组装</text>
+<text x="2297" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">16×16 两侧操作数</text>
+<text x="2297" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">同步读返回对齐</text>
+<text x="2682" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Q Head Store</text>
+<text x="2682" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">最多 64×64 FP32</text>
+<text x="2682" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">各 head 独立 Q</text>
+<text x="2682" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">尾 H / D mask</text>
+<text x="3067" y="1260" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">3D MAC 16×16×16</text>
+<text x="3067" y="1310" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">4096 乘法位置</text>
+<text x="3067" y="1344" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">256 个点积归约</text>
+<text x="3067" y="1378" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">QK / PV；约 32 KiB 寄存数据</text>
+<text x="2297" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Score / Weight SRAM</text>
+<text x="2297" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">每 wave 16×64 FP32</text>
+<text x="2297" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">4 KiB 分阶段复用</text>
+<text x="2297" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">不存完整 S / P</text>
+<text x="2682" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Vector + exp</text>
+<text x="2682" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">普通 FP32 256 B/周期</text>
+<text x="2682" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">exp 32 FP32 元素/周期</text>
+<text x="2682" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">max / shift / w / sum</text>
+<text x="3067" y="1575" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">HeadState</text>
+<text x="3067" y="1625" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">最多 64 head：m/l 512 B</text>
+<text x="3067" y="1659" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">FP32 acc ≤16 KiB</text>
+<text x="3067" y="1693" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="400" fill="#334155">m/l/acc 每批原子提交</text>
+<text x="2297" y="1855" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Normalize / O staging</text>
+<text x="2297" y="1905" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="400" fill="#334155">acc/l 或空集合全零；FP16/BF16 cast；完整 Index 列表成功且全部计算完成后才可写 O</text>
+<text x="627" y="1494" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#ffffff">Index slot / validator / AGU 本地互联</text>
+<text x="1687" y="1494" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#ffffff">KV tag / bank-write / bank-read 互联</text>
+<text x="2857" y="1494" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#ffffff">QK / PV operand + result fabric</text>
+<text x="3050" y="378" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#475569">片外 tagged req / resp</text>
+<text x="520" y="1105" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#1d4ed8">Index payload</text>
+<text x="1330" y="1096" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#c2410c">KV fragments</text>
+<text x="1145" y="1594" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#1d4ed8">ID + mask</text>
+<text x="2225" y="1583" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#c2410c">KV tile</text>
+<text x="1600" y="1059" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#4f46e5">控制 / tag / 反压</text>
+<text x="3370" y="1813" text-anchor="middle" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="18" font-weight="600" fill="#b91c1c">O 提交门</text>
+<text x="165" y="1840" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="600" fill="#1e40af">双 Index slot 只保留批载荷；Patricia 保留跨批去重状态。</text>
+<text x="1200" y="1840" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="600" fill="#9a3412">共享列表：一批 KV 载入一次，供全部 head wave 重用。</text>
+<text x="2280" y="1980" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="19" font-weight="600" fill="#0f766e">head-specific Index 首版逐 head；不同列表不能直接广播共享 tile。</text>
+<text x="100" y="2135" text-anchor="start" font-family="Noto Sans CJK SC, DejaVu Sans, sans-serif" font-size="22" font-weight="600" fill="#9f1239">目标 NDF 架构草案：不是已集成的 P0S / 三维阵列硬件实测。实线为载荷/端口，虚线为控制与提交条件。</text>
+</svg>
