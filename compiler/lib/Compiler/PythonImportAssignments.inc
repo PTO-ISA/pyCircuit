@@ -10,9 +10,8 @@ FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
   StringRef name = target.string("id");
   LocalAssignmentBinding prepared;
   prepared.destination.name = name;
-  auto existing = environment.boundaries.find(name);
-  if (existing != environment.boundaries.end())
-    prepared.destination.boundary = existing->second;
+  if (const BindingBoundary *existing = environment.boundaries.lookupPtr(name))
+    prepared.destination.boundary = *existing;
   if (annotated) {
     if (policy == LocalBindingPolicy::Transaction &&
         environment.values.contains(name))
@@ -42,8 +41,8 @@ FailureOr<LocalAssignmentBinding> Importer::prepareLocalAssignment(
 LogicalResult Importer::bindLocalValues(
     ArrayRef<PreparedLocalBinding> destinations, ValueRange results,
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values,
-    llvm::StringMap<BindingBoundary> *boundaries, bool noteDataBindings) {
+    EnvironmentMap<Value> &values,
+    EnvironmentMap<BindingBoundary> *boundaries, bool noteDataBindings) {
   assert(destinations.size() == results.size());
   SmallVector<Value, 1> converted;
   for (auto [destination, result] : llvm::zip(destinations, results)) {
@@ -68,7 +67,7 @@ LogicalResult Importer::bindLocalValues(
 
 FailureOr<Value> Importer::lowerBoundExpression(
     const AstNode &node, const BindingBoundary &binding, OpBuilder &at,
-    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances) {
   auto value = expression(node, at, symbol, values, instances,
                           binding.contract().type);
@@ -145,8 +144,8 @@ Importer::fixedResultTargets(const AstNode &assignment) {
 }
 FailureOr<bool> Importer::bindFixedResults(
     const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
-    llvm::StringMap<BindingBoundary> *boundaries,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<BindingBoundary> *boundaries,
     const llvm::StringSet<> &forbidden, bool immutable) {
   auto targets = fixedResultTargets(assignment);
   if (failed(targets))
@@ -413,7 +412,7 @@ FailureOr<Value> Importer::readAccessIndex(Value base, Value index,
 
 LogicalResult Importer::bindAccessIndex(
     TypedAccessPath &path, TypedAccessStep &step, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     llvm::StringMap<SmallVector<Value>> *captures) {
   if (step.field || step.index) return success();
   auto site = accessSite(path, step.depth);
@@ -427,7 +426,7 @@ LogicalResult Importer::bindAccessIndex(
 
 FailureOr<Value> Importer::readAccessPath(
     TypedAccessPath &path, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     llvm::StringMap<SmallVector<Value>> *captures, size_t length) {
   auto root = accessSite(path, path.steps.size());
   if (failed(root)) return failure();
@@ -611,7 +610,7 @@ LogicalResult Importer::validateAssignmentRoot(const AstNode &target,
 
 LogicalResult Importer::updateAssignment(
     TypedAccessPath &path, Value replacement, const AstNode &node, OpBuilder &at,
-    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     SmallVectorImpl<Value> *boundIndices, bool preserveProjectionWitnesses) {
   auto target = accessSite(path, 0);
   if (failed(target) || failed(validateAssignmentRoot(**target, node, at)))

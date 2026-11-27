@@ -18,100 +18,122 @@ namespace acir::ac::detail {
 // Only grammar successes are retained; owner/source checks stay with callers.
 // The memos live on the dialect-registered GrammarCacheHost interface, so the
 // cache keeps the dialect's (context's) lifetime without typed dialect lookup.
-struct OccurrenceGrammarMemoAccess {
+struct GrammarMemoAccess {
+  using Member = VerifiedGrammarMemo GrammarMemoCache::*;
+
   static GrammarCacheHost *host(MLIRContext *context) {
     auto *dialect = context ? context->getLoadedDialect("ac") : nullptr;
     return dialect ? dialect->getRegisteredInterface<GrammarCacheHost>()
                    : nullptr;
   }
-  static bool containsSpan(DictionaryAttr value) {
+
+  static std::optional<RawAttributeShape> lookup(DictionaryAttr value,
+                                                Member member) {
     auto *cache = host(value ? value.getContext() : nullptr);
-    if (!cache) return false;
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    return cache->cache().verifiedSourceSpanGrammars.contains(value);
+    if (!cache)
+      return std::nullopt;
+    auto &storage = cache->cache();
+    std::lock_guard<std::mutex> lock(storage.mutex);
+    const auto &memo = storage.*member;
+    auto it = memo.find(value);
+    if (it == memo.end())
+      return std::nullopt;
+    return it->second;
   }
-  static void rememberSpan(DictionaryAttr value) {
+
+  static void remember(DictionaryAttr value, Member member,
+                       RawAttributeShape shape) {
     auto *cache = host(value.getContext());
-    if (!cache) return;
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    cache->cache().verifiedSourceSpanGrammars.insert(value);
+    if (!cache)
+      return;
+    auto &storage = cache->cache();
+    std::lock_guard<std::mutex> lock(storage.mutex);
+    (storage.*member).try_emplace(value, shape);
   }
-  static std::pair<uint64_t, uint64_t> spanShape(MLIRContext *context) {
+
+  static std::pair<uint64_t, uint64_t> shape(MLIRContext *context,
+                                             Member member) {
     auto *cache = host(context);
-    if (!cache) return {0, 0};
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    return {cache->cache().verifiedSourceSpanGrammars.size(),
-            cache->cache().verifiedSourceSpanGrammars.getMemorySize() /
-                sizeof(DictionaryAttr)};
-  }
-  static bool containsStatic(DictionaryAttr value) {
-    auto *cache = host(value ? value.getContext() : nullptr);
-    if (!cache) return false;
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    return cache->cache().verifiedStaticExpressionGrammars.contains(value);
-  }
-  static void rememberStatic(DictionaryAttr value) {
-    auto *cache = host(value.getContext());
-    if (!cache) return;
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    cache->cache().verifiedStaticExpressionGrammars.insert(value);
-  }
-  static std::pair<uint64_t, uint64_t> staticShape(MLIRContext *context) {
-    auto *cache = host(context);
-    if (!cache) return {0, 0};
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    return {cache->cache().verifiedStaticExpressionGrammars.size(),
-            cache->cache().verifiedStaticExpressionGrammars.getMemorySize() /
-                sizeof(DictionaryAttr)};
-  }
-  static bool contains(DictionaryAttr value) {
-    auto *cache = host(value ? value.getContext() : nullptr);
-    if (!cache) return false;
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    return cache->cache().verifiedOccurrenceGrammars.contains(value);
-  }
-  static void remember(DictionaryAttr value) {
-    auto *cache = host(value.getContext());
-    if (!cache) return;
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    cache->cache().verifiedOccurrenceGrammars.insert(value);
-  }
-  static std::pair<uint64_t, uint64_t> shape(MLIRContext *context) {
-    auto *cache = host(context);
-    if (!cache) return {0, 0};
-    std::lock_guard<std::mutex> lock(cache->cache().mutex);
-    return {cache->cache().verifiedOccurrenceGrammars.size(),
-            cache->cache().verifiedOccurrenceGrammars.getMemorySize() /
-                sizeof(DictionaryAttr)};
+    if (!cache)
+      return {0, 0};
+    auto &storage = cache->cache();
+    std::lock_guard<std::mutex> lock(storage.mutex);
+    const auto &memo = storage.*member;
+    return {memo.size(),
+            memo.getMemorySize() / sizeof(VerifiedGrammarMemo::value_type)};
   }
 };
+
+std::optional<RawAttributeShape> verifiedSourceSpanGrammar(DictionaryAttr value) {
+  return GrammarMemoAccess::lookup(
+      value, &GrammarMemoCache::verifiedSourceSpanGrammars);
+}
+
 bool isVerifiedSourceSpanGrammar(DictionaryAttr value) {
-  return OccurrenceGrammarMemoAccess::containsSpan(value);
+  return verifiedSourceSpanGrammar(value).has_value();
 }
+
 void rememberVerifiedSourceSpanGrammar(DictionaryAttr value) {
-  OccurrenceGrammarMemoAccess::rememberSpan(value);
+  GrammarMemoAccess::remember(
+      value, &GrammarMemoCache::verifiedSourceSpanGrammars,
+      summarizeClosedRecord(value));
 }
+
 std::pair<uint64_t, uint64_t>
 sourceSpanGrammarCacheShape(MLIRContext *context) {
-  return OccurrenceGrammarMemoAccess::spanShape(context);
+  return GrammarMemoAccess::shape(
+      context, &GrammarMemoCache::verifiedSourceSpanGrammars);
 }
+
+std::optional<RawAttributeShape>
+verifiedStaticExpressionGrammar(DictionaryAttr value) {
+  return GrammarMemoAccess::lookup(
+      value, &GrammarMemoCache::verifiedStaticExpressionGrammars);
+}
+
 bool isVerifiedStaticExpressionGrammar(DictionaryAttr value) {
-  return OccurrenceGrammarMemoAccess::containsStatic(value);
+  return verifiedStaticExpressionGrammar(value).has_value();
 }
+
 void rememberVerifiedStaticExpressionGrammar(DictionaryAttr value) {
-  OccurrenceGrammarMemoAccess::rememberStatic(value);
+  RawAttributeShape shape;
+  if (value.getAs<StringAttr>("kind").getValue() == "literal") {
+    auto origin = value.getAs<DictionaryAttr>("origin");
+    auto location = value.getAs<DictionaryAttr>("location");
+    auto payload = value.getAs<DictionaryAttr>("value");
+    auto originShape =
+        verifiedOccurrenceGrammar(origin).value_or(RawAttributeShape{});
+    auto locationShape =
+        verifiedSourceSpanGrammar(location).value_or(RawAttributeShape{});
+    shape = summarizeClosedRecord(value, {{origin, originShape},
+                                          {location, locationShape},
+                                          {payload, summarizeClosedRecord(payload)}});
+  }
+  GrammarMemoAccess::remember(
+      value, &GrammarMemoCache::verifiedStaticExpressionGrammars, shape);
 }
+
 std::pair<uint64_t, uint64_t>
 staticExpressionGrammarCacheShape(MLIRContext *context) {
-  return OccurrenceGrammarMemoAccess::staticShape(context);
+  return GrammarMemoAccess::shape(
+      context, &GrammarMemoCache::verifiedStaticExpressionGrammars);
 }
+
+std::optional<RawAttributeShape> verifiedOccurrenceGrammar(DictionaryAttr value) {
+  return GrammarMemoAccess::lookup(
+      value, &GrammarMemoCache::verifiedOccurrenceGrammars);
+}
+
 bool isVerifiedOccurrenceGrammar(DictionaryAttr value) {
-  return OccurrenceGrammarMemoAccess::contains(value);
+  return verifiedOccurrenceGrammar(value).has_value();
 }
+
 std::pair<uint64_t, uint64_t>
 occurrenceGrammarCacheShape(MLIRContext *context) {
-  return OccurrenceGrammarMemoAccess::shape(context);
+  return GrammarMemoAccess::shape(
+      context, &GrammarMemoCache::verifiedOccurrenceGrammars);
 }
+
 namespace {
 
 LogicalResult requireExactFields(DictionaryAttr value, size_t count,
@@ -124,7 +146,8 @@ LogicalResult requireExactFields(DictionaryAttr value, size_t count,
 
 LogicalResult verifyDictionaryField(
     DictionaryAttr owner, StringRef field, StringRef ownerName,
-    LogicalResult (*verifier)(DictionaryAttr, EmitError), EmitError emitError) {
+    llvm::function_ref<LogicalResult(DictionaryAttr, EmitError)> verifier,
+    EmitError emitError) {
   auto nested = owner.getAs<DictionaryAttr>(field);
   if (!nested)
     return emitError() << ownerName << " field '" << field
@@ -295,21 +318,28 @@ LogicalResult verifySourceOwner(DictionaryAttr value, EmitError emitError) {
   return verifyRelativePythonPath(path.getValue(), emitError);
 }
 
-LogicalResult verifyExpansionFrame(DictionaryAttr value, EmitError emitError) {
+static LogicalResult verifyAndSummarizeExpansionFrame(
+    DictionaryAttr value, EmitError emitError, RawAttributeShape *shape) {
   if (!value)
     return emitError() << "ExpansionFrame must be a DictionaryAttr";
   auto kind = value.getAs<StringAttr>("kind");
   if (!kind)
     return emitError() << "ExpansionFrame kind must be a StringAttr";
+  RawAttributeShape siteShape;
+  auto verifyFrameSite = [&](DictionaryAttr site, EmitError error) {
+    return verifyAndSummarizeSite(site, error, shape ? &siteShape : nullptr);
+  };
   if (kind.getValue() == "call") {
     if (failed(requireExactFields(value, 3, "call ExpansionFrame", emitError)))
       return failure();
     if (failed(verifyDictionaryField(value, "site", "call ExpansionFrame",
-                                     verifySite, emitError)))
+                                     verifyFrameSite, emitError)))
       return failure();
     if (!value.getAs<FlatSymbolRefAttr>("callee"))
       return emitError()
              << "call ExpansionFrame callee must be a FlatSymbolRefAttr";
+    if (shape)
+      *shape = summarizeClosedRecord(value, {{value.get("site"), siteShape}});
     return success();
   }
   if (kind.getValue() == "iteration") {
@@ -317,15 +347,27 @@ LogicalResult verifyExpansionFrame(DictionaryAttr value, EmitError emitError) {
                                   emitError)))
       return failure();
     if (failed(verifyDictionaryField(value, "site", "iteration ExpansionFrame",
-                                     verifySite, emitError)))
+                                     verifyFrameSite, emitError)))
       return failure();
     if (failed(decodeU64(value.getAs<IntegerAttr>("ordinal"),
                          "iteration ExpansionFrame ordinal", emitError)))
       return failure();
-    return verifyDictionaryField(value, "value", "iteration ExpansionFrame",
-                                 verifyStaticValueStructure, emitError);
+    if (failed(verifyDictionaryField(value, "value", "iteration ExpansionFrame",
+                                     verifyStaticValueStructure, emitError)))
+      return failure();
+    if (shape) {
+      auto payload = value.getAs<DictionaryAttr>("value");
+      *shape = summarizeClosedRecord(
+          value, {{value.get("site"), siteShape},
+                  {payload, summarizeClosedRecord(payload)}});
+    }
+    return success();
   }
   return emitError() << "ExpansionFrame kind must be 'call' or 'iteration'";
+}
+
+LogicalResult verifyExpansionFrame(DictionaryAttr value, EmitError emitError) {
+  return verifyAndSummarizeExpansionFrame(value, emitError, nullptr);
 }
 
 LogicalResult verifyOccurrence(DictionaryAttr value, EmitError emitError) {
@@ -333,23 +375,34 @@ LogicalResult verifyOccurrence(DictionaryAttr value, EmitError emitError) {
     return success();
   if (failed(requireExactFields(value, 2, "Occurrence", emitError)))
     return failure();
-  if (failed(verifyDictionaryField(value, "site", "Occurrence", verifySite,
-                                   emitError)))
+  RawAttributeShape siteShape;
+  auto verifyOccurrenceSite = [&](DictionaryAttr site, EmitError error) {
+    return verifyAndSummarizeSite(site, error, &siteShape);
+  };
+  if (failed(verifyDictionaryField(value, "site", "Occurrence",
+                                   verifyOccurrenceSite, emitError)))
     return failure();
   auto expansion = value.getAs<ArrayAttr>("expansion");
   if (!expansion)
     return emitError() << "Occurrence expansion must be an ArrayAttr";
+  auto expansionShape = RawAttributeShape::leaf();
   for (auto [index, frame] : llvm::enumerate(expansion)) {
     auto record = dyn_cast<DictionaryAttr>(frame);
     if (!record)
       return emitError() << "Occurrence expansion[" << index
                          << "] must be an ExpansionFrame DictionaryAttr";
-    if (failed(verifyExpansionFrame(record, emitError))) {
+    RawAttributeShape frameShape;
+    if (failed(verifyAndSummarizeExpansionFrame(
+            record, emitError, expansionShape ? &frameShape : nullptr))) {
       emitError() << "Occurrence expansion[" << index << "] is invalid";
       return failure();
     }
+    expansionShape.include(frameShape);
   }
-  OccurrenceGrammarMemoAccess::remember(value);
+  auto shape = summarizeClosedRecord(
+      value, {{value.get("site"), siteShape}, {expansion, expansionShape}});
+  GrammarMemoAccess::remember(
+      value, &GrammarMemoCache::verifiedOccurrenceGrammars, shape);
   return success();
 }
 

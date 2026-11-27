@@ -31,7 +31,7 @@ bool Importer::staticInitializer(const AstNode &node) const {
 }
 FailureOr<Value> Importer::constructStruct(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     std::optional<Type> expected,
     llvm::StringMap<SmallVector<Value>> *captures) {
   StringRef name = node.child("func").string("id");
@@ -82,7 +82,7 @@ FailureOr<Value> Importer::constructStruct(
         return error()
                << "struct field default must be a static complete value";
       valueSite = defaultNode;
-      llvm::StringMap<Value> noValues;
+      EnvironmentMap<Value> noValues;
       llvm::StringMap<Instance *> noInstances;
       value = expression(defaultNode, at,
                          FlatSymbolRefAttr::get(b.getContext(), qualify(name)),
@@ -106,7 +106,7 @@ FailureOr<Value> Importer::constructStruct(
 LogicalResult Importer::validateDefaults() {
   OwningOpRef<ModuleOp> scratch(ModuleOp::create(body->getLoc()));
   auto at = OpBuilder::atBlockEnd(scratch->getBody());
-  llvm::StringMap<Value> values;
+  EnvironmentMap<Value> values;
   llvm::StringMap<Instance *> instances;
   LogicalResult status = success();
   for (auto &item : structDefaults) {

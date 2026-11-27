@@ -105,7 +105,7 @@ LogicalResult Importer::matchStatement(const AstNode &statement, OpBuilder &at,
     }
     keys.push_back(std::move(alternatives));
   }
-  BranchEnvironment incoming = environment;
+  BranchEnvironment incoming = environment.fork();
   llvm::StringMap<Instance *> noInstances;
   auto &instances = sourceInstances          ? *sourceInstances
                     : activeModuleStatements ? activeModuleStatements->instances
@@ -292,7 +292,7 @@ LogicalResult Importer::matchStatement(const AstNode &statement, OpBuilder &at,
       branch.getElseRegion().push_back(new Block());
       OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
       OpBuilder elseAt = OpBuilder::atBlockEnd(&branch.getElseRegion().front());
-      BranchEnvironment yes = environment, no = environment;
+      BranchEnvironment yes = environment.fork(), no = environment.fork();
       if (failed(emitArm(arm.originalSite, thenAt, yes)) ||
           failed(lower(index + 1, elseAt, no))) return failure();
       auto joined = joinBranches(*predicate, environment, yes, no, arm.originalSite,
@@ -760,18 +760,18 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
     return include({{}, width, width / 64 + (width % 64 != 0), 0, 0});
   };
   if (node.kind() == "Name") {
-    auto found = environment.values.find(node.string("id"));
-    if (found == environment.values.end())
+    const Value *found = environment.values.lookupPtr(node.string("id"));
+    if (!found)
       return diagnostic() << "bounded for cannot reserve unbound value '"
                           << node.string("id") << "'";
-    const auto *fact = findValueInfo(found->second);
+    const auto *fact = findValueInfo(*found);
     if (fact && fact->interval)
       for (const auto *endpoint :
            {&fact->interval->lower, &fact->interval->upper})
         envelope.factWords = std::max(
             envelope.factWords, uint64_t(endpoint->getBitWidth() / 64 +
                                          (endpoint->getBitWidth() % 64 != 0)));
-    return typed(found->second.getType());
+    return typed(found->getType());
   }
   if (node.kind() == "Constant") {
     if (!operation(1))
@@ -1103,17 +1103,31 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
     return success();
   };
   if (!yes) {
-    for (const auto *map : {&incoming.values, &incoming.writes})
-      for (const auto &entry : *map) {
-        if (failed(chargeLoopDescriptorWork(site,
-                                            "environment entry measurement")))
-          return failure();
-        key(entry.first(), branchCopies);
-      }
-    for (const auto &entry : incoming.boundaries) {
+    // Branch entry shares every untouched entry with the incoming
+    // environment: the pending delta is committed into one shared frame and
+    // each materialized arm adds only an ambient/continuation pair. Container
+    // work performed outside the reservation paths (frame flattening in
+    // particular) is billed here so the Work budget sees every real walk.
+    fits &= TableQueryBudget::add(
+        charge, TableQueryResource::Work,
+        incoming.values.takeUnbilledWork() + incoming.writes.takeUnbilledWork() +
+            incoming.boundaries.takeUnbilledWork());
+    for (StringRef name : incoming.values.pendingEntryNames()) {
+      if (failed(chargeLoopDescriptorWork(site,
+                                          "environment entry measurement")))
+        return failure();
+      key(name, 1);
+    }
+    for (StringRef name : incoming.writes.pendingEntryNames()) {
+      if (failed(chargeLoopDescriptorWork(site,
+                                          "environment entry measurement")))
+        return failure();
+      key(name, 1);
+    }
+    for (StringRef name : incoming.boundaries.pendingEntryNames()) {
       if (failed(chargeLoopDescriptorWork(
               site, "environment boundary measurement")) ||
-          failed(binding(entry.first(), entry.second, branchCopies)))
+          failed(binding(name, incoming.boundaries.lookup(name), 1)))
         return failure();
     }
     // One ambient/continuation pair per materialized branch environment.
@@ -1122,50 +1136,66 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
             TableQueryBudget::add(charge, TableQueryResource::Work,
                                   2 * branchCopies);
   } else {
-    for (const auto &entry : incoming.boundaries) {
-      if (failed(chargeLoopDescriptorWork(site, "join boundary measurement")) ||
-          failed(binding(entry.first(), entry.second, 1)))
-        return failure();
-    }
+    // The join merges only the deltas the arms produced. Untouched entries
+    // stay shared through the committed frames and are not re-charged. Work
+    // performed inside the arms outside the reservation paths is billed here.
+    fits &= TableQueryBudget::add(
+        charge, TableQueryResource::Work,
+        incoming.values.takeUnbilledWork() + incoming.writes.takeUnbilledWork() +
+            incoming.boundaries.takeUnbilledWork() +
+            yes->values.takeUnbilledWork() + yes->writes.takeUnbilledWork() +
+            yes->boundaries.takeUnbilledWork() +
+            no->values.takeUnbilledWork() + no->writes.takeUnbilledWork() +
+            no->boundaries.takeUnbilledWork());
+    llvm::SmallVector<StringRef> boundaryDelta;
+    yes->boundaries.appendDeltaSince(no->boundaries, boundaryDelta);
+    no->boundaries.appendDeltaSince(yes->boundaries, boundaryDelta);
     for (const auto *branch : {yes, no})
-      for (const auto &entry : branch->boundaries) {
+      for (StringRef name : boundaryDelta) {
         if (failed(
-                chargeLoopDescriptorWork(site, "join declaration measurement")))
+                chargeLoopDescriptorWork(site, "join boundary measurement")))
           return failure();
-        fits &= TableQueryBudget::add(charge, TableQueryResource::Work, 1);
-        if (!entry.second.declared)
+        const BindingBoundary *boundary = branch->boundaries.lookupPtr(name);
+        if (!boundary || !boundary->declared) {
+          fits &= TableQueryBudget::add(charge, TableQueryResource::Work, 1);
           continue;
-        auto previous = incoming.boundaries.find(entry.first());
-        const BindingBoundary *retained = previous != incoming.boundaries.end()
-            ? &previous->second : nullptr;
-        if (branch == no) {
-          auto first = yes->boundaries.find(entry.first());
-          if (first != yes->boundaries.end() && first->second.declared)
-            retained = &first->second;
+        }
+        const BindingBoundary *retained = incoming.boundaries.lookupPtr(name);
+        if (!retained && branch == no) {
+          const BindingBoundary *first = yes->boundaries.lookupPtr(name);
+          if (first && first->declared)
+            retained = first;
         }
         if (retained && retained->declared &&
-            sameBindingBoundary(*retained, entry.second))
+            sameBindingBoundary(*retained, *boundary))
           continue;
-        if (failed(binding(entry.first(), entry.second, 1)))
+        if (failed(binding(name, *boundary, 1)))
           return failure();
       }
-    for (const auto &entry : yes->values) {
+    llvm::SmallVector<StringRef> changed;
+    yes->values.appendDeltaSince(no->values, changed);
+    no->values.appendDeltaSince(yes->values, changed);
+    for (StringRef name : changed) {
       if (failed(chargeLoopDescriptorWork(site, "join output measurement")))
         return failure();
-      if (!no->values.contains(entry.first()))
+      const Value *arm = yes->values.lookupPtr(name);
+      const Value *other = no->values.lookupPtr(name);
+      if (!arm || !other) {
+        fits &= TableQueryBudget::add(charge, TableQueryResource::Work, 1);
         continue;
-      key(entry.first(), 1);
-      auto yesBoundary = yes->boundaries.find(entry.first());
-      auto noBoundary = no->boundaries.find(entry.first());
-      bool declared =
-          (yesBoundary != yes->boundaries.end() &&
-           yesBoundary->second.declared) ||
-          (noBoundary != no->boundaries.end() && noBoundary->second.declared);
-      if (!incoming.boundaries.contains(entry.first()) && !declared &&
-          failed(freshBinding(entry.first(), entry.first(), site, 1)))
+      }
+      key(name, 1);
+      const BindingBoundary *yesBoundary = yes->boundaries.lookupPtr(name);
+      const BindingBoundary *noBoundary = no->boundaries.lookupPtr(name);
+      bool declared = (yesBoundary && yesBoundary->declared) ||
+                      (noBoundary && noBoundary->declared);
+      if (!incoming.boundaries.contains(name) && !declared &&
+          failed(freshBinding(name, name, site, 1)))
         return failure();
     }
-    for (const auto &entry : incoming.writes) {
+    // Selects are still materialized for every carried write, so the incoming
+    // writes keep their full charge: one select per write per join.
+    for (const auto &entry : incoming.writes.materialize()) {
       if (failed(chargeLoopDescriptorWork(site, "join write measurement")))
         return failure();
       key(entry.first(), 1);
@@ -1181,26 +1211,13 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
     else
       diagnostic << "source branch ";
     diagnostic << phase << ": "
-               << (fits ? reason : "copy storage counter exhausted");
+               << (fits ? reason : "copy storage counter exhausted")
+               << " (charge slots=" << charge.amounts[4]
+               << ", used slots=" << queryBudget.used(TableQueryResource::Slots)
+               << ", environment values=" << incoming.values.size()
+               << " writes=" << incoming.writes.size()
+               << " boundaries=" << incoming.boundaries.size() << ")";
     return failure();
-  }
-  for (const auto &entry : incoming.boundaries) entry.second.shareContract();
-  if (yes) {
-    for (const auto *branch : {yes, no})
-      for (const auto &entry : branch->boundaries) {
-        if (!entry.second.declared) continue;
-        auto previous = incoming.boundaries.find(entry.first());
-        const BindingBoundary *retained = previous != incoming.boundaries.end()
-            ? &previous->second : nullptr;
-        if (branch == no) {
-          auto first = yes->boundaries.find(entry.first());
-          if (first != yes->boundaries.end() && first->second.declared)
-            retained = &first->second;
-        }
-        if (retained && retained->declared && sameBindingBoundary(*retained, entry.second))
-          continue;
-        entry.second.shareContract();
-      }
   }
   return success();
 }
@@ -1288,10 +1305,10 @@ Importer::reserveLoopStatement(const AstNode &statement,
                       ? statement.child("target")
                       : statement.item("targets", 0);
     std::optional<Type> expected;
-    auto boundary = environment.boundaries.find(assignmentRoot(target));
-    if (target.kind() == "Name" && boundary != environment.boundaries.end() &&
-        boundary->second.contract().type)
-      expected = boundary->second.contract().type;
+    const BindingBoundary *boundary =
+        environment.boundaries.lookupPtr(assignmentRoot(target));
+    if (target.kind() == "Name" && boundary && boundary->contract().type)
+      expected = boundary->contract().type;
     if (statement.kind() == "AnnAssign") {
       auto type = portType(statement.child("annotation"), symbol);
       if (failed(type))
@@ -1304,10 +1321,10 @@ Importer::reserveLoopStatement(const AstNode &statement,
       if (failed(shape))
         return failure();
       expected = shape->type;
-      auto root = environment.values.find(assignmentRoot(target));
-      if (root == environment.values.end())
+      const Value *root = environment.values.lookupPtr(assignmentRoot(target));
+      if (!root)
         return failure();
-      auto aggregate = loopTypeShape(root->second.getType(), target);
+      auto aggregate = loopTypeShape(root->getType(), target);
       if (failed(aggregate))
         return failure();
       uint64_t count;
@@ -1353,19 +1370,23 @@ FailureOr<LoopStatementEnvelope> Importer::reserveLoopJoin(
   LoopStatementEnvelope envelope;
   if (failed(reserveSourceEnvironmentCopies(statement, incoming, &yes, &no)))
     return failure();
-  for (const auto &item : yes.values) {
-    auto other = no.values.find(item.first());
-    if (other == no.values.end())
+  llvm::SmallVector<StringRef> joined;
+  yes.values.appendDeltaSince(no.values, joined);
+  no.values.appendDeltaSince(yes.values, joined);
+  for (StringRef name : joined) {
+    const Value *yesValue = yes.values.lookupPtr(name);
+    const Value *other = no.values.lookupPtr(name);
+    if (!yesValue || !other)
       continue;
-    if (hasUnchangedIncomingBinding(item.first(), incoming, yes, no))
+    if (hasUnchangedIncomingBinding(name, incoming, yes, no))
       continue;
-    for (Value value : {item.second, other->second}) {
+    for (Value value : {*yesValue, *other}) {
       auto shape = loopTypeShape(value.getType(), statement);
       if (failed(shape))
         return failure();
       uint64_t selectionPrecision = shape->precision;
       bool negativePeer = false;
-      for (Value arm : {item.second, other->second}) {
+      for (Value arm : {*yesValue, *other}) {
         const auto *fact = findValueInfo(arm);
         if (!fact || !fact->interval)
           continue;
@@ -1584,7 +1605,7 @@ LogicalResult Importer::loopStatements(const AstNode &parent, StringRef field,
         return failure();
       if (failed(reserveSourceEnvironmentCopies(statement, environment)))
         return failure();
-      auto yes = environment, no = environment;
+      auto yes = environment.fork(), no = environment.fork();
       if (environment.continuation) {
         auto opposite = checkNot(*guard, statement, at, symbol);
         if (failed(opposite) ||
@@ -1768,11 +1789,11 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     if (const auto *info = findValueInfo(item))
       fact(*info);
   };
-  for (const auto &item : environment.values) {
+  for (const auto &item : environment.values.materialize()) {
     text(item.first());
     value(item.second, true);
   }
-  for (const auto &item : environment.writes) {
+  for (const auto &item : environment.writes.materialize()) {
     text(item.first());
     value(item.second, true);
   }
@@ -1780,7 +1801,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     value(environment.ambient, true);
   if (environment.continuation)
     value(environment.continuation, true);
-  for (const auto &item : environment.boundaries) {
+  for (const auto &item : environment.boundaries.materialize()) {
     slots((sizeof(BindingBoundary) + 7) / 8);
     text(item.first());
     if (!item.second.sharedContract()) {
@@ -1843,8 +1864,8 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   auto enclosingCaptures = helperCaptureBindings.find(at.getBlock());
   if (enclosingCaptures != helperCaptureBindings.end()) {
     llvm::DenseSet<Value> namedCaptures;
-    for (const auto &entry : environment.values) namedCaptures.insert(entry.second);
-    for (const auto &entry : environment.writes) namedCaptures.insert(entry.second);
+    for (const auto &entry : environment.values.materialize()) namedCaptures.insert(entry.second);
+    for (const auto &entry : environment.writes.materialize()) namedCaptures.insert(entry.second);
     if (environment.ambient) namedCaptures.insert(environment.ambient);
     if (environment.continuation) namedCaptures.insert(environment.continuation);
     // Existing ordinary environment captures already pay their full planes.
@@ -1894,7 +1915,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
                             ac::RuleOp::getOperationName(), {}, {}, {}, 1);
   auto block = new Block();
   temporary->getRegion(0).push_back(block);
-  BranchEnvironment staged = environment;
+  BranchEnvironment staged = environment.fork();
   IRMapping captures;
   auto capture = [&](Value original) {
     if (!original)
@@ -1907,10 +1928,10 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     return argument;
   };
   for (Value original : anonymousHelperCaptures) capture(original);
-  for (auto &entry : staged.values)
-    entry.second = capture(entry.second);
-  for (auto &entry : staged.writes)
-    entry.second = capture(entry.second);
+  for (const auto &entry : staged.values.materialize())
+    staged.values[entry.first()] = capture(entry.second);
+  for (const auto &entry : staged.writes.materialize())
+    staged.writes[entry.first()] = capture(entry.second);
   staged.ambient = capture(staged.ambient);
   staged.continuation = capture(staged.continuation);
   LoopLoweringContext context{statement, &admission, 0, {}, {}, activeLoop};
@@ -1962,10 +1983,11 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     induction.nodes = 1;
     induction.precision =
         std::max(uint64_t(1), uint64_t(llvm::Log2_64_Ceil(ordinal + 1)));
-    auto boundary = staged.boundaries.find(syntax->target.string("id"));
-    if (boundary != staged.boundaries.end() && boundary->second.contract().type) {
+    const BindingBoundary *boundary =
+        staged.boundaries.lookupPtr(syntax->target.string("id"));
+    if (boundary && boundary->contract().type) {
       auto shape =
-          loopTypeShape(boundary->second.contract().type, syntax->target);
+          loopTypeShape(boundary->contract().type, syntax->target);
       if (failed(shape))
         return failure();
       induction.precision = std::max(induction.precision, shape->precision);
@@ -1990,10 +2012,10 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
              IntegerInterval{llvm::APSInt::getUnsigned(ordinal),
                              llvm::APSInt::getUnsigned(ordinal + 1)},
              integer);
-    auto binding = boundary == staged.boundaries.end()
+    auto binding = !boundary
                        ? inferredBoundary(syntax->target.string("id"), *hidden,
                                           syntax->target)
-                       : boundary->second;
+                       : *boundary;
     auto converted =
         applyBindingBoundary(*hidden, binding, syntax->target, inside, symbol);
     TypedAccessPath inductionPath{syntax->target, syntax->target.value,
@@ -2118,10 +2140,10 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     argument.replaceAllUsesWith(entry.second);
   }
   auto remap = [&](Value value) { return captures.lookupOrDefault(value); };
-  for (auto &entry : staged.values)
-    entry.second = remap(entry.second);
-  for (auto &entry : staged.writes)
-    entry.second = remap(entry.second);
+  for (const auto &entry : staged.values.materialize())
+    staged.values[entry.first()] = remap(entry.second);
+  for (const auto &entry : staged.writes.materialize())
+    staged.writes[entry.first()] = remap(entry.second);
   staged.ambient = remap(staged.ambient);
   staged.continuation = remap(staged.continuation);
   while (!block->empty())
@@ -2269,8 +2291,8 @@ Importer::validateModuleStatement(const AstNode &statement,
 
 LogicalResult
 Importer::moduleStatement(const ModuleDecl &decl, size_t ordinal, OpBuilder &at,
-                          llvm::StringMap<Value> &values,
-                          llvm::StringMap<BindingBoundary> &boundaries,
+                          EnvironmentMap<Value> &values,
+                          EnvironmentMap<BindingBoundary> &boundaries,
                           llvm::StringMap<Instance *> &instances,
                           const llvm::StringSet<> &protectedNames) {
   auto statement = decl.node.item("body", ordinal);
@@ -2312,7 +2334,7 @@ Importer::moduleStatement(const ModuleDecl &decl, size_t ordinal, OpBuilder &at,
       statement.kind() == "For") {
     // A join examines the complete incoming environment. Give new specialized
     // call/declaration bindings their facts once before the branch copies.
-    for (const auto &entry : environment.values) {
+    for (const auto &entry : environment.values.materialize()) {
       if (failed(chargeLoopDescriptorWork(statement, "Module branch input")) ||
           failed(seedBoundary(entry.first(), entry.second)))
         return failure();
@@ -2373,7 +2395,7 @@ LogicalResult Importer::ifStatement(
   if (transactional) {
     // Source captures retain their declaration authority before any arm copies.
     // Ordinary Module entries seed their boundaries in moduleStatement instead.
-    for (const auto &binding : environment.values) {
+    for (const auto &binding : environment.values.materialize()) {
       if (environment.boundaries.contains(binding.first()))
         continue;
       TableQueryCharge charge;
@@ -2402,10 +2424,10 @@ LogicalResult Importer::ifStatement(
       failed(reserveSourceEnvironmentCopies(statement, environment, nullptr,
                                              nullptr, unchangedElse ? 1 : 2)))
     return failure();
-  BranchEnvironment yes = environment;
+  BranchEnvironment yes = environment.fork();
   std::optional<BranchEnvironment> materializedElse;
   if (!unchangedElse)
-    materializedElse.emplace(environment);
+    materializedElse.emplace(environment.fork());
   const BranchEnvironment &no = unchangedElse ? environment : *materializedElse;
   ac::SourceBranchOp branch;
   OpBuilder thenAt = at, elseAt = at;
@@ -2888,7 +2910,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     return failure();
   auto graph = new Block();
   module->getRegion(0).push_back(graph);
-  llvm::StringMap<Value> values;
+  EnvironmentMap<Value> values;
   for (auto &port : decl.inputs) {
     auto value = graph->addArgument(port.type, module->getLoc());
     values[port.name] = value;
@@ -2945,7 +2967,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
   if (failed(predeclareDirectCalls(decl, at)))
     return failure();
   AstNode returned;
-  llvm::StringMap<BindingBoundary> ordinaryBoundaries;
+  EnvironmentMap<BindingBoundary> ordinaryBoundaries;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto stmt = decl.node.item("body", i);
     if (docstring(stmt))
@@ -3260,7 +3282,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
         !observationCount)
       return error() << "registered structural rule has no hardware behavior";
     SmallVector<Value> captures;
-    for (const auto &item : values)
+    for (const auto &item : values.materialize())
       captures.push_back(item.second);
     for (const Instance &item : structuralStorage)
       llvm::append_range(captures, item.op->getResults());
@@ -3284,7 +3306,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     auto captureArgument = [&]() {
       return captureValue(block, captures[ordinal++], ruleOp->getLoc());
     };
-    for (const auto &item : values)
+    for (const auto &item : values.materialize())
       environment.values[item.first()] = captureArgument();
     llvm::StringMap<SmallVector<Value>> capturedOutputs;
     for (const Instance &item : structuralStorage)

@@ -4201,3 +4201,130 @@ def test_failed_assertion_discards_two_dut_registers_and_clock_history(
         _atomic_cpp(generated, tmp_path)
     else:
         _atomic_rtl(generated, tmp_path)
+
+
+def test_sequential_branches_keep_values_across_environment_frame_flattening(tmp_path):
+    """Branch environments share immutable frames and flatten the chain past a
+    depth threshold. A state write from the first branch must survive that
+    flattening, and names untouched since an early frame must not resurrect
+    their oldest value (issue #420 follow-up)."""
+    source = tmp_path / "frame flattening source"
+    source.mkdir()
+    lines = [
+        "# ruff: noqa: F823 -- Module state captured by Rules is compiler-owned.",
+        "from pycircuit import bits, log, rule, system",
+        "",
+        "",
+        "@system",
+        "def FlattenProbe():  # noqa: N802",
+        "    count: bits[8] = 0",
+        "    later: bits[8] = 0",
+        "",
+        "    @rule",
+        "    def step() -> None:",
+        "        count = count + 1",
+        "        if count == 1:",
+        "            count = count + 1",
+    ]
+    # Far more sequential branches than the 64-commit flattening threshold; the
+    # extra guards stay false for every reachable count so only the first
+    # branch ever modifies the early state write.
+    for index in range(79):
+        lines.append(f"        if count == {250 + index % 5}:")
+        lines.append("            later = later + 1")
+    lines.append('        log("info", "probe", count, later)')
+    (source / "flatten_probe.py").write_text("\n".join(lines) + "\n")
+    unit = tmp_path / "frame flattening unit"
+    _ok(_compile(source, "flatten_probe.py", unit))
+    final = tmp_path / "frame flattening final"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.flatten_probe.FlattenProbe",
+            "-o",
+            str(final),
+        )
+    )
+    expected = [2 if epoch == 1 else epoch + 1 for epoch in range(1, 9)]
+    for target_name in ("cpp", "verilog"):
+        binary = _bundle(final, tmp_path, target_name)
+        arguments = (
+            ["--cycles", "8", "--workers", "1"]
+            if target_name == "cpp"
+            else ["+cycles=8"]
+        )
+        rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+        observed = [value for _, _, value in _observations(rows, "log", "probe")]
+        assert observed[::2] == expected, observed
+
+
+def test_loop_break_and_continue_keep_environment_consistent(tmp_path):
+    """Conditional break and continue erase and re-introduce loop-control
+    names in the shared branch environment; the carried totals must match an
+    independent oracle on both backends (issue #420 follow-up)."""
+    source = tmp_path / "loop control source"
+    source.mkdir()
+    text = """# ruff: noqa: F823 -- Module state captured by Rules is compiler-owned.
+from pycircuit import bits, log, rule, system
+
+
+@system
+def LoopControlProbe():  # noqa: N802
+    state: bits[8] = 0
+
+    @rule
+    def step() -> None:
+        state = state + 1
+        total: bits[16] = 0
+        remaining: bits[8] = state
+        for index in range(8):
+            if remaining == 0:
+                total = total + 1
+                break
+            remaining = remaining - 1
+            if index == 2:
+                continue
+            total = total + 2
+        log("info", "loop", total)
+"""
+    (source / "loop_control_probe.py").write_text(text)
+    unit = tmp_path / "loop control unit"
+    _ok(_compile(source, "loop_control_probe.py", unit))
+    final = tmp_path / "loop control final"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.loop_control_probe.LoopControlProbe",
+            "-o",
+            str(final),
+        )
+    )
+
+    def oracle(state):
+        total = 0
+        remaining = state
+        for index in range(8):
+            if remaining == 0:
+                total += 1
+                break
+            remaining -= 1
+            if index == 2:
+                continue
+            total += 2
+        return total
+
+    expected = [oracle(state) for state in range(1, 9)]
+    for target_name in ("cpp", "verilog"):
+        binary = _bundle(final, tmp_path, target_name)
+        arguments = (
+            ["--cycles", "8", "--workers", "1"]
+            if target_name == "cpp"
+            else ["+cycles=8"]
+        )
+        rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+        observed = [value for _, _, value in _observations(rows, "log", "loop")]
+        assert observed[::2] == expected, observed

@@ -10,7 +10,7 @@ const MemoryCallPlan *Importer::memoryPlan(const AstNode &call,
 LogicalResult
 Importer::bindMemoryInputs(const MemoryCallPlan &plan, Operation *instance,
                            OpBuilder &at, FlatSymbolRefAttr symbol,
-                           llvm::StringMap<Value> &values,
+                           EnvironmentMap<Value> &values,
                            llvm::StringMap<Instance *> &instances) {
   if (!values.contains("pyc_clk") || !values.contains("pyc_rst"))
     return error() << "memory binding lacks its inferred physical domain";
@@ -56,7 +56,7 @@ Importer::bindMemoryInputs(const MemoryCallPlan &plan, Operation *instance,
 }
 FailureOr<bool> Importer::bindMemoryResults(
     const AstNode &statement, OpBuilder &at, FlatSymbolRefAttr symbol,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    EnvironmentMap<Value> &values, llvm::StringMap<Instance *> &instances,
     SmallVectorImpl<Instance> &instanceStorage) {
   auto call = statement.child("value");
   if (memoryKind(call).empty())
@@ -116,7 +116,7 @@ Instance *Importer::memoryInstance(Instance *instance) const {
 
 FailureOr<SmallVector<Value>> Importer::memoryMethodCall(
     const AstNode &node, Instance &receiver, OpBuilder &at,
-    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    FlatSymbolRefAttr symbol, EnvironmentMap<Value> &values,
     llvm::StringMap<Instance *> &instances, std::optional<bool> tupleCall) {
   if (!activeSourceEffects || activeSourceEffects->guard ||
       activeSourceEffects->pureExpression)
