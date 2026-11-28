@@ -54,3 +54,12 @@ install(FILES
   "${PROJECT_SOURCE_DIR}/include/CODING_STYLE.md"
   "${PROJECT_SOURCE_DIR}/include/MODULE_TEMPLATE.md"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+add_subdirectory("${PROJECT_SOURCE_DIR}/include/parallel_gfsim" parallel_gfsim)
+
+if(PYC_BUILD_TESTING)
+  add_executable(ParallelGfsimCoexistenceTest
+    "${PROJECT_SOURCE_DIR}/tests/runtime/ParallelGfsimCoexistenceTest.cpp")
+  target_link_libraries(ParallelGfsimCoexistenceTest PRIVATE pyc6_runtime parallel_gfsim)
+  add_test(NAME ParallelGfsimCoexistenceTest COMMAND ParallelGfsimCoexistenceTest)
+endif()
